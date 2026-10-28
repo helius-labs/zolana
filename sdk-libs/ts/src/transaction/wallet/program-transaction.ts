@@ -156,9 +156,11 @@ export interface DecodedProgramTransaction {
 
 export type ProgramEncryptOptions = Readonly<{ expiryUnixTs?: bigint }>;
 
-/** A generated circuit assignment and its validated, typed SPP transaction. */
+/** Validated prover inputs and their typed SPP transaction. */
+export type ProgramProofInputs = Readonly<Record<string, string>>;
+
 export interface ProgramTransaction {
-  readonly proofInputs: Uint8Array;
+  readonly proofInputs: ProgramProofInputs;
   readonly publicHash: Bytes32;
   readonly transaction: DecodedProgramTransaction;
 }
@@ -244,12 +246,22 @@ export function bindProgramTransaction<Input>(
       "proofInputs",
       "publicHash",
     ]);
-    const assignment = result["proofInputs"];
-    if (!(assignment instanceof Uint8Array) || assignment.length === 0)
-      throw invalid("proofInputs");
-    const proofInputs = copy(assignment);
     const publicHash = fixedBytes<Bytes32>(result["publicHash"], 32, "publicHash");
     if (bytesToBigInt(publicHash) >= BN254_SCALAR_ORDER) throw invalid("publicHash");
+    const fields = decoder.record(result["proofInputs"], "proofInputs");
+    if (Object.keys(fields).length === 0) throw invalid("proofInputs");
+    const proofInputs = Object.freeze(
+      Object.fromEntries(
+        Object.entries(fields).map(([name, value]) => {
+          const scalar = decoder.string(value, `proofInputs.${name}`);
+          if (!/^(0|[1-9][0-9]*)$/u.test(scalar) || BigInt(scalar) >= BN254_SCALAR_ORDER)
+            throw invalid(`proofInputs.${name}`);
+          return [name, scalar];
+        }),
+      ),
+    );
+    if (proofInputs["public_hash"] !== bytesToBigInt(publicHash).toString())
+      throw new TransactionError("TRANSACTION_PROGRAM_PUBLIC_HASH_MISMATCH");
     const transaction = await decodeProgramTransaction(result["finalizedTx"], assets);
     if (transaction.payer !== expectedPayer)
       throw new TransactionError("TRANSACTION_PROGRAM_PAYER_MISMATCH");

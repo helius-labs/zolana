@@ -1,11 +1,10 @@
 //! On-chain verification of a ZK program proof. A program's public inputs hash
-//! into its one public input, the public hash; the Groth16 verification itself
-//! is the zk DSL's.
+//! into its one public input, the public hash.
 
 use groth16_solana::groth16::Groth16Verifyingkey;
 use spr_hasher::{Hasher, Poseidon};
-pub use spr_zk_dsl::verifier::groth16_solana;
-use spr_zk_dsl::verifier::{boolean, integer};
+pub use groth16_solana;
+pub use spr_hasher::primitives::pack_be;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VerifyError {
@@ -13,15 +12,6 @@ pub enum VerifyError {
     PublicInputs,
     /// The proof is malformed or does not verify under the key.
     Proof,
-}
-
-impl From<spr_zk_dsl::verifier::VerifyError> for VerifyError {
-    fn from(error: spr_zk_dsl::verifier::VerifyError) -> Self {
-        match error {
-            spr_zk_dsl::verifier::VerifyError::PublicInputs => Self::PublicInputs,
-            spr_zk_dsl::verifier::VerifyError::Proof => Self::Proof,
-        }
-    }
 }
 
 /// Allows instruction handlers to propagate verification failures with `?`.
@@ -81,9 +71,30 @@ pub fn verify_groth16(
     public_hash: [u8; 32],
     verifying_key: &Groth16Verifyingkey,
 ) -> Result<(), VerifyError> {
-    spr_zk_dsl::verifier::verify_groth16(proof, &[public_hash], verifying_key)
-        .map_err(VerifyError::from)
+    verify_groth16_inputs(proof, &[public_hash], verifying_key)
 }
+
+pub fn verify_groth16_inputs<const N: usize>(
+    proof: &crate::CompressedProof,
+    public_inputs: &[[u8; 32]; N],
+    verifying_key: &Groth16Verifyingkey,
+) -> Result<(), VerifyError> {
+    use groth16_solana::{decompression::{decompress_g1, decompress_g2}, groth16::Groth16Verifier};
+    if verifying_key.vk_commitment.is_some() { return Err(VerifyError::Proof); }
+    let a = decompress_g1(&proof.a).map_err(|_| VerifyError::Proof)?;
+    let b = decompress_g2(&proof.b).map_err(|_| VerifyError::Proof)?;
+    let c = decompress_g1(&proof.c).map_err(|_| VerifyError::Proof)?;
+    Groth16Verifier::new(&a, &b, &c, public_inputs, verifying_key)
+        .map_err(|_| VerifyError::Proof)?.verify().map_err(|_| VerifyError::Proof)
+}
+
+pub fn integer(value: u128) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    bytes[16..].copy_from_slice(&value.to_be_bytes());
+    bytes
+}
+
+pub fn boolean(value: bool) -> [u8; 32] { integer(u128::from(value)) }
 
 fn poseidon(
     values: impl Iterator<Item = Result<[u8; 32], VerifyError>>,

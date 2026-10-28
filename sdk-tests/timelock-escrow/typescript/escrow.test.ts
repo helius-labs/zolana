@@ -15,6 +15,7 @@ import {
   bindProgramTransaction,
   type ProgramWalletUtxo,
 } from "@heliuslabs/zolana/transaction";
+import { bytesToBigInt } from "@heliuslabs/zolana/internal";
 import { getAddressEncoder } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
@@ -34,7 +35,7 @@ import {
   withdrawInstruction,
 } from "./escrow.js";
 import { Timings } from "./timings.js";
-import { wasm, wasmLoadMs } from "./wasm.js";
+import { ProgramProver, wasm, wasmLoadMs } from "./wasm.js";
 
 const DEPOSITS = [250_000_000n, 250_000_000n] as const;
 const LOCK_AMOUNT = 300_000_000n;
@@ -62,11 +63,13 @@ describe("timelock escrow", () => {
       const assets = new AssetRegistry();
       const buildEscrow = bindProgramTransaction(wasm.escrowTransaction, { assets });
       const buildWithdraw = bindProgramTransaction(wasm.withdrawTransaction, { assets });
+      using escrowProver = new ProgramProver("escrow");
+      using withdrawProver = new ProgramProver("withdraw");
       const address = creator.shieldedAddress();
       const sender = address.toBytes();
       const authority = await escrowAuthority(programId, signer.address);
       const creatorKey = Uint8Array.from(getAddressEncoder().encode(signer.address));
-      const creatorIdentity = solanaOwnerIdentity(creatorKey);
+      const creatorIdentity = bytesToBigInt(solanaOwnerIdentity(creatorKey)).toString();
       const shielded = DEPOSITS.reduce((sum, amount) => sum + amount, 0n);
       const txContext = () => ({ blindingSeed: randomBlinding(), outputTreeId: client.treeId });
 
@@ -93,28 +96,58 @@ describe("timelock escrow", () => {
         utxos: DEPOSITS.length,
       });
 
+      const escrowInput = {
+        private: {
+          txContext: txContext(),
+          tokenUtxosAssetA: [...deposited],
+          unlock: UNLOCK_TIMESTAMP,
+          amount: LOCK_AMOUNT,
+        },
+        public: {
+          escrowOwner: authority.address(address.viewingPublicKey).toBytes(),
+          creatorIdentity,
+        },
+      };
+      const forgedIdentity = {
+        ...escrowInput,
+        public: { ...escrowInput.public, unexpectedIdentity: "0" },
+      };
+      await expect(
+        buildEscrow(forgedIdentity, sender, signer.address).then(() => undefined),
+      ).rejects.toMatchObject({
+        code: "TRANSACTION_PROGRAM_BUILD",
+      });
+      await expect(
+        buildEscrow(
+          {
+            ...escrowInput,
+            private: {
+              ...escrowInput.private,
+              tokenUtxosAssetA: [...deposited, ...deposited, ...deposited],
+            },
+          },
+          sender,
+          signer.address,
+        ),
+      ).rejects.toMatchObject({
+        code: "TRANSACTION_PROGRAM_BUILD",
+        cause: { category: "external", code: "TRANSACTION_TOO_MANY_INPUTS" },
+      });
       const escrowTransaction = await timings.measureAsync(
         "escrow escrowTransaction (proof inputs)",
-        () =>
-          buildEscrow(
-            {
-              private: {
-                txContext: txContext(),
-                tokenUtxosAssetA: [...deposited],
-                unlock: UNLOCK_TIMESTAMP,
-                amount: LOCK_AMOUNT,
-              },
-              public: {
-                escrowOwner: authority.address(address.viewingPublicKey).toBytes(),
-                creatorIdentity,
-              },
-            },
-            sender,
-            signer.address,
-          ),
+        () => buildEscrow(escrowInput, sender, signer.address),
       );
-      const escrowProof = prove(timings, "escrow", escrowTransaction);
+      const escrowProof = prove(timings, escrowProver, escrowTransaction);
       expect(escrowProof.publicInputs).toEqual([escrowTransaction.publicHash]);
+      const secondProof = escrowProver.prove(escrowTransaction);
+      expect(secondProof.publicInputs).toEqual(escrowProof.publicInputs);
+      expect(secondProof.compressedProof).not.toEqual(escrowProof.compressedProof);
+      expect(() =>
+        escrowProver.prove({
+          proofInputs: escrowTransaction.proofInputs,
+          publicHash: bytes32(escrowTransaction.publicHash.map((byte) => byte ^ 1)),
+        }),
+      ).toThrow("proof public hash differs from its transaction");
       const escrowProofInputs = escrowTransaction.transaction.encryptWithKeys(creator);
       const escrowTransact = await timings.measureAsync(
         "escrow SPP proveTransact (Go prover)",
@@ -151,9 +184,8 @@ describe("timelock escrow", () => {
             utxoHash: escrowTransaction.transaction.outputHashes[ESCROW_OUTPUT_SLOT],
             data: {
               creator: {
-                tag: SOLANA_OWNER_TAG,
-                key: creatorKey,
-                nullifierPk: creator.nullifierPublicKey(),
+                key: { tag: SOLANA_OWNER_TAG, bytes: creatorKey },
+                nullifierPk: bytesToBigInt(creator.nullifierPublicKey()).toString(),
               },
               unlock: UNLOCK_TIMESTAMP,
             },
@@ -196,23 +228,32 @@ describe("timelock escrow", () => {
       };
       expect(() =>
         escrowUtxos(timings, viewingKey, [wrongCommitment], authority, assets, client.treeId),
-      ).toThrowError(expect.objectContaining({ name: "ClientError.DataHashMismatch" }));
+      ).toThrowError(
+        expect.objectContaining({
+          name: "ClientError.DataHashMismatch",
+        }),
+      );
 
       const [escrow] = escrows;
       if (escrow === undefined) throw new Error("the creator has no open escrow");
+      const withdrawInput = {
+        private: { txContext: txContext(), escrow: escrow.utxo, terms: escrow.data },
+        public: { unlock: escrow.data.unlock, creatorIdentity },
+      };
+      const forgedUnlock = {
+        ...withdrawInput,
+        public: { ...withdrawInput.public, unexpectedUnlock: 0n },
+      };
+      await expect(
+        buildWithdraw(forgedUnlock, sender, signer.address).then(() => undefined),
+      ).rejects.toMatchObject({
+        code: "TRANSACTION_PROGRAM_BUILD",
+      });
       const withdrawTransaction = await timings.measureAsync(
         "withdraw withdrawTransaction (proof inputs)",
-        () =>
-          buildWithdraw(
-            {
-              private: { txContext: txContext(), escrow: escrow.utxo, terms: escrow.data },
-              public: { unlock: escrow.data.unlock, creatorIdentity },
-            },
-            sender,
-            signer.address,
-          ),
+        () => buildWithdraw(withdrawInput, sender, signer.address),
       );
-      const withdrawProof = prove(timings, "withdraw", withdrawTransaction);
+      const withdrawProof = prove(timings, withdrawProver, withdrawTransaction);
       expect(withdrawProof.publicInputs).toEqual([withdrawTransaction.publicHash]);
       const withdrawProofInputs = withdrawTransaction.transaction.encryptWithKeys(creator);
       const shieldedPda = ShieldedPda.withViewingKey(

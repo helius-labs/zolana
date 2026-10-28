@@ -1,15 +1,19 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use spr_program::{circuit::UtxoState, EncryptionCodec, UtxoOwner};
+use spr_program::{input, circuit::UtxoState, EncryptionCodec, UtxoOwner};
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
+#[input]
+#[derive(Default, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
+#[cfg_attr(all(feature = "wasm", not(xark), not(xark_client)), derive(serde::Serialize, serde::Deserialize, tsify::Tsify), serde(rename_all = "camelCase", deny_unknown_fields), tsify(large_number_types_as_bigints))]
 pub struct EscrowTerms {
     pub creator: UtxoOwner,
     pub unlock: u64,
 }
 
 /// Exercises a custom payload through the generated wasm state binding.
-#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
+#[input]
+#[derive(Default, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 #[utxo_state(custom_codec)]
+#[cfg_attr(all(feature = "wasm", not(xark), not(xark_client)), derive(serde::Serialize, serde::Deserialize, tsify::Tsify), serde(rename_all = "camelCase", deny_unknown_fields), tsify(large_number_types_as_bigints))]
 pub struct CompactCounter {
     pub count: u64,
     pub doubled: u64,

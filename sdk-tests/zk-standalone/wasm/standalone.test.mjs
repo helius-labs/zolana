@@ -1,50 +1,56 @@
-// Proves and verifies the standalone fixture's Withdrawal circuit through the
-// wasm package `zolana zk compile` builds from a crate that depends on the zk
-// DSL alone. Run by `just test-zk-wasm`, which builds the package and the test
-// keys first.
+// Standalone circuit proofs through Xark's stock Node WebAssembly runtime.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { test } from "node:test";
 
 const BUILD = new URL("../../../target/zk/spr-zk-standalone-fixture/", import.meta.url);
-const { default: init } = await import(new URL("wasm-node/node.mjs", BUILD));
-const wasm = await init({ threads: 1 });
+const require = createRequire(import.meta.url);
+const wasm = require(new URL("runtime/xark_wasm.js", BUILD).pathname);
 const fixture = JSON.parse(readFileSync(new URL("withdrawal.json", import.meta.url), "utf8"));
+const artifacts = (name) => readFileSync(new URL(name, BUILD));
 
-function prover() {
-  const key = readFileSync(new URL("withdrawal.pk", BUILD));
-  const digest = readFileSync(new URL("withdrawal.pk.sha256", BUILD), "utf8").trim().split(/\s+/)[0];
-  return wasm.WithdrawalProver.fromKey(key, Uint8Array.from(Buffer.from(digest, "hex")));
+function withProver(run) {
+  const trustedKey = Buffer.from(fixture.verifyingKey);
+  assert.deepEqual(artifacts("vk.bin"), trustedKey, "the built verifier must match the committed native fixture");
+  const schema = new wasm.Schema(artifacts("schema.json").toString());
+  const session = new wasm.ProvingSession(artifacts("circuit.xbc"), artifacts("pk.bin"), artifacts("sources.json").toString());
+  const verifier = new wasm.VerifyingKey(trustedKey);
+  try {
+    run({ schema, session, verifier });
+  } finally {
+    verifier.free();
+    session.free();
+    schema.free();
+  }
 }
 
-const bytes = (values) => values.map((value) => Array.from(value));
-
 test("a standalone circuit proves in wasm and its proof verifies", () => {
-  const proofInputs = wasm.withdrawalProofInputs(fixture.inputs);
-  const withdrawal = prover();
-  try {
-    const proof = withdrawal.prove(proofInputs);
-    assert.deepEqual(bytes(proof.publicInputs), fixture.publicInputs);
-    assert.equal(wasm.verifyProof(Uint8Array.from(fixture.verifyingKey), proof), true);
-    const otherDestination = {
-      ...proof,
-      publicInputs: proof.publicInputs.map((input, index) =>
-        index === 3 ? input.map((byte, at) => (at === 31 ? byte ^ 1 : byte)) : input,
-      ),
-    };
-    assert.equal(wasm.verifyProof(Uint8Array.from(fixture.verifyingKey), otherDestination), false);
-  } finally {
-    withdrawal.free();
-  }
+  withProver(({ schema, session, verifier }) => {
+    const inputs = schema.encodeInputs(JSON.stringify(fixture.inputs));
+    const bundle = session.prove(inputs);
+    try {
+      const expected = fixture.publicInputs.map((bytes) => BigInt(`0x${Buffer.from(bytes).toString("hex")}`).toString());
+      assert.deepEqual(wasm.decode_public_inputs(bundle.publicInputs), expected);
+      assert.equal(verifier.verify(bundle.proof, bundle.publicInputs), true);
+      const otherDestination = {
+        public: { ...fixture.inputs.public, destination_lo: fixture.inputs.public.destination_lo ^ 1 },
+      };
+      const altered = schema.encodePublicInputs(JSON.stringify(otherDestination));
+      assert.equal(verifier.verify(bundle.proof, altered), false);
+    } finally {
+      bundle.free();
+    }
+  });
 });
 
 test("proof inputs breaking the circuit's rule are refused", () => {
-  const inputs = {
-    ...fixture.inputs,
-    public: { ...fixture.inputs.public, amount: fixture.inputs.public.amount + 1 },
-  };
-  assert.throws(() => wasm.withdrawalProofInputs(inputs), {
-    name: "CircuitError.RuleBroken",
-    message: "the note commits to the paid amount and destination",
+  withProver(({ schema, session }) => {
+    for (const altered of [
+      { ...fixture.inputs, public: { ...fixture.inputs.public, amount: (BigInt(fixture.inputs.public.amount) + 1n).toString() } },
+      { ...fixture.inputs, private: { ...fixture.inputs.private, blinding: "100" } },
+    ]) {
+      assert.throws(() => session.prove(schema.encodeInputs(JSON.stringify(altered))), /constraint|fail the check|solving witness/);
+    }
   });
 });

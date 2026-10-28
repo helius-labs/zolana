@@ -1,0 +1,5 @@
+error: expected path or raw_client
+ --> tests/client_inputs/fail/hook.rs:2:14
+  |
+2 | #[zk_program(prepare = "arbitrary()")]
+  |              ^^^^^^^

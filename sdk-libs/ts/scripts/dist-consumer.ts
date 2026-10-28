@@ -1,5 +1,21 @@
 export { bindProgramTransaction } from "@heliuslabs/zolana/transaction";
-export type { ProgramTransaction } from "@heliuslabs/zolana/transaction";
+export type { ProgramProofInputs, ProgramTransaction } from "@heliuslabs/zolana/transaction";
+import {
+  AssetRegistry as ProgramAssets,
+  bindProgramTransaction as bindStructuredTransaction,
+  type ProgramTransaction as StructuredTransaction,
+} from "@heliuslabs/zolana/transaction";
+
+/** The packed API binds a typed request and returns validated Xark inputs. */
+export function structuredProgramBuilder(
+  build: (input: { amount: bigint }, sender: Uint8Array, payer: string) => unknown,
+): (
+  input: { amount: bigint },
+  sender: Uint8Array,
+  payer: string,
+) => Promise<StructuredTransaction> {
+  return bindStructuredTransaction(build, { assets: new ProgramAssets() });
+}
 export {
   ed25519DerivationMessage,
   X25519PublicKey,

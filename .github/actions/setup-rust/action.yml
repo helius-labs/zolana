@@ -44,6 +44,13 @@ runs:
         cache-dependency-path: |
           protocol-ops/forester-prover/go/go.sum
           sdk-libs/gnark-ffi-prover/build-helper/go/go.sum
+    # Cargo metadata resolves the circuit crates' relative Xark paths, so the
+    # pinned source must exist before rust-cache inspects the workspace.
+    - name: Bootstrap pinned Xark source and compiler
+      shell: bash
+      run: |
+        tools/xark/build.sh
+        echo "$GITHUB_WORKSPACE/.tools/xark/target/release" >> "$GITHUB_PATH"
     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
         shared-key: ${{ inputs.shared-key }}

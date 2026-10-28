@@ -1,0 +1,17 @@
+[package]
+name = "spr-circuit-xark-fixture"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+spr-circuit = { path = "../.." }
+spr-program = { workspace = true, features = ["circuit"] }
+borsh = { workspace = true }
+xark = { workspace = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(xark)', 'cfg(xark_client)'] }

@@ -17,5 +17,7 @@ solana-signer = { workspace = true }
 # The one implementation of the v1 header budget, so the test sends what the
 # SDK sends.
 spr-client = { workspace = true }
-spr-zk-dsl = { workspace = true, features = ["client", "setup"] }
+spr-program = { workspace = true, features = ["client"] }
+spr-circuit = { workspace = true }
+xark = { workspace = true }
 spr-zk-standalone-fixture = { path = "../zk-standalone", features = ["circuits"] }

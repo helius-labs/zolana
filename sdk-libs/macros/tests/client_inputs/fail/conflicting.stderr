@@ -1,0 +1,5 @@
+error: client conversion is automatic; remove the client attribute
+ --> tests/client_inputs/fail/conflicting.rs:3:5
+  |
+3 |     #[client(nested, nested)]
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^

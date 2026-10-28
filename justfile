@@ -645,16 +645,14 @@ test-escrow-ts: build-programs build-prover-server build-cli ensure-photon build
       TIMELOCK_ESCROW_PROGRAM_ID="{{escrow-program-id}}" \
       npm run test:ts:escrow
 
-# Writes the ZK program SDK wasm fixtures: the seeded proving keys and a
-# throwaway snarkjs zkey under target/zk-program-wasm-fixtures (not
-# committed), and the committed JSON fixtures the Playwright and TS SDK tests
-# compare against. Needs `snarkjs` on PATH.
-regen-zk-program-wasm-fixtures:
-    cargo test --release -p spr-program-wasm-test-program --features snarkjs --test fixtures -- --ignored --nocapture
+# Compiles deterministic Xark test keys, then refreshes the committed browser
+# transaction fixtures and their artifact checksums.
+regen-zk-program-wasm-fixtures: _zk-program-wasm-keys
+    cargo test --release -p spr-program-wasm-test-program --features fixtures --test fixtures -- --ignored --exact write_wasm_fixtures
 
 # Writes only the uncommitted keys the ZK program SDK wasm tests load.
 _zk-program-wasm-keys:
-    cargo test --release -p spr-program-wasm-test-program --features snarkjs --test fixtures -- --ignored --exact write_wasm_keys
+    cargo run --release -q -p spr-cli -- zk compile --test -p spr-program-wasm-test-program --skip-wasm
 
 # Runs the ZK program SDK wasm tests in Chromium against the test program in
 # sdk-libs/program/tests/wasm: checks that the committed
@@ -662,11 +660,12 @@ _zk-program-wasm-keys:
 # test-only verifier and the prover-free proof-inputs module, checks the
 # generated types, proves in the worker, and compares against the native
 # fixtures and snarkjs.
-# A standalone circuit (zk DSL only) built to a Node.js wasm package with
-# `zolana zk compile`, proved and verified in Node.
+# A standalone Xark circuit compiled with its typed client, then proved and
+# verified in Node using Xark's stock WebAssembly runtime.
 test-zk-wasm:
-    cargo test -p spr-zk-standalone-fixture --features circuits --test standalone the_committed_wasm_fixture_matches_the_native_path
     cargo run --release -q -p spr-cli -- zk compile --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --wasm-target nodejs --verifier --wasm-out target/zk/spr-zk-standalone-fixture/wasm-node
+    cargo test -p spr-zk-standalone-fixture --features circuits --test standalone the_committed_wasm_fixture_matches_the_native_path
+    wasm-pack build .tools/xark/crates/wasm --release --target nodejs --out-dir {{justfile_directory()}}/target/zk/spr-zk-standalone-fixture/runtime
     node --test sdk-tests/zk-standalone/wasm/standalone.test.mjs
 
 test-zk-program-wasm: _zk-program-wasm-keys

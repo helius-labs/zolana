@@ -6,6 +6,18 @@ Changes under `programs/` run every validation workflow.
 
 Most validation jobs skip draft PRs. TypeScript and deployment-script checks also run on drafts.
 
+Shared Rust setup bootstraps the public Xark fork at commit
+`7207a227738abbf4d0dd776ae4e7efe31312dec6` under `.tools/xark` before Cargo
+metadata/cache inspection. The bootstrap validates the existing input-region and
+proof-randomness fixes and applies the checked-in native-integer frontend and typed-WASM declaration patches.
+Explicit or symlinked developer sources are validated and used without mutation.
+No separate Xark repository write is required.
+
+Browser program fixtures compile deterministic Xark test keys before comparing
+native transactions and artifact checksums. The standalone Node suite checks its
+native fixture, compiles the circuit/client, builds the stock Xark WASM runtime,
+and verifies real proofs and rejected witness/public-input mutations.
+
 1. [Protocol operations](workflows/protocol-ops.yml)
 
     **Triggered by:** PR/main changes to:

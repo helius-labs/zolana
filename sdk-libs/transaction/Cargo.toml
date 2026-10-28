@@ -1,5 +1,5 @@
 [package]
-name = "spr-transaction" # TODO: rename as zolana-sdk
+name = "spr-transaction" # TODO: rename as spr-sdk
 version = "0.1.0"
 description = "TSPP output UTXO serialization: plaintext and encrypted UTXO layouts for transfer and split, encrypted and decrypted via spr-keypair."
 edition.workspace = true
@@ -9,9 +9,6 @@ repository.workspace = true
 publish = ["crates-io"]
 
 [dependencies]
-ark-bn254 = { version = "0.6", optional = true }
-spr-zk-dsl = { workspace = true, optional = true, features = ["circuit"] }
-spr-zk-gadgets = { workspace = true, optional = true }
 spr-interface = { workspace = true }
 spr-event = { workspace = true }
 spr-hasher = { workspace = true }
@@ -28,13 +25,6 @@ tsify = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 
 [features]
-# How mints and wallet utxos enter a zk circuit.
-circuit = [
-    "dep:ark-bn254",
-    "dep:spr-zk-dsl",
-    "dep:spr-zk-gadgets",
-    "spr-keypair/circuit",
-]
 serde = ["dep:serde", "spr-keypair/serde"]
 tsify = ["serde", "dep:tsify", "dep:wasm-bindgen", "spr-keypair/tsify"]
 

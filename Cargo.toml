@@ -1,4 +1,5 @@
 [workspace]
+exclude = [".tools/xark", ".tools/xark/crates/*", ".tools/xark/gadgets/*"]
 members = [
     "protocol-ops/forester",
     "program-libs/account-checks",
@@ -18,6 +19,8 @@ members = [
     "bench/tree",
     "cli",
     "sdk-libs/program",
+    "sdk-libs/circuit",
+    "sdk-libs/circuit/tests/xark-fixture",
     "sdk-libs/program/tests/wasm/program",
     "sdk-libs/macros",
     "sdk-libs/client",
@@ -73,6 +76,10 @@ repository = "https://github.com/helius-labs/zolana"
 tools-version = "v1.54"
 
 [workspace.dependencies]
+# Local Xark feature branch, shared by circuits and the WASM runtime.
+xark = { path = ".tools/xark/crates/lang" }
+xark-groth16 = { path = ".tools/xark/crates/groth16" }
+xark-wasm = { path = ".tools/xark/crates/wasm" }
 form_urlencoded = "1.2.2"
 # Solana platform-tools Cargo 1.84 cannot build edition2024 crates pulled by
 # newer time-core releases.
@@ -94,6 +101,7 @@ spr-zk-dsl = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools
 spr-zk-gadgets = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a4ebd1699ffa04545e3739f16a51e764992d07d6" }
 spr-zk-macros = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a4ebd1699ffa04545e3739f16a51e764992d07d6" }
 spr-zk-macros-core = { version = "0.1.0", git = "https://github.com/helius-labs/zk-tools", rev = "a4ebd1699ffa04545e3739f16a51e764992d07d6" }
+spr-circuit = { path = "sdk-libs/circuit", version = "0.1.0" }
 spr-api = { path = "sdk-libs/spr-api", version = "0.1.0", default-features = false }
 spr-program-test = { path = "sdk-libs/program-test", version = "0.1.0" }
 spr-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }
@@ -263,7 +271,7 @@ tar = "0.4"
 thiserror = { version = "2.0", default-features = false }
 toml = "0.8"
 toml_edit = "0.22"
-tinyvec = "1.10.0"
+tinyvec = { version = "1.10.0", default-features = false }
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
 url = "2"
 tower = { version = "0.5.3", features = ["util"] }
@@ -364,7 +372,3 @@ opt-level = 3
 
 [profile.release]
 overflow-checks = true
-
-# Share the local hasher with the zk-tools git dependencies.
-[patch."https://github.com/helius-labs/zolana"]
-spr-hasher = { path = "program-libs/hasher" }

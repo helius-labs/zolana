@@ -125,6 +125,7 @@ export type {
   ProgramSettlementTransfer,
   ProgramTransactionKeys,
   ProgramTransaction,
+  ProgramProofInputs,
   ProgramUtxo,
   ProgramWalletUtxo,
   RingBalance,
