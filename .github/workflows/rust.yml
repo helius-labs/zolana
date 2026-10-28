@@ -87,7 +87,7 @@ jobs:
 
   clippy:
     name: clippy
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -98,7 +98,7 @@ jobs:
 
   check:
     name: cargo check (workspace)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -109,7 +109,7 @@ jobs:
 
   test-cli:
     name: tests / cli
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -120,7 +120,7 @@ jobs:
 
   test-shielded-pool:
     name: tests / shielded-pool
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.2.2
@@ -129,6 +129,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: litesvm
+          save-cache: "true"
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Install Anza CLI
         uses: ./.github/actions/install-anza
@@ -142,7 +143,7 @@ jobs:
 
   test-sdk-libs:
     name: tests / sdk-libs
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -156,31 +157,32 @@ jobs:
             sdk-tests/*/prover/circuits/go.sum
       - uses: ./.github/actions/setup-rust
         with:
+          save-cache: "true"
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-sdk-libs
       - run: just test-example-provers
 
   test-zk-standalone:
     name: tests / zk standalone
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
         with:
-          shared-key: zk
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just test-zk-standalone
 
   test-zk-program:
     name: tests / zk program
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: zk-program
+          save-cache: "true"
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: rustup target add wasm32-unknown-unknown
       - run: just test-zolana-program-unit
@@ -189,7 +191,7 @@ jobs:
 
   test-programs:
     name: tests / programs
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.2.2
@@ -201,7 +203,7 @@ jobs:
           cache-dependency-path: prover/server/go.sum
       - uses: ./.github/actions/setup-rust
         with:
-          shared-key: programs
+          shared-key: litesvm
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Install Anza CLI
         uses: ./.github/actions/install-anza
@@ -220,7 +222,7 @@ jobs:
 
   build-photon:
     name: build / photon
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -249,7 +251,7 @@ jobs:
   # another: the SBF programs, the tools, and the test archives.
   build-localnet-programs:
     name: build / localnet programs
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.2.2
@@ -277,7 +279,7 @@ jobs:
 
   build-localnet-tools:
     name: build / localnet tools
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -314,7 +316,7 @@ jobs:
 
   build-localnet-tests:
     name: build / localnet suites
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -325,6 +327,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           shared-key: localnet-photon
+          save-cache: "true"
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: just build-localnet-archives
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -336,7 +339,7 @@ jobs:
 
   test-localnet-photon:
     name: tests / localnet photon / ${{ matrix.name }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     needs: [build-photon, build-localnet-programs, build-localnet-tools, build-localnet-tests]
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
@@ -345,37 +348,32 @@ jobs:
         include:
           - name: e2e
             recipe: test-localnet-e2e-photon
-            runner: ubuntu-latest
           - name: spp lifecycle/decode
             recipe: test-spp-validator-lifecycle-decode
-            runner: ubuntu-latest
           - name: spp merge
             recipe: test-spp-validator-merge
-            runner: ubuntu-latest
           - name: spp randomized
             recipe: test-spp-validator-randomized
-            runner: ubuntu-latest
           - name: spp proof cu
             recipe: test-spp-validator-proof-cu
-            runner: ubuntu-latest
           - name: ring lifecycle
             recipe: test-ring-validator
-            runner: ubuntu-latest
-          - name: max transaction shapes
-            recipe: test-max-shapes-validator
-            runner: ubuntu-latest
+          - name: max shapes / merge
+            recipe: test-max-shapes-validator "" 'test(/merge_confirms$/)'
+          - name: max shapes / spp transact
+            recipe: test-max-shapes-validator spp-test-validator 'test(widest_transact_shapes_confirm)'
+          - name: max shapes / ring anonymous
+            recipe: test-max-shapes-validator ring-test-program 'test(widest_ring_anonymous_transact_shapes_confirm)'
+          - name: max shapes / ring eddsa
+            recipe: test-max-shapes-validator ring-test-program 'test(widest_ring_eddsa_transact_shapes_confirm)'
           - name: swap and escrow lifecycle
             recipe: test-swap-and-escrow-validator
-            runner: ubuntu-latest
           - name: dynamic-swap lifecycle
             recipe: test-dynamic-swap
-            runner: ubuntu-latest
           - name: compression lifecycle
             recipe: test-compression-validator
-            runner: ubuntu-latest
           - name: rfq settlement
             recipe: test-rfq-validator
-            runner: ubuntu-latest
     env:
       AGAVE_VERSION: v4.2.2
       ZOLANA_PHOTON_BIN: target/bin/photon
@@ -467,7 +465,7 @@ jobs:
 
   test-user-registry-litesvm:
     name: tests / user-registry litesvm
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.2.2
@@ -489,7 +487,7 @@ jobs:
 
   test-zk-standalone-program:
     name: tests / zk standalone program
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     env:
       AGAVE_VERSION: v4.2.2
@@ -519,8 +517,8 @@ jobs:
   # for what is measured and why. Code executed inside the SVM is not measured.
   coverage:
     name: coverage (llvm-cov)
-    runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
+    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust
@@ -551,7 +549,7 @@ jobs:
 
   test-client-integration:
     name: tests / client integration
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.ZOLANA_CI_RUNNER || 'warp-ubuntu-2404-x64-16x' }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
