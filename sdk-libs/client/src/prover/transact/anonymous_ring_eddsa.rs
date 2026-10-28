@@ -239,18 +239,39 @@ impl AnonymousAuthorizationPreparation<'_> {
             Some(_) => owner_pk_hash,
             None => [0u8; 32],
         };
-        let message_digest = transact_message_hash(self.private_tx, self.external_data_hash);
+        let signed = sign_transact_digest(self.owner, self.private_tx, self.external_data_hash)?;
 
         Ok(PreparedAnonymousAuthorization {
             authorization: AnonymousEddsaAuthorization {
-                owner_public_key,
-                owner_signature: self.owner.sign_message(&message_digest)?,
-                message_digest,
+                owner_public_key: signed.owner_public_key,
+                owner_signature: signed.owner_signature,
+                message_digest: signed.message_digest,
                 default_owner_pk_hash,
             },
             default_owner_tag,
         })
     }
+}
+
+/// An owner's Ed25519 signature over the transact message digest, the
+/// authorization every in-circuit signature rail verifies.
+pub(crate) struct SignedTransactDigest {
+    pub owner_public_key: [u8; 32],
+    pub owner_signature: [u8; 64],
+    pub message_digest: [u8; 32],
+}
+
+pub(crate) fn sign_transact_digest(
+    owner: &SigningKey,
+    private_tx: &[u8; 32],
+    external_data_hash: &[u8; 32],
+) -> Result<SignedTransactDigest, ClientError> {
+    let message_digest = transact_message_hash(private_tx, external_data_hash);
+    Ok(SignedTransactDigest {
+        owner_public_key: owner.pubkey().as_ed25519()?,
+        owner_signature: owner.sign_message(&message_digest)?,
+        message_digest,
+    })
 }
 
 /// Which rings the proof's spent hidden-owner UTXOs belong to. Only spends

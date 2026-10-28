@@ -19,7 +19,7 @@ use spr_interface::{
 #[test]
 fn circuit_id_wire_layout_and_unknown_rejection() {
     let vanilla_ids = [
-        CircuitId::ConfidentialEddsa(1, 2, 3),
+        CircuitId::ConfidentialSigner(1, 2, 3),
         CircuitId::ConfidentialRingEddsa(2, 3, 3),
         CircuitId::RingAuthority(4, 4, 3),
     ];
@@ -98,7 +98,7 @@ fn cached_circuit_id_carries_one_write_pair_per_output() {
         read_bitmap: 0b101,
         write_slots,
     };
-    let cached = CircuitId::ConfidentialEddsaCached(8, 16, 3, cache);
+    let cached = CircuitId::ConfidentialSignerCached(8, 16, 3, cache);
     let bytes = wincode::serialize(&cached).unwrap();
     let mut expected = 4u16.to_le_bytes().to_vec();
     expected.extend_from_slice(&[8, 16, 3]);
@@ -163,7 +163,7 @@ fn ix_data(proof: TransactProof) -> TransactIxData {
         proof,
         expiry_unix_ts: 7,
         private_tx_hash: [9u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(1, 3, 3),
+        circuit: CircuitId::ConfidentialSigner(1, 3, 3),
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
             tree_index: 0,

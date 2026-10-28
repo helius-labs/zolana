@@ -103,7 +103,7 @@ function cachedCircuit(
   pairs: readonly (readonly [number, number])[] = [],
 ): CircuitId {
   return {
-    kind: "confidentialEddsaCached",
+    kind: "confidentialSignerCached",
     inputs: 2,
     outputs: 2,
     publicAssetSlots: 3,
@@ -112,7 +112,7 @@ function cachedCircuit(
 }
 
 const UNCACHED: CircuitId = {
-  kind: "confidentialEddsa",
+  kind: "confidentialSigner",
   inputs: 2,
   outputs: 2,
   publicAssetSlots: 3,

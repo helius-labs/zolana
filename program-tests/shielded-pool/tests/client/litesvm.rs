@@ -161,6 +161,76 @@ fn a_client_over_the_harness_sends_a_transfer_with_account_tagged_padding() {
         .is_nullifier_spent(&nullifier));
 }
 
+/// The high-level builder selects the EdDSA shape before encryption; Submission
+/// proves that rail and sends a message signed only by the relayer.
+#[test]
+fn a_client_submission_proves_the_owner_authorization_for_a_relayer() {
+    spawn_workspace_prover(IndexerRequirement::Optional);
+    let (mut harness, tree, tree_id) = harness_with_tree();
+    let payer = harness.payer.insecure_clone();
+    let sender = ShieldedKeypair::new_ed25519().expect("sender");
+    let input = shield(&mut harness, &tree, tree_id, &sender, 1_000_000);
+    let nullifier = input.nullifier;
+    let recipient = ShieldedKeypair::new_ed25519().expect("recipient");
+    let mut transaction = ConfidentialTransaction::new(vec![input], payer.pubkey())
+        .expect("transaction")
+        .with_transaction_signers(&[payer.pubkey()]);
+    transaction
+        .transfer_sol(
+            &recipient.shielded_address().expect("recipient address"),
+            400_000,
+        )
+        .expect("transfer");
+    let transaction = transaction
+        .encrypt(&sender)
+        .expect("encrypt on EdDSA shape");
+    assert_eq!(
+        (
+            transaction.input_utxos.len(),
+            transaction.output_utxos.len()
+        ),
+        (2, 8)
+    );
+    let signed = SignedPrivateTransaction {
+        transaction,
+        settlement_transfers: Vec::new(),
+    };
+    let client = harness
+        .into_client(ProverClient::local())
+        .with_proof_data_source(ProofDataSource::Client);
+    // A missing EdDSA capability keeps the default rail's owner signature
+    // requirement. Having only the payer must never authorize the sender.
+    let default = Submission::new(&signed, payer.pubkey(), &sender)
+        .finish_unsigned_sync(&client)
+        .expect("prove signer transfer");
+    assert!(spr_client::sign_transaction(default.message, &[&payer]).is_err());
+    let submission = Submission::new(&signed, payer.pubkey(), &sender)
+        .with_confidential_eddsa_owner(&sender.signing_key);
+    let unsigned = submission
+        .finish_unsigned_sync(&client)
+        .expect("prove relayed transfer");
+    assert_eq!(unsigned.message.header().num_required_signatures, 1);
+    assert!(!unsigned.message.static_account_keys().contains(
+        &solana_pubkey::Pubkey::new_from_array(
+            sender
+                .signing_pubkey()
+                .confidential_view_tag()
+                .expect("owner tag"),
+        )
+    ));
+    let transaction =
+        spr_client::sign_transaction(unsigned.message, &[&payer]).expect("only relayer signs");
+    let signature = client.process_transaction(transaction).expect("send");
+    client
+        .confirm_private_transaction_sync(signature)
+        .expect("confirmed and indexed");
+    assert!(client
+        .indexer()
+        .lock()
+        .indexer()
+        .is_nullifier_spent(&nullifier));
+}
+
 /// A merge needs no owner signature: the payer pays, the record enables it,
 /// and the owner's nullifier secret proves it.
 #[test]

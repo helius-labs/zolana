@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { InterfaceError } from "../src/interface/errors.js";
 import { expectedProvingKey, PROVING_KEY_SHA256S } from "../src/interface/proving-keys.js";
+import { CONFIDENTIAL_EDDSA_SHAPES } from "../src/interface/shape.js";
 
 type Lockfile = { keys: Record<string, { sha256: string }> };
 
@@ -25,10 +26,25 @@ describe("PROVING_KEY_SHA256S", () => {
   });
 });
 
+describe("PROVING_KEY_SHA256S", () => {
+  it("pins a key for every in-circuit EdDSA shape and no other", () => {
+    const names = Object.keys(PROVING_KEY_SHA256S).filter((name) =>
+      name.startsWith("transfer_confidential_eddsa_"),
+    );
+    expect(names.sort()).toEqual(
+      CONFIDENTIAL_EDDSA_SHAPES.map(
+        (shape) => `transfer_confidential_eddsa_${shape.inputs}_${shape.outputs}.key`,
+      ).sort(),
+    );
+  });
+});
+
 describe("expectedProvingKey", () => {
   it("names the key file the prover proves each circuit with", () => {
     const names = [
       expectedProvingKey({ circuit: "transfer-confidential", nInputs: 1, nOutputs: 2 }),
+      expectedProvingKey({ circuit: "transfer-confidential-eddsa", nInputs: 2, nOutputs: 8 }),
+      expectedProvingKey({ circuit: "transfer-confidential-eddsa", nInputs: 48, nOutputs: 16 }),
       expectedProvingKey({ circuit: "transfer-ring", nInputs: 49, nOutputs: 2 }),
       expectedProvingKey({ circuit: "transfer-ring-authority", nInputs: 2, nOutputs: 2 }),
       expectedProvingKey({ circuit: "merge", nInputs: 24 }),
@@ -37,6 +53,8 @@ describe("expectedProvingKey", () => {
     expect(names).toEqual(
       [
         "transfer_confidential_1_2.key",
+        "transfer_confidential_eddsa_2_8.key",
+        "transfer_confidential_eddsa_48_16.key",
         "transfer_ring_49_2.key",
         "transfer_ring_authority_2_2.key",
         "merge_24_1.key",
@@ -49,6 +67,8 @@ describe("expectedProvingKey", () => {
     for (const request of [
       { circuit: "transfer-ring", nInputs: 2, nOutputs: 7 },
       { circuit: "transfer-confidential", nInputs: 0, nOutputs: 1 },
+      { circuit: "transfer-confidential-eddsa", nInputs: 1, nOutputs: 2 },
+      { circuit: "transfer-confidential-eddsa", nInputs: 49, nOutputs: 2 },
       { circuit: "merge", nInputs: 9 },
       { circuit: "transfer-confidential", nInputs: 1, nOutputs: 1 },
       { circuit: "transfer-ring", nInputs: 36, nOutputs: 2 },

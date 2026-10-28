@@ -56,16 +56,18 @@ function circuit(vector: CircuitVector): CircuitId {
     outputs: vector.outputs,
     publicAssetSlots: vector.publicAssetSlots,
   };
+  // The shared vectors keep the Rust names from before the signer rail was
+  // renamed: `confidentialEddsa` there is `confidentialSigner` here.
   switch (vector.kind) {
     case "confidentialEddsa":
-      return { kind: "confidentialEddsa", ...shape };
+      return { kind: "confidentialSigner", ...shape };
     case "confidentialEddsaCached":
     case "confidentialRingEddsaCached":
       if (vector.readBitmap === undefined || vector.writeSlots === undefined) {
         throw new Error("a cached vector names its access");
       }
       return {
-        kind: vector.kind,
+        kind: vector.kind === "confidentialEddsaCached" ? "confidentialSignerCached" : vector.kind,
         ...shape,
         cacheAccess: {
           readBitmap: BigInt(vector.readBitmap),

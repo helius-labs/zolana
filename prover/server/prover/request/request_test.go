@@ -44,6 +44,33 @@ func TestParseNamesTheKey(t *testing.T) {
 	}
 }
 
+// The confidential EdDSA rail parses under both decoders and names its own key.
+func TestParseNamesTheConfidentialEddsaKey(t *testing.T) {
+	data, err := os.ReadFile("../transfer_eddsa/testdata/confidential-eddsa-2x8.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, parse := range map[string]func([]byte) (*Request, error){"Parse": Parse, "ParseStrict": ParseStrict} {
+		request, err := parse(data)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if request.Circuit != common.TransferConfidentialEddsaCircuitType || request.Inputs != 2 || request.Outputs != 8 ||
+			request.KeyFile != "transfer_confidential_eddsa_2_8.key" {
+			t.Fatalf("%s: got %s %dx%d %q", name, request.Circuit, request.Inputs, request.Outputs, request.KeyFile)
+		}
+	}
+	for _, field := range []string{"ownerPublicKey", "ownerSignature", "messageHashLow", "messageHashHigh"} {
+		stripped := strings.Replace(string(data), `"`+field+`":`, `"`+field+`Renamed":`, 1)
+		if stripped == string(data) {
+			t.Fatalf("fixture lacks %q", field)
+		}
+		if _, err := ParseStrict([]byte(stripped)); !errors.Is(err, ErrMalformed) {
+			t.Fatalf("ParseStrict accepted a request without %s: %v", field, err)
+		}
+	}
+}
+
 func TestParseKeepsTheServerContract(t *testing.T) {
 	body := fixture(t)
 	for name, input := range map[string]string{

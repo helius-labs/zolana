@@ -57,6 +57,7 @@ import {
   type ProofReader,
   type ProofService,
   type ProvedMerge,
+  type ProvenConfidentialEddsaTransact,
   type ProvenRingTransact,
   type Prover,
   type TransactionAssembler,
@@ -73,7 +74,12 @@ import {
   type SolanaRpc,
   type SolanaRpcSubscriptions,
 } from "./kit.js";
-import { assemble, checkedProverInputs, ownerSignerAddresses } from "./prover/assembly.js";
+import {
+  assemble,
+  checkedProverInputs,
+  ownerSignerAddresses,
+  signTransactMessage,
+} from "./prover/assembly.js";
 import {
   ProverClient,
   type AsyncPollConfig,
@@ -84,7 +90,7 @@ import { assembleMerge } from "./prover/merge.js";
 import type { TeePolicy } from "./prover/tee/registry.js";
 import type { AttestedProver } from "./prover/tee/verify.js";
 import { compressProof } from "./prover/proof.js";
-import type { TransferCircuit, TransferInputs } from "./prover/types.js";
+import type { TransactOwnerSigner, TransferCircuit, TransferInputs } from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -795,6 +801,36 @@ export class ZolanaClient
       .data;
   }
 
+  async proveConfidentialEddsaTransact(
+    proofInputs: SppProofInputs,
+    owner: TransactOwnerSigner,
+    keys: ProofAuthority,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<ProvenConfidentialEddsaTransact> {
+    return this.#proving(async () => {
+      if (!(proofInputs instanceof SppProofInputs)) {
+        throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+      }
+      const authorization = await signTransactMessage(proofInputs, owner);
+      const { data } = await this.#proveTransfer(
+        proofInputs,
+        { kind: "confidentialEddsa", authorization },
+        keys,
+        config,
+        context,
+      );
+      return Object.freeze({
+        data,
+        ownerSigners: ownerSignerAddresses(
+          proofInputs.inputUtxos,
+          proofInputs.outputs,
+          authorization.ownerPublicKey,
+        ),
+      });
+    });
+  }
+
   async proveRingTransact(
     proofInputs: SppProofInputs,
     ringProgramId: Address,
@@ -889,7 +925,7 @@ export class ZolanaClient
         );
         const complete = prepared.finish(trees);
         return Object.freeze({
-          data: complete.withProof(compressProof(proof).toTransactProof()),
+          data: complete.withProof(compressProof(proof)),
           roots: complete.roots,
         });
       }
@@ -897,7 +933,7 @@ export class ZolanaClient
       const assembled = assemble(proofInputs, proofs, dummyProofs, circuit);
       const proof = await keys.prove(assembled.proverInputs, context);
       return Object.freeze({
-        data: assembled.withProof(compressProof(proof).toTransactProof()),
+        data: assembled.withProof(compressProof(proof)),
         roots: assembled.roots,
       });
     });
@@ -988,6 +1024,7 @@ export class ZolanaClient
       authorized: AuthorizedPrivateTransaction;
       feePayer: Address;
       keys: ProofAuthority;
+      owner?: TransactOwnerSigner;
     }>,
     context?: RequestContext,
   ): Promise<Transaction> {
@@ -996,12 +1033,12 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
     const fields = Reflect.ownKeys(candidate);
+    const allowed = ["authorized", "feePayer", "keys", "owner"];
     if (
-      fields.length !== 3 ||
       !Object.hasOwn(candidate, "authorized") ||
       !Object.hasOwn(candidate, "feePayer") ||
       !Object.hasOwn(candidate, "keys") ||
-      fields.some((key) => key !== "authorized" && key !== "feePayer" && key !== "keys")
+      fields.some((key) => typeof key !== "string" || !allowed.includes(key))
     ) {
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
@@ -1009,11 +1046,19 @@ export class ZolanaClient
     checkedAddress(feePayer, "feePayer");
     const keys: unknown = Reflect.get(candidate, "keys");
     checkProofAuthority(keys);
+    const owner: unknown = Reflect.get(candidate, "owner");
+    if (owner !== undefined) checkTransactOwnerSigner(owner);
     const authorized = authorizedPrivateTransactionMaterial(Reflect.get(candidate, "authorized"));
     if (authorized === undefined) {
       throw new ClientError("CLIENT_INVALID_TRANSACTION");
     }
-    const data = await this.#proveAuthorizedPrivateTransaction(authorized, feePayer, keys, context);
+    const { data, ownerSigners } = await this.#proveAuthorizedPrivateTransaction(
+      authorized,
+      feePayer,
+      keys,
+      owner,
+      context,
+    );
     checkTransactData(data, authorized.intent, intentMismatch);
     const lifetime = await this.getLatestBlockhash(context);
     return await buildUnsignedTransaction({
@@ -1022,10 +1067,7 @@ export class ZolanaClient
       feePayer,
       inputTree: authorized.tree,
       outputTree: this.tree,
-      ownerSigners: ownerSignerAddresses(
-        authorized.proofInputs.inputUtxos,
-        authorized.proofInputs.outputs,
-      ),
+      ownerSigners,
       setupInstructions: authorized.setupInstructions,
       ...(authorized.withdrawal === undefined ? {} : { withdrawal: authorized.withdrawal }),
       data,
@@ -1033,12 +1075,14 @@ export class ZolanaClient
     });
   }
 
+  /** With `owner`, that owner authorizes inside the proof and signs no account. */
   async #proveAuthorizedPrivateTransaction(
     authorized: AuthorizedPrivateTransactionMaterial,
     feePayer: Address,
     keys: ProofAuthority,
+    owner: TransactOwnerSigner | undefined,
     context?: RequestContext,
-  ): Promise<TransactInstructionData> {
+  ): Promise<ProvenConfidentialEddsaTransact> {
     if (feePayer !== authorized.proofInputs.payer) {
       throw new ClientError("CLIENT_FEE_PAYER_MISMATCH");
     }
@@ -1048,7 +1092,22 @@ export class ZolanaClient
       });
     }
     checkAuthorizedBinding(authorized, intentMismatch);
-    return this.proveTransact(authorized.proofInputs, keys, undefined, context);
+    if (owner !== undefined) {
+      return this.proveConfidentialEddsaTransact(
+        authorized.proofInputs,
+        owner,
+        keys,
+        undefined,
+        context,
+      );
+    }
+    return Object.freeze({
+      data: await this.proveTransact(authorized.proofInputs, keys, undefined, context),
+      ownerSigners: ownerSignerAddresses(
+        authorized.proofInputs.inputUtxos,
+        authorized.proofInputs.outputs,
+      ),
+    });
   }
 
   /** Every proving failure leaves as a `ClientError`. */
@@ -1081,6 +1140,18 @@ function isKeypairArray(
 /** A `ProofAuthority` is a structural type; a wrong argument fails here rather than as a missing method later. */
 function checkProofAuthority(keys: unknown): asserts keys is ProofAuthority {
   if (!hasProofMethods(keys)) throw new ClientError("CLIENT_INVALID_PROOF_AUTHORITY");
+}
+
+/** A `TransactOwnerSigner` is structural too: it signs and names its key. */
+function checkTransactOwnerSigner(owner: unknown): asserts owner is TransactOwnerSigner {
+  if (
+    typeof owner !== "object" ||
+    owner === null ||
+    typeof Reflect.get(owner, "sign") !== "function" ||
+    typeof Reflect.get(owner, "signingPublicKey") !== "function"
+  ) {
+    throw new ClientError("CLIENT_INVALID_TRANSACTION");
+  }
 }
 
 /** Mirrors Rust `MERGE_CU_LIMIT`. */

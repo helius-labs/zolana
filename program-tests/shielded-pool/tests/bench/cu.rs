@@ -641,7 +641,7 @@ fn bench_transfer_shape(
         inline_outputs(&output_hashes, &view_tags),
     );
     transact_ix_data.circuit =
-        CircuitId::ConfidentialEddsa(n_inputs as u8, n_outputs as u8, N_PUBLIC_SLOTS as u8);
+        CircuitId::ConfidentialSigner(n_inputs as u8, n_outputs as u8, N_PUBLIC_SLOTS as u8);
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     let mut nullifier_pks = vec![nullifier_pk];

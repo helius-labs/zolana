@@ -9,7 +9,7 @@
 use serde::Deserialize;
 use spr_interface::{
     verifying_keys::{
-        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId,
+        AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, EddsaProofData,
         PROVING_KEY_SHA256S as TRANSACT_KEYS,
     },
     N_PUBLIC_SLOTS,
@@ -166,7 +166,7 @@ impl ExpectedProvingKey {
             "transfer_confidential",
             n_inputs,
             n_outputs,
-            CircuitId::ConfidentialEddsa,
+            CircuitId::ConfidentialSigner,
         )
     }
 
@@ -208,6 +208,26 @@ impl ExpectedProvingKey {
             n_inputs,
             n_outputs,
             |n_in, n_out, slots| CircuitId::AnonymousRingEddsa(n_in, n_out, slots, proof_data),
+        )
+    }
+
+    pub(crate) fn transfer_confidential_eddsa(
+        n_inputs: usize,
+        n_outputs: usize,
+    ) -> Result<Self, ClientError> {
+        // The proof data does not select the key; only rail and shape do.
+        let proof_data = EddsaProofData {
+            bsb22_commitment: Bsb22Commitment {
+                commitment: [0; 32],
+                commitment_pok: [0; 32],
+            },
+            owner_pk: [0; 32],
+        };
+        Self::transfer(
+            "transfer_confidential_eddsa",
+            n_inputs,
+            n_outputs,
+            |n_in, n_out, slots| CircuitId::ConfidentialEddsa(n_in, n_out, slots, proof_data),
         )
     }
 

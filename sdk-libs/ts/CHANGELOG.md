@@ -12,6 +12,7 @@ sync skips those outputs without decrypting them.
 
 Breaking
 
+- `CircuitId` kinds `confidentialEddsa` and `confidentialEddsaCached` are now `confidentialSigner` and `confidentialSignerCached` for transaction signer authorization → rename existing matches and hand-built selectors, and supply `proofData` when using the new in-proof `confidentialEddsa` kinds.
 - `SHIELDED_POOL_PROGRAM_ID` is `ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW`, with new tree, custody and authority addresses → use the new deployment and fund new notes; accounts and notes from the earlier deployment remain separate.
 - `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
 - `EncryptedScheme.ringAnonymous` is removed and `encryptedSchemeFromByte(9)` throws `TRANSACTION_BAD_DISCRIMINATOR` → decode anonymous ring transfers with `@heliuslabs/zolana-custom-rings`.
@@ -20,6 +21,9 @@ Breaking
 
 Added
 
+- `ZolanaClient.proveConfidentialEddsaTransact` authorizes one owner inside the proof and returns the remaining transaction signers, while `signTransactMessage` and `transactMessageDigest` expose the signed statement.
+- `PrivateTransactionParams.owner` lets transfer, withdrawal and split builders accept an owner signature inside the proof while another account pays the transaction fee.
+- `ConfidentialTransfer.withConfidentialEddsaShape` and `selectConfidentialEddsaShape` select among twelve proof shapes with up to 48 inputs and 16 outputs.
 - `@heliuslabs/zolana/internal` exposes the building blocks an extension
   package composes, and the `.d.ts` files keep `@internal` declarations such
   as `Wallet._replace`, both outside semver.

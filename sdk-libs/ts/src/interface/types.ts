@@ -140,9 +140,25 @@ export interface CacheAccess {
   readonly writeSlots: readonly CacheWrite[];
 }
 
+/** The compressed BSB22 commitment a committed Groth16 proof carries. */
+export interface Bsb22Commitment {
+  readonly commitment: Bytes32;
+  readonly commitmentPok: Bytes32;
+}
+
+/**
+ * The payload of a `confidentialEddsa` selector: the proof's commitment and
+ * the Ed25519 key of the owner whose signature the proof verifies. That owner
+ * is not an owner signer of the transaction and takes no account in it.
+ */
+export interface EddsaProofData {
+  readonly bsb22Commitment: Bsb22Commitment;
+  readonly ownerPk: Bytes32;
+}
+
 export type CircuitId =
   | Readonly<{
-      kind: "confidentialEddsa";
+      kind: "confidentialSigner";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
@@ -160,7 +176,7 @@ export type CircuitId =
       publicAssetSlots: number;
     }>
   | Readonly<{
-      kind: "confidentialEddsaCached";
+      kind: "confidentialSignerCached";
       inputs: number;
       outputs: number;
       publicAssetSlots: number;
@@ -172,7 +188,34 @@ export type CircuitId =
       outputs: number;
       publicAssetSlots: number;
       cacheAccess: CacheAccess;
+    }>
+  | Readonly<{
+      kind: "confidentialEddsa";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+      proofData: EddsaProofData;
+    }>
+  | Readonly<{
+      kind: "confidentialEddsaCached";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+      proofData: EddsaProofData;
+      cacheAccess: CacheAccess;
     }>;
+
+/** The cache selection a cached selector declares, `undefined` on an uncached one. */
+export function circuitCacheAccess(circuit: CircuitId): CacheAccess | undefined {
+  switch (circuit.kind) {
+    case "confidentialSignerCached":
+    case "confidentialRingEddsaCached":
+    case "confidentialEddsaCached":
+      return circuit.cacheAccess;
+    default:
+      return undefined;
+  }
+}
 
 export type InterfaceTransfer =
   | Readonly<{ kind: "solDeposit"; amount: bigint }>

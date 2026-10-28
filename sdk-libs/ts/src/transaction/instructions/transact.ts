@@ -8,12 +8,14 @@ import {
 } from "../../interface/external-data-hash.js";
 import { InstructionTag, SOL_INTERFACE } from "../../interface/program.js";
 import {
+  CONFIDENTIAL_EDDSA_SHAPES,
   RING_AUTHORITY_MAX_WIDTH,
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
+  isTransactShape,
   ringAuthorityWidth,
   selectSppShape,
+  selectConfidentialEddsaShape,
   type Shape,
-  validateSppShape,
 } from "../../interface/shape.js";
 import { CACHE_CAPACITY } from "../../interface/state.js";
 import {
@@ -123,7 +125,7 @@ export function canonicalShape(inputs: number, outputs: number): Shape {
  * time a proof is assembled.
  */
 export function exactShape(inputs: number, outputs: number): Shape {
-  const exact = SPP_SUPPORTED_SHAPES.find(
+  const exact = [...SPP_SUPPORTED_SHAPES, ...CONFIDENTIAL_EDDSA_SHAPES].find(
     (shape) => shape.inputs === inputs && shape.outputs === outputs,
   );
   if (!exact) {
@@ -145,11 +147,9 @@ export function resolveShape(inputs: number, outputs: number, declared?: Shape):
   const shape = candidate as Shape;
   checkedCount(shape.inputs, "declaredInputs");
   checkedCount(shape.outputs, "declaredOutputs");
-  const supported = SPP_SUPPORTED_SHAPES.some(
-    (supportedShape) =>
-      supportedShape.inputs === shape.inputs && supportedShape.outputs === shape.outputs,
-  );
-  if (!supported) {
+  // A declared shape may come from any transact rail's key set, Rust
+  // `is_transact_shape`; the rail checks its own list when it proves.
+  if (!isTransactShape(shape)) {
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
       inputs: shape.inputs,
       outputs: shape.outputs,
@@ -167,7 +167,7 @@ export function resolveShape(inputs: number, outputs: number, declared?: Shape):
       max: shape.outputs,
     });
   }
-  return validateSppShape(inputs, outputs, shape);
+  return Object.freeze({ inputs: shape.inputs, outputs: shape.outputs });
 }
 
 /**
@@ -1010,6 +1010,7 @@ export class ConfidentialTransfer {
   #shape?: Shape;
   #ringProgramId?: Address;
   #compactPadding = false;
+  #confidentialEddsaShape = false;
 
   /**
    * Like the constructor, but pads unused slots with compact padding instead of
@@ -1052,6 +1053,12 @@ export class ConfidentialTransfer {
    */
   withOutputTreeId(outputTreeId: TreeId): this {
     this.#outputTreeId = checkedTreeId(outputTreeId);
+    return this;
+  }
+
+  /** Selects the cheapest shape with keys for an in-circuit owner signature. */
+  withConfidentialEddsaShape(): this {
+    this.#confidentialEddsaShape = true;
     return this;
   }
 
@@ -1191,7 +1198,14 @@ export class ConfidentialTransfer {
         blinding: transactOutputBlinding(firstNullifier, outputSeed, index),
       }),
     );
-    const shape = resolveShape(this.#inputs.length, outputs.length, this.#shape);
+    const shape = resolveShape(
+      this.#inputs.length,
+      outputs.length,
+      this.#shape ??
+        (this.#confidentialEddsaShape
+          ? selectConfidentialEddsaShape(this.#inputs.length, outputs.length)
+          : undefined),
+    );
     // Padding belongs to `finalize`, where Rust does it: the slots handed to an
     // authority for encryption are the real outputs only.
     const inputs = [...this.#inputs];

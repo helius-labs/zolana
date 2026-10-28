@@ -141,7 +141,7 @@ fn the_default_deployment_attests_and_verifies_an_encrypted_fixture_proof() {
     .unwrap()
     .try_into()
     .unwrap();
-    let verifying_key = CircuitId::ConfidentialEddsa(2, 2, N_PUBLIC_SLOTS as u8)
+    let verifying_key = CircuitId::ConfidentialSigner(2, 2, N_PUBLIC_SLOTS as u8)
         .verifying_key()
         .unwrap();
     verify_proof_statement(&proof, public_input_hash, verifying_key)

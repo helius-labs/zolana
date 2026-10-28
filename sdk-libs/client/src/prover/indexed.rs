@@ -76,6 +76,7 @@ pub enum IndexedCircuit {
     // Preserve the prover protocol identifier while naming the privacy mode.
     #[serde(rename = "transfer-eddsa-ring")]
     TransferAnonymousRingEddsa,
+    TransferConfidentialEddsa,
     Merge,
     MergeRing,
 }
@@ -163,10 +164,12 @@ impl IndexedProofRequest {
                     return Err(invalid());
                 }
                 let shape = Shape::new(metadata.inputs.len(), metadata.outputs.len());
-                if !shape.is_supported()
-                    || (metadata.circuit_type == IndexedCircuit::TransferRingAuthority
-                        && !shape.is_ring_authority())
-                {
+                let supported = match metadata.circuit_type {
+                    IndexedCircuit::TransferRingAuthority => shape.is_ring_authority(),
+                    IndexedCircuit::TransferConfidentialEddsa => shape.is_confidential_eddsa(),
+                    _ => shape.is_supported(),
+                };
+                if !supported {
                     return Err(invalid());
                 }
             }
@@ -247,6 +250,7 @@ impl IndexedProofRequest {
                         IndexedCircuit::TransferConfidential
                             | IndexedCircuit::TransferRing
                             | IndexedCircuit::TransferAnonymousRingEddsa
+                            | IndexedCircuit::TransferConfidentialEddsa
                     ))
             {
                 return Err(invalid());
@@ -285,6 +289,9 @@ impl IndexedProofRequest {
             }
             IndexedCircuit::TransferAnonymousRingEddsa => {
                 ExpectedProvingKey::transfer_anonymous_ring_eddsa(n_inputs, n_outputs)?
+            }
+            IndexedCircuit::TransferConfidentialEddsa => {
+                ExpectedProvingKey::transfer_confidential_eddsa(n_inputs, n_outputs)?
             }
             IndexedCircuit::Merge => ExpectedProvingKey::merge(n_inputs)?,
             IndexedCircuit::MergeRing => ExpectedProvingKey::merge_ring(n_inputs)?,
@@ -434,7 +441,9 @@ impl IndexedCircuit {
         match self {
             Self::TransferConfidential | Self::TransferRing => 17,
             Self::TransferRingAuthority => 14,
-            Self::TransferAnonymousRingEddsa => 19,
+            // The confidential layout plus the message hash and one owner
+            // field: the hidden default owner, or the in-circuit owner identity.
+            Self::TransferAnonymousRingEddsa | Self::TransferConfidentialEddsa => 19,
             // The prefix without the tree hash, the owner tail, the ciphertext
             // salt and the three ciphertext elements.
             Self::Merge => 12,
@@ -597,6 +606,18 @@ mod tests {
             serde_json::from_str::<IndexedCircuit>(&encoded).unwrap(),
             circuit
         );
+    }
+
+    #[test]
+    fn confidential_eddsa_transfer_names_its_prover_circuit() {
+        let circuit = IndexedCircuit::TransferConfidentialEddsa;
+        let encoded = serde_json::to_string(&circuit).unwrap();
+        assert_eq!(encoded, "\"transfer-confidential-eddsa\"");
+        assert_eq!(
+            serde_json::from_str::<IndexedCircuit>(&encoded).unwrap(),
+            circuit
+        );
+        assert_eq!(circuit.public_input_count(), 19);
     }
 
     #[test]

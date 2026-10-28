@@ -41,7 +41,8 @@ pub use settlement::{
     SettlementTarget, BN254_MODULUS_DEC,
 };
 pub use shape::{
-    auto_shapes, canonical_shape, resolve_shape, Shape, MAX_SPEND_INPUTS, SPP_SUPPORTED_SHAPES,
+    auto_shapes, canonical_shape, resolve_shape, Shape, TransactRail, CONFIDENTIAL_EDDSA_SHAPES,
+    MAX_SPEND_INPUTS, SPP_SUPPORTED_SHAPES,
 };
 pub(crate) use transaction::real_slot_after_dummy;
 pub use transaction::{transact_message_hash, CacheAccounts, PrivateTxHash, SppProofInputs};
@@ -99,6 +100,7 @@ pub struct ConfidentialTransaction {
     ring_program_id: Option<Address>,
     padded_inputs: Option<Vec<SppProofInputUtxo>>,
     compact_padding: bool,
+    transaction_signers: Option<Vec<Address>>,
 }
 
 impl ConfidentialTransaction {
@@ -120,6 +122,17 @@ impl ConfidentialTransaction {
         }
         self.blinding_seed = blinding_seed;
         Ok(self)
+    }
+
+    /// Choose a default-ring proof shape from the accounts expected to sign the
+    /// transaction. A missing owner selects an in-circuit EdDSA shape; supply its
+    /// signing key with the client's `with_confidential_eddsa_owner` before
+    /// proving. Without that capability the client still requires every owner
+    /// to sign the transaction. Custom rings keep their existing shapes.
+    #[must_use]
+    pub fn with_transaction_signers(mut self, signers: &[Address]) -> Self {
+        self.transaction_signers = Some(signers.to_vec());
+        self
     }
 
     pub fn first_nullifier(&self) -> &[u8; 32] {
@@ -253,6 +266,7 @@ impl ConfidentialTransaction {
             ring_program_id: None,
             padded_inputs: None,
             compact_padding: false,
+            transaction_signers: None,
         })
     }
 

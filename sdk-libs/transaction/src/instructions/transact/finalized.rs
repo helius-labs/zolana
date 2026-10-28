@@ -2,7 +2,7 @@ use solana_address::Address;
 use spr_keypair::ShieldedAddress;
 
 use super::{
-    shape::canonical_shape,
+    shape::{Shape, TransactRail},
     transaction::{padding_independent_private_tx_hash, private_tx_blinding},
     ConfidentialTransaction, OutputEncoder, ResolvedOwnerTag, SettlementTransfer,
     SppProofOutputUtxo,
@@ -53,6 +53,36 @@ impl ConfidentialTransaction {
         sender: &ShieldedAddress,
         encoder: &E,
     ) -> Result<FinalizedTransaction, TransactionError> {
+        let rail = match (&self.transaction_signers, self.ring_program_id) {
+            (Some(signers), None) => {
+                let owners = self
+                    .inputs
+                    .iter()
+                    .filter(|input| !input.utxo.owner.is_zero())
+                    .map(|input| &input.utxo.owner)
+                    .chain(self.addresses.iter().map(|input| &input.utxo.owner))
+                    .chain(
+                        self.outputs
+                            .iter()
+                            .filter(|output| output.data_hash.is_some_and(|hash| hash != [0; 32]))
+                            .filter_map(|output| output.owner_address.as_ref())
+                            .map(|address| &address.signing_pubkey),
+                    )
+                    .map(|owner| owner.confidential_view_tag().map(Address::new_from_array))
+                    .collect::<Result<Vec<_>, _>>()?;
+                TransactRail::select(&owners, signers)
+            }
+            _ => TransactRail::ConfidentialSigner,
+        };
+        if let (Some(_), Some(inputs)) = (&self.transaction_signers, &self.padded_inputs) {
+            let shape = Shape::new(inputs.len(), self.outputs.len());
+            if !rail.supports(shape) {
+                return Err(TransactionError::UnsupportedShape {
+                    n_in: shape.n_inputs(),
+                    n_out: shape.n_outputs(),
+                });
+            }
+        }
         // 1. Select a shape and finalize the input and output slots if needed.
         if self.padded_inputs.is_none() {
             let n_in = self.inputs.len() + self.addresses.len();
@@ -64,7 +94,7 @@ impl ConfidentialTransaction {
                         .ok_or(TransactionError::TooManyOutputs)?;
                 }
             }
-            let shape = canonical_shape(n_in, n_out)?;
+            let shape = rail.canonical_shape(n_in, n_out)?;
             self.pad_utxos(shape, sender)?;
         }
         // 2. Derive and assign output blindings using the final slot order.

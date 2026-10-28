@@ -56,6 +56,12 @@ func Parse(body []byte) (*Request, error) {
 			return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
 		}
 		request.Inputs, request.Outputs, request.params = params.NInputs, params.NOutputs, params
+	case common.TransferConfidentialEddsaCircuitType:
+		params := new(transfer.ConfidentialEddsaTransferParameters)
+		if err := json.Unmarshal(body, params); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrMalformed, err)
+		}
+		request.Inputs, request.Outputs, request.params = params.NInputs, params.NOutputs, params
 	case common.MergeCircuitType, common.MergeRingCircuitType:
 		params := new(merge.MergeParameters)
 		if err := json.Unmarshal(body, params); err != nil {

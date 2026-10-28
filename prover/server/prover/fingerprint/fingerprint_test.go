@@ -62,6 +62,9 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	anonymousRing, err := eddsaprover.R1CSAnonymousEddsaTransfer(2, 4)
 	add("transfer_eddsa_ring_2_4", anonymousRing, err)
 
+	confidentialEddsa, err := eddsaprover.R1CSConfidentialEddsaTransfer(2, 8)
+	add("transfer_confidential_eddsa_2_8", confidentialEddsa, err)
+
 	merged, err := mergeprover.R1CSMerge(24)
 	add("merge_24_1", merged, err)
 
@@ -78,13 +81,14 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 // prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
-	"transfer_confidential_2_4":   {constraints: 57558, public: 2},
-	"transfer_ring_2_4":           {constraints: 57684, public: 2},
-	"transfer_ring_authority_2_2": {constraints: 51913, public: 2},
-	"transfer_eddsa_ring_2_4":     {constraints: 109382, public: 2},
-	"merge_24_1":                  {constraints: 527430, public: 2},
-	"merge_ring_24_1":             {constraints: 526077, public: 2},
-	"batch_address-append_40_10":  {constraints: 421991, public: 2},
+	"transfer_confidential_2_4":       {constraints: 57558, public: 2},
+	"transfer_ring_2_4":               {constraints: 57684, public: 2},
+	"transfer_ring_authority_2_2":     {constraints: 51913, public: 2},
+	"transfer_eddsa_ring_2_4":         {constraints: 109382, public: 2},
+	"merge_24_1":                      {constraints: 527430, public: 2},
+	"merge_ring_24_1":                 {constraints: 526077, public: 2},
+	"batch_address-append_40_10":      {constraints: 421991, public: 2},
+	"transfer_confidential_eddsa_2_8": {constraints: 117824, public: 2},
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {

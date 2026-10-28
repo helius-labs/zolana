@@ -248,11 +248,15 @@ export class KeypairProofAuthority implements ProofAuthority {
   }
 
   prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
+    const completed = this.#complete(inputs.payload.inputs);
+    if (inputs.circuit === "transferConfidentialEddsa") {
+      return this.#proofs.prove(
+        { ...inputs, payload: { ...inputs.payload, inputs: completed } },
+        context,
+      );
+    }
     return this.#proofs.prove(
-      {
-        ...inputs,
-        payload: { ...inputs.payload, inputs: this.#complete(inputs.payload.inputs) },
-      },
+      { ...inputs, payload: { ...inputs.payload, inputs: completed } },
       context,
     );
   }
@@ -267,11 +271,15 @@ export class KeypairProofAuthority implements ProofAuthority {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofs" } });
     const inputs = decodeIndexedInputs(request);
     if (inputs.circuit === "merge") throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    const completed = this.#complete(inputs.payload.inputs);
+    if (inputs.circuit === "transferConfidentialEddsa") {
+      return service.proveIndexed(
+        { ...inputs, payload: { ...inputs.payload, inputs: completed } },
+        context,
+      );
+    }
     return service.proveIndexed(
-      {
-        ...inputs,
-        payload: { ...inputs.payload, inputs: this.#complete(inputs.payload.inputs) },
-      },
+      { ...inputs, payload: { ...inputs.payload, inputs: completed } },
       context,
     );
   }
@@ -282,12 +290,16 @@ export class KeypairProofAuthority implements ProofAuthority {
 }
 
 function completeTransferInputs(inputs: ProverInputs, key: NullifierKey): ProverInputs {
+  const completed = Object.freeze(inputs.payload.inputs.map((input) => completeInput(input, key)));
+  if (inputs.circuit === "transferConfidentialEddsa") {
+    return Object.freeze({
+      circuit: inputs.circuit,
+      payload: Object.freeze({ ...inputs.payload, inputs: completed }),
+    });
+  }
   return Object.freeze({
     circuit: inputs.circuit,
-    payload: Object.freeze({
-      ...inputs.payload,
-      inputs: Object.freeze(inputs.payload.inputs.map((input) => completeInput(input, key))),
-    }),
+    payload: Object.freeze({ ...inputs.payload, inputs: completed }),
   });
 }
 
@@ -355,11 +367,9 @@ function completeIndexedInputs(inputs: IndexedProofInputs, key: NullifierKey): I
       throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
     return { ...inputs, payload: { ...inputs.payload, userNullifierSecret: secretField(key) } };
   }
-  return {
-    ...inputs,
-    payload: {
-      ...inputs.payload,
-      inputs: inputs.payload.inputs.map((input) => completeInput(input, key)),
-    },
-  };
+  const completed = inputs.payload.inputs.map((input) => completeInput(input, key));
+  if (inputs.circuit === "transferConfidentialEddsa") {
+    return { ...inputs, payload: { ...inputs.payload, inputs: completed } };
+  }
+  return { ...inputs, payload: { ...inputs.payload, inputs: completed } };
 }

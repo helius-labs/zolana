@@ -10,7 +10,7 @@ import { MERGE_SUPPORTED_INPUT_COUNTS } from "../../interface/constants.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import { inputTreeSlots, NO_UTXO_ROOT, type TreeSlot } from "../../interface/tree-slot.js";
 import { ADDRESS_DOMAIN } from "../../interface/program.js";
-import { selectSppShape } from "../../interface/shape.js";
+import { isConfidentialEddsaShape, isSppShape } from "../../interface/shape.js";
 import type { Bytes32, RequestContext } from "../../interface/types.js";
 import type {
   IndexedProofAuthority,
@@ -18,6 +18,7 @@ import type {
   IndexedProofResult,
   IndexedTree,
   PreparedTransferInput,
+  PreparedTransferInputs,
   ProofResolution,
 } from "../ports.js";
 import { ClientError } from "../error.js";
@@ -28,8 +29,21 @@ import {
   checkedBytes,
   hasIndexedMethod,
 } from "../internal.js";
-import { asField, resolvedPublicInputHash, type InputTree } from "./assembly.js";
-import type { CircuitUtxo, TransferOutput, Field, Proof } from "./types.js";
+import {
+  asField,
+  checkedAuthorization,
+  eddsaPublicFields,
+  resolvedPublicInputHash,
+  transactMessageDigestOf,
+  type InputTree,
+} from "./assembly.js";
+import type {
+  CircuitUtxo,
+  EddsaOwnerAuthorization,
+  TransferOutput,
+  Field,
+  Proof,
+} from "./types.js";
 import { compressProof, parseCheckedProof } from "./proof.js";
 
 const invalid = (): ClientError => new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -64,6 +78,7 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     circuit !== "transfer" &&
     circuit !== "transferRing" &&
     circuit !== "transferRingAuthority" &&
+    circuit !== "transferConfidentialEddsa" &&
     circuit !== "merge"
   )
     throw invalid();
@@ -106,6 +121,24 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     if (chunk0 === undefined || chunk1 === undefined || rest.length !== 0) throw invalid();
     return [chunk0, chunk1];
   };
+  const transfer = (): PreparedTransferInputs => ({
+    ...common,
+    outputs: requestDecoder.list(payload["outputs"], "outputs").map(decodeOutput),
+    blindingSeed: field("blindingSeed"),
+    publicAssets: fields("publicAssets"),
+    publicAmounts: fields("publicAmounts"),
+    signerPublicKeyHashes: fields("signerPublicKeyHashes"),
+    inputFlags: field("inputFlags"),
+    cacheTreeId: field("cacheTreeId"),
+    cacheReadHashChain: field("cacheReadHashChain"),
+    cacheReadHashes: fields("cacheReadHashes"),
+    cacheIsCached: fields("cacheIsCached"),
+    cacheReadIndex: fields("cacheReadIndex"),
+    publishedOutputOwnerPublicKeyHashes: fields("publishedOutputOwnerPublicKeyHashes"),
+  });
+  // Only the in-circuit owner rail carries an authorization.
+  if ((payload["ownerAuthorization"] !== undefined) !== (circuit === "transferConfidentialEddsa"))
+    throw invalid();
   const result: IndexedProofInputs =
     circuit === "merge"
       ? {
@@ -125,27 +158,31 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
             outputRingDataHash: field("outputRingDataHash"),
           },
         }
-      : {
-          ...envelope,
-          circuit,
-          payload: {
-            ...common,
-            outputs: requestDecoder.list(payload["outputs"], "outputs").map(decodeOutput),
-            blindingSeed: field("blindingSeed"),
-            publicAssets: fields("publicAssets"),
-            publicAmounts: fields("publicAmounts"),
-            signerPublicKeyHashes: fields("signerPublicKeyHashes"),
-            inputFlags: field("inputFlags"),
-            cacheTreeId: field("cacheTreeId"),
-            cacheReadHashChain: field("cacheReadHashChain"),
-            cacheReadHashes: fields("cacheReadHashes"),
-            cacheIsCached: fields("cacheIsCached"),
-            cacheReadIndex: fields("cacheReadIndex"),
-            publishedOutputOwnerPublicKeyHashes: fields("publishedOutputOwnerPublicKeyHashes"),
-          },
-        };
+      : circuit === "transferConfidentialEddsa"
+        ? {
+            ...envelope,
+            circuit,
+            payload: {
+              ...transfer(),
+              ownerAuthorization: decodeOwnerAuthorization(payload["ownerAuthorization"]),
+            },
+          }
+        : { ...envelope, circuit, payload: transfer() };
   checkStatement(result);
   return result;
+}
+
+/**
+ * The owner's authorization as the request carries it; the digest it signed
+ * must be the one the statement commits to, see `checkStatement`.
+ */
+function decodeOwnerAuthorization(value: unknown): EddsaOwnerAuthorization {
+  const authorization = requestDecoder.record(value, "ownerAuthorization");
+  return {
+    ownerPublicKey: checkedBytes(authorization["ownerPublicKey"], 32, "ownerPublicKey"),
+    ownerSignature: checkedBytes(authorization["ownerSignature"], 64, "ownerSignature"),
+    messageDigest: checkedBytes(authorization["messageDigest"], 32, "messageDigest"),
+  };
 }
 
 /** The `/prove/<key>/indexed` body for a request `decodeIndexedInputs` returned. */
@@ -280,7 +317,9 @@ function requestField(value: unknown): Field {
  */
 function statementLength(inputs: IndexedProofInputs): number {
   if (inputs.circuit === "merge") return BigInt(inputs.payload.ringProgramId) === 0n ? 12 : 8;
-  return inputs.circuit === "transferRingAuthority" ? 14 : 17;
+  if (inputs.circuit === "transferRingAuthority") return 14;
+  // The confidential layout plus the message hash and the verified owner.
+  return inputs.circuit === "transferConfidentialEddsa" ? 19 : 17;
 }
 
 /** Rejects a request the prover would refuse or resolve against other trees. */
@@ -300,12 +339,36 @@ function checkStatement(inputs: IndexedProofInputs): void {
       inputs.payload.cacheIsCached.length !== inputs.payload.inputs.length
     )
       throw invalid();
-    const shape = selectSppShape(inputs.payload.inputs.length, inputs.payload.outputs.length);
+    const shape = { inputs: inputs.payload.inputs.length, outputs: inputs.payload.outputs.length };
     if (
-      shape.inputs !== inputs.payload.inputs.length ||
-      shape.outputs !== inputs.payload.outputs.length
+      inputs.circuit === "transferConfidentialEddsa"
+        ? !isConfidentialEddsaShape(shape)
+        : !isSppShape(shape)
     )
       throw invalid();
+    const externalDataHashIndex = inputs.circuit === "transferConfidentialEddsa" ? 6 : 4;
+    if (
+      inputs.publicInputs[3] !== inputs.payload.privateTxHash ||
+      inputs.publicInputs[externalDataHashIndex] !== inputs.payload.externalDataHash
+    )
+      throw invalid();
+    if (inputs.circuit === "transferConfidentialEddsa") {
+      // The signed digest is the statement's, and the statement publishes it
+      // and the owner right after the private tx hash.
+      const { ownerAuthorization } = inputs.payload;
+      const expected = transactMessageDigestOf(
+        inputs.payload.privateTxHash,
+        inputs.payload.externalDataHash,
+      );
+      checkedAuthorization(ownerAuthorization, expected);
+      const published = eddsaPublicFields(ownerAuthorization);
+      if (
+        bytesToBigInt(ownerAuthorization.messageDigest) !== bytesToBigInt(expected) ||
+        inputs.publicInputs[4] !== published[0] ||
+        inputs.publicInputs[5] !== published[1]
+      )
+        throw invalid();
+    }
   }
   inputs.trees.forEach((tree, index) => {
     if (
@@ -329,7 +392,12 @@ function checkStatement(inputs: IndexedProofInputs): void {
     // An address slot is a real, uncached slot of an owner-signed transfer
     // with a zero nullifier secret and no state lookup.
     const address = input?.circuit.domain === BigInt(ADDRESS_DOMAIN);
-    if (address && inputs.circuit !== "transfer" && inputs.circuit !== "transferRing") {
+    if (
+      address &&
+      inputs.circuit !== "transfer" &&
+      inputs.circuit !== "transferRing" &&
+      inputs.circuit !== "transferConfidentialEddsa"
+    ) {
       throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index } });
     }
     if (
