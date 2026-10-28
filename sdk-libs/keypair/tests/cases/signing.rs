@@ -1,4 +1,4 @@
-use zolana_keypair::{hash::sha256, Curve, SigningKey};
+use spr_keypair::{hash::sha256, Curve, SigningKey};
 
 use crate::KeypairWorld;
 

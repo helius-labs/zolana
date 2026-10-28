@@ -2,7 +2,7 @@ mod cases;
 
 use std::collections::HashMap;
 
-use zolana_keypair::{KeypairError, PublicKey, ShieldedKeypair, SigningKey, ViewingKey};
+use spr_keypair::{KeypairError, PublicKey, ShieldedKeypair, SigningKey, ViewingKey};
 
 #[derive(Default)]
 pub struct KeypairWorld {

@@ -9,7 +9,7 @@ use groth16_solana::{
 };
 use light_program_profiler::profile;
 use pinocchio::ProgramResult;
-use zolana_interface::error::ShieldedPoolError;
+use spr_interface::error::ShieldedPoolError;
 
 /// The Groth16 proof points handed to [`verify_groth16`]: the G1 points (`a`,
 /// `c`, and the BSB22 pair) are compressed, `b` is the raw big-endian G2 point.

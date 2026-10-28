@@ -1,9 +1,9 @@
 //! X25519 viewing and auditor envelope keys. Public keys use `0x04 || u`.
 
 use rand::{rngs::OsRng, RngCore};
+use spr_hasher::primitives::is_canonical_x25519_public_key;
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
-use zolana_hasher::primitives::is_canonical_x25519_public_key;
 
 use crate::KeypairError;
 

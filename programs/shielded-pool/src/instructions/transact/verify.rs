@@ -5,15 +5,14 @@ use arrayvec::ArrayVec as RefArrayVec;
 use light_array_map::pubkey_eq;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-use tinyvec::ArrayVec;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
-use zolana_hasher::{
+use spr_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
+use spr_hasher::{
     hash_chain::create_hash_chain_4_from_slice,
     primitives::{hash_bytes, solana_owner_identity},
     sha256::Sha256,
     Hasher, Poseidon,
 };
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
         is_confidential_encrypted_output, CircuitId, InterfaceTransfer, ResolvedOutput,
@@ -25,16 +24,17 @@ use zolana_interface::{
     verifying_keys::OutputOwnerMode,
     INPUT_TREES, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
+use tinyvec::ArrayVec;
 
 use crate::instructions::{settlement::Settlement, verifier};
 
 /// Maximum number of input UTXOs a transact circuit spends. Distinct from
-/// `zolana_interface::INPUT_TREES` (the number of public tree slots).
+/// `spr_interface::INPUT_TREES` (the number of public tree slots).
 pub const MAX_INPUTS: usize = MAX_TRANSACT_INPUTS;
 
-pub use zolana_interface::shape::MAX_SIGNERS;
+pub use spr_interface::shape::MAX_SIGNERS;
 
-pub use zolana_interface::MAX_OUTPUTS;
+pub use spr_interface::MAX_OUTPUTS;
 
 const MAX_OWNER_HASHES: usize = MAX_SIGNERS + MAX_OUTPUTS;
 
@@ -135,7 +135,7 @@ pub struct TransactProofInputs {
     pub public_slot_amounts: [i128; N_PUBLIC_SLOTS],
     pub ring_program_id: [u8; 32],
     /// The dummy-input policy in bit 0 and every input's tree index above it
-    /// (`zolana_interface::tree_slot::pack_input_flags`).
+    /// (`spr_interface::tree_slot::pack_input_flags`).
     pub input_flags: [u8; 32],
     /// Number of unique entries at the head of `signer_pk_hashes`; the
     /// remaining slots are zero padding. Public only so the moved

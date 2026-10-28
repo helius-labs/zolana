@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use ark_bn254::Fr;
-use zolana_hasher::primitives::hash_bytes;
-use zolana_interface::DUMMY_DOMAIN;
-use zolana_keypair::circuit::{client, owner};
-use zolana_zk_dsl::{
+use spr_hasher::primitives::hash_bytes;
+use spr_interface::DUMMY_DOMAIN;
+use spr_keypair::circuit::{client, owner};
+use spr_zk_dsl::{
     circuit::{constant, labels::Scope, Assert, CircuitVar, Uint, VariableRole},
     conversion::{Allocator, Dummy, Placeholder, ProofInput},
     CircuitError,
@@ -133,7 +133,7 @@ fn field(
     role: VariableRole,
 ) -> Result<CircuitVar, CircuitError> {
     allocator.witness(
-        zolana_zk_dsl::conversion::field(bytes, name)?.into(),
+        spr_zk_dsl::conversion::field(bytes, name)?.into(),
         name,
         role,
     )

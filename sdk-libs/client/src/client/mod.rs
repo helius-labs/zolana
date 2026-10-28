@@ -20,7 +20,7 @@ mod validation;
 
 use std::sync::Arc;
 
-use zolana_api::BlockingRuntime;
+use spr_api::BlockingRuntime;
 
 #[cfg(feature = "reqwest")]
 use crate::indexer::ZolanaIndexer;
@@ -397,7 +397,7 @@ async fn prove_on_blocking_pool(
 }
 
 struct TransferPreparation {
-    transaction: zolana_transaction::instructions::transact::SppProofInputs,
+    transaction: spr_transaction::instructions::transact::SppProofInputs,
     config: IndexerRpcConfig,
 }
 

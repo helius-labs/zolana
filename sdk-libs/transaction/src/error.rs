@@ -1,6 +1,6 @@
 use solana_address::Address;
+use spr_keypair::KeypairError;
 use thiserror::Error;
-use zolana_keypair::KeypairError;
 
 /// Why an address input was refused. An address slot carries only a Solana
 /// signing owner and a canonical seed (its blinding), hashed under the address
@@ -331,7 +331,7 @@ pub enum TransactionError {
     /// The seed is the right width but is not a valid signature over the
     /// canonical derivation message for this key, so it cannot be the seed this
     /// wallet's roles expand from. Distinct from
-    /// [`zolana_keypair::KeypairError::InvalidDerivationSeed`], which is a
+    /// [`spr_keypair::KeypairError::InvalidDerivationSeed`], which is a
     /// wrong-width seed.
     #[error("derivation seed is not a valid signature over the derivation message for this key")]
     InvalidDerivationSeed,
@@ -355,8 +355,8 @@ impl From<AddressInputError> for TransactionError {
     }
 }
 
-impl From<zolana_hasher::HasherError> for TransactionError {
-    fn from(e: zolana_hasher::HasherError) -> Self {
+impl From<spr_hasher::HasherError> for TransactionError {
+    fn from(e: spr_hasher::HasherError) -> Self {
         TransactionError::Keypair(KeypairError::Poseidon(e.into()))
     }
 }

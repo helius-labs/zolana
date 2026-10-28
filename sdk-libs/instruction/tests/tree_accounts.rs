@@ -1,16 +1,16 @@
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
-use zolana_instruction::instruction::{
+use spr_instruction::instruction::{
     nullifier_pda_accounts, MergeRing, MergeTransact, RingAuthorityTransact, RingTransact,
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
-use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
-use zolana_interface::instruction::{
+use spr_interface::instruction::instruction_data::merge_transact::MergeProof;
+use spr_interface::instruction::instruction_data::MergeOutputEncryption;
+use spr_interface::instruction::{
     CircuitId, InputUtxo, InterfaceTransfer, MergeTransactIxData, TransactIxData, TransactProof,
     TreeContext,
 };
-use zolana_interface::{pda, PROGRAM_ID_PUBKEY, SOL_INTERFACE_PUBKEY};
+use spr_interface::{pda, PROGRAM_ID_PUBKEY, SOL_INTERFACE_PUBKEY};
 
 fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData {
     TransactIxData {

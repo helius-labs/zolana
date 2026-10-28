@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     user_registry::resolve_registered_address, ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaIndexer,
 };
-use zolana_program::instruction::{AssetDeposit, Deposit, DepositAsset, DepositSplAccounts};
-use zolana_transaction::Address;
+use spr_program::instruction::{AssetDeposit, Deposit, DepositAsset, DepositSplAccounts};
+use spr_transaction::Address;
 
 use super::{
     material::load_sender_from_resolved_sync,
@@ -36,7 +36,7 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
         .transpose()?
         .unwrap_or_else(|| material.funding.pubkey());
     let recipient = resolve_registered_address(&rpc, recipient_pubkey)?;
-    let deposit_asset = if asset == zolana_transaction::SOL_MINT {
+    let deposit_asset = if asset == spr_transaction::SOL_MINT {
         DepositAsset::Sol
     } else {
         let mint = solana_pubkey::Pubkey::new_from_array(asset.to_bytes());

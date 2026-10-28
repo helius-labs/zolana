@@ -62,9 +62,9 @@ impl DataHash for UtxoOwner {
     }
 }
 
-impl DataHash for zolana_keypair::circuit::ShieldedAddressCircuit {
+impl DataHash for spr_keypair::circuit::ShieldedAddressCircuit {
     fn hash(&self) -> Result<CircuitVar, CircuitError> {
-        zolana_keypair::circuit::ShieldedAddressCircuit::hash(self)
+        spr_keypair::circuit::ShieldedAddressCircuit::hash(self)
     }
 }
 
@@ -201,7 +201,7 @@ impl<S> DataUtxo<S> {
         Self {
             balance: Balance::new(
                 owner.clone(),
-                SolanaAddress::constant(&zolana_transaction::SOL_MINT),
+                SolanaAddress::constant(&spr_transaction::SOL_MINT),
                 Amount::zero(),
             ),
             state,

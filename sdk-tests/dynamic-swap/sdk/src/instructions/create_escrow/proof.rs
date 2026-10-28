@@ -1,9 +1,9 @@
 use anyhow::{bail, Result};
 use dynamic_swap_program::instructions::create_escrow::EscrowOpenPublicInput;
 use dynamic_swap_prover::{EscrowOpenProofInputs, ProofInputUtxo};
-use zolana_keypair::hash::owner_hash;
-use zolana_transaction::instructions::transact::{asset_field, PrivateTxHash, SppProofOutputUtxo};
-use zolana_transaction::utxo::SppProofInputUtxo;
+use spr_keypair::hash::owner_hash;
+use spr_transaction::instructions::transact::{asset_field, PrivateTxHash, SppProofOutputUtxo};
+use spr_transaction::utxo::SppProofInputUtxo;
 
 use crate::{err, shared::check_output_utxo};
 

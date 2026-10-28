@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::let_underscore_must_use, clippy::disallowed_types)]
 
-use zolana_program::{
+use spr_program::{
     circuit::{
         value, CheckedTransaction, Circuit, ConfidentialTransaction, Field, PublicInputs, Uint,
     },

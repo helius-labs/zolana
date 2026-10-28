@@ -1,4 +1,4 @@
-use zolana_hasher::{sha256::Sha256BE, Hasher, Keccak, Poseidon, Sha256};
+use spr_hasher::{sha256::Sha256BE, Hasher, Keccak, Poseidon, Sha256};
 
 /// Every hasher's empty-subtree table must be the chain its own `hashv`
 /// produces from a zero leaf, or a tree using the table disagrees with a tree

@@ -1,5 +1,5 @@
-use zolana_program::{testing::PrivateVariableReport, ZkCircuit};
-use zolana_transaction::Mint;
+use spr_program::{testing::PrivateVariableReport, ZkCircuit};
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{
@@ -316,7 +316,7 @@ fn balance_reads_no_owner_so_only_the_nullifier_keys_are_free() {
 
 #[test]
 fn a_transfer_into_a_closed_utxo_is_refused_before_any_row() {
-    let refusal = |result: Result<Vec<u8>, zolana_program::ProverError>| {
+    let refusal = |result: Result<Vec<u8>, spr_program::ProverError>| {
         result.map(|_| ()).map_err(|error| error.name())
     };
     let closed = "CircuitError.TransferToClosedUtxo";
@@ -367,7 +367,7 @@ fn oversized_amount_errors_keep_the_operation_location_through_the_prover() {
         ] {
             assert!(matches!(
                 error.circuit_error().expect("wrapped circuit error").kind(),
-                zolana_program::CircuitErrorKind::BitWidthTooLarge { bits: 254 }
+                spr_program::CircuitErrorKind::BitWidthTooLarge { bits: 254 }
             ));
             assert_eq!(
                 (

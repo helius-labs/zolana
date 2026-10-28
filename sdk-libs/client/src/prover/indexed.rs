@@ -11,11 +11,10 @@ pub use transfer::{
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
-use zeroize::Zeroizing;
-use zolana_hasher::{
+use spr_hasher::{
     hash_chain::create_hash_chain_4_from_slice, primitives::is_canonical_bn254_scalar_be,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::{
         merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, transact::TreeContext,
     },
@@ -23,6 +22,7 @@ use zolana_interface::{
     tree_slot::{tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, MAX_INPUT_TREES,
 };
+use zeroize::Zeroizing;
 
 use super::{
     endpoint::ProverEndpoint, field::right_align_slice, Delivery, ExpectedProvingKey, Proof, Shape,
@@ -179,7 +179,7 @@ impl IndexedProofRequest {
             return Err(invalid());
         }
         for (index, tree) in data.trees.iter().enumerate() {
-            if tree.tree.to_bytes() != zolana_interface::pda::tree(tree.id).to_bytes()
+            if tree.tree.to_bytes() != spr_interface::pda::tree(tree.id).to_bytes()
                 || data.trees[..index]
                     .iter()
                     .any(|previous| previous.id == tree.id)
@@ -205,7 +205,7 @@ impl IndexedProofRequest {
             let (flag, real) = match metadata.circuit_type {
                 IndexedCircuit::Merge | IndexedCircuit::MergeRing => (
                     input.domain.as_deref().ok_or_else(invalid)?,
-                    right_align_slice(&zolana_interface::UTXO_DOMAIN.to_be_bytes())?,
+                    right_align_slice(&spr_interface::UTXO_DOMAIN.to_be_bytes())?,
                 ),
                 _ => (input.is_dummy.as_deref().ok_or_else(invalid)?, [0; 32]),
             };
@@ -237,7 +237,7 @@ impl IndexedProofRequest {
                 .transpose()
                 .map_err(|_| invalid())?
                 == Some(right_align_slice(
-                    &zolana_interface::ADDRESS_DOMAIN.to_be_bytes(),
+                    &spr_interface::ADDRESS_DOMAIN.to_be_bytes(),
                 )?);
             if address
                 && (dummy
@@ -361,7 +361,7 @@ impl IndexedProofRequest {
                     usize::from(input.tree_slot) == index && input.commitment.is_some()
                 });
             let no_state = resolved.context.utxo_tree_root_index
-                == zolana_interface::instruction::instruction_data::transact::NO_UTXO_ROOT;
+                == spr_interface::instruction::instruction_data::transact::NO_UTXO_ROOT;
             if needs_state == no_state {
                 return Err(invalid_resolution());
             }
@@ -382,7 +382,7 @@ impl ProofResolution {
         let mut slots = [TreeSlot::ZERO; INPUT_TREES];
         for (slot, tree) in slots.iter_mut().zip(&self.trees) {
             let no_state = tree.context.utxo_tree_root_index
-                == zolana_interface::instruction::instruction_data::transact::NO_UTXO_ROOT;
+                == spr_interface::instruction::instruction_data::transact::NO_UTXO_ROOT;
             if (no_state && tree.utxo_root != [0; 32])
                 || (!no_state
                     && usize::from(tree.context.utxo_tree_root_index)
@@ -616,7 +616,7 @@ mod tests {
             .map(|tree| {
                 let id = u16::try_from(tree["id"].as_u64().unwrap()).unwrap();
                 ResolvedProofTree {
-                    tree: zolana_interface::pda::tree(id).to_bytes().into(),
+                    tree: spr_interface::pda::tree(id).to_bytes().into(),
                     id,
                     utxo_root: decode_field(tree["utxoRoot"].as_str().unwrap()).unwrap(),
                     nullifier_root: decode_field(tree["nullifierRoot"].as_str().unwrap()).unwrap(),
@@ -643,7 +643,7 @@ mod tests {
                 .to_string(),
             ),
             trees: vec![IndexedTree {
-                tree: zolana_interface::pda::tree(3).to_bytes().into(),
+                tree: spr_interface::pda::tree(3).to_bytes().into(),
                 id: 3,
             }],
             inputs: vec![IndexedLookup {
@@ -682,7 +682,7 @@ mod tests {
     /// refused for it, and the other way round.
     #[test]
     fn merge_public_input_count_follows_the_rail() {
-        let domain = format!("0x{:x}", zolana_interface::UTXO_DOMAIN);
+        let domain = format!("0x{:x}", spr_interface::UTXO_DOMAIN);
         let request = |circuit_type: &str, count: usize| IndexedProofData {
             witness: Zeroizing::new(
                 json!({"circuitType": circuit_type,
@@ -690,7 +690,7 @@ mod tests {
                 .to_string(),
             ),
             trees: vec![IndexedTree {
-                tree: zolana_interface::pda::tree(3).to_bytes().into(),
+                tree: spr_interface::pda::tree(3).to_bytes().into(),
                 id: 3,
             }],
             inputs: vec![
@@ -722,7 +722,7 @@ mod tests {
         *data.witness = wire.to_string();
         assert!(IndexedProofRequest::new(data).is_err());
         let mut data = request_data();
-        let n_inputs = zolana_interface::MAX_TRANSACT_INPUTS;
+        let n_inputs = spr_interface::MAX_TRANSACT_INPUTS;
         wire["nInputs"] = json!(n_inputs);
         wire["nOutputs"] = json!(2);
         wire["inputs"] = json!(vec![json!({"treeSlot":"0x0", "isDummy":"0x0"}); n_inputs]);
@@ -734,7 +734,7 @@ mod tests {
 
     #[test]
     fn state_root_presence_is_bound_to_requested_lookups() {
-        use zolana_interface::instruction::instruction_data::transact::NO_UTXO_ROOT;
+        use spr_interface::instruction::instruction_data::transact::NO_UTXO_ROOT;
         for cached in [false, true] {
             for root in [[0; 32], scalar_one()] {
                 for index in [0, NO_UTXO_ROOT] {
@@ -782,7 +782,7 @@ mod tests {
     /// refused request differs from an accepted one in a single field.
     #[test]
     fn address_lookups_need_no_commitment_and_an_owner_signed_circuit() {
-        let address_domain = format!("0x{:x}", zolana_interface::ADDRESS_DOMAIN);
+        let address_domain = format!("0x{:x}", spr_interface::ADDRESS_DOMAIN);
         let request = |circuit_type: &str, commitment: Option<[u8; 32]>| {
             let mut data = request_data();
             let mut wire: serde_json::Value = serde_json::from_str(&data.witness).unwrap();
@@ -822,7 +822,7 @@ mod tests {
     #[test]
     fn rejects_out_of_range_resolution() {
         let request = IndexedProofRequest::new(request_data()).unwrap();
-        let mut wire = json!({"trees":[{"tree":zolana_interface::pda::tree(3).to_string(),"id":3,
+        let mut wire = json!({"trees":[{"tree":spr_interface::pda::tree(3).to_string(),"id":3,
             "utxoRoot":"0x1","nullifierRoot":"0x2","utxoRootIndex":0,"nullifierRootIndex":0}]});
         let hash = decode_resolution(json!({"trees": wire["trees"], "publicInputHash": "0x1"}))
             .and_then(|resolution| resolution.hash(&request.data.public_inputs))

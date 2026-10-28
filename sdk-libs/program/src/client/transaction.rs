@@ -1,12 +1,12 @@
 use solana_address::Address;
-use zolana_instruction::{transaction_hash, PublicTransfer};
-use zolana_keypair::ShieldedAddress;
-use zolana_transaction::instructions::transact::{
+use spr_instruction::{transaction_hash, PublicTransfer};
+use spr_keypair::ShieldedAddress;
+use spr_transaction::instructions::transact::{
     canonical_shape, ConfidentialTransaction, FinalizedTransaction,
 };
-use zolana_transaction::{instructions::transact::SppProofInputs, keys::ShieldedKeys};
+use spr_transaction::{instructions::transact::SppProofInputs, keys::ShieldedKeys};
 
-use zolana_zk_dsl::{prover::ArkworksCircuit, ProofInputs};
+use spr_zk_dsl::{prover::ArkworksCircuit, ProofInputs};
 
 use super::transfer::public_transfer;
 use crate::{

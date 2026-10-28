@@ -3,11 +3,11 @@ use std::{
     process::{Command, Stdio},
 };
 
-use zolana_program::{__private::render_verifier, PublicInputLayout};
+use spr_program::{__private::render_verifier, PublicInputLayout};
 
 use super::{Settlement, Unconditional};
 
-const UNCONDITIONAL: &str = "use zolana_program::{
+const UNCONDITIONAL: &str = "use spr_program::{
     transaction_hash,
     verifier::{groth16_solana, public_hash, verify_groth16, VerifyError},
     CompressedProof, PublicTransfer,
@@ -88,9 +88,9 @@ fn a_raw_field_name_binds_its_elements_without_the_prefix() {
         "raw",
         &[(
             "r#type",
-            zolana_program::PublicFieldKind::Array {
+            spr_program::PublicFieldKind::Array {
                 len: 2,
-                item: Box::new(zolana_program::PublicFieldKind::Bool),
+                item: Box::new(spr_program::PublicFieldKind::Bool),
             },
         )],
     ));

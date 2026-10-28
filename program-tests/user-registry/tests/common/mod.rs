@@ -3,8 +3,8 @@
 
 use solana_keypair::Keypair;
 use solana_signer::Signer;
+use spr_keypair::X25519Keypair;
 use user_registry_tests::{build_register_ix, UserRegistryTestRig};
-use zolana_keypair::X25519Keypair;
 
 pub const OWNER_LAMPORTS: u64 = 5_000_000_000;
 

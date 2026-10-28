@@ -1,8 +1,8 @@
 use anyhow::{bail, Result};
-use zolana_client::Rpc;
-use zolana_interface::event::OutputDataEncoding;
-use zolana_keypair::{ShieldedPda, ViewingKey};
-use zolana_transaction::{
+use spr_client::Rpc;
+use spr_interface::event::OutputDataEncoding;
+use spr_keypair::{ShieldedPda, ViewingKey};
+use spr_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::Blinding,
     DecodeCx, EncryptedScheme, ShieldedTransaction, UtxoSerialization,

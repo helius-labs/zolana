@@ -3,7 +3,7 @@ use groth16_solana::groth16::negate_g1_be;
 use num_bigint::BigUint;
 use serde::Deserialize;
 use solana_bn254::compression::prelude::alt_bn128_g1_compress_be;
-use zolana_interface::instruction::NullifierTreeProof;
+use spr_interface::instruction::NullifierTreeProof;
 
 #[derive(Debug)]
 pub struct Proof {
@@ -72,10 +72,10 @@ pub(crate) fn decode(value: &serde_json::Value, key: &ExpectedProvingKey) -> Res
     })
 }
 pub(crate) fn verify(proof: &NullifierTreeProof, hash: [u8; 32], size: u32) -> Result<()> {
-    zolana_tree::nullifier_tree::verify::verify_batch_update(
+    spr_tree::nullifier_tree::verify::verify_batch_update(
         u64::from(size),
         hash,
-        &zolana_tree::nullifier_tree::proof::NullifierTreeProof {
+        &spr_tree::nullifier_tree::proof::NullifierTreeProof {
             a: proof.a,
             b: proof.b,
             c: proof.c,

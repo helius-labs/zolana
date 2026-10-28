@@ -214,7 +214,7 @@ largest_utxo_hash() {
 }
 
 # --- preflight ---------------------------------------------------------------
-[[ -x "$BIN" ]]              || { log "binary not found/executable: $BIN (build with: cargo build --release -p zolana-cli)"; exit 1; }
+[[ -x "$BIN" ]]              || { log "binary not found/executable: $BIN (build with: cargo build --release -p spr-cli)"; exit 1; }
 command -v solana >/dev/null || { log "solana CLI not found (needed for funding + withdrawal target)"; exit 1; }
 [[ -f "$FUNDER" ]]           || { log "FUNDER keypair not found: $FUNDER"; exit 1; }
 [[ -n "$INDEXER" ]]          || { log "set ZOLANA_INDEXER_URL to this devnet's Photon indexer"; exit 1; }

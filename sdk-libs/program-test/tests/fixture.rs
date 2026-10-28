@@ -1,7 +1,7 @@
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_program_test::{
+use spr_program_test::{
     fixture::{
         account_json, actor, payer, payer_token_account, spl_mint, write_test_fixture, ACTOR_COUNT,
         FUNDED_LAMPORTS,

@@ -3,12 +3,12 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc};
-use zolana_interface::{
+use spr_client::{ComputeBudgetConfig, Rpc};
+use spr_interface::{
     pda, state::ProtocolConfig, PROGRAM_ID_PUBKEY, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_program::instruction::CreateAssociatedTokenAccount;
-use zolana_transaction::{Address, SOL_MINT};
+use spr_program::instruction::CreateAssociatedTokenAccount;
+use spr_transaction::{Address, SOL_MINT};
 
 pub(super) use crate::cli_config::parse_pubkey;
 use crate::cli_config::CliConfigFile;

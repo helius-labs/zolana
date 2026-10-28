@@ -1,11 +1,11 @@
 use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use swap_program::instructions::take::TakeIxData;
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::instruction::nullifier_pda_accounts;
+use spr_program::instruction::nullifier_pda_accounts;
+use swap_program::instructions::take::TakeIxData;
 
 use crate::{err, order_authority_pda, tag, TakeProof};
 

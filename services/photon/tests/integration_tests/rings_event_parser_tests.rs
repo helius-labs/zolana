@@ -1,5 +1,5 @@
+use spr_interface::instruction::instruction_data::MergeOutputEncryption;
 use std::collections::HashMap;
-use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
 
 use crate::rings_fixtures::{
     fixture_ring_program, fresh_rings_database, resolve_by_signature, resolve_by_tags,
@@ -54,21 +54,21 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
-use zolana_event::{
+use spr_event::{
     encode_event_instruction, encode_output_data, EventKind, GeneralEvent, Input,
     InputTreeSequence, MergeEvent, OutputDataEncoding, OutputUtxo, ProoflessOutput, SplTransfer,
     TransactEvent,
 };
-use zolana_indexer_api::{
+use spr_indexer_api::{
     GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsBySignatureRequest, Hash, SerializablePubkey, SerializableSignature,
 };
-use zolana_interface::instruction::{
+use spr_interface::instruction::{
     instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
     CircuitId, InputUtxo, InterfaceTransfer, MergeTransactIxData, OwnerTag, TransactIxData,
     TransactOutput, TransactProof, TreeContext,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, NullifierTreeProof},
     pda,
     state::{
@@ -76,7 +76,7 @@ use zolana_interface::{
         tree_account_size,
     },
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 const PROOFLESS_SHIELD_SLOT: u64 = 23;
 const SHIELDED_TRANSFER_SLOT: u64 = 25;
@@ -1957,7 +1957,7 @@ fn known_rings_tree_account_metadata(tree: [u8; 32]) -> tree_metadata::ActiveMod
         height: Set(RingsTreeKind::Nullifier.tree_height() as i32),
         root_history_capacity: Set(RingsTreeKind::Nullifier.root_history_capacity() as i64),
         input_queue_zkp_batch_size: Set(i64::try_from(
-            zolana_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+            spr_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
         )
         .unwrap()),
         sequence_number: Set(0),
@@ -1977,7 +1977,7 @@ fn test_tree_info_cache(tree: Pubkey) -> HashMap<Pubkey, TreeInfo> {
             height: RingsTreeKind::Nullifier.tree_height(),
             root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),
             input_queue_zkp_batch_size:
-                zolana_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+                spr_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
         },
     )])
 }
@@ -2466,8 +2466,7 @@ fn batch_update_transaction_info(tree: Pubkey) -> TransactionInfo {
 async fn merkle_proofs_for_test(
     db: &sea_orm::DatabaseConnection,
     request: GetMerkleProofsRequest,
-) -> Result<zolana_indexer_api::GetMerkleProofsResponse, photon_indexer::api::error::PhotonApiError>
-{
+) -> Result<spr_indexer_api::GetMerkleProofsResponse, photon_indexer::api::error::PhotonApiError> {
     use photon_indexer::api::root_index_cache::RootIndexCache;
     use photon_indexer::dao::generated::state_trees;
 

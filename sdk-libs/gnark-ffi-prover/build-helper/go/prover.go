@@ -1,10 +1,10 @@
-// Package gnarkffiprover is the cgo bridge a zolana-gnark-ffi-prover crate
+// Package gnarkffiprover is the cgo bridge a spr-gnark-ffi-prover crate
 // builds into its C archive. The prover crate's `main` package registers its
 // circuits by name from an init function; the exported Setup, LoadKeys and
 // Prove look a circuit up by that name, which is also its key directory and
-// setup CLI argument on the Rust side (`zolana_gnark_ffi_prover::Circuit::name`).
+// setup CLI argument on the Rust side (`spr_gnark_ffi_prover::Circuit::name`).
 //
-// This module ships inside the zolana-gnark-ffi-prover-build crate, whose
+// This module ships inside the spr-gnark-ffi-prover-build crate, whose
 // build helper replaces the module path with this directory at build time.
 package gnarkffiprover
 
@@ -12,7 +12,7 @@ package gnarkffiprover
 #include <stdlib.h>
 #include <string.h>
 
-// Mirrored field for field by `ProveResult` in the zolana-gnark-ffi-prover
+// Mirrored field for field by `ProveResult` in the spr-gnark-ffi-prover
 // crate's src/ffi.rs.
 typedef struct {
     unsigned char proof_a[64];

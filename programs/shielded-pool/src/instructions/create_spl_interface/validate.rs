@@ -8,7 +8,7 @@ use spl_token_2022_interface::{
     extension::{BaseStateWithExtensions, ExtensionType, PodStateWithExtensions},
     pod::{PodAccount, PodMint},
 };
-use zolana_interface::{error::ShieldedPoolError, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID};
+use spr_interface::{error::ShieldedPoolError, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID};
 
 #[derive(Clone, Copy)]
 pub struct ValidatedTokenMint {

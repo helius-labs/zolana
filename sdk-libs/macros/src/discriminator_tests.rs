@@ -2,7 +2,7 @@
 mod tests {
     use anchor_syn::codegen::program::common::sighash;
 
-    use zolana_hasher::state_discriminator;
+    use spr_hasher::state_discriminator;
 
     #[test]
     fn matches_anchor_account_discriminators() {

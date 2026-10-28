@@ -1,11 +1,11 @@
 //! The independent reference: every transaction a fixture proves is rebuilt
-//! here with `zolana_transaction::ConfidentialTransaction`, the builder a
-//! wallet uses without the SDK, and hashed with `zolana_program::transaction_hash`.
+//! here with `spr_transaction::ConfidentialTransaction`, the builder a
+//! wallet uses without the SDK, and hashed with `spr_program::transaction_hash`.
 
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{circuit::Field, transaction_hash, PublicTransfer};
-use zolana_transaction::{
+use spr_hasher::{Hasher, Poseidon};
+use spr_keypair::ShieldedAddress;
+use spr_program::{circuit::Field, transaction_hash, PublicTransfer};
+use spr_transaction::{
     instructions::transact::{
         canonical_shape, ConfidentialTransaction, FinalizedTransaction, PublicTransferRequest,
         SettlementTarget,
@@ -161,7 +161,7 @@ impl Reference {
     }
 }
 
-fn output_tree_id(tx_context: &zolana_program::TxContext, first: &WalletUtxo) -> u16 {
+fn output_tree_id(tx_context: &spr_program::TxContext, first: &WalletUtxo) -> u16 {
     tx_context
         .output_tree_id
         .or(first.latest_tree_id)

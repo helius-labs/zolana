@@ -1,18 +1,18 @@
 use anyhow::{bail, Result};
 use solana_address::Address;
-use swap_program::instructions::shared::u64_right_align;
-use swap_prover::OrderTermsProofInput;
-use wincode::{SchemaRead, SchemaWrite};
-use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
-use zolana_keypair::{
+use spr_hasher::primitives::{hash_bytes, solana_owner_identity};
+use spr_keypair::{
     constants::BLINDING_LEN, hash::poseidon, CompressedShieldedAddress, NullifierKey, PublicKey,
     ShieldedAddress, X25519Pubkey,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::SppProofOutputUtxo,
     utxo::{Blinding, SppProofInputUtxo, Utxo},
     Data, Mint,
 };
+use swap_program::instructions::shared::u64_right_align;
+use swap_prover::OrderTermsProofInput;
+use wincode::{SchemaRead, SchemaWrite};
 
 use crate::err;
 
@@ -270,9 +270,7 @@ impl OrderUtxo {
         if self.terms.take_mode != swap_prover::TAKE_MODE_DERIVED {
             bail!("order does not use derived settlement");
         }
-        use zolana_transaction::utxo::{
-            derive_output_blinding_seed, derive_transact_output_blinding,
-        };
+        use spr_transaction::utxo::{derive_output_blinding_seed, derive_transact_output_blinding};
         let blinding_seed = crate::instructions::take::take_blinding_seed(&self.blinding)?;
         let seed = derive_output_blinding_seed(first_nullifier, &blinding_seed).map_err(err)?;
         let blinding = derive_transact_output_blinding(first_nullifier, &seed, 1).map_err(err)?;
@@ -302,8 +300,8 @@ impl OrderUtxo {
 
 #[cfg(test)]
 mod tests {
+    use spr_keypair::ViewingKey;
     use swap_prover::{TAKE_MODE_DERIVED, TAKE_MODE_VERIFIABLE};
-    use zolana_keypair::ViewingKey;
 
     use super::*;
 

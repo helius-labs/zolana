@@ -11,7 +11,7 @@ import { poseidon } from "../poseidon.js";
  * `blindingSeed` per proof; the circuit derives everything else from it and
  * the published nullifier of input slot 0, so a client can disclose
  * `outputBlindingSeed` to a reader without revealing `privateTxBlinding`.
- * Mirrors `zolana_program::derivation`.
+ * Mirrors `spr_program::derivation`.
  */
 
 /** `Poseidon("TXOS", first_nullifier, blinding_seed)`. */

@@ -3,7 +3,7 @@ mod state;
 mod withdraw;
 
 use solana_address::Address;
-use zolana_program::ProgramOwner;
+use spr_program::ProgramOwner;
 
 pub use escrow::{
     Escrow, EscrowCircuit, EscrowPrivateInputs, EscrowPublicInputs, ESCROW_OUTPUT_SLOT,

@@ -1,4 +1,4 @@
-use zolana_interface::state::{
+use spr_interface::state::{
     NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY, STATE_HEIGHT,
     STATE_ROOT_HISTORY_CAPACITY,
 };

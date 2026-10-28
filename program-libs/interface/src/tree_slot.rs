@@ -12,7 +12,7 @@
 //! spend populates one slot per input tree it declares, in account order, and
 //! starts the chain from the zero suffix of the unused remainder.
 
-use zolana_hasher::{
+use spr_hasher::{
     hash_chain::create_right_hash_chain_from_slice, primitives::right_align, Hasher, HasherError,
     Poseidon,
 };
@@ -55,9 +55,9 @@ impl TreeSlot {
 
 #[cfg(feature = "tree")]
 pub fn resolve_tree_slot(
-    tree: &zolana_tree::TreeAccount<'_>,
+    tree: &spr_tree::TreeAccount<'_>,
     context: &TreeContext,
-) -> Result<TreeSlot, zolana_tree::TreeError> {
+) -> Result<TreeSlot, spr_tree::TreeError> {
     Ok(TreeSlot {
         id: tree.tree_id_array(),
         utxo_root: tree.get_utxo_tree_root(context.utxo_tree_root_index)?,

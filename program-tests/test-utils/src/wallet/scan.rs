@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_event::OutputDataEncoding;
-use zolana_keypair::{
+use spr_event::OutputDataEncoding;
+use spr_keypair::{
     viewing_key::ViewTag, KeypairError, NullifierKey, PublicKey, ViewingKey, X25519Pubkey,
 };
-use zolana_transaction::{
+use spr_transaction::{
     decrypt,
     error::TransactionError,
     instructions::transact::{OutputContext, ShieldedTransaction},
@@ -109,7 +109,7 @@ pub(super) struct SlotOutcome {
 }
 
 pub(super) struct SyncCtx<'a> {
-    ring_deposit_payload: Option<(Address, zolana_transaction::DepositPayload)>,
+    ring_deposit_payload: Option<(Address, spr_transaction::DepositPayload)>,
     keys: LocalShieldedKeys,
     pub(super) nullifier_key: &'a NullifierKey,
     /// Every viewing key this wallet has held, current and rotated-out. A

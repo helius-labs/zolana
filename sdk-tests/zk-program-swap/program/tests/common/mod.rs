@@ -2,6 +2,13 @@ use mollusk_svm::Mollusk;
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
+use spr_interface::{
+    instruction::instruction_data::transact::{
+        CircuitId, MessageData, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+        TreeContext,
+    },
+    N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
+};
 use swap_program::{
     instructions::{
         cancel::{CancelIxData, CancelProof},
@@ -12,13 +19,6 @@ use swap_program::{
         },
     },
     tag, ORDER_AUTHORITY_PDA_SEED,
-};
-use zolana_interface::{
-    instruction::instruction_data::transact::{
-        CircuitId, MessageData, OwnerTag, TransactIxData, TransactOutput, TransactProof,
-        TreeContext,
-    },
-    N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 
 const SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../target/deploy");
@@ -51,7 +51,7 @@ impl Wrapper {
 }
 
 pub fn setup_mollusk() -> (Mollusk, Pubkey) {
-    zolana_test_utils::mollusk::mollusk_with_program(
+    spr_test_utils::mollusk::mollusk_with_program(
         SBF_DIR,
         *swap_program::ID.as_array(),
         "swap_program",

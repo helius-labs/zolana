@@ -1,12 +1,12 @@
 mod wallet_common;
 
+use spr_keypair::ShieldedKeypair;
+use spr_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN};
+use spr_test_utils::wallet::{Wallet, DEFAULT_TAG_WINDOW};
+use spr_transaction::{AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, Utxo};
 use wallet_common::{
     build_transfer, keypair_from_index, local_authority, wallet_for, TransferSpec,
 };
-use zolana_keypair::ShieldedKeypair;
-use zolana_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN};
-use zolana_test_utils::wallet::{Wallet, DEFAULT_TAG_WINDOW};
-use zolana_transaction::{AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, Utxo};
 
 const BORSH_HEADER_LEN: usize = 5;
 const SCHEME_BYTE_LEN: usize = 1;

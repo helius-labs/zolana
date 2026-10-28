@@ -1,4 +1,4 @@
-use zolana_hasher::HasherError;
+use spr_hasher::HasherError;
 
 /// A program state's commitment, including its type tag, as a canonical
 /// big-endian BN254 scalar. Native programs can use Poseidon or SHA-256 through

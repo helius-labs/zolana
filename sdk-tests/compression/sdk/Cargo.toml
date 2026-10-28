@@ -13,9 +13,9 @@ num-bigint = { workspace = true }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 wincode = { workspace = true }
-zolana-client = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-interface = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-program = { workspace = true, features = ["compression"] }
-zolana-transaction = { workspace = true }
+spr-client = { workspace = true }
+spr-hasher = { workspace = true }
+spr-interface = { workspace = true }
+spr-keypair = { workspace = true }
+spr-program = { workspace = true, features = ["compression"] }
+spr-transaction = { workspace = true }

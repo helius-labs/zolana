@@ -1,8 +1,11 @@
 [package]
-name = "zolana-macros"
+name = "spr-macros"
 version = "0.1.0"
+description = "Derive macros for SPR zero-knowledge programs."
 edition.workspace = true
-publish = false
+license.workspace = true
+repository.workspace = true
+publish = ["crates-io"]
 
 [lib]
 proc-macro = true
@@ -10,9 +13,9 @@ proc-macro = true
 [dependencies]
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
-zolana-hasher = { workspace = true }
+spr-hasher = { workspace = true }
 syn = { workspace = true }
-zolana-zk-macros-core = { workspace = true }
+spr-zk-macros-core = { workspace = true }
 
 [dev-dependencies]
 anchor-syn = "1.1"
@@ -20,10 +23,10 @@ borsh = { workspace = true }
 solana-address = { workspace = true }
 solana-signature = { workspace = true }
 trybuild = "1"
-zolana-interface = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-program = { workspace = true, features = ["test-support", "setup", "parallel"] }
-zolana-transaction = { workspace = true }
+spr-interface = { workspace = true }
+spr-keypair = { workspace = true }
+spr-program = { path = "../program", features = ["test-support", "setup", "parallel"] }
+spr-transaction = { workspace = true }
 
 [lints.clippy]
 disallowed_types = "allow"

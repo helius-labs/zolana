@@ -1,5 +1,5 @@
-use zolana_interface::instruction::instruction_data::transact::TransactIxData;
-use zolana_transaction::instructions::transact::SppProofInputs;
+use spr_interface::instruction::instruction_data::transact::TransactIxData;
+use spr_transaction::instructions::transact::SppProofInputs;
 
 use crate::{
     authority::ProofAuthority,

@@ -1,4 +1,4 @@
-use zolana_keypair::random_salt;
+use spr_keypair::random_salt;
 
 use crate::KeypairWorld;
 

@@ -6,22 +6,22 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::SolanaRpc;
-use zolana_interface::{
+use spr_client::SolanaRpc;
+use spr_interface::{
     instruction::{encode_instruction, tag, CreateRingConfigData},
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::ShieldedKeypair;
-use zolana_program::instruction::{Deposit, RingDeposit};
-use zolana_program_test::{
+use spr_keypair::ShieldedKeypair;
+use spr_program::instruction::{Deposit, RingDeposit};
+use spr_program_test::{
     ring_deposit_output_from_event, rpc_state_root, single_deposit_view, TestIndexer,
     ZolanaProgramTest, RING_TEST_PROGRAM_ID,
 };
-use zolana_protocol_instructions::SetRingActivation;
-use zolana_test_utils::wallet::{
+use spr_protocol_instructions::SetRingActivation;
+use spr_test_utils::wallet::{
     KeypairWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
 };
-use zolana_transaction::{
+use spr_transaction::{
     derive_output_blinding_seed, utxo::derive_transact_output_blinding, AssetRegistry,
     ShieldedTransaction,
 };
@@ -36,7 +36,7 @@ type TestResult<T = ()> = anyhow::Result<T>;
 
 #[test]
 fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
-    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
+    let rpc_url = spr_test_utils::localnet::localnet_rpc_url();
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let ring_program_id = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);

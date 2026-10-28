@@ -2,9 +2,7 @@
 //! any co-proof over the same transaction, and that a program building its own
 //! transact CPI recomputes.
 
-use zolana_hasher::{
-    hash_chain::create_nonzero_hash_chain_from_slice, Hasher, HasherError, Poseidon,
-};
+use spr_hasher::{hash_chain::create_nonzero_hash_chain_from_slice, Hasher, HasherError, Poseidon};
 
 pub struct PrivateTxHash<'a> {
     pub input_hashes: &'a [[u8; 32]],

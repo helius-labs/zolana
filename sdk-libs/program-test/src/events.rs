@@ -4,18 +4,18 @@ use solana_address::Address;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use zolana_client::ClientError;
-use zolana_event::{
+use spr_client::ClientError;
+use spr_event::{
     encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput, EventKind, GeneralEvent,
     ProoflessOutput,
 };
-use zolana_event_parser::{
+use spr_event_parser::{
     decode_encrypted_ring_deposit_output_data, event_kind_from_indexed, general_event_from_indexed,
     indexed_events_from_instruction_groups, proofless_outputs,
 };
-pub use zolana_event_parser::{IndexedEvent, InstructionGroup, ParsedInstruction};
-use zolana_interface::state::read_tree_id;
-use zolana_transaction::ShieldedTransaction;
+pub use spr_event_parser::{IndexedEvent, InstructionGroup, ParsedInstruction};
+use spr_interface::state::read_tree_id;
+use spr_transaction::ShieldedTransaction;
 
 use crate::{indexer::shielded_transaction_from_general_event, ProgramTestError, TestIndexer};
 
@@ -52,17 +52,17 @@ impl DepositOutput {
     fn to_general_event(&self) -> GeneralEvent {
         GeneralEvent {
             inputs: Vec::new(),
-            outputs: vec![zolana_event::OutputUtxo {
+            outputs: vec![spr_event::OutputUtxo {
                 view_tag: self.view_tag,
                 utxo_hash: self.utxo_hash,
-                data: zolana_event::encode_output_data(self.output.clone()),
+                data: spr_event::encode_output_data(self.output.clone()),
             }],
             messages: Vec::new(),
             tx_viewing_pk: [0u8; 33],
             salt: [0u8; 16],
             first_output_leaf_index: self.leaf_index,
             output_tree: self.output_tree,
-            spl_transfers: vec![zolana_event::SplTransfer {
+            spl_transfers: vec![spr_event::SplTransfer {
                 is_deposit: true,
                 amount: self.output.amount,
                 asset: Some(self.output.asset),
@@ -98,7 +98,7 @@ impl RingDepositOutput {
     fn to_general_event(&self) -> GeneralEvent {
         GeneralEvent {
             inputs: Vec::new(),
-            outputs: vec![zolana_event::OutputUtxo {
+            outputs: vec![spr_event::OutputUtxo {
                 view_tag: self.view_tag,
                 utxo_hash: self.utxo_hash,
                 data: encode_encrypted_ring_deposit_output(self.output.clone()),
@@ -108,7 +108,7 @@ impl RingDepositOutput {
             salt: [0u8; 16],
             first_output_leaf_index: self.leaf_index,
             output_tree: self.output_tree,
-            spl_transfers: vec![zolana_event::SplTransfer {
+            spl_transfers: vec![spr_event::SplTransfer {
                 is_deposit: true,
                 amount: self.output.amount,
                 asset: Some(self.output.asset),

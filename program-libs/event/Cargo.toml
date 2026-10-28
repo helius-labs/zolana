@@ -1,10 +1,11 @@
 [package]
-name = "zolana-event"
+name = "spr-event"
 version = "0.1.0"
+description = "Shielded-pool event types and binary codecs for the SPR protocol."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [dependencies]
 borsh = { workspace = true }

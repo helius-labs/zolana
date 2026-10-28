@@ -1,10 +1,10 @@
 use anyhow::Result;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::TransactProof, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::{instruction::nullifier_pda_accounts, program::UtxoMeta};
+use spr_program::{instruction::nullifier_pda_accounts, program::UtxoMeta};
 
 use crate::{account_pda, err, tag, UpdateIxData};
 

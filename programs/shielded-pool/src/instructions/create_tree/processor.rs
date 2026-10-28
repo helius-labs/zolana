@@ -5,8 +5,8 @@ use pinocchio::{
     sysvars::{rent::Rent, Sysvar},
     AccountView, ProgramResult,
 };
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{
+use spr_account_checks::AccountIterator;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::CreateTreeData,
     state::{
@@ -15,7 +15,7 @@ use zolana_interface::{
     },
     NULLIFIER_PDA_SIZE, TREE_PDA_SEED,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 use super::{
     allocate::{fund_tree, grow_tree, is_unallocated, TreeAllocation},

@@ -1,10 +1,12 @@
 [package]
-name = "zolana-api"
+name = "spr-api"
 version = "0.1.0"
 description = "Typed client for the Zolana indexer API."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+
+publish = ["crates-io"]
 
 [features]
 default = ["reqwest"]
@@ -20,4 +22,4 @@ serde_json = { workspace = true }
 serde_path_to_error = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time"] }
 zeroize = { workspace = true }
-zolana-indexer-api = { workspace = true }
+spr-indexer-api = { workspace = true }

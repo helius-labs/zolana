@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use zolana_hasher::primitives::hash_bytes;
-use zolana_zk_dsl::{
+use spr_hasher::primitives::hash_bytes;
+use spr_zk_dsl::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, PublicField, PublicFieldKind, PublicHashField,
 };

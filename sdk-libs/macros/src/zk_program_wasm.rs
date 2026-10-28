@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::DeriveInput;
 
-use zolana_zk_macros_core::shape::{snake_case, Shape};
+use spr_zk_macros_core::shape::{snake_case, Shape};
 
 use crate::paths;
 
@@ -20,14 +20,14 @@ pub(crate) fn generate(input: &DeriveInput, shape: &Shape) -> TokenStream {
     let wasm = paths::wasm();
 
     quote! {
-        ::zolana_program::__zk_program_wasm! {
+        ::spr_program::__zk_program_wasm! {
             #[doc(hidden)]
             mod #module {
-                use ::zolana_program::__private::wasm_bindgen;
+                use ::spr_program::__private::wasm_bindgen;
                 use wasm_bindgen::prelude::*;
 
                 #[wasm_bindgen(
-                    wasm_bindgen = ::zolana_program::__private::wasm_bindgen,
+                    wasm_bindgen = ::spr_program::__private::wasm_bindgen,
                     js_name = #transaction_js,
                     unchecked_return_type = "ProgramTransaction"
                 )]
@@ -39,7 +39,7 @@ pub(crate) fn generate(input: &DeriveInput, shape: &Shape) -> TokenStream {
                     #wasm::program_transaction::<super::#ident>(inputs, sender, payer)
                 }
 
-                ::zolana_program::__zk_circuit_wasm_prover!(#prover, super::#ident);
+                ::spr_program::__zk_circuit_wasm_prover!(#prover, super::#ident);
             }
         }
     }
@@ -59,14 +59,14 @@ pub(crate) fn data_utxo(input: &DeriveInput) -> TokenStream {
     let wasm = paths::wasm();
 
     quote! {
-        ::zolana_program::__zk_program_wasm! {
+        ::spr_program::__zk_program_wasm! {
             #[doc(hidden)]
             mod #module {
-                use ::zolana_program::__private::wasm_bindgen;
+                use ::spr_program::__private::wasm_bindgen;
                 use wasm_bindgen::prelude::*;
 
                 #[wasm_bindgen(
-                    wasm_bindgen = ::zolana_program::__private::wasm_bindgen,
+                    wasm_bindgen = ::spr_program::__private::wasm_bindgen,
                     js_name = #data_utxo_js,
                     unchecked_return_type = #data_utxo_type
                 )]

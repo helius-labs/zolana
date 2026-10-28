@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum};
-use zolana_client::prover::{tee::TeePolicy, ProverClient, PROVER_INDEXER_URL_ENV};
+use spr_client::prover::{tee::TeePolicy, ProverClient, PROVER_INDEXER_URL_ENV};
 
 use crate::config::{
     DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
@@ -182,7 +182,7 @@ pub(crate) struct ZkCompileOptions {
     #[arg(
         long = "r1cs-features",
         default_value = "circuits",
-        help = "Cargo features that build the circuits; the export adds the package's r1cs-export feature, which enables the r1cs-export feature of zolana-program or zolana-zk-dsl"
+        help = "Cargo features that build the circuits; the export adds the package's r1cs-export feature, which enables the r1cs-export feature of spr-program or spr-zk-dsl"
     )]
     pub(crate) r1cs_features: String,
 
@@ -1259,7 +1259,7 @@ pub(crate) fn parse_wallet(values: &[&str]) -> WalletCommand {
 #[cfg(test)]
 mod tests {
     use clap::CommandFactory;
-    use zolana_client::prover::tee::TeeError;
+    use spr_client::prover::tee::TeeError;
 
     use super::*;
 
@@ -2102,7 +2102,7 @@ mod tests {
 
     fn policy_file(name: &str, json: &str) -> std::path::PathBuf {
         let path =
-            std::env::temp_dir().join(format!("zolana-cli-tee-{}-{name}.json", std::process::id()));
+            std::env::temp_dir().join(format!("spr-cli-tee-{}-{name}.json", std::process::id()));
         std::fs::write(&path, json).expect("write policy");
         path
     }

@@ -1,8 +1,6 @@
-use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
-use zolana_interface::{state::cache::CACHE_CAPACITY, ZERO_NULLIFIER_PUBKEY};
-use zolana_keypair::{
-    constants::BLINDING_LEN, viewing_key::random_blinding, NullifierKey, PublicKey,
-};
+use spr_hasher::primitives::is_canonical_bn254_scalar_be;
+use spr_interface::{state::cache::CACHE_CAPACITY, ZERO_NULLIFIER_PUBKEY};
+use spr_keypair::{constants::BLINDING_LEN, viewing_key::random_blinding, NullifierKey, PublicKey};
 
 use super::{dummy_utxo_hash, Utxo};
 use crate::{AddressInputError, Data, Mint, TransactionError};
@@ -35,26 +33,17 @@ pub struct SppProofInputUtxo {
     pub utxo: Utxo,
     /// The owner's nullifier pubkey, which the commitment folds in through
     /// `owner_hash`. Padding carries zeros: a dummy commits to no owner.
-    #[cfg_attr(
-        feature = "serde",
-        serde(with = "zolana_keypair::serde_helpers::bytes")
-    )]
+    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub nullifier_pubkey: [u8; 32],
     /// Commitment under [`Self::tree_id`].
-    #[cfg_attr(
-        feature = "serde",
-        serde(with = "zolana_keypair::serde_helpers::bytes")
-    )]
+    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub utxo_hash: [u8; 32],
     /// The nullifier the circuit derives for this slot and proves absent from
     /// the nullifier tree. Compact padding keeps its derived value here and
     /// publishes 0 instead; see [`Self::published_nullifier`].
-    #[cfg_attr(
-        feature = "serde",
-        serde(with = "zolana_keypair::serde_helpers::bytes")
-    )]
+    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub nullifier: [u8; 32],
     #[cfg_attr(
@@ -62,7 +51,7 @@ pub struct SppProofInputUtxo {
         serde(
             default,
             skip_serializing_if = "Option::is_none",
-            with = "zolana_keypair::serde_helpers::bytes"
+            with = "spr_keypair::serde_helpers::bytes"
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
@@ -72,7 +61,7 @@ pub struct SppProofInputUtxo {
         serde(
             default,
             skip_serializing_if = "Option::is_none",
-            with = "zolana_keypair::serde_helpers::bytes"
+            with = "spr_keypair::serde_helpers::bytes"
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]

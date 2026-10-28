@@ -23,15 +23,15 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     prover::field::{be, right_align_slice},
     EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
     NonInclusionProof as IndexedNonInclusionProof, ProofInputUtxo, ProverClient, Rpc, SolanaRpc,
     SpendProof, TransferInput, ZolanaIndexer,
 };
-use zolana_event::OutputDataEncoding;
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_interface::{
+use spr_event::OutputDataEncoding;
+use spr_hasher::primitives::solana_owner_identity;
+use spr_interface::{
     instruction::instruction_data::transact::InterfaceTransfer,
     pda,
     state::{
@@ -40,19 +40,19 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{
+use spr_keypair::{
     hash::owner_hash,
     pubkey::PublicKey,
     shielded::{ShieldedAddress, ShieldedKeypair},
     NullifierKey, SigningKey,
 };
-use zolana_program::instruction::{
+use spr_program::instruction::{
     Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use zolana_program_test::{rpc_state_root, ZolanaProgramTest};
-use zolana_test_utils::smart_account;
-use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
-use zolana_test_utils::{
+use spr_program_test::{rpc_state_root, ZolanaProgramTest};
+use spr_test_utils::smart_account;
+use spr_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use spr_test_utils::{
     harness::{BootstrapConfig, LocalnetHarness},
     localnet::start_shielded_pool_localnet,
     prover::spawn_workspace_prover,
@@ -61,17 +61,17 @@ use zolana_test_utils::{
         wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::{ConfidentialTransaction, Shape},
     Mint, WalletUtxo,
 };
-use zolana_transaction::{
+use spr_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     AssetRegistry, Data, Utxo, SOL_MINT,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
-use zolana_test_utils::transact::{
+use spr_test_utils::transact::{
     change_and_dummy_outputs, dummy_input_with_proof, dummy_nullifier, fe, public_sol_field,
     real_output, single_tree_slots, sol_leg, transfer_output,
 };
@@ -203,7 +203,7 @@ fn latest_tree_roots(rpc: &SolanaRpc, tree: &Pubkey) -> TestResult<LatestTreeRoo
     })
 }
 
-fn localnet_nullifier_params() -> zolana_tree::NullifierTreeInitParams {
+fn localnet_nullifier_params() -> spr_tree::NullifierTreeInitParams {
     let mut params = nullifier_tree_params();
     let zkp_batch_count =
         NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
@@ -214,7 +214,7 @@ fn localnet_nullifier_params() -> zolana_tree::NullifierTreeInitParams {
 
 fn wait_for<T>(
     label: impl AsRef<str>,
-    mut poll: impl FnMut() -> Result<Option<T>, zolana_client::ClientError>,
+    mut poll: impl FnMut() -> Result<Option<T>, spr_client::ClientError>,
 ) -> TestResult<T> {
     let label = label.as_ref();
     let started = Instant::now();

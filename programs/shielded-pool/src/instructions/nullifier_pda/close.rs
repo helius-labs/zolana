@@ -1,5 +1,5 @@
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-use zolana_interface::error::ShieldedPoolError;
+use spr_interface::error::ShieldedPoolError;
 
 use super::loader::load_nullifier_pda;
 

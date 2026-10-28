@@ -7,7 +7,7 @@ use pinocchio::{
     AccountView, ProgramResult, Resize,
 };
 use pinocchio_system::instructions::{Assign, Transfer};
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError, event::InputTreeSequence, NullifierPda, NULLIFIER_PDA_SEED,
     NULLIFIER_PDA_SIZE,
 };

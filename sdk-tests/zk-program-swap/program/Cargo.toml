@@ -29,14 +29,14 @@ pinocchio = { workspace = true, features = ["cpi"] }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
-zolana-account-checks = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["cpi"] }
+spr-account-checks = { workspace = true }
+spr-hasher = { workspace = true }
+spr-interface = { workspace = true }
+spr-program = { workspace = true, features = ["cpi"] }
 
 [dev-dependencies]
 mollusk-svm = { workspace = true }
-zolana-test-utils = { workspace = true, features = ["mollusk"] }
+spr-test-utils = { workspace = true, features = ["mollusk"] }
 solana-account = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }

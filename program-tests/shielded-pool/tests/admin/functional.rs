@@ -4,7 +4,7 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
+use spr_interface::{
     instruction::UpdateProtocolConfigData,
     pda,
     state::{
@@ -15,12 +15,12 @@ use zolana_interface::{
     },
     NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY,
 };
-use zolana_program_test::{ZolanaProgramTest, RING_TEST_PROGRAM_ID};
-use zolana_protocol_instructions::CreateTree;
-use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
-use zolana_test_utils::mollusk::snapshot_instruction_accounts;
-use zolana_test_utils::nullifier_pda::tree_fees;
-use zolana_tree::{INITIALIZED, PAUSED};
+use spr_program_test::{ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use spr_protocol_instructions::CreateTree;
+use spr_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
+use spr_test_utils::mollusk::snapshot_instruction_accounts;
+use spr_test_utils::nullifier_pda::tree_fees;
+use spr_tree::{INITIALIZED, PAUSED};
 
 use shielded_pool_tests::support::{
     fixtures::Pool,
@@ -198,7 +198,7 @@ fn pending_tree_data(len: usize, payer: &Pubkey, step: &Instruction) -> Vec<u8> 
         .into_iter()
         .chain(step.data.iter().skip(1).copied())
         .collect();
-    let offset = zolana_tree::TreeAccount::utxo_tree_offset();
+    let offset = spr_tree::TreeAccount::utxo_tree_offset();
     data.get_mut(offset..offset + record.len())
         .expect("record fits the first chunk")
         .copy_from_slice(&record);
@@ -208,7 +208,7 @@ fn pending_tree_data(len: usize, payer: &Pubkey, step: &Instruction) -> Vec<u8> 
 #[test]
 fn tree_creation_completes_in_four_steps_and_advances_next_tree_id() {
     let mut pool = Pool::initialized();
-    let next_tree_id = zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id");
+    let next_tree_id = spr_program_test::next_tree_id(&pool.rpc).expect("next tree id");
     assert_eq!(next_tree_id, 1);
     let create = CreateTree {
         payer: pool.rpc.payer.pubkey(),
@@ -239,7 +239,7 @@ fn tree_creation_completes_in_four_steps_and_advances_next_tree_id() {
             )
         );
         assert_eq!(
-            zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
+            spr_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
             2
         );
     }
@@ -257,7 +257,7 @@ fn tree_creation_completes_in_four_steps_and_advances_next_tree_id() {
         (create.fees, 0)
     );
     assert_eq!(
-        zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
+        spr_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
         2
     );
     assert_eq!(create.tree(), pda::tree(next_tree_id));

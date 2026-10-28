@@ -1,11 +1,11 @@
 use alloc::{vec, vec::Vec};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use thiserror::Error;
-use zolana_interface::{
+use spr_interface::{
     instruction::{tag, DepositAssetKind, DepositEntry, DepositIxData, MAX_DEPOSIT_ASSETS},
     pda, PROGRAM_ID_PUBKEY,
 };
+use thiserror::Error;
 
 /// SPL settlement for one deposited mint. The SPL interface is the canonical
 /// PDA of `mint`, so callers pass only the mint and funding token account.

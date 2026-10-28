@@ -1,10 +1,10 @@
 use solana_address::Address;
-use zolana_hasher::primitives::hash_bytes;
-use zolana_program::{
+use spr_hasher::primitives::hash_bytes;
+use spr_program::{
     circuit::{value, DataHash, Field, HashBytes, SolanaAddress},
     conversion::{Allocator, Placeholder, ProofInput},
 };
-use zolana_transaction::{Mint, SOL_MINT};
+use spr_transaction::{Mint, SOL_MINT};
 
 use super::{
     fixtures::{
@@ -102,7 +102,7 @@ fn sol_is_the_all_zero_sol_mint_and_the_default_and_placeholder_asset() {
             SOL_MINT,
             Mint::SOL.asset,
             Mint::placeholder().map_err(|error| error.name()),
-            hash_of(&SolanaAddress::constant(&zolana_transaction::SOL_MINT)),
+            hash_of(&SolanaAddress::constant(&spr_transaction::SOL_MINT)),
             hash_of(&SolanaAddress::default()),
             hash_of(&SolanaAddress::constant(&SOL_MINT)),
             sol == Field::from(0u64),

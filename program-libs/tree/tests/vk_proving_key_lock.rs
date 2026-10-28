@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use zolana_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S;
+use spr_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S;
 
 const LOCK: &str = include_str!("../../../prover/server/prover/provingkeys/proving-keys.lock");
 

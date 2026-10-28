@@ -1,6 +1,6 @@
 //! Gadgets written outside the SDK as ordinary functions over declared inputs.
 
-use zolana_program::{
+use spr_program::{
     circuit::{CircuitVar, U128, U32, U64},
     CircuitError,
 };

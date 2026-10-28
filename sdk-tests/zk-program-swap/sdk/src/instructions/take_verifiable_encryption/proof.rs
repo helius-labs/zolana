@@ -1,10 +1,10 @@
 use anyhow::{bail, Result};
+use spr_client::ProofInputUtxo;
+use spr_transaction::instructions::transact::{PrivateTxHash, SppProofOutputUtxo};
 use swap_program::instructions::take_verifiable_encryption::TakeVerifiableEncryptionPublicInput;
 use swap_prover::{
     OrderTermsProofInput, TakeVerifiableEncryptionProofInputs, TAKE_MODE_VERIFIABLE,
 };
-use zolana_client::ProofInputUtxo;
-use zolana_transaction::instructions::transact::{PrivateTxHash, SppProofOutputUtxo};
 
 use super::encryption::destination_ciphertext_with_hash;
 use crate::{err, shared::check_output_utxo, state::OrderUtxo};

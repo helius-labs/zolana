@@ -1,5 +1,5 @@
-use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_transaction::{
+use spr_keypair::{ShieldedKeypair, SigningKey};
+use spr_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
     },
@@ -155,7 +155,7 @@ fn local_decryption_batches_route_labels_and_retired_keys() {
         owner.nullifier_key.clone(),
     )
     .unwrap();
-    let tx = zolana_keypair::ViewingKey::new();
+    let tx = spr_keypair::ViewingKey::new();
     let salt = [11; 16];
     let current_ciphertext = tx
         .encrypt_slot(&owner.viewing_pubkey(), b"current note", salt, 3)

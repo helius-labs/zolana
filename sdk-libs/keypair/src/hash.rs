@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
-pub use zolana_hasher::primitives::right_align;
-use zolana_hasher::{Hasher, Poseidon};
+pub use spr_hasher::primitives::right_align;
+use spr_hasher::{Hasher, Poseidon};
 
 use crate::{error::KeypairError, pubkey::PublicKey};
 

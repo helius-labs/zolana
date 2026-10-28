@@ -1,9 +1,9 @@
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{is_canonical_bn254_scalar_be, right_align},
     Hasher, Poseidon,
 };
-use zolana_instruction::ADDRESS_TREE_ID;
-use zolana_interface::{tree_slot::tree_id_field, ADDRESS_DOMAIN, SOL_ASSET_FIELD};
+use spr_instruction::ADDRESS_TREE_ID;
+use spr_interface::{tree_slot::tree_id_field, ADDRESS_DOMAIN, SOL_ASSET_FIELD};
 
 use super::{CompressedAccountError, PdaOwner};
 

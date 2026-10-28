@@ -28,7 +28,7 @@ pub struct Symbols {
 
 /// Declares the Go archive's symbols in the calling crate and builds its
 /// [`Prover`](crate::Prover). The calling crate's build script links the
-/// archive with `zolana_gnark_ffi_prover_build::build_prover_archive`.
+/// archive with `spr_gnark_ffi_prover_build::build_prover_archive`.
 ///
 /// The argument is the key root, a `&'static str` constant expression: each
 /// circuit's keys live in `<key root>/<circuit>/{pk,vk}.bin`. Anchor it to the
@@ -36,8 +36,8 @@ pub struct Symbols {
 /// the working directory:
 ///
 /// ```ignore
-/// pub static PROVER: zolana_gnark_ffi_prover::Prover<CircuitId> =
-///     zolana_gnark_ffi_prover::prover!(concat!(env!("CARGO_MANIFEST_DIR"), "/keys"));
+/// pub static PROVER: spr_gnark_ffi_prover::Prover<CircuitId> =
+///     spr_gnark_ffi_prover::prover!(concat!(env!("CARGO_MANIFEST_DIR"), "/keys"));
 /// ```
 #[macro_export]
 macro_rules! prover {

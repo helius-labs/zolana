@@ -3,8 +3,8 @@ use ctr::{
     cipher::{KeyIvInit, StreamCipher},
     Ctr32BE,
 };
+use spr_hasher::primitives::{pack_be, right_align};
 use zeroize::Zeroizing;
-use zolana_hasher::primitives::{pack_be, right_align};
 
 use crate::{
     constants::{CTR_NONCE_LEN, SALT_LEN},

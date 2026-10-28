@@ -1,6 +1,6 @@
 //! High-level wallet actions for shielded-pool operations over [`Rpc`].
 //!
-//! [`Rpc`]: zolana_client::rpc::Rpc
+//! [`Rpc`]: spr_client::rpc::Rpc
 
 pub mod create_associated_token_account;
 pub mod deposit;

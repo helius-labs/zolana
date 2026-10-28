@@ -3,10 +3,10 @@ use std::pin::Pin;
 use futures::Stream;
 use solana_address::Address;
 use solana_signature::Signature;
-pub use zolana_indexer_api::MAX_USER_RECORD_OWNERS;
-use zolana_keypair::X25519Pubkey;
-pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
-pub use zolana_user_registry_interface::UserRecord;
+pub use spr_indexer_api::MAX_USER_RECORD_OWNERS;
+use spr_keypair::X25519Pubkey;
+pub use spr_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
+pub use spr_user_registry_interface::UserRecord;
 
 use crate::{error::ClientError, prover::ProofCompressed};
 
@@ -48,7 +48,7 @@ pub struct EncryptedUtxoMatch {
 
 impl EncryptedUtxoMatch {
     /// A proofless deposit output as the single-output transaction
-    /// `zolana_transaction::decrypt_spendable` reads it from. `None` for an
+    /// `spr_transaction::decrypt_spendable` reads it from. `None` for an
     /// encrypted output, which arrives with its whole transaction instead.
     pub fn into_proofless_transaction(self) -> Option<ShieldedTransaction> {
         if self.tx_viewing_pk.is_some() || self.salt.is_some() {

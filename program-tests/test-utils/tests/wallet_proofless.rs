@@ -1,11 +1,11 @@
-use zolana_event::{encode_output_data, ProoflessOutput};
+use spr_event::{encode_output_data, ProoflessOutput};
 
 /// Raw id of the tree this test hashes UTXOs under.
 const TEST_TREE_ID: u16 = 0;
 
-use zolana_keypair::ShieldedKeypair;
-use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
-use zolana_transaction::{
+use spr_keypair::ShieldedKeypair;
+use spr_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
+use spr_transaction::{
     Address, AssetRegistry, Data, Mint, OutputContext, OutputSlot, ShieldedTransaction, Utxo,
     SOL_MINT,
 };

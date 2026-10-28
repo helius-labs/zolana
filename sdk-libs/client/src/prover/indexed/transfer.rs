@@ -14,18 +14,18 @@ use crate::{
     ClientError,
 };
 use serde::Serialize;
-use zeroize::Zeroizing;
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
     tree_slot::pack_input_flags,
     MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::{PrivateTxHash, SppProofInputs},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
 };
+use zeroize::Zeroizing;
 
 pub enum IndexedTransferRail<'a> {
     Confidential,
@@ -34,7 +34,7 @@ pub enum IndexedTransferRail<'a> {
     /// Keeps the owner off chain while signing the exact root-independent statement.
     AnonymousRingEddsa {
         ring: solana_address::Address,
-        owner: &'a zolana_keypair::SigningKey,
+        owner: &'a spr_keypair::SigningKey,
     },
 }
 
@@ -159,7 +159,7 @@ impl IndexedTransferPreparation<'_> {
                     }
                     trees.push(IndexedTree {
                         id: input.tree_id,
-                        tree: zolana_interface::pda::tree(input.tree_id).to_bytes().into(),
+                        tree: spr_interface::pda::tree(input.tree_id).to_bytes().into(),
                     });
                     trees.len() - 1
                 }
@@ -174,12 +174,10 @@ impl IndexedTransferPreparation<'_> {
             let hash = utxo.hash()?;
             let nullifier = input.published_nullifier();
             if hash != input.utxo_hash {
-                return Err(
-                    zolana_transaction::TransactionError::InputCommitmentMismatch {
-                        index: local_inputs.len(),
-                    }
-                    .into(),
-                );
+                return Err(spr_transaction::TransactionError::InputCommitmentMismatch {
+                    index: local_inputs.len(),
+                }
+                .into());
             }
             let owner = if input.is_dummy() || hidden_owner.as_ref() == Some(&input.utxo.owner) {
                 [0; 32]
@@ -231,7 +229,7 @@ impl IndexedTransferPreparation<'_> {
         .hash()?;
         let public_transfers = transaction.public_transfers()?;
         let signers = if authority_rail {
-            vec![zolana_hasher::primitives::solana_owner_identity(
+            vec![spr_hasher::primitives::solana_owner_identity(
                 transaction.payer.as_array(),
             )?]
         } else if let Some(hidden) = &hidden_owner {
@@ -242,7 +240,7 @@ impl IndexedTransferPreparation<'_> {
         } else {
             transaction.signer_pk_hashes(shape.signer_width())?
         };
-        let ring_program_id = zolana_transaction::utxo::program_id_proof_input_hash(&ring)?;
+        let ring_program_id = spr_transaction::utxo::program_id_proof_input_hash(&ring)?;
         let owners = match rail {
             IndexedTransferRail::Confidential => Some(outputs.output_owner_pk_hashes.clone()),
             IndexedTransferRail::Ring(_) | IndexedTransferRail::AnonymousRingEddsa { .. } => Some(
@@ -341,22 +339,30 @@ impl IndexedTransferPreparation<'_> {
                 let slots = u8::try_from(N_PUBLIC_SLOTS).map_err(|_| super::invalid())?;
                 match rail {
                     IndexedTransferRail::Confidential => match cache.access {
-                        Some(access) => CircuitId::ConfidentialEddsaCached(n_in, n_out, slots, access),
+                        Some(access) => {
+                            CircuitId::ConfidentialEddsaCached(n_in, n_out, slots, access)
+                        }
                         None => CircuitId::ConfidentialEddsa(n_in, n_out, slots),
                     },
                     IndexedTransferRail::Ring(_) => match cache.access {
-                        Some(access) => CircuitId::ConfidentialRingEddsaCached(n_in, n_out, slots, access),
+                        Some(access) => {
+                            CircuitId::ConfidentialRingEddsaCached(n_in, n_out, slots, access)
+                        }
                         None => CircuitId::ConfidentialRingEddsa(n_in, n_out, slots),
                     },
-                    IndexedTransferRail::RingAuthority(_) => CircuitId::RingAuthority(n_in, n_out, slots),
+                    IndexedTransferRail::RingAuthority(_) => {
+                        CircuitId::RingAuthority(n_in, n_out, slots)
+                    }
                     IndexedTransferRail::AnonymousRingEddsa { .. } => {
                         let prepared = anonymous.as_ref().ok_or_else(super::invalid)?;
-                        let data = zolana_interface::verifying_keys::AnonymousRingEddsaProofData {
+                        let data = spr_interface::verifying_keys::AnonymousRingEddsaProofData {
                             default_owner_tag: prepared.default_owner_tag,
-                            bsb22_commitment: zolana_interface::instruction::instruction_data::transact::Bsb22Commitment { commitment: [0; 32], commitment_pok: [0; 32] },
+                            bsb22_commitment: spr_interface::instruction::instruction_data::transact::Bsb22Commitment { commitment: [0; 32], commitment_pok: [0; 32] },
                         };
                         match cache.access {
-                            Some(access) => CircuitId::AnonymousRingEddsaCached(n_in, n_out, slots, data, access),
+                            Some(access) => CircuitId::AnonymousRingEddsaCached(
+                                n_in, n_out, slots, data, access,
+                            ),
                             None => CircuitId::AnonymousRingEddsa(n_in, n_out, slots, data),
                         }
                     }
@@ -364,8 +370,14 @@ impl IndexedTransferPreparation<'_> {
             },
             inputs: input_utxos_from_nullifiers(&nullifiers, &indexes)?,
             tree_contexts: Vec::new(),
-            interface_transfers: external.interface_transfers.iter().copied()
-                .map(zolana_transaction::instructions::transact::SettlementTransfer::interface_transfer).collect(),
+            interface_transfers: external
+                .interface_transfers
+                .iter()
+                .copied()
+                .map(
+                    spr_transaction::instructions::transact::SettlementTransfer::interface_transfer,
+                )
+                .collect(),
             data_hash: external.data_hash,
             ring_data_hash: external.ring_data_hash,
             tx_viewing_pk: external.tx_viewing_pk,
@@ -523,9 +535,9 @@ mod tests {
     use super::*;
     use crate::{MerkleContext, MerkleProof, NonInclusionProof, SpendProof, TransferInputUtxo};
     use solana_address::Address;
-    use zolana_interface::instruction::{OwnerTag, TransactOutput, TreeContext};
-    use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{
+    use spr_interface::instruction::{OwnerTag, TransactOutput, TreeContext};
+    use spr_keypair::ShieldedKeypair;
+    use spr_transaction::{
         utxo::SppProofInputUtxo, Data, ExternalData, Mint, SppProofOutputUtxo, Utxo, WalletUtxo,
     };
 
@@ -603,7 +615,7 @@ mod tests {
             .iter()
             .cloned()
             .map(|utxo| {
-                let tree = zolana_interface::pda::tree(utxo.tree_id);
+                let tree = spr_interface::pda::tree(utxo.tree_id);
                 let nullifier = NonInclusionProof {
                     leaf: utxo.nullifier,
                     merkle_context: MerkleContext { tree, tree_type: 2 },
@@ -746,7 +758,7 @@ mod tests {
             let resolution = super::super::ProofResolution {
                 public_input_hash: [0; 32],
                 trees: vec![super::super::ResolvedProofTree {
-                    tree: zolana_interface::pda::tree(3),
+                    tree: spr_interface::pda::tree(3),
                     id: 3,
                     utxo_root: super::super::scalar_one(),
                     nullifier_root: super::super::scalar_one(),
@@ -797,7 +809,7 @@ mod tests {
         // The hidden owner signs inside the proof and the payer is no owner signer.
         assert!(signers.iter().all(|signer| signer == &hex_field(&[0; 32])));
         assert_eq!(prepared.request.data.public_inputs.len(), 19);
-        let digest = zolana_transaction::instructions::transact::transact_message_hash(
+        let digest = spr_transaction::instructions::transact::transact_message_hash(
             &prepared.private_tx_hash(),
             &transaction.external_data.hash().unwrap(),
         );
@@ -837,7 +849,7 @@ mod tests {
                 _,
                 _,
                 _,
-                zolana_interface::verifying_keys::AnonymousRingEddsaProofData {
+                spr_interface::verifying_keys::AnonymousRingEddsaProofData {
                     default_owner_tag: Some(tag),
                     ..
                 },
@@ -847,7 +859,7 @@ mod tests {
             serde_json::from_str(&prepared.request.data.witness).unwrap();
         assert_eq!(
             witness["defaultOwnerPkHash"],
-            hex_field(&zolana_hasher::primitives::solana_owner_identity(&key).unwrap())
+            hex_field(&spr_hasher::primitives::solana_owner_identity(&key).unwrap())
         );
     }
 
@@ -889,13 +901,13 @@ mod tests {
         let payer = sender.solana_address().unwrap();
         let address = SppProofInputUtxo::new_address(
             owner.signing_pubkey(),
-            zolana_hasher::primitives::right_align(&[42]),
+            spr_hasher::primitives::right_align(&[42]),
             3,
         )
         .unwrap();
-        let keys = zolana_transaction::LocalShieldedKeys::from_keypair(owner).unwrap();
+        let keys = spr_transaction::LocalShieldedKeys::from_keypair(owner).unwrap();
         let mut transaction =
-            zolana_transaction::instructions::transact::ConfidentialTransaction::new_with_addresses(
+            spr_transaction::instructions::transact::ConfidentialTransaction::new_with_addresses(
                 Vec::new(),
                 vec![address],
                 payer,
@@ -970,8 +982,8 @@ mod tests {
             }
             .prepare(&owner),
             Err(ClientError::Transaction(
-                zolana_transaction::TransactionError::InvalidAddressInput(
-                    zolana_transaction::AddressInputError::NullifierMismatch
+                spr_transaction::TransactionError::InvalidAddressInput(
+                    spr_transaction::AddressInputError::NullifierMismatch
                 )
             ))
         ));

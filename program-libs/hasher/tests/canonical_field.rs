@@ -1,7 +1,7 @@
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 use num_bigint::BigUint;
-use zolana_hasher::primitives::{is_canonical_bn254_scalar_be, BN254_SCALAR_MODULUS_BE};
+use spr_hasher::primitives::{is_canonical_bn254_scalar_be, BN254_SCALAR_MODULUS_BE};
 
 fn modulus() -> BigUint {
     BigUint::from_bytes_be(&Fr::MODULUS.to_bytes_be())

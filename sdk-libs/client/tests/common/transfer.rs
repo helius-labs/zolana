@@ -1,5 +1,5 @@
-use zolana_client::{NonInclusionProof, SpendProof, TransferInputUtxo, TransferProver};
-use zolana_transaction::instructions::transact::SppProofInputs;
+use spr_client::{NonInclusionProof, SpendProof, TransferInputUtxo, TransferProver};
+use spr_transaction::instructions::transact::SppProofInputs;
 
 pub fn transfer_prover(
     tx: SppProofInputs,

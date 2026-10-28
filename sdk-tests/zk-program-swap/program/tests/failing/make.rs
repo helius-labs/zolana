@@ -5,9 +5,9 @@
 // checks, privilege-downgrade sweeps) were removed.
 
 use solana_program_error::ProgramError;
+use spr_account_checks::AccountError;
+use spr_test_utils::mollusk::expect_err_exact;
 use swap_program::error::SwapError;
-use zolana_account_checks::AccountError;
-use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{fixture, setup_mollusk, wrapper_data, Wrapper};
 

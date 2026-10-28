@@ -30,7 +30,7 @@
 //! non-canonical field elements, adds the value to the current batch's
 //! current hash chain, and returns the queue index `q` the value reserved. The program
 //! stores `q` and the tree id in the nullifier PDA
-//! (`zolana_interface::state::NullifierPda`).
+//! (`spr_interface::state::NullifierPda`).
 //!
 //! ### Tree update
 //! A queued ZKP batch is applied with a proof of `old root + queue values ->
@@ -63,7 +63,7 @@
 //! ## Testing
 //!
 //! `tests/nullifier_tree/init_roots.rs` derives
-//! [`constants::NULLIFIER_TREE_INIT_ROOT_40`] from the `zolana-merkle-tree`
+//! [`constants::NULLIFIER_TREE_INIT_ROOT_40`] from the `spr-merkle-tree`
 //! reference implementation.
 
 pub mod access;

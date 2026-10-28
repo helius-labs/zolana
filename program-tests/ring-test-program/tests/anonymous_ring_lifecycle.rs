@@ -5,8 +5,8 @@
 
 use anyhow::Result;
 use serial_test::serial;
-use zolana_test_utils::ring::RingHarness;
-use zolana_transaction::SOL_MINT;
+use spr_test_utils::ring::RingHarness;
+use spr_transaction::SOL_MINT;
 
 /// The feature's happy path plus its invalid-commitment negative: a corrupted
 /// BSB22 commitment is rejected at the encoding check and leaves the owner's

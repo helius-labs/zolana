@@ -1,6 +1,6 @@
 use solana_signer::SignerError;
+use spr_hasher::HasherError;
 use thiserror::Error;
-use zolana_hasher::HasherError;
 
 /// `non_exhaustive` because backends outside this crate match on these: a new
 /// failure mode should not be a breaking change for them.

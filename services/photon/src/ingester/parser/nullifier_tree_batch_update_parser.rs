@@ -4,8 +4,8 @@ use crate::ingester::parser::state_update::{NullifierTreeBatchUpdate, StateUpdat
 use crate::ingester::typedefs::block_info::TransactionInfo;
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
-use zolana_event::{EventKind, NullifierTreeUpdateEvent};
-use zolana_interface::{instruction::tag, pda};
+use spr_event::{EventKind, NullifierTreeUpdateEvent};
+use spr_interface::{instruction::tag, pda};
 
 /// Read the nullifier-tree batch updates a transaction actually performed.
 ///
@@ -111,7 +111,7 @@ mod tests {
     use crate::ingester::typedefs::block_info::{Instruction, InstructionGroup};
     use borsh::BorshSerialize;
     use solana_signature::Signature;
-    use zolana_event::{encode_event_instruction, tag as event_tag};
+    use spr_event::{encode_event_instruction, tag as event_tag};
 
     fn tree() -> Pubkey {
         Pubkey::new_from_array([7; 32])

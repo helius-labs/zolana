@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_hasher::primitives::SOLANA_OWNER_TAG;
-use zolana_zk_dsl::CircuitError;
+use spr_hasher::primitives::SOLANA_OWNER_TAG;
+use spr_zk_dsl::CircuitError;
 
 use super::OwnerCircuitErrorKind;
 use crate::{Curve, PublicKey, ShieldedAddress};

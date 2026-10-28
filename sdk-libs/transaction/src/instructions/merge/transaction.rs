@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_keypair::{viewing_key::Salt, PublicKey};
+use spr_keypair::{viewing_key::Salt, PublicKey};
 
 use crate::{error::TransactionError, utxo::SppProofInputUtxo, SppProofOutputUtxo};
 

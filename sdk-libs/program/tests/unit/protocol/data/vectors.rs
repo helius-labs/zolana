@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use super::{
     fixtures::{held, Closed, Held},

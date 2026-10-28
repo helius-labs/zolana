@@ -1,10 +1,6 @@
 use solana_address::Address;
 use solana_instruction::AccountMeta;
-use swap_sdk::{
-    instructions::{take::Take, take_verifiable_encryption::TakeVerifiableEncryption},
-    order_authority_pda, TakeProof, TakeVerifiableEncryptionProof,
-};
-use zolana_interface::{
+use spr_interface::{
     instruction::{
         instruction_data::transact::{
             InputUtxo, OwnerTag, TransactIxData, TransactOutput, TreeContext,
@@ -13,7 +9,11 @@ use zolana_interface::{
     },
     N_PUBLIC_SLOTS,
 };
-use zolana_program::instruction::Transact;
+use spr_program::instruction::Transact;
+use swap_sdk::{
+    instructions::{take::Take, take_verifiable_encryption::TakeVerifiableEncryption},
+    order_authority_pda, TakeProof, TakeVerifiableEncryptionProof,
+};
 
 #[test]
 fn both_take_rails_forward_the_order_and_paying_taker_as_owner_signers() {

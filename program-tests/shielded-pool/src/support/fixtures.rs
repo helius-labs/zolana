@@ -2,16 +2,16 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
+use spr_interface::{
     instruction::{
         instruction_data::deposit::{DepositAssetKind, DepositEntry, DepositIxData},
         tag,
     },
     pda,
 };
-use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
+use spr_program_test::{ProgramTestError, ZolanaProgramTest};
 
-pub use zolana_test_utils::backend::LiteSvmPoolBackend as Pool;
+pub use spr_test_utils::backend::LiteSvmPoolBackend as Pool;
 
 pub fn sol_deposit_accounts(
     rpc: &ZolanaProgramTest,
@@ -85,7 +85,7 @@ pub fn spl_accounts(
     vec![
         AccountMeta::new(tree, false),
         AccountMeta::new(depositor, true),
-        AccountMeta::new_readonly(zolana_interface::PROGRAM_ID_PUBKEY, false),
+        AccountMeta::new_readonly(spr_interface::PROGRAM_ID_PUBKEY, false),
         AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
         AccountMeta::new_readonly(mint, false),
         AccountMeta::new(user_token, false),

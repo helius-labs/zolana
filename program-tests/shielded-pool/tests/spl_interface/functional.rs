@@ -1,15 +1,15 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::Rpc;
-use zolana_interface::{instruction::UpdateProtocolConfigData, pda, state::SplAssetRegistry};
-use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_test_utils::litesvm_asserts::{
+use spr_client::Rpc;
+use spr_interface::{instruction::UpdateProtocolConfigData, pda, state::SplAssetRegistry};
+use spr_keypair::ShieldedKeypair;
+use spr_program_test::ZolanaProgramTest;
+use spr_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit, SplDepositAssertArgs,
 };
-use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet};
-use zolana_transaction::AssetRegistry;
+use spr_test_utils::wallet::{KeypairWalletAuthority, Wallet};
+use spr_transaction::AssetRegistry;
 
 use shielded_pool_tests::support::fixtures::{register_mint, spl_depositor, Pool};
 
@@ -48,7 +48,7 @@ fn spl_registries_are_discoverable_by_program_account_scan() {
     let owned_accounts = pool
         .rpc
         .get_program_accounts(Address::new_from_array(
-            zolana_interface::SHIELDED_POOL_PROGRAM_ID,
+            spr_interface::SHIELDED_POOL_PROGRAM_ID,
         ))
         .expect("scan shielded-pool-owned accounts");
     let mut registries: Vec<_> = owned_accounts
@@ -145,7 +145,7 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
         .rpc
         .account_data(&registry_address)
         .expect("asset registry");
-    let asset = zolana_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
+    let asset = spr_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
         .expect("asset registry");
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
     let recipient_key = ShieldedKeypair::new_ed25519().expect("recipient keypair");

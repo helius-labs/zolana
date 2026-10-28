@@ -9,13 +9,13 @@ autotests = false
 
 [features]
 default = []
-localnet = ["zolana-client/solana-rpc"]
+localnet = ["spr-client/solana-rpc"]
 # Gates the Groth16-backed test binaries that spawn the local prover, so a
 # plain `cargo test -p shielded-pool-tests` stays hermetic by construction.
 proofs = []
 
 [dependencies]
-zolana-protocol-instructions = { workspace = true }
+spr-protocol-instructions = { workspace = true }
 anyhow = { workspace = true }
 forester = { path = "../../protocol-ops/forester" }
 solana-instruction = { workspace = true }
@@ -29,40 +29,40 @@ solana-signer = { workspace = true }
 spl-token-2022-interface = { workspace = true }
 solana-system-interface = { workspace = true }
 spl-token = { workspace = true }
-zolana-account-checks = { workspace = true, features = ["test-only"] }
+spr-account-checks = { workspace = true, features = ["test-only"] }
 pinocchio = { workspace = true }
 shielded-pool-program = { workspace = true, features = ["test-sbf"] }
-zolana-interface = { workspace = true }
-zolana-program = { workspace = true }
-zolana-event = { workspace = true }
-zolana-event-parser = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-client = { workspace = true }
-zolana-program-test = { workspace = true }
-zolana-transaction = { workspace = true }
+spr-interface = { workspace = true }
+spr-program = { workspace = true }
+spr-event = { workspace = true }
+spr-event-parser = { workspace = true }
+spr-keypair = { workspace = true }
+spr-client = { workspace = true }
+spr-program-test = { workspace = true }
+spr-transaction = { workspace = true }
 # Support-library dependencies. The `src/support` layer is compiled as a normal
 # library (test binaries link against it), so everything it uses must be a
 # normal dependency rather than a dev-dependency. The `forester` support module
-# additionally requires the `localnet` feature for zolana-client's indexer/RPC
+# additionally requires the `localnet` feature for spr-client's indexer/RPC
 # surfaces.
 solana-account = { workspace = true }
 num-bigint = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
-zolana-user-registry-interface = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-merkle-tree = { workspace = true }
-zolana-smart-account-client = { workspace = true }
-zolana-test-utils = { workspace = true, features = ["mollusk"] }
-zolana-tree = { workspace = true }
+spr-user-registry-interface = { workspace = true }
+spr-hasher = { workspace = true }
+spr-merkle-tree = { workspace = true }
+spr-smart-account-client = { workspace = true }
+spr-test-utils = { workspace = true, features = ["mollusk"] }
+spr-tree = { workspace = true }
 mollusk-svm = { workspace = true }
 
 [dev-dependencies]
 wincode = { workspace = true }
 # vk::setup reads the verifying key setup markers back from the built program.
 groth16-solana = { workspace = true, features = ["gnark-vk"] }
-zolana-tree = { workspace = true, features = ["verify"] }
+spr-tree = { workspace = true, features = ["verify"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }

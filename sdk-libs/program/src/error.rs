@@ -1,9 +1,9 @@
 use core::fmt;
 
-use zolana_hasher::HasherError;
-use zolana_keypair::KeypairError;
-use zolana_transaction::TransactionError;
-use zolana_zk_dsl::{
+use spr_hasher::HasherError;
+use spr_keypair::KeypairError;
+use spr_transaction::TransactionError;
+use spr_zk_dsl::{
     __located_error as located_error, CircuitError, CircuitErrorKind, ProtocolError,
     ProtocolErrorKind, SourceLocation,
 };
@@ -25,7 +25,7 @@ impl fmt::Display for SlotKind {
     }
 }
 
-#[derive(Debug, thiserror::Error, zolana_zk_dsl::ErrorName)]
+#[derive(Debug, thiserror::Error, spr_zk_dsl::ErrorName)]
 #[error_name(prefix = "CircuitError")]
 #[non_exhaustive]
 pub enum ProtocolCircuitErrorKind {
@@ -54,7 +54,7 @@ impl From<ProtocolCircuitErrorKind> for CircuitError {
     }
 }
 
-#[derive(Debug, thiserror::Error, zolana_zk_dsl::ErrorName)]
+#[derive(Debug, thiserror::Error, spr_zk_dsl::ErrorName)]
 #[non_exhaustive]
 pub enum ClientErrorKind {
     #[error(transparent)]

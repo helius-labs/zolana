@@ -19,20 +19,14 @@ pub enum DataRecord {
     #[wincode(tag = 1)]
     RingData(
         #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-        #[cfg_attr(
-            feature = "serde",
-            serde(with = "zolana_keypair::serde_helpers::bytes")
-        )]
+        #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
         #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
         Vec<u8>,
     ),
     #[wincode(tag = 2)]
     UtxoData(
         #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-        #[cfg_attr(
-            feature = "serde",
-            serde(with = "zolana_keypair::serde_helpers::bytes")
-        )]
+        #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
         #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
         Vec<u8>,
     ),
@@ -42,10 +36,7 @@ pub enum DataRecord {
     #[wincode(tag = 3)]
     Memo(
         #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-        #[cfg_attr(
-            feature = "serde",
-            serde(with = "zolana_keypair::serde_helpers::bytes")
-        )]
+        #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
         #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
         Vec<u8>,
     ),

@@ -4,7 +4,7 @@ use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use zolana_interface::instruction::{
+use spr_interface::instruction::{
     CircuitId, InputUtxo, InterfaceTransfer, MessageData, OwnerTag, TransactIxData,
     TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
 };

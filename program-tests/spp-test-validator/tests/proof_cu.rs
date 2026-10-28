@@ -2,10 +2,10 @@
 
 use anyhow::Result;
 use serial_test::serial;
-use zolana_test_utils::{
+use spr_test_utils::{
     lifecycle::LifecycleHarness, test_validator_asserts::assert_transaction_compute_units,
 };
-use zolana_transaction::SOL_MINT;
+use spr_transaction::SOL_MINT;
 
 // Local-validator baselines (surfpool, 2026-10-06): transact 2x4 = 142,432;
 // withdrawal = 146,029; merge 8 inputs at 24x1 = 242,412. The widest shapes

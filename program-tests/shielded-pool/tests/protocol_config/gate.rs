@@ -12,12 +12,12 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::{pubkey, Pubkey};
 use solana_signer::Signer;
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError, pda, state::ProtocolConfig, BPF_LOADER_UPGRADEABLE_PUBKEY,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_protocol_instructions::CreateProtocolConfig;
+use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_protocol_instructions::CreateProtocolConfig;
 
 /// Loader-v3 `Program` state: u32 tag 2 || programdata address. Owner is the
 /// upgradeable loader, matching a `solana program deploy` deployment.

@@ -1,5 +1,5 @@
 use ark_ff::Zero;
-use zolana_instruction::{
+use spr_instruction::{
     DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
 };
@@ -448,7 +448,7 @@ mod tests {
         let cs = ConstraintSystem::new_ref();
         let output = |empty_if_zero| Output {
             owner: UtxoOwner::default(),
-            asset: SolanaAddress::constant(&zolana_transaction::SOL_MINT),
+            asset: SolanaAddress::constant(&spr_transaction::SOL_MINT),
             amount: Uint::trusted(
                 Allocator::R1cs(cs.clone())
                     .witness(Fr::from(0u64), "an amount", VariableRole::Constrained)

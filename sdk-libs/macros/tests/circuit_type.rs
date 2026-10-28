@@ -1,7 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_hasher::primitives::{hash_bytes, right_align};
-use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_program::{
+use spr_hasher::primitives::{hash_bytes, right_align};
+use spr_keypair::{ShieldedKeypair, SigningKey};
+use spr_program::{
     circuit::{CircuitType, DataHash, HashBytes, UtxoData, UtxoState},
     conversion::{to_bytes, Allocator, FromCircuit, ProofInput},
     hasher::{
@@ -57,7 +57,7 @@ impl ToByteArray for CustomBytes {
 }
 
 impl DataHash for CustomBytesCircuit {
-    fn hash(&self) -> Result<zolana_program::circuit::CircuitVar, zolana_program::CircuitError> {
+    fn hash(&self) -> Result<spr_program::circuit::CircuitVar, spr_program::CircuitError> {
         self.data.hash_bytes()
     }
 }
@@ -138,7 +138,7 @@ fn solana_address_state_preserves_all_bytes_and_matches_the_native_hash() {
             account: solana_address::Address::new_from_array(bytes),
         };
         let circuit = native(&state);
-        let _: &zolana_program::circuit::SolanaAddress = &circuit.account;
+        let _: &spr_program::circuit::SolanaAddress = &circuit.account;
         assert_eq!(
             (
                 AddressState::from_circuit(&circuit).expect("from circuit"),
@@ -207,7 +207,7 @@ fn custom_state_fields_can_define_their_own_byte_encoding() {
 fn the_default_state_has_zero_values_and_a_valid_owner() {
     let zero = Portfolio {
         owner: UtxoOwner {
-            tag: zolana_hasher::primitives::SOLANA_OWNER_TAG,
+            tag: spr_hasher::primitives::SOLANA_OWNER_TAG,
             key: [0u8; 32],
             nullifier_pk: [0u8; 32],
         },
@@ -269,7 +269,7 @@ fn states_with_the_same_fields_never_share_a_hash() {
 
 #[test]
 fn twins_of_states_are_circuit_types() {
-    fn assert_circuit_type<T: zolana_program::circuit::CircuitType>() {}
+    fn assert_circuit_type<T: spr_program::circuit::CircuitType>() {}
     assert_circuit_type::<PortfolioCircuit>();
     assert_circuit_type::<LimitsCircuit>();
 }

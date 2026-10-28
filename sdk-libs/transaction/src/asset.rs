@@ -20,10 +20,7 @@ pub const SOL_MINT: Address = Address::new_from_array([0u8; 32]);
     tsify(large_number_types_as_bigints)
 )]
 pub struct Mint {
-    #[cfg_attr(
-        feature = "serde",
-        serde(with = "zolana_keypair::serde_helpers::address")
-    )]
+    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::address"))]
     #[cfg_attr(feature = "tsify", tsify(type = "string"))]
     pub asset: Address,
     pub asset_id: u64,
@@ -135,7 +132,7 @@ impl AssetRegistry {
 
     pub fn address_for_field(&self, field: &[u8; 32]) -> Result<Option<Address>, TransactionError> {
         for mint in self.by_id.values() {
-            let mint_field = zolana_hasher::primitives::hash_bytes(mint.as_array())?;
+            let mint_field = spr_hasher::primitives::hash_bytes(mint.as_array())?;
             if &mint_field == field {
                 return Ok(Some(*mint));
             }

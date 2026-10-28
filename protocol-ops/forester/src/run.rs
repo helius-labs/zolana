@@ -23,7 +23,7 @@
 //! So `drain_once` serialises witness construction alone and runs
 //! `proof_concurrency` prove-and-submit workers alongside it.
 
-use zolana_forester_prover::indexed::{
+use spr_forester_prover::indexed::{
     BatchAnchor, IndexedBatchRequest, ProofDataSource, ProvenIndexedBatch,
 };
 
@@ -42,11 +42,11 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
-use zolana_forester_prover::{BatchAddressAppendInputs, Error as ProverError, ProverClient};
-use zolana_interface::instruction::BatchUpdateNullifierTreeData;
-use zolana_tree::{TreeAccount, TreeFeeSchedule};
+use spr_forester_prover::{BatchAddressAppendInputs, Error as ProverError, ProverClient};
+use spr_interface::instruction::BatchUpdateNullifierTreeData;
+use spr_tree::{TreeAccount, TreeFeeSchedule};
 
-use zolana_forester_prover::{build_inputs, reference_nullifier_tree, ReferenceNullifierTree};
+use spr_forester_prover::{build_inputs, reference_nullifier_tree, ReferenceNullifierTree};
 
 use crate::photon::{PhotonClient, PAGE_LIMIT};
 use crate::{
@@ -917,7 +917,7 @@ fn check_once(rpc_url: &str, photon: &PhotonClient, tree: Pubkey) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
+    use spr_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
 
     fn nullifier(byte: u8) -> [u8; 32] {
         let mut value = [0u8; 32];

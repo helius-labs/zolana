@@ -6,10 +6,10 @@ use anyhow::{anyhow, bail, Context, Result};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{instruction::UpdateProtocolConfigData, pda, state::ProtocolConfig};
-use zolana_protocol_instructions::UpdateProtocolConfig;
-use zolana_smart_account_client::roles::Role;
-use zolana_smart_account_client::{execute_sync_ix, settings_pda, smart_account_pda};
+use spr_interface::{instruction::UpdateProtocolConfigData, pda, state::ProtocolConfig};
+use spr_protocol_instructions::UpdateProtocolConfig;
+use spr_smart_account_client::roles::Role;
+use spr_smart_account_client::{execute_sync_ix, settings_pda, smart_account_pda};
 
 use crate::init_protocol::{
     authorities, load_keypair, load_protocol_signers, read_program_config, to_address, Cluster,

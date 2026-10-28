@@ -1,8 +1,8 @@
 use super::is_canonical_bn254_scalar_be;
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
+use spr_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zeroize::Zeroizing;
-use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 
 use super::{decode_field, hex_field, invalid, invalid_resolution, Request};
 use crate::prover::{Delivery, ExpectedProvingKey};
@@ -26,7 +26,7 @@ pub struct IndexedBatchRequest {
 pub struct ProvenIndexedBatch {
     pub old_root: [u8; 32],
     pub new_root: [u8; 32],
-    pub proof: zolana_interface::instruction::NullifierTreeProof,
+    pub proof: spr_interface::instruction::NullifierTreeProof,
 }
 
 #[derive(Deserialize)]
@@ -128,10 +128,10 @@ impl Request for IndexedBatchRequest {
         }
         let proof = ProofCompressed::try_from(proof)?.to_nullifier_tree_proof()?;
         // 1. Returned roots remain untrusted until proof verification.
-        zolana_tree::nullifier_tree::verify::verify_batch_update(
+        spr_tree::nullifier_tree::verify::verify_batch_update(
             u64::from(self.batch_size),
             expected,
-            &zolana_tree::nullifier_tree::proof::NullifierTreeProof {
+            &spr_tree::nullifier_tree::proof::NullifierTreeProof {
                 a: proof.a,
                 b: proof.b,
                 c: proof.c,

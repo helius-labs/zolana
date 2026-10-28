@@ -5,9 +5,7 @@ use solana_pubkey::Pubkey;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_message::v1;
-use zolana_client::rpc::{
-    compile_message, sign_transaction, transaction_size, ComputeBudgetConfig,
-};
+use spr_client::rpc::{compile_message, sign_transaction, transaction_size, ComputeBudgetConfig};
 
 fn wire_size(
     instructions: &[Instruction],

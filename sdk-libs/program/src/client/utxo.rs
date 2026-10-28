@@ -1,6 +1,6 @@
-use zolana_hasher::primitives::hash_bytes;
-use zolana_keypair::ShieldedAddress;
-use zolana_transaction::{Mint, SppProofOutputUtxo, WalletUtxo};
+use spr_hasher::primitives::hash_bytes;
+use spr_keypair::ShieldedAddress;
+use spr_transaction::{Mint, SppProofOutputUtxo, WalletUtxo};
 
 use super::transaction::SppTransactionBuilder;
 use crate::{
@@ -29,7 +29,7 @@ impl SppTransactionBuilder<'_> {
                 self.checked
                     .addresses
                     .first()
-                    .map(|_| zolana_instruction::ADDRESS_TREE_ID)
+                    .map(|_| spr_instruction::ADDRESS_TREE_ID)
             });
         let spent = self
             .checked
@@ -80,7 +80,7 @@ impl SppTransactionBuilder<'_> {
 
     pub(super) fn address_inputs(
         &self,
-    ) -> Result<Vec<zolana_transaction::utxo::SppProofInputUtxo>, ClientError> {
+    ) -> Result<Vec<spr_transaction::utxo::SppProofInputUtxo>, ClientError> {
         self.checked
             .addresses
             .iter()
@@ -95,10 +95,10 @@ impl SppTransactionBuilder<'_> {
                         "an address owner is not named by the proof inputs",
                     ),
                 )?;
-                let input = zolana_transaction::utxo::SppProofInputUtxo::new_address(
+                let input = spr_transaction::utxo::SppProofInputUtxo::new_address(
                     owner.signing_pubkey,
                     to_bytes(&created.seed)?,
-                    zolana_instruction::ADDRESS_TREE_ID,
+                    spr_instruction::ADDRESS_TREE_ID,
                 )
                 .map_err(ClientErrorKind::Transaction)?;
                 if input.nullifier != to_bytes(&created.address)? {

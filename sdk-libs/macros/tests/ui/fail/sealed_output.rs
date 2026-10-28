@@ -1,4 +1,4 @@
-use zolana_program::circuit::CircuitOutput;
+use spr_program::circuit::CircuitOutput;
 
 // Only the SDK binds an output to the public inputs: a custom output names its
 // public hash through PublicHashOutput or returns Public<_> instead.

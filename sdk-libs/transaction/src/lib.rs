@@ -1,13 +1,11 @@
 use core::mem::MaybeUninit;
 
+use spr_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN, PublicKey, X25519Pubkey};
 use wincode::{
     config::ConfigCore,
     error::{ReadError, ReadResult, WriteResult},
     io::{Reader, Writer},
     SchemaRead, SchemaWrite,
-};
-use zolana_keypair::{
-    constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN, PublicKey, X25519Pubkey,
 };
 
 pub mod asset;
@@ -46,12 +44,12 @@ pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
 };
 pub use solana_address::Address;
+pub use spr_keypair::constants::VIEW_TAG_LEN;
 pub use utxo::wallet as spendable;
 pub use utxo::{
     derive_output_blinding_seed, derive_private_tx_blinding, owner_utxo_hash, Blinding, Utxo,
     WalletUtxo,
 };
-pub use zolana_keypair::constants::VIEW_TAG_LEN;
 
 pub const TRANSFER: u8 = 1;
 pub const MERGE: u8 = 3;

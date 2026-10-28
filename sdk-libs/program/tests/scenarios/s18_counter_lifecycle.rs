@@ -1,6 +1,6 @@
 use solana_address::Address;
-use zolana_program::{Groth16Prover, TxContext, ZkProgramCircuit};
-use zolana_transaction::Mint;
+use spr_program::{Groth16Prover, TxContext, ZkProgramCircuit};
+use spr_transaction::Mint;
 
 use crate::{
     benchmark::prove,

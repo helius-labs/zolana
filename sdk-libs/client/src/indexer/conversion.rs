@@ -1,10 +1,10 @@
 use solana_address::Address;
-use zolana_api::{
+use spr_api::{
     Base64String, GetRingsByTagsRequest, Hash as ApiHash, Limit, RingsOutputSlot as ApiOutputSlot,
     SerializablePubkey,
 };
-use zolana_keypair::{x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey};
-use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme};
+use spr_keypair::{x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey};
+use spr_user_registry_interface::{user_record_pda, MergeEncryptionScheme};
 
 use crate::{
     error::ClientError,
@@ -31,7 +31,7 @@ pub(super) fn ring_history_request(
     })
 }
 
-pub(super) fn convert_context(context: zolana_api::Context) -> Context {
+pub(super) fn convert_context(context: spr_api::Context) -> Context {
     Context {
         block_time: context.block_time,
         slot: context.slot,
@@ -40,7 +40,7 @@ pub(super) fn convert_context(context: zolana_api::Context) -> Context {
 
 pub(super) fn convert_encrypted_utxo_match(
     index: usize,
-    item: zolana_api::EncryptedUtxoMatch,
+    item: spr_api::EncryptedUtxoMatch,
 ) -> Result<EncryptedUtxoMatch, ClientError> {
     Ok(EncryptedUtxoMatch {
         slot: item.slot,
@@ -55,7 +55,7 @@ pub(super) fn convert_encrypted_utxo_match(
 }
 
 pub(super) fn convert_shielded_transactions_response(
-    response: zolana_api::GetShieldedTransactionsByTagsResponse,
+    response: spr_api::GetShieldedTransactionsByTagsResponse,
 ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
     Ok(GetShieldedTransactionsByTagsResponse {
         context: convert_context(response.context),
@@ -74,7 +74,7 @@ pub(super) fn convert_shielded_transactions_response(
 }
 
 pub(super) fn convert_shielded_transactions_by_signature_response(
-    response: zolana_api::GetShieldedTransactionsBySignatureResponse,
+    response: spr_api::GetShieldedTransactionsBySignatureResponse,
 ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
     Ok(GetShieldedTransactionsBySignatureResponse {
         context: convert_context(response.context),
@@ -97,14 +97,14 @@ pub(super) fn convert_shielded_transactions_by_signature_response(
 }
 
 pub fn decode_shielded_transaction(
-    item: zolana_api::ShieldedTransaction,
+    item: spr_api::ShieldedTransaction,
 ) -> Result<ShieldedTransaction, ClientError> {
     convert_shielded_transaction("transaction", item)
 }
 
 pub(super) fn convert_shielded_transaction(
     path: &str,
-    item: zolana_api::ShieldedTransaction,
+    item: spr_api::ShieldedTransaction,
 ) -> Result<ShieldedTransaction, ClientError> {
     Ok(ShieldedTransaction {
         slot: item.slot,
@@ -120,7 +120,7 @@ pub(super) fn convert_shielded_transaction(
         messages: item
             .messages
             .into_iter()
-            .map(|message| zolana_event::MessageData {
+            .map(|message| spr_event::MessageData {
                 view_tag: message.view_tag.into(),
                 data: message.payload.into(),
             })
@@ -143,7 +143,7 @@ fn convert_output_slot(slot: ApiOutputSlot) -> OutputSlot {
 /// The wire still carries the deprecated `tree` account beside `tree_id`. Only
 /// the id is read: it is what the commitment folds in, so it is checked by
 /// recomputation, while the account is a derivation of it.
-fn convert_output_context(context: zolana_api::RingsOutputContext) -> OutputContext {
+fn convert_output_context(context: spr_api::RingsOutputContext) -> OutputContext {
     OutputContext {
         hash: context.hash.into(),
         tree_id: context.tree_id,
@@ -151,7 +151,7 @@ fn convert_output_context(context: zolana_api::RingsOutputContext) -> OutputCont
     }
 }
 
-pub(super) fn convert_merkle_proof(proof: zolana_api::MerkleProof) -> MerkleProof {
+pub(super) fn convert_merkle_proof(proof: spr_api::MerkleProof) -> MerkleProof {
     MerkleProof {
         leaf: proof.leaf.into(),
         merkle_context: convert_merkle_context(proof.merkle_context),
@@ -163,9 +163,7 @@ pub(super) fn convert_merkle_proof(proof: zolana_api::MerkleProof) -> MerkleProo
     }
 }
 
-pub(super) fn convert_non_inclusion_proof(
-    proof: zolana_api::NonInclusionProof,
-) -> NonInclusionProof {
+pub(super) fn convert_non_inclusion_proof(proof: spr_api::NonInclusionProof) -> NonInclusionProof {
     NonInclusionProof {
         leaf: proof.leaf.into(),
         merkle_context: convert_merkle_context(proof.merkle_context),
@@ -181,7 +179,7 @@ pub(super) fn convert_non_inclusion_proof(
 }
 
 pub(super) fn convert_user_records_response(
-    response: zolana_api::GetUserRecordsResponse,
+    response: spr_api::GetUserRecordsResponse,
 ) -> Result<GetUserRecordsResponse, ClientError> {
     Ok(GetUserRecordsResponse {
         context: convert_context(response.context),
@@ -202,7 +200,7 @@ pub(super) fn convert_user_records_response(
 /// the canonical one even though it is not on the wire.
 fn convert_user_record(
     index: usize,
-    record: zolana_api::UserRecord,
+    record: spr_api::UserRecord,
 ) -> Result<UserRecord, ClientError> {
     let field = |name: &str| format!("records[{index}].{name}");
     Ok(UserRecord {
@@ -226,7 +224,7 @@ fn convert_user_record(
     })
 }
 
-fn convert_merkle_context(context: zolana_api::MerkleContext) -> MerkleContext {
+fn convert_merkle_context(context: spr_api::MerkleContext) -> MerkleContext {
     MerkleContext {
         tree_type: context.tree_type,
         tree: Address::new_from_array(context.tree.0.to_bytes()),
@@ -291,7 +289,7 @@ fn decode_error(field: &str, error: impl std::fmt::Display) -> ClientError {
 
 #[cfg(test)]
 mod tests {
-    use zolana_api::Base64String;
+    use spr_api::Base64String;
 
     #[test]
     fn malformed_transaction_keys_read_as_absent() {

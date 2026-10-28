@@ -5,10 +5,10 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
-use zolana_tree::nullifier_tree::{
+use spr_tree::nullifier_tree::{
     layout::NullifierTreeLayout, merkle_tree_update::InstructionDataBatchNullifyInputs,
 };
-use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, UTXO_TREE_HEIGHT};
+use spr_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, UTXO_TREE_HEIGHT};
 
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint {

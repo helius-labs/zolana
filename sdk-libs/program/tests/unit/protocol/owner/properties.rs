@@ -1,8 +1,8 @@
 use ark_bn254::Fr;
 use proptest::prelude::*;
 use solana_address::Address;
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
-use zolana_program::UtxoOwner as ClientOwner;
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
+use spr_program::UtxoOwner as ClientOwner;
 
 use super::{
     fixtures::{OwnerHash, PreimageHash, CLAIM_WIRE, HASH_BROKEN},

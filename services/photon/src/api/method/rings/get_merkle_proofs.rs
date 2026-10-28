@@ -10,7 +10,7 @@ use crate::common::rings_tree::RingsTreeKind;
 use crate::ingester::persist::get_multiple_compressed_leaf_proofs_by_indices_with_height;
 use crate::rpc::RpcClient;
 use sea_orm::{DatabaseConnection, TransactionTrait};
-use zolana_indexer_api::{GetMerkleProofsRequest, GetMerkleProofsResponse};
+use spr_indexer_api::{GetMerkleProofsRequest, GetMerkleProofsResponse};
 
 pub async fn get_merkle_proofs(
     conn: &DatabaseConnection,

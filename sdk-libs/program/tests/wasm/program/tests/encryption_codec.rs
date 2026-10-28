@@ -1,11 +1,11 @@
 #![cfg(feature = "wasm")]
 
-use wasm_test_program::CompactCounter;
-use zolana_program::{
+use spr_program::{
     circuit::UtxoData,
     conversion::{Allocator, ProofInput},
     EncryptionCodec,
 };
+use wasm_test_program::CompactCounter;
 
 #[test]
 fn custom_payload_reconstructs_the_full_state_for_wasm_serialization() {

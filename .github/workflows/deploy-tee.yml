@@ -41,7 +41,7 @@ jobs:
       id-token: write
       attestations: write
     env:
-      IMAGE: ghcr.io/${{ github.repository_owner }}/zolana-prover-tee
+      IMAGE: ghcr.io/${{ github.repository_owner }}/spr-prover-tee
       PHOTON: ghcr.io/${{ github.repository_owner }}/zolana-photon-tee
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -73,7 +73,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OWNER: ${{ github.repository_owner }}
         run: |
-          for package in zolana-prover-tee zolana-photon-tee; do
+          for package in spr-prover-tee zolana-photon-tee; do
             visibility=$(gh api "orgs/$OWNER/packages/container/$package" --jq .visibility)
             [[ "$visibility" == private || "$visibility" == internal ]]
           done

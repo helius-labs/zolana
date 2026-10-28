@@ -1,6 +1,6 @@
 # Transaction crate test invariants
 
-Coverage specification for the public APIs of `zolana-transaction`, following the
+Coverage specification for the public APIs of `spr-transaction`, following the
 [shielded-pool invariant checklist](../../../program-tests/shielded-pool/invariants/README.md).
 This file is a manually maintained specification; Rust tests implement its claims.
 Program acceptance of a manually assembled witness does not establish SDK builder
@@ -79,11 +79,11 @@ Source: [encryption](../src/instructions/transact/encryption.rs),
 | INV-TX-ENC-01 | post / C | `encrypt` completes omitted shape selection/change/padding and produces outputs whose published commitments and decryptable plaintexts describe the same amounts, owners, data, blindings and output tree. | [x] `construction.rs::generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output`, `construction.rs::encrypted_explicit_data_and_memo_survive_with_their_commitment_hashes`. |
 | INV-TX-ENC-02 | post / H | Every output blinding uses the transaction's first nullifier, derived output seed, and final physical slot index. | [x] `construction.rs::generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output` verifies every recovered slot; `encrypted_explicit_data_and_memo_survive_with_their_commitment_hashes` checks replacement of caller blindings. Independent derivation vectors: `commitments.rs::derivation_domains_match_committed_cross_language_vectors_and_bind_each_parameter`. |
 | INV-TX-ENC-03 | post / C | Sender outputs use `Account(0)` only when the Ed25519/PDA sender equals the payer; other owners use their inline tag. Published owner tags resolve to the owner whose viewing key encrypts the slot. | [x] `construction.rs::mixed_rings_and_relayed_owner_tags_match_recovered_owners`, `construction.rs::pda_sender_owner_tags_resolve_for_self_paid_and_relayed_transactions`. |
-| INV-TX-ENC-04 | retired | P-256 owner encodings fail key decoding. The former custom-ring ownership path was removed. | Key decoding coverage lives in `zolana-keypair`. |
+| INV-TX-ENC-04 | retired | P-256 owner encodings fail key decoding. The former custom-ring ownership path was removed. | Key decoding coverage lives in `spr-keypair`. |
 | INV-TX-ENC-05 | post / H | Normal transfers/change/padding inherit the builder's ring; `transfer_with_ring` overrides only its output. Custom-ring outputs are encoded as `RingConfidential`, default-ring outputs as `Confidential`. | [x] `construction.rs::mixed_rings_and_relayed_owner_tags_match_recovered_owners`, `construction.rs::generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output`. |
 | INV-TX-ENC-06 | post / C | Owner signers exclude dummies and the payer, deduplicate owner identities, and preserve first occurrence. `signer_pk_hashes` is payer-first, zero-padded to width, and returns `UnsupportedShape` if the run does not fit. | [x] `commitments.rs::signers_are_payer_first_deduplicated_by_identity_and_exclude_dummies`. |
 | INV-TX-ENC-07 | pre / H | Empty transaction-key responses cause `IncompleteDerivation { got: 0, want: 1 }`; key-holder errors propagate from builder encryption. | [x] `construction.rs::key_holder_errors_and_empty_response_propagate_and_requests_use_first_input`. |
-| INV-TX-ENC-08 | retired | P-256 owner detection APIs were removed with the spend path. | Unknown owner encodings are rejected by `zolana-keypair`. |
+| INV-TX-ENC-08 | retired | P-256 owner detection APIs were removed with the spend path. | Unknown owner encodings are rejected by `spr-keypair`. |
 | INV-TX-ENC-09 | post / H | Builder encryption requests one transaction viewing key naming the returned sender viewing key and the stored first input nullifier, and publishes the returned key in its encryption context. | [x] `construction.rs::key_holder_errors_and_empty_response_propagate_and_requests_use_first_input`. |
 
 ## Settlement and external data
@@ -125,7 +125,7 @@ Source: [UTXO hashing](../src/utxo/note.rs), [output hashing](../src/utxo/output
 | INV-TX-HASH-07 | post / H | Output data setters retain at most one record of each kind in RingData/UtxoData/Memo order; memo changes do not change commitments. | [x] `commitments.rs::data_setters_replace_one_record_per_kind_and_keep_canonical_order`. |
 | INV-TX-HASH-08 | wire / H | Shared merge-input count, tree heights, instruction tags, view-tag width and input-tree limits match the committed constants vector. | [x] `constants_vectors.rs::constants_match_the_shared_vector`. |
 | INV-TX-HASH-09 | wire / C | Absent program IDs encode as the zero field; present IDs encode as `hash_bytes(address)` and ring-program hashing uses the same mapping. Output absent data/ring-data hashes are equivalent to explicit zero hashes. | [ ] Partial: `commitments.rs::program_and_data_hash_defaults_distinguish_absence_from_a_present_zero_address` checks default/custom mapping against the hash primitive and data-hash defaults; independent custom-ring byte vectors remain. |
-| INV-TX-HASH-10 | wire / C | An address input's UTXO hash and nullifier (the address) equal `zolana_program::program::NewAddress::derive` for the same owner, seed and tree, and `validate_address` refuses each broken field rule with its own `AddressInputError`. | [x] `address_inputs.rs::address_matches_the_canonical_new_address_derivation`, `address_inputs.rs::validate_address_names_the_broken_rule`, `address_inputs.rs::new_address_refuses_a_missing_owner_and_a_non_canonical_seed`, `hash_vectors.rs::address_input_vectors`. |
+| INV-TX-HASH-10 | wire / C | An address input's UTXO hash and nullifier (the address) equal `spr_program::program::NewAddress::derive` for the same owner, seed and tree, and `validate_address` refuses each broken field rule with its own `AddressInputError`. | [x] `address_inputs.rs::address_matches_the_canonical_new_address_derivation`, `address_inputs.rs::validate_address_names_the_broken_rule`, `address_inputs.rs::new_address_refuses_a_missing_owner_and_a_non_canonical_seed`, `hash_vectors.rs::address_input_vectors`. |
 
 ## Merge
 
@@ -147,7 +147,7 @@ Source: [merge constructor](../src/instructions/merge/mod.rs),
 | INV-TX-MERGE-08 | pre / H | Dummy-nullifier assembly rejects missing or dummy-first input with `NoInputs`; builder encryption rejects an empty blinding/key response with `IncompleteDerivation { got: 0, want: 1 }`. | [x] `merge.rs::merge_accessors_filter_dummies_and_recheck_data` and `merge_routes_key_requests_and_propagates_failures` assert both first-input errors, empty responses and exact propagated key-holder errors. |
 | INV-TX-MERGE-09 | pre / H | `input_utxo_hashes` returns references to real inputs in their existing order, excludes dummies, and rejects disallowed data under the proof object's default/ring policy with `MergeInputHasData`. | [ ] Partial: `merge.rs::merge_accessors_filter_dummies_and_recheck_data` checks mixed inputs and post-construction default memo rejection; `default_and_ring_merge_apply_distinct_data_rules` checks ring-policy success. Full mutated data/hash matrix and filtered-index case remain. |
 | INV-TX-MERGE-10 | post / C | Key-holder encryption requests output blinding and transaction viewing key using the stored first input nullifier; the transaction-key request names the sender's viewing key. Returned values feed the emitted output blinding and encryption context. | [ ] Partial: `merge.rs::merge_routes_key_requests_and_propagates_failures` records exact requests and output blinding; `ring_merge_preserves_spl_and_explicit_output_context` checks supplied key/blinding. Direct equivalence with the same fixture remains. |
-| INV-TX-MERGE-11 | pre / H | `MergeTransaction::new` and `new_with_ring` pad only with compact padding, to the width the real count selects; each compact slot publishes 0 and carries its derived dummy nullifier, which `dummy_nullifiers()` returns for its non-inclusion proof. `check_padding`, which both merge provers run, rejects compact padding before any other slot (`InputAfterCompactPadding`) and a width other than the one the sent count selects (`CompactMergeWidthMismatch`). | [x] `merge.rs::merge_pads_with_compact_slots`, `merge.rs::ring_merge_pads_with_compact_slots`, `merge.rs::merge_padding_must_match_what_spp_fills_back_in`; `zolana-client` `merge_transaction_size.rs` pins that ring merges of 25 to 51 real inputs and a plain merge of 52 fit a v1 transaction, and that a ring merge of all 52 slots does not. |
+| INV-TX-MERGE-11 | pre / H | `MergeTransaction::new` and `new_with_ring` pad only with compact padding, to the width the real count selects; each compact slot publishes 0 and carries its derived dummy nullifier, which `dummy_nullifiers()` returns for its non-inclusion proof. `check_padding`, which both merge provers run, rejects compact padding before any other slot (`InputAfterCompactPadding`) and a width other than the one the sent count selects (`CompactMergeWidthMismatch`). | [x] `merge.rs::merge_pads_with_compact_slots`, `merge.rs::ring_merge_pads_with_compact_slots`, `merge.rs::merge_padding_must_match_what_spp_fills_back_in`; `spr-client` `merge_transaction_size.rs` pins that ring merges of 25 to 51 real inputs and a plain merge of 52 fit a v1 transaction, and that a ring merge of all 52 slots does not. |
 
 Merge fixtures should start from independently valid wallet notes, compare sums with
 an integer oracle, and verify decoded output fields and commitments. A successful
@@ -349,11 +349,11 @@ evidence; builder behavior is exercised separately through its public API.
 
 ## Execution and review record
 
-Run `cargo test -p zolana-transaction --offline` from the repository root. Tests
+Run `cargo test -p spr-transaction --offline` from the repository root. Tests
 are hermetic and use the existing dependencies. `just test-sdk-libs` includes this
 crate in the broader SDK gate. No SBF build, prover, validator or indexer is needed.
 
-Initial verification (2026-09-19): `cargo test -p zolana-transaction --offline`
+Initial verification (2026-09-19): `cargo test -p spr-transaction --offline`
 passes all 36 integration tests: 18 formerly inline tests moved here (with two old
 mint fixtures updated), one constants-vector test, and 17 repaired hash-vector
 tests. There are zero inline unit tests and three existing ignored doctests.
@@ -378,7 +378,7 @@ implementation questions above are separate from those coverage counts.
 | Functions | 78/305 (25.57%) | 273/305 (89.51%) |
 | Regions | 761/3724 (20.44%) | 3409/3724 (91.54%) |
 
-Measured with `cargo llvm-cov -p zolana-transaction --offline --json --summary-only`
+Measured with `cargo llvm-cov -p spr-transaction --offline --json --summary-only`
 and aggregated only over report filenames containing `/sdk-libs/transaction/src/`.
 Tests, dependencies and unrelated workspace crates are excluded from these totals.
 Region coverage is not branch coverage. Formatting and source-scope checks also

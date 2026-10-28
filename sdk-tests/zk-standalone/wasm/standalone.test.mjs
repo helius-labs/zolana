@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-const BUILD = new URL("../../../target/zk/zolana-zk-standalone-fixture/", import.meta.url);
+const BUILD = new URL("../../../target/zk/spr-zk-standalone-fixture/", import.meta.url);
 const { default: init } = await import(new URL("wasm-node/node.mjs", BUILD));
 const wasm = await init({ threads: 1 });
 const fixture = JSON.parse(readFileSync(new URL("withdrawal.json", import.meta.url), "utf8"));

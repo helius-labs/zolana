@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use ark_bn254::Fr;
-use zolana_hasher::primitives::SOLANA_OWNER_TAG;
-use zolana_zk_dsl::{
+use spr_hasher::primitives::SOLANA_OWNER_TAG;
+use spr_zk_dsl::{
     circuit::{Bool, VariableRole},
     conversion::{byte_value, field, to_bytes, Allocator, FromCircuit, Placeholder, ProofInput},
     Bytes, CircuitError, PublicField, PublicFieldKind, PublicHashField,

@@ -3,9 +3,9 @@
 //! is the zk DSL's.
 
 use groth16_solana::groth16::Groth16Verifyingkey;
-use zolana_hasher::{Hasher, Poseidon};
-pub use zolana_zk_dsl::verifier::groth16_solana;
-use zolana_zk_dsl::verifier::{boolean, integer};
+use spr_hasher::{Hasher, Poseidon};
+pub use spr_zk_dsl::verifier::groth16_solana;
+use spr_zk_dsl::verifier::{boolean, integer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VerifyError {
@@ -15,11 +15,11 @@ pub enum VerifyError {
     Proof,
 }
 
-impl From<zolana_zk_dsl::verifier::VerifyError> for VerifyError {
-    fn from(error: zolana_zk_dsl::verifier::VerifyError) -> Self {
+impl From<spr_zk_dsl::verifier::VerifyError> for VerifyError {
+    fn from(error: spr_zk_dsl::verifier::VerifyError) -> Self {
         match error {
-            zolana_zk_dsl::verifier::VerifyError::PublicInputs => Self::PublicInputs,
-            zolana_zk_dsl::verifier::VerifyError::Proof => Self::Proof,
+            spr_zk_dsl::verifier::VerifyError::PublicInputs => Self::PublicInputs,
+            spr_zk_dsl::verifier::VerifyError::Proof => Self::Proof,
         }
     }
 }
@@ -69,7 +69,7 @@ pub fn address_hash(
     owner_hash: &[u8; 32],
     viewing_pubkey: &[u8; 33],
 ) -> Result<[u8; 32], VerifyError> {
-    let viewing_hash = zolana_hasher::primitives::hash_bytes(viewing_pubkey)
+    let viewing_hash = spr_hasher::primitives::hash_bytes(viewing_pubkey)
         .map_err(|_| VerifyError::PublicInputs)?;
     Poseidon::hashv(&[owner_hash.as_slice(), viewing_hash.as_slice()])
         .map_err(|_| VerifyError::PublicInputs)
@@ -81,7 +81,7 @@ pub fn verify_groth16(
     public_hash: [u8; 32],
     verifying_key: &Groth16Verifyingkey,
 ) -> Result<(), VerifyError> {
-    zolana_zk_dsl::verifier::verify_groth16(proof, &[public_hash], verifying_key)
+    spr_zk_dsl::verifier::verify_groth16(proof, &[public_hash], verifying_key)
         .map_err(VerifyError::from)
 }
 

@@ -3,13 +3,13 @@ use pinocchio::{
     sysvars::{rent::Rent, Sysvar},
     AccountView, ProgramResult,
 };
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{
+use spr_account_checks::AccountIterator;
+use spr_interface::{
     error::ShieldedPoolError,
     state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_liquid_working_capital_lamports},
     NULLIFIER_PDA_SIZE,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 use crate::instructions::{
     protocol_config::loader::load_and_validate_fee_authority,

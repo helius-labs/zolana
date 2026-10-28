@@ -2,8 +2,8 @@
 
 Covers `SigningPubkey` and `UtxoOwner` of `sdk-libs/keypair/src/circuit/owner.rs`: `identity`, `hash`, the
 tag check, `DataHash`, the accessors, and their `Assert` and `Select` impls, against the
-native `zolana-keypair` owner hash (`ShieldedAddress::owner_hash`,
-`PublicKey::owner_proof_input_hash`) and `zolana-hasher` (`hash_bytes`, `Poseidon`,
+native `spr-keypair` owner hash (`ShieldedAddress::owner_hash`,
+`PublicKey::owner_proof_input_hash`) and `spr-hasher` (`hash_bytes`, `Poseidon`,
 `solana_owner_identity`). Invariants every type shares live in
 `cross-cutting.md`. ID prefix: `INV-OWNER`; the tests live in `tests/unit/protocol/owner/`.
 
@@ -356,5 +356,5 @@ valid pair differs in the tag.
   `Unknown` within its bound); findings: none.
 - The tag check's skip branch (`skip_tag_check` true for a dummy `WalletUtxo`) is covered in
   `utxo.md` (INV-UTXO-22).
-- No circom reference: the Equivalence column is native equivalence against `zolana-keypair`
+- No circom reference: the Equivalence column is native equivalence against `spr-keypair`
   (INV-OWNER-01..03).

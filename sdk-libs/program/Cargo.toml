@@ -1,11 +1,11 @@
 [package]
-name = "zolana-program"
+name = "spr-program"
 version = "0.1.0"
-description = "SPP SDK for Solana programs: the zolana-instruction builders and derivations, compressed accounts, and ZK programs with their circuits, proofs and transaction client."
+description = "SPP SDK for Solana programs: the spr-instruction builders and derivations, compressed accounts, and ZK programs with their circuits, proofs and transaction client."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [dependencies]
 ark-bn254 = { version = "0.6", optional = true }
@@ -24,82 +24,82 @@ thiserror = { workspace = true, optional = true }
 tsify = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wincode = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-instruction = { workspace = true }
-zolana-interface = { workspace = true }
-zolana-keypair = { workspace = true, optional = true }
-zolana-macros = { path = "../macros", optional = true }
-zolana-zk-dsl = { workspace = true }
-zolana-zk-gadgets = { workspace = true, optional = true }
-zolana-transaction = { workspace = true, optional = true }
-zolana-tree = { workspace = true, optional = true }
+spr-hasher = { workspace = true }
+spr-instruction = { workspace = true }
+spr-interface = { workspace = true }
+spr-keypair = { workspace = true, optional = true }
+spr-macros = { version = "0.1.0", path = "../macros", optional = true }
+spr-zk-dsl = { workspace = true }
+spr-zk-gadgets = { workspace = true, optional = true }
+spr-transaction = { workspace = true, optional = true }
+spr-tree = { workspace = true, optional = true }
 
 [features]
 default = []
 # The shielded pool's transact instruction as a signed CPI from a pinocchio
 # program.
-cpi = ["zolana-instruction/cpi"]
+cpi = ["spr-instruction/cpi"]
 # Compressed accounts for pinocchio programs: program state kept as SPP UTXOs,
 # the tree and nullifier PDA checks of a read, and their transact CPI.
-compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:zolana-tree", "dep:thiserror"]
+compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:spr-tree", "dep:thiserror"]
 circuit = [
     "dep:ark-bn254",
     "dep:ark-ff",
     "dep:borsh",
     "dep:solana-signature",
     "dep:thiserror",
-    "dep:zolana-keypair",
-    "dep:zolana-macros",
-    "dep:zolana-transaction",
-    "dep:zolana-zk-gadgets",
-    "zolana-keypair/circuit",
-    "zolana-transaction/circuit",
-    "zolana-zk-dsl/circuit",
+    "dep:spr-keypair",
+    "dep:spr-macros",
+    "dep:spr-transaction",
+    "dep:spr-zk-gadgets",
+    "spr-keypair/circuit",
+    "spr-transaction/circuit",
+    "spr-zk-dsl/circuit",
     "solana-address/curve25519",
 ]
 client = [
     "circuit",
     "verifier",
     "dep:sha2",
-    "zolana-zk-dsl/client",
+    "spr-zk-dsl/client",
 ]
-setup = ["client", "groth16-solana/circom-vk", "dep:serde_json", "zolana-zk-dsl/setup"]
+setup = ["client", "groth16-solana/circom-vk", "dep:serde_json", "spr-zk-dsl/setup"]
 parallel = [
     "client",
-    "zolana-zk-dsl/parallel",
+    "spr-zk-dsl/parallel",
 ]
 serde = [
     "circuit",
     "dep:serde",
-    "zolana-keypair/serde",
-    "zolana-transaction/serde",
-    "zolana-zk-dsl/serde",
+    "spr-keypair/serde",
+    "spr-transaction/serde",
+    "spr-zk-dsl/serde",
 ]
 tsify = [
     "serde",
     "dep:tsify",
     "dep:wasm-bindgen",
-    "zolana-keypair/tsify",
-    "zolana-transaction/tsify",
-    "zolana-zk-dsl/tsify",
+    "spr-keypair/tsify",
+    "spr-transaction/tsify",
+    "spr-zk-dsl/tsify",
 ]
 wasm = [
     "client",
     "tsify",
     "dep:serde-wasm-bindgen",
-    "zolana-zk-dsl/wasm",
+    "spr-zk-dsl/wasm",
 ]
-wasm-prover = ["wasm", "zolana-zk-dsl/wasm-prover"]
-r1cs-export = ["setup", "zolana-zk-dsl/r1cs-export"]
-# The circuit crate build `zolana zk` runs (`zolana_program::build`).
-build = ["setup", "zolana-zk-dsl/build"]
-verifier = ["dep:groth16-solana", "dep:solana-program-error", "zolana-zk-dsl/verifier"]
-wasm-threads = ["wasm-prover", "parallel", "zolana-zk-dsl/wasm-threads"]
-wasm-verify = ["wasm", "zolana-zk-dsl/wasm-verify"]
+wasm-prover = ["wasm", "spr-zk-dsl/wasm-prover"]
+r1cs-export = ["setup", "spr-zk-dsl/r1cs-export"]
+# The circuit crate build `zolana zk` runs (`spr_program::build`).
+build = ["setup", "spr-zk-dsl/build"]
+verifier = ["dep:groth16-solana", "dep:solana-program-error", "spr-zk-dsl/verifier"]
+wasm-threads = ["wasm-prover", "parallel", "spr-zk-dsl/wasm-threads"]
+wasm-verify = ["wasm", "spr-zk-dsl/wasm-verify"]
 # Test-only: runs the unit suite's cross-checks that spawn circom and snarkjs.
 external-tools = []
 # Diagnostic and metadata inspection helpers for tests, not application circuits.
-test-support = ["client", "zolana-zk-dsl/test-support"]
+test-support = ["client", "spr-zk-dsl/test-support"]
 
 [dev-dependencies]
 ark-circom = { version = "0.6.0", default-features = false }
@@ -111,12 +111,12 @@ proptest = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 wasmer = { version = "6.1", default-features = false }
-zolana-account-checks = { workspace = true, features = ["test-only"] }
-zolana-client = { workspace = true }
-zolana-event = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }
-zolana-tree = { workspace = true }
+spr-account-checks = { workspace = true, features = ["test-only"] }
+spr-client = { workspace = true }
+spr-event = { workspace = true }
+spr-keypair = { workspace = true }
+spr-transaction = { workspace = true }
+spr-tree = { workspace = true }
 
 [[test]]
 name = "owner_records"

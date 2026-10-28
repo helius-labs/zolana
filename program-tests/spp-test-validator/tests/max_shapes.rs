@@ -6,12 +6,12 @@
 use anyhow::{anyhow, Result};
 use serial_test::serial;
 use solana_signature::Signature;
-use zolana_client::{Shape, DEFAULT_TRANSACT_CU_LIMIT};
-use zolana_test_utils::{
+use spr_client::{Shape, DEFAULT_TRANSACT_CU_LIMIT};
+use spr_test_utils::{
     lifecycle::LifecycleHarness, nullifier_pda::assert_nullifier_pdas,
     test_validator_asserts::assert_transaction_compute_units,
 };
-use zolana_transaction::{instructions::merge::MAX_MERGE_INPUTS, SOL_MINT};
+use spr_transaction::{instructions::merge::MAX_MERGE_INPUTS, SOL_MINT};
 
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
 const SENT_AMOUNT: u64 = 1_000_000;

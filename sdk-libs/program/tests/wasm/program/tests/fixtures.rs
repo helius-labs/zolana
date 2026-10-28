@@ -4,15 +4,15 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use solana_signature::Signature;
+use spr_hasher::primitives::solana_owner_identity;
+use spr_interface::instruction::instruction_data::transact::OwnerTag;
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
+use spr_program::{wasm, Groth16Prover, TxContext, UtxoOwner, ZkProgramCircuit};
+use spr_transaction::{utxo::Utxo, Data, Mint, WalletUtxo};
 use wasm_test_program::{
     escrow_authority, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw,
     WithdrawPrivateInputs, WithdrawPublicInputs, ESCROW_OUTPUT_SLOT,
 };
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_interface::instruction::instruction_data::transact::OwnerTag;
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
-use zolana_program::{wasm, Groth16Prover, TxContext, UtxoOwner, ZkProgramCircuit};
-use zolana_transaction::{utxo::Utxo, Data, Mint, WalletUtxo};
 
 #[cfg(feature = "snarkjs")]
 mod ceremony;
@@ -244,7 +244,7 @@ fn write_json<P: ZkProgramCircuit + Serialize>(fixture: &Fixture<P>) {
 
 #[cfg(feature = "snarkjs")]
 fn write_zkey<P: ZkProgramCircuit>(name: &str) {
-    use zolana_program::Groth16Keys;
+    use spr_program::Groth16Keys;
 
     let ceremony = ceremony::ceremony::<P>(name);
     let zkey = keys_dir().join(format!("{name}.zkey"));
@@ -279,7 +279,7 @@ fn write_wasm_fixtures() {
 #[cfg(feature = "snarkjs")]
 #[test]
 fn imported_keys_keep_their_production_export_provenance() {
-    use zolana_program::{Groth16Keys, SetupKind, VerifyingKeyExport};
+    use spr_program::{Groth16Keys, SetupKind, VerifyingKeyExport};
 
     let ceremony = ceremony::ceremony::<Escrow>("escrow");
     let keys = Groth16Keys::load_zkey::<Escrow>(&ceremony.final_zkey()).unwrap();

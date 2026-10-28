@@ -1,4 +1,4 @@
-use zolana_program::{
+use spr_program::{
     verifier::{groth16_solana, integer, pack_be, verify_groth16, VerifyError},
     CompressedProof,
 };

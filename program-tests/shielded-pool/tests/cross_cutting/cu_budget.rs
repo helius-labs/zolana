@@ -1,7 +1,7 @@
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_interface::instruction::UpdateProtocolConfigData;
-use zolana_program_test::{TransactionOutcome, ZolanaProgramTest};
+use spr_interface::instruction::UpdateProtocolConfigData;
+use spr_program_test::{TransactionOutcome, ZolanaProgramTest};
 
 // Per-op CU ceilings, pinned at roughly 3x the consumption observed on the
 // current build (measured 2026-07 via `last_transaction_trace`; each constant

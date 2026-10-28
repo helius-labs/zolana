@@ -19,9 +19,9 @@ use solana_rpc_client_api::client_error::{Error as RpcClientError, ErrorKind};
 use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
-use zolana_interface::instruction::BatchUpdateNullifierTreeData;
-use zolana_protocol_instructions::BatchUpdateNullifierTree;
-use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
+use spr_interface::instruction::BatchUpdateNullifierTreeData;
+use spr_protocol_instructions::BatchUpdateNullifierTree;
+use spr_smart_account_client::{execute_sync_ix, smart_account_pda};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ForestError {
@@ -118,11 +118,11 @@ impl ForestParams<'_> {
 mod tests {
     use solana_instruction::AccountMeta;
     use solana_rpc_client_api::request::RpcError;
-    use zolana_interface::{
+    use spr_interface::{
         instruction::{encode_instruction, tag},
         pda, SHIELDED_POOL_PROGRAM_ID,
     };
-    use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
+    use spr_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 
     use super::*;
 
@@ -131,7 +131,7 @@ mod tests {
             new_root: [1u8; 32],
             old_root: [5u8; 32],
             zkp_batch_index: 0,
-            proof: zolana_interface::instruction::NullifierTreeProof {
+            proof: spr_interface::instruction::NullifierTreeProof {
                 a: [2u8; 32],
                 b: [3u8; 128],
                 c: [4u8; 32],
@@ -179,7 +179,7 @@ mod tests {
             new_root: [1u8; 32],
             old_root: [5u8; 32],
             zkp_batch_index: 0,
-            proof: zolana_interface::instruction::NullifierTreeProof {
+            proof: spr_interface::instruction::NullifierTreeProof {
                 a: [2u8; 32],
                 b: [3u8; 128],
                 c: [4u8; 32],

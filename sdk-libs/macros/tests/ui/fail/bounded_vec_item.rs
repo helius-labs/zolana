@@ -1,4 +1,4 @@
-use zolana_program::conversion::ProofInput;
+use spr_program::conversion::ProofInput;
 
 #[derive(ProofInput)]
 struct Amounts {

@@ -1,7 +1,7 @@
 use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::tag;
+use spr_interface::instruction::tag;
 
 use shielded_pool_tests::support::runtime::program_test;
 

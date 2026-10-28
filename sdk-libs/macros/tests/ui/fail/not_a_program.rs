@@ -1,4 +1,4 @@
-use zolana_program::{conversion::ProofInput, ZkProgramCircuit};
+use spr_program::{conversion::ProofInput, ZkProgramCircuit};
 
 #[derive(Clone, ProofInput)]
 struct Inputs {

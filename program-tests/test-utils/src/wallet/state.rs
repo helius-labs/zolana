@@ -1,8 +1,8 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
-use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, X25519Pubkey};
-use zolana_transaction::{
+use spr_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, X25519Pubkey};
+use spr_transaction::{
     error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, DepositPayload, WalletUtxo,
 };
 

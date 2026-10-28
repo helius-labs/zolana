@@ -29,7 +29,7 @@ and its indexer with `BlockingIndexer`.
 
 ## Your own HTTP client
 
-`zolana_api::HttpClient` and `BlockingHttpClient` carry one request and answer
+`spr_api::HttpClient` and `BlockingHttpClient` carry one request and answer
 with the server's response, nothing more: routes, retries, polling, timeouts
 and TEE encryption stay with the client, so the transport is not trusted with
 any of them. `ZolanaApi::with_client`, `ProverClient::with_client` and
@@ -122,7 +122,7 @@ every merged amount; `MergeSubmission::with_prover` keeps it in process.
 
 Any indexer serves a client. A blocking one answers the indexer half of
 `Rpc` and implements `WitnessReader`, which has a default over `Rpc`:
-`impl WitnessReader for MyIndexer {}`. `zolana_program_test::ZolanaProgramTest`
+`impl WitnessReader for MyIndexer {}`. `spr_program_test::ZolanaProgramTest`
 is one: `harness.into_client(ProverClient::local())
 .with_proof_data_source(ProofDataSource::Client)` is a client whose RPC and
 indexer are the litesvm harness, so a transfer proves, sends and confirms in

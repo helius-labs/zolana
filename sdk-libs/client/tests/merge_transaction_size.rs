@@ -8,17 +8,17 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_message::v1::MAX_TRANSACTION_SIZE;
 use solana_pubkey::Pubkey;
-use test_indexer::TestIndexer;
-use zolana_client::{transaction_size, ComputeBudgetConfig, MergeProver, Rpc, TransactionSize};
-use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
-use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
-use zolana_program::instruction::{MergeRing, MergeTransact};
-use zolana_transaction::{
+use spr_client::{transaction_size, ComputeBudgetConfig, MergeProver, Rpc, TransactionSize};
+use spr_instruction::instruction::{MergeRing, MergeTransact};
+use spr_interface::instruction::instruction_data::merge_transact::MergeProof;
+use spr_keypair::{random_blinding, ShieldedKeypair, SigningKey};
+use spr_transaction::{
     instructions::merge::{
         merge_circuit_width, MergeTransaction, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
     },
     Data, Mint, Utxo,
 };
+use test_indexer::TestIndexer;
 
 const TREE_ID: u16 = 0;
 
@@ -127,7 +127,7 @@ fn build_merge(real_inputs: usize, ring: Option<Address>) -> BuiltMerge {
     }
     .build()
     .expect("build merge witness");
-    let tree = zolana_interface::pda::tree(TREE_ID);
+    let tree = spr_interface::pda::tree(TREE_ID);
     let payer = Pubkey::new_unique();
     let (instruction, sent_nullifiers) = match ring {
         Some(ring) => {

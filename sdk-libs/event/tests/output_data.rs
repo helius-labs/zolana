@@ -1,11 +1,11 @@
 //! Output payload encoding and the scheme markers an indexer dispatches on.
 
-use zolana_event::{
+use spr_event::{
     encode_output_data, is_confidential_encrypted_output, ring_confidential_encrypted_output_body,
     OutputDataEncoding, ProoflessOutput, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
     RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
-use zolana_event_parser::decode_output_data;
+use spr_event_parser::decode_output_data;
 
 #[test]
 fn encoded_output_decodes_back() {
@@ -114,24 +114,24 @@ fn single_buffer_encoding_matches_the_borsh_enum_layout() {
         assert_eq!(encode_output_data(output), expected);
     }
 
-    let encrypted = zolana_event::EncryptedRingDepositOutput {
+    let encrypted = spr_event::EncryptedRingDepositOutput {
         owner_utxo_hash: [1u8; 32],
         asset: [2u8; 32],
         amount: 7,
         data_hash: Some([3u8; 32]),
         ring_program_id: [4u8; 32],
         ring_data_hash: [5u8; 32],
-        encrypted: zolana_event::EncryptedRingDepositData {
+        encrypted: spr_event::EncryptedRingDepositData {
             tx_viewing_pk: [6u8; 33],
             salt: [7u8; 16],
             ciphertext: vec![8u8; 40],
         },
     };
-    let mut blob = vec![zolana_event::ENCRYPTED_RING_DEPOSIT_SCHEME];
+    let mut blob = vec![spr_event::ENCRYPTED_RING_DEPOSIT_SCHEME];
     borsh::BorshSerialize::serialize(&encrypted, &mut blob).unwrap();
     let expected = borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap();
     assert_eq!(
-        zolana_event::encode_encrypted_ring_deposit_output(encrypted),
+        spr_event::encode_encrypted_ring_deposit_output(encrypted),
         expected
     );
 }
@@ -140,23 +140,23 @@ fn single_buffer_encoding_matches_the_borsh_enum_layout() {
 fn fixed_lengths_match_the_encoders() {
     assert_eq!(
         encode_output_data(every_option_present_but_empty()).len(),
-        zolana_event::PLAINTEXT_OUTPUT_FIXED_LEN
+        spr_event::PLAINTEXT_OUTPUT_FIXED_LEN
     );
-    let encrypted = zolana_event::EncryptedRingDepositOutput {
+    let encrypted = spr_event::EncryptedRingDepositOutput {
         owner_utxo_hash: [1u8; 32],
         asset: [2u8; 32],
         amount: 7,
         data_hash: Some([3u8; 32]),
         ring_program_id: [4u8; 32],
         ring_data_hash: [5u8; 32],
-        encrypted: zolana_event::EncryptedRingDepositData {
+        encrypted: spr_event::EncryptedRingDepositData {
             tx_viewing_pk: [6u8; 33],
             salt: [7u8; 16],
             ciphertext: Vec::new(),
         },
     };
     assert_eq!(
-        zolana_event::encode_encrypted_ring_deposit_output(encrypted).len(),
-        zolana_event::ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN
+        spr_event::encode_encrypted_ring_deposit_output(encrypted).len(),
+        spr_event::ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN
     );
 }

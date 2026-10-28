@@ -1,7 +1,7 @@
 use pinocchio::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::instruction::instruction_data::transact::TransactIxData;
-use zolana_program::{instruction::Transact, CompressedProof};
+use spr_interface::instruction::instruction_data::transact::TransactIxData;
+use spr_program::{instruction::Transact, CompressedProof};
 
 use crate::{
     circuits::escrow_authority,

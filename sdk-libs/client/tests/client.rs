@@ -17,7 +17,7 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use zolana_client::{
+use spr_client::{
     client::{AsyncZolanaClient, SignedPrivateTransaction, Submission, ZolanaClient},
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
@@ -31,13 +31,13 @@ use zolana_client::{
     },
     ClientError, ProofAuthority,
 };
-use zolana_interface::{instruction::InterfaceTransfer, pda};
-use zolana_keypair::ShieldedKeypair;
-use zolana_program::instruction::{
+use spr_instruction::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplDepositAccounts,
 };
-use zolana_transaction::{
+use spr_interface::{instruction::InterfaceTransfer, pda};
+use spr_keypair::ShieldedKeypair;
+use spr_transaction::{
     instructions::transact::ConfidentialTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
     WalletUtxo,
 };
@@ -326,7 +326,7 @@ fn submit_validation_binds_fee_payer() {
         ZolanaIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
     )
-    .with_proof_data_source(zolana_client::ProofDataSource::Client);
+    .with_proof_data_source(spr_client::ProofDataSource::Client);
 
     assert!(matches!(
         Submission::new(&signed, Keypair::new().pubkey(), &StopBeforeProving)
@@ -1288,7 +1288,7 @@ fn client_proof_data_opt_in_fetches_paths_before_proving() {
         server.url(),
     )
     .unwrap()
-    .with_proof_data_source(zolana_client::ProofDataSource::Client);
+    .with_proof_data_source(spr_client::ProofDataSource::Client);
     assert!(matches!(
         Rpc::prove(&client, transaction, &owner),
         Err(ClientError::MissingProvingKeySha256 { .. })
@@ -1312,7 +1312,7 @@ async fn client_proof_data_opt_in_fetches_paths_before_proving_async() {
         server.url(),
     )
     .unwrap()
-    .with_proof_data_source(zolana_client::ProofDataSource::Client);
+    .with_proof_data_source(spr_client::ProofDataSource::Client);
     assert!(matches!(
         AsyncRpc::prove(&client, transaction, &owner).await,
         Err(ClientError::MissingProvingKeySha256 { .. })
@@ -1345,7 +1345,7 @@ fn assert_client_proof_data_requests(requests: Vec<String>) {
 
 #[test]
 fn indexed_preparation_rejects_changed_inputs_and_wrong_authority() {
-    use zolana_client::prover::indexed::PreparedIndexedTransfer;
+    use spr_client::prover::indexed::PreparedIndexedTransfer;
     let payer = Keypair::new();
     let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
     let transaction = ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
@@ -1368,7 +1368,7 @@ fn indexed_preparation_rejects_changed_inputs_and_wrong_authority() {
     assert!(matches!(
         PreparedIndexedTransfer::new(changed, &owner),
         Err(ClientError::Transaction(
-            zolana_transaction::TransactionError::InputCommitmentMismatch { index: 0 }
+            spr_transaction::TransactionError::InputCommitmentMismatch { index: 0 }
         ))
     ));
 }

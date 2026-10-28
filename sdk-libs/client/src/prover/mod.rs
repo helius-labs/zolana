@@ -37,6 +37,8 @@ pub use proving_key::{
     ProvingKeyReport,
 };
 pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver};
+pub use spr_transaction::instructions::transact::{Shape, SPP_SUPPORTED_SHAPES};
+pub use spr_transaction::utxo::ProofInputUtxo;
 pub use transact::{
     attach_input_proofs, input_utxos_from_nullifiers, AnonymousEddsaTransferInputs,
     AnonymousRingEddsaProofResult, AnonymousRingEddsaProver, PublicInputs, PublicTransfers,
@@ -46,5 +48,3 @@ pub use transact::{
 pub use verify::{
     verify_confidential_transfer_inputs, verify_confidential_transfer_proof, verify_proof_statement,
 };
-pub use zolana_transaction::instructions::transact::{Shape, SPP_SUPPORTED_SHAPES};
-pub use zolana_transaction::utxo::ProofInputUtxo;

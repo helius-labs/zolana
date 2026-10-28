@@ -10,11 +10,11 @@ use std::{
 };
 
 use serde_json::{json, Value};
-use zeroize::Zeroizing;
-use zolana_client::{
+use spr_client::{
     prover::{AsyncProverClient, Delivery, ExpectedProvingKey, ProveRequest, ProverClient},
     ClientError, Prover,
 };
+use zeroize::Zeroizing;
 
 struct Request(Delivery);
 

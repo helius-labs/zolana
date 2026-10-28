@@ -1,6 +1,6 @@
 use light_program_profiler::profile;
 use pinocchio::{account::Ref, address::address_eq, error::ProgramError, ProgramResult};
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError, instruction::instruction_data::TransactIxDataRef, state::CacheAccount,
 };
 
@@ -90,7 +90,7 @@ pub(crate) fn bind_cache_write(
     external_data_hash: [u8; 32],
 ) -> Result<[u8; 32], ShieldedPoolError> {
     let write_slots = ix.circuit.cache_access().map(|access| access.write_slots);
-    zolana_interface::state::cache::bind_cache_write(
+    spr_interface::state::cache::bind_cache_write(
         external_data_hash,
         cache
             .and_then(TransactCache::writable)

@@ -1,8 +1,8 @@
 use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{
+use spr_account_checks::AccountIterator;
+use spr_interface::{
     error::ShieldedPoolError, instruction::CreateRingConfigData, state::RingConfig,
 };
 
@@ -66,7 +66,7 @@ pub fn process_create_ring_config(accounts: &mut [AccountView], data: &[u8]) -> 
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 fn derive_ring_auth(program_id: &Address) -> (Address, u8) {
-    Address::find_program_address(&[zolana_interface::RING_AUTH_PDA_SEED], program_id)
+    Address::find_program_address(&[spr_interface::RING_AUTH_PDA_SEED], program_id)
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]

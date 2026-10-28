@@ -1,6 +1,6 @@
 use solana_address::Address;
-use zolana_event::{MessageData, OutputDataEncoding};
-use zolana_keypair::{constants::SALT_LEN, PublicKey, ViewingKey, X25519Pubkey};
+use spr_event::{MessageData, OutputDataEncoding};
+use spr_keypair::{constants::SALT_LEN, PublicKey, ViewingKey, X25519Pubkey};
 
 use crate::{
     error::TransactionError, instructions::transact::ShieldedTransaction, utxo::Utxo,

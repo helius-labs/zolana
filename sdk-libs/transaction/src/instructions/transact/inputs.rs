@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_interface::MAX_INPUT_TREES;
+use spr_interface::MAX_INPUT_TREES;
 
 use crate::{
     error::TransactionError,
@@ -133,7 +133,7 @@ impl SppProofInputs {
     pub fn signer_pk_hashes(&self, width: usize) -> Result<Vec<[u8; 32]>, TransactionError> {
         let mut hashes = Vec::with_capacity(width);
         for signer in self.owner_signer_pubkeys()? {
-            hashes.push(zolana_hasher::primitives::solana_owner_identity(
+            hashes.push(spr_hasher::primitives::solana_owner_identity(
                 signer.as_array(),
             )?);
         }

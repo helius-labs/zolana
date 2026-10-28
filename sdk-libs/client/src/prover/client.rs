@@ -19,13 +19,13 @@ use http::{
 #[cfg(feature = "reqwest")]
 use reqwest::redirect::Policy;
 use serde::Deserialize;
-use tokio::time::sleep as async_sleep;
-use url::Url;
-use zeroize::Zeroizing;
-use zolana_api::{
+use spr_api::{
     ApiError, BlockingHttpClient, BlockingRuntime, HttpClient, HttpRequest, HttpResponse,
     OnBlockingPool,
 };
+use tokio::time::sleep as async_sleep;
+use url::Url;
+use zeroize::Zeroizing;
 
 use crate::{
     error::ClientError,
@@ -217,7 +217,7 @@ fn prover_proxy(proxy_url: &str) -> Result<reqwest::Proxy, ClientError> {
     #[cfg(not(feature = "socks"))]
     if matches!(url.scheme(), "socks5" | "socks5h") {
         return Err(ClientError::Prover(
-            "SOCKS proxies require the zolana-client `socks` feature".into(),
+            "SOCKS proxies require the spr-client `socks` feature".into(),
         ));
     }
     if !matches!(url.scheme(), "http" | "https" | "socks5" | "socks5h") || url.host_str().is_none()
@@ -742,8 +742,8 @@ impl AsyncProverClient {
     /// Enable the `socks` Cargo feature for SOCKS proxies.
     ///
     /// ```no_run
-    /// # fn main() -> Result<(), zolana_client::error::ClientError> {
-    /// use zolana_client::prover::AsyncProverClient;
+    /// # fn main() -> Result<(), spr_client::error::ClientError> {
+    /// use spr_client::prover::AsyncProverClient;
     ///
     /// let prover = AsyncProverClient::new("https://prover.example.com".into())
     ///     .with_proxy("socks5h://127.0.0.1:9050")?;
@@ -2865,9 +2865,9 @@ mod tests {
         use super::super::indexed::{
             IndexedLookup, IndexedProofData, IndexedTree, ProofResolution, ResolvedProofTree,
         };
-        use zolana_interface::instruction::instruction_data::transact::TreeContext;
+        use spr_interface::instruction::instruction_data::transact::TreeContext;
         let tree = IndexedTree {
-            tree: zolana_interface::pda::tree(3).to_bytes().into(),
+            tree: spr_interface::pda::tree(3).to_bytes().into(),
             id: 3,
         };
         let fields = vec![[0; 32]; 17];

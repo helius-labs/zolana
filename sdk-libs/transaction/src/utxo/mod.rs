@@ -19,5 +19,5 @@ pub(crate) use note::resolve_ring_program_id;
 pub use note::Utxo;
 pub use output::SppProofOutputUtxo;
 pub use proof_input::ProofInputUtxo;
+pub use spr_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};
 pub use wallet::WalletUtxo;
-pub use zolana_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};

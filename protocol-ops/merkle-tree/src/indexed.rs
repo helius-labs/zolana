@@ -7,8 +7,8 @@ use crate::indexed_array::{
 };
 use num_bigint::BigUint;
 use num_traits::{CheckedAdd, CheckedSub, Num, ToBytes, Unsigned, Zero};
+use spr_hasher::{bigint::bigint_to_be_bytes_array, Hasher, HasherError};
 use thiserror::Error;
-use zolana_hasher::{bigint::bigint_to_be_bytes_array, Hasher, HasherError};
 
 use crate::{MerkleTree, ReferenceMerkleTreeError};
 

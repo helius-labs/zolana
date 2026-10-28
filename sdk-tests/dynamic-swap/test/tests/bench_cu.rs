@@ -1,8 +1,8 @@
-use std::time::{Duration, Instant};
-use zolana_test_utils::utxo::{
+use spr_test_utils::utxo::{
     assign_output_blindings, encrypt_transaction_data, get_transaction_viewing_key,
 };
-use zolana_transaction::utxo::SppProofInputUtxo;
+use spr_transaction::utxo::SppProofInputUtxo;
+use std::time::{Duration, Instant};
 
 use dynamic_swap_program::{
     instructions::create_escrow::EscrowOpenProof,
@@ -38,12 +38,12 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     transaction_size, ComputeBudgetConfig, MerkleContext, MerkleProof, NonInclusionProof,
     ProverClient, ProverExt, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon;
-use zolana_interface::{
+use spr_hasher::Poseidon;
+use spr_interface::{
     instruction::instruction_data::transact::TransactIxData,
     state::{
         default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
@@ -51,9 +51,9 @@ use zolana_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair, ShieldedPda, SigningKey};
-use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use zolana_transaction::{
+use spr_keypair::{random_blinding, ShieldedKeypair, ShieldedPda, SigningKey};
+use spr_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use spr_transaction::{
     instructions::transact::{
         asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo, BN254_MODULUS_DEC,
     },
@@ -62,7 +62,7 @@ use zolana_transaction::{
     },
     AssetRegistry, Data, Utxo, SOL_MINT,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 const PROFILING_SBF_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -294,15 +294,15 @@ fn prove_transact_timed(
     proof_inputs: SppProofInputs,
     spend_proofs: &[SpendProof],
     prover: &ProverClient,
-    keys: &[&zolana_keypair::NullifierKey],
+    keys: &[&spr_keypair::NullifierKey],
 ) -> (TransactIxData, Duration) {
-    let dummy_proofs = zolana_test_utils::utxo::dummy_proofs(&proof_inputs);
+    let dummy_proofs = spr_test_utils::utxo::dummy_proofs(&proof_inputs);
     prover
         .prove_transact(
             proof_inputs.clone(),
             spend_proofs,
             &dummy_proofs,
-            &zolana_test_utils::utxo::ProofKeys(keys),
+            &spr_test_utils::utxo::ProofKeys(keys),
         )
         .expect("warm prove transact");
     let start = Instant::now();
@@ -311,7 +311,7 @@ fn prove_transact_timed(
             proof_inputs,
             spend_proofs,
             &dummy_proofs,
-            &zolana_test_utils::utxo::ProofKeys(keys),
+            &spr_test_utils::utxo::ProofKeys(keys),
         )
         .expect("prove transact");
     (transact, start.elapsed())
@@ -322,7 +322,7 @@ fn start_prover() {
     INIT.call_once(|| {
         std::env::set_var("ZOLANA_PROVER_KEYS_DIR", PROVER_KEYS_DIR);
     });
-    zolana_client::spawn_prover().expect("spawn prover");
+    spr_client::spawn_prover().expect("spawn prover");
 }
 
 fn proving_time_table(spp: Duration, circuit: Duration) -> SectionTable {
@@ -528,17 +528,17 @@ fn bench_create_escrow(
     let escrow_owner =
         ShieldedPda::from_viewing_key(escrow_authority_pda(&pair), &authority_keypair.viewing_key)
             .expect("escrow authority identity");
-    let tree = zolana_interface::pda::tree(BENCH_TREE_ID);
+    let tree = spr_interface::pda::tree(BENCH_TREE_ID);
 
     let source_utxo = Utxo {
         owner: user_keypair.signing_pubkey(),
-        asset: zolana_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
+        asset: spr_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
         amount: ORDER_AMOUNT,
         blinding: random_blinding(),
         ring_program_id: None,
         data: Data::default(),
     };
-    let source_in: SppProofInputUtxo = zolana_test_utils::utxo::wallet(
+    let source_in: SppProofInputUtxo = spr_test_utils::utxo::wallet(
         source_utxo,
         &user_keypair.nullifier_key,
         BENCH_TREE_ID,
@@ -556,13 +556,13 @@ fn bench_create_escrow(
         .expect("escrow authority shielded address");
     let maker_funding_utxo = Utxo {
         owner: escrow_address.signing_pubkey,
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: FUNDING_AMOUNT,
         blinding: random_blinding(),
         ring_program_id: None,
         data: Data::default(),
     };
-    let maker_funding: SppProofInputUtxo = zolana_test_utils::utxo::wallet(
+    let maker_funding: SppProofInputUtxo = spr_test_utils::utxo::wallet(
         maker_funding_utxo,
         escrow_owner.as_ref(),
         BENCH_TREE_ID,
@@ -594,7 +594,7 @@ fn bench_create_escrow(
     let escrow_utxo = EscrowUtxo {
         terms: escrow_terms,
         created_at: CREATED_AT,
-        asset: zolana_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
+        asset: spr_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
         order_amount: ORDER_AMOUNT,
         blinding: random_blinding(),
     };
@@ -608,7 +608,7 @@ fn bench_create_escrow(
 
     let reserved = ORDER_AMOUNT * MAX_PRICE;
     let reservation = Reservation {
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: reserved,
         blinding: reservation_blinding,
     };
@@ -617,7 +617,7 @@ fn bench_create_escrow(
         .expect("reservation_out");
 
     let mut maker_change = SppProofOutputUtxo::new(
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         FUNDING_AMOUNT - reserved,
         escrow_address,
     )
@@ -829,7 +829,7 @@ fn bench_settle(
     let escrow_owner =
         ShieldedPda::from_viewing_key(escrow_authority_pda(&pair), &authority_keypair.viewing_key)
             .expect("escrow authority identity");
-    let tree = zolana_interface::pda::tree(BENCH_TREE_ID);
+    let tree = spr_interface::pda::tree(BENCH_TREE_ID);
 
     let escrow_terms = EscrowTerms {
         recipient_owner_hash,
@@ -838,7 +838,7 @@ fn bench_settle(
     let escrow_utxo = EscrowUtxo {
         terms: escrow_terms,
         created_at: CREATED_AT,
-        asset: zolana_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
+        asset: spr_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
         order_amount: ORDER_AMOUNT,
         blinding: random_blinding(),
     };
@@ -852,7 +852,7 @@ fn bench_settle(
 
     let reserved = ORDER_AMOUNT * MAX_PRICE;
     let reservation = Reservation {
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: reserved,
         blinding: random_blinding(),
     };
@@ -871,16 +871,16 @@ fn bench_settle(
         .shielded_address()
         .expect("authority shielded address");
     let recipient_out = SppProofOutputUtxo::new(
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         owed,
         user_keypair.shielded_address().expect("user address"),
     )
     .expect("recipient_out");
     let maker_counter =
-        SppProofOutputUtxo::new(zolana_transaction::Mint::SOL, remainder, authority_address)
+        SppProofOutputUtxo::new(spr_transaction::Mint::SOL, remainder, authority_address)
             .expect("maker_counter");
     let maker_source = SppProofOutputUtxo::new(
-        zolana_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
+        spr_transaction::Mint::new(source_asset, SOURCE_ASSET_ID),
         ORDER_AMOUNT,
         authority_address,
     )

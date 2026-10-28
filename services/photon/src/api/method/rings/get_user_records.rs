@@ -1,11 +1,11 @@
 use sea_orm::DatabaseConnection;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
-use zolana_indexer_api::{
+use spr_indexer_api::{
     Base64String, GetUserRecordsRequest, GetUserRecordsResponse, Hash, SerializablePubkey,
     UserRecord, MAX_USER_RECORD_OWNERS,
 };
-use zolana_user_registry_interface::{
+use spr_user_registry_interface::{
     user_record_pda, user_registry_program_id, UserRecord as UserRecordAccount,
 };
 
@@ -140,8 +140,8 @@ mod tests {
     use sea_orm::{Database, EntityTrait, Set};
     use sea_orm_migration::MigratorTrait;
     use serde_json::{json, Value};
-    use zolana_indexer_api::Context;
-    use zolana_user_registry_interface::MergeEncryptionScheme;
+    use spr_indexer_api::Context;
+    use spr_user_registry_interface::MergeEncryptionScheme;
 
     fn owner(value: u8) -> SerializablePubkey {
         SerializablePubkey::from([value; 32])

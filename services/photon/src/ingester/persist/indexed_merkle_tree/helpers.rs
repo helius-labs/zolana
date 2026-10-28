@@ -4,7 +4,7 @@ use crate::dao::generated::indexed_trees;
 use crate::ingester::error::IngesterError;
 use ark_bn254::Fr;
 use light_poseidon::{Poseidon, PoseidonBytesHasher};
-use zolana_indexer_api::Hash;
+use spr_indexer_api::Hash;
 
 /// Computes range node hash based on tree type
 pub fn compute_hash_by_tree_kind(

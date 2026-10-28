@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use dynamic_swap_program::instructions::shared::u64_right_align;
-use zolana_keypair::{hash::poseidon, ShieldedPda};
-use zolana_transaction::{
+use spr_keypair::{hash::poseidon, ShieldedPda};
+use spr_transaction::{
     instructions::transact::SppProofOutputUtxo,
     utxo::{Blinding, SppProofInputUtxo, Utxo},
     Data, Mint,
@@ -253,7 +253,7 @@ pub fn decode_escrow_note(data: &Data) -> Result<(u64, Blinding)> {
 
 #[cfg(test)]
 mod tests {
-    use zolana_transaction::DataRecord;
+    use spr_transaction::DataRecord;
 
     use super::*;
 

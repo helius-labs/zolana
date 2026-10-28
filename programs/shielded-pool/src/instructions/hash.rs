@@ -1,8 +1,8 @@
 #[cfg(feature = "test-sbf")]
 use pinocchio::error::ProgramError;
 #[cfg(feature = "test-sbf")]
-use zolana_interface::error::ShieldedPoolError;
-use zolana_interface::UTXO_DOMAIN;
+use spr_interface::error::ShieldedPoolError;
+use spr_interface::UTXO_DOMAIN;
 
 /// Encodes a u64 as a big-endian BN254 field element (value in the low 8 bytes).
 #[inline(always)]
@@ -18,7 +18,7 @@ pub(crate) const fn field_from_u64(value: u64) -> [u8; 32] {
 pub(crate) const UTXO_DOMAIN_FIELD: [u8; 32] = field_from_u64(UTXO_DOMAIN as u64);
 
 /// Tagged owner identity of a Solana address or owner tag
-/// (`zolana_hasher::primitives::solana_owner_identity`) as a program error.
+/// (`spr_hasher::primitives::solana_owner_identity`) as a program error.
 ///
 /// Test-only: the on-chain paths call the hasher directly (see
 /// `transact::verify`), so this exists just to give the moved unit tests a
@@ -27,6 +27,6 @@ pub(crate) const UTXO_DOMAIN_FIELD: [u8; 32] = field_from_u64(UTXO_DOMAIN as u64
 #[cfg(feature = "test-sbf")]
 #[inline(always)]
 pub fn solana_owner_identity(pubkey: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
-    zolana_hasher::primitives::solana_owner_identity(pubkey)
+    spr_hasher::primitives::solana_owner_identity(pubkey)
         .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed.into())
 }

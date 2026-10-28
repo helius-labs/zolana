@@ -7,14 +7,14 @@
 //! on-chain.
 
 use serde::Deserialize;
-use zolana_interface::{
+use spr_interface::{
     verifying_keys::{
         AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId,
         PROVING_KEY_SHA256S as TRANSACT_KEYS,
     },
     N_PUBLIC_SLOTS,
 };
-use zolana_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S as ADDRESS_APPEND_KEYS;
+use spr_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S as ADDRESS_APPEND_KEYS;
 
 use crate::ClientError;
 

@@ -1,8 +1,8 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::OutputDataEncoding;
-use zolana_keypair::{NullifierKey, PublicKey, ShieldedAddress, ViewingKey};
-use zolana_program::{
+use spr_event::OutputDataEncoding;
+use spr_keypair::{NullifierKey, PublicKey, ShieldedAddress, ViewingKey};
+use spr_program::{
     circuit::{
         CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, PublicHashOutput,
         PublicInputs, TokenUtxos, UtxoTrait,
@@ -10,7 +10,7 @@ use zolana_program::{
     conversion::ProofInput,
     CircuitError, Groth16Prover, ProgramOwner, R1cs, TxContext, ZkCircuit, ZkProgramCircuit,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::SppProofInputs,
     serialization::{
         confidential::{Confidential, ConfidentialOutputPlaintext},
@@ -112,7 +112,7 @@ fn private_selection_keeps_one_r1cs_shape() {
 
 #[test]
 fn address_bindings_resolve_clones_and_refuse_ambiguous_hashes() {
-    use zolana_program::{
+    use spr_program::{
         circuit::UtxoOwner,
         conversion::{Allocator, OwnerRecords},
     };
@@ -142,7 +142,7 @@ fn address_bindings_resolve_clones_and_refuse_ambiguous_hashes() {
 
 #[test]
 fn a_unique_hash_still_resolves_a_reconstructed_owner() {
-    use zolana_program::{
+    use spr_program::{
         circuit::UtxoOwner,
         conversion::{Allocator, OwnerRecords},
     };
@@ -316,8 +316,7 @@ fn plaintext_at(
         &DecodeCx {
             viewing_key: key,
             tx_viewing_pk: Some(
-                zolana_keypair::X25519Pubkey::from_bytes(inputs.external_data.tx_viewing_pk)
-                    .unwrap(),
+                spr_keypair::X25519Pubkey::from_bytes(inputs.external_data.tx_viewing_pk).unwrap(),
             ),
             salt: Some(inputs.external_data.salt),
             slot_index: slot as u32,

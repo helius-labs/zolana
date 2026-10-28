@@ -1,4 +1,4 @@
-use zolana_interface::instruction::{
+use spr_interface::instruction::{
     DepositAssetKind, DepositEntry, DepositIxData, DepositIxDataRef, EncryptedRingDepositData,
     RingDepositEntry, RingDepositIxData, RingDepositIxDataRef,
 };

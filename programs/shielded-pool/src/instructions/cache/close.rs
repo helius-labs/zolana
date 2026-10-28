@@ -5,8 +5,8 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
-use zolana_account_checks::AccountIterator;
-use zolana_interface::error::ShieldedPoolError;
+use spr_account_checks::AccountIterator;
+use spr_interface::error::ShieldedPoolError;
 
 /// Accounts: cache (writable), rent recipient (writable), optional writer (signer).
 /// The write authority may close a cache before expiry; after expiry

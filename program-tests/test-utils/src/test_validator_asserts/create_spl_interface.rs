@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::{
+use spr_client::{ClientError, Rpc};
+use spr_interface::{
     pda,
     state::{
         discriminator::{SPL_ASSET_COUNTER, SPL_ASSET_REGISTRY},

@@ -12,8 +12,8 @@ use crate::ingester::persist::{
     leaf_node::u64_from_i64, LeafNode, MerkleProofWithContext,
 };
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseTransaction, Statement, TransactionTrait};
+use spr_indexer_api::{Hash, SerializablePubkey};
 use std::collections::HashMap;
-use zolana_indexer_api::{Hash, SerializablePubkey};
 
 fn zeroeth_exclusion_range(
     tree: Vec<u8>,

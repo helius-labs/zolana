@@ -24,7 +24,7 @@ pub mod testing {
 
 use light_program_profiler::profile;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_interface::instruction::tag::InstructionTag;
+use spr_interface::instruction::tag::InstructionTag;
 
 use crate::instructions::{
     batch_update_nullifier_tree::process_batch_update_nullifier_tree,
@@ -53,7 +53,7 @@ use crate::instructions::{
 mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
 }
-pinocchio::address::declare_id!("spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt");
+pinocchio::address::declare_id!("ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW");
 
 #[profile]
 pub fn process_instruction(
@@ -75,7 +75,7 @@ pub fn process_instruction(
         // Deliberate no-op: the event self-CPI exists only to record inner-
         // instruction data. Anyone can invoke this tag (directly or via CPI)
         // with forged bytes; indexers MUST filter events by parent instruction
-        // (see `zolana_event::tag::EMIT_EVENT`).
+        // (see `spr_event::tag::EMIT_EVENT`).
         InstructionTag::EmitEvent => Ok(()),
         InstructionTag::Transact
         | InstructionTag::RingTransact

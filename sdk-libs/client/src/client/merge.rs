@@ -9,11 +9,11 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
 use solana_signature::Signature;
-use zolana_interface::{instruction::instruction_data::merge_transact::MergeTransactIxData, pda};
-use zolana_keypair::{NullifierKey, ShieldedAddress};
-use zolana_program::instruction::MergeTransact;
-use zolana_transaction::instructions::merge::MergeProofInputs;
-use zolana_user_registry_interface::{user_record_pda, MergeEncryptionScheme, UserRecord};
+use spr_instruction::instruction::MergeTransact;
+use spr_interface::{instruction::instruction_data::merge_transact::MergeTransactIxData, pda};
+use spr_keypair::{NullifierKey, ShieldedAddress};
+use spr_transaction::instructions::merge::MergeProofInputs;
+use spr_user_registry_interface::{user_record_pda, MergeEncryptionScheme, UserRecord};
 
 use crate::{
     error::ClientError,
@@ -48,8 +48,8 @@ pub struct MergeSubmission<'a> {
     /// ([`MergeTransaction::with_expiry`]): until it expires, anyone who holds
     /// the proof can submit it.
     ///
-    /// [`MergeTransaction::encrypt`]: zolana_transaction::instructions::merge::MergeTransaction::encrypt
-    /// [`MergeTransaction::with_expiry`]: zolana_transaction::instructions::merge::MergeTransaction::with_expiry
+    /// [`MergeTransaction::encrypt`]: spr_transaction::instructions::merge::MergeTransaction::encrypt
+    /// [`MergeTransaction::with_expiry`]: spr_transaction::instructions::merge::MergeTransaction::with_expiry
     pub merge: &'a MergeProofInputs,
     /// The Solana account whose user record enables merging.
     pub owner: Address,
@@ -258,7 +258,7 @@ pub fn check_merge_record(
 /// The one tree a merge's inputs sit in; [`MergeTransaction::new`] refuses
 /// inputs on several.
 ///
-/// [`MergeTransaction::new`]: zolana_transaction::instructions::merge::MergeTransaction::new
+/// [`MergeTransaction::new`]: spr_transaction::instructions::merge::MergeTransaction::new
 fn input_tree_id(merge: &MergeProofInputs) -> Result<u16, ClientError> {
     merge
         .input_utxos

@@ -27,8 +27,8 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::pda;
-use zolana_transaction::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, SOL_MINT};
+use spr_interface::pda;
+use spr_transaction::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, SOL_MINT};
 
 use super::{Actor, LifecycleHarness};
 use crate::test_validator_asserts::{fetch_account, token_amount};

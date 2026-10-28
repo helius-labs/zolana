@@ -5,13 +5,13 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use solana_address::address;
-use zolana_account_checks::AccountIterator;
-use zolana_interface::PROGRAM_ID_PUBKEY;
-use zolana_program::{cpi::SppTransactAccounts, program::SppTransactCpi};
+use spr_account_checks::AccountIterator;
+use spr_interface::PROGRAM_ID_PUBKEY;
+use spr_program::{cpi::SppTransactAccounts, program::SppTransactCpi};
 
 use crate::error::CompressionError;
 
-pub const DEFAULT_TREE: Address = address!("C37FDLpLGLvAUpywCJBjeb9HhGF6YZamYZ6uNqW9XnVD");
+pub const DEFAULT_TREE: Address = address!("777pvSGe5LaBd9nCczvE2FXEauiwtfGJ5XRpjKyniGor");
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 pub fn derive_pda(authority: &Address) -> (Address, u8) {

@@ -1,6 +1,6 @@
 use ark_bn254::Fr;
-use zolana_hasher::primitives::SOLANA_OWNER_TAG;
-use zolana_program::{circuit::Field, UtxoOwner as ClientOwner};
+use spr_hasher::primitives::SOLANA_OWNER_TAG;
+use spr_program::{circuit::Field, UtxoOwner as ClientOwner};
 
 use super::{
     fixtures::{
@@ -264,7 +264,7 @@ fn owner_equality_rows_refuse_every_single_field_change() {
     );
 }
 
-fn exported_first_unsatisfied<F: zolana_program::ZkCircuit>(
+fn exported_first_unsatisfied<F: spr_program::ZkCircuit>(
     left: ClientOwner,
     right: ClientOwner,
 ) -> Option<usize> {

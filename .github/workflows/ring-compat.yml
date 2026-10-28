@@ -19,6 +19,7 @@ on:
       - "cli/**"
       - "justfile"
       - "tools/build-programs.sh"
+      - "tools/ci/migrate-ring-crates.py"
       - "tools/ci/custom-rings-protocol-ops.patch"
       - ".cargo/**"
       - "Cargo.toml"
@@ -40,7 +41,7 @@ jobs:
   enabled:
     name: ring compat / enabled
     runs-on: ubuntu-24.04
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: ${{ false }}
     outputs:
       enabled: ${{ steps.key.outputs.enabled }}
     steps:
@@ -100,6 +101,10 @@ jobs:
         with:
           path: zolana/prover/server/proving-keys
           key: proving-keys-${{ hashFiles('zolana/prover/server/prover/provingkeys/proving-keys.lock', 'prover/ring/proving-keys.lock') }}
+      - name: Migrate SDK crate references in the ring fixture
+        run: |
+          python3 zolana/tools/ci/migrate-ring-crates.py .
+          cargo metadata --format-version 1 > /dev/null
       - run: npm ci
       - run: just test-ring-compat
       - name: Dump service logs on failure

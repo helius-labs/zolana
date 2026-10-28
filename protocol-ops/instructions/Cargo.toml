@@ -1,5 +1,5 @@
 [package]
-name = "zolana-protocol-instructions"
+name = "spr-protocol-instructions"
 version = "0.1.0"
 description = "Instruction builders for Zolana protocol administration and maintenance."
 edition.workspace = true
@@ -10,8 +10,8 @@ repository.workspace = true
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
-zolana-interface = { workspace = true, features = ["borsh", "tree"] }
-zolana-tree = { workspace = true }
+spr-interface = { workspace = true, features = ["borsh", "tree"] }
+spr-tree = { workspace = true }
 
 [dev-dependencies]
 borsh = { workspace = true }

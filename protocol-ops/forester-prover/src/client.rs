@@ -92,7 +92,7 @@ impl ProverClient {
     pub fn prove_batch_address_append(
         &self,
         inputs: &BatchAddressAppendInputs,
-    ) -> Result<zolana_interface::instruction::NullifierTreeProof> {
+    ) -> Result<spr_interface::instruction::NullifierTreeProof> {
         let key = ExpectedProvingKey::batch_address_append(inputs.tree_height, inputs.batch_size)?;
         let body = serde_json::to_string(&inputs.to_json())?;
         let value = match &self.backend {

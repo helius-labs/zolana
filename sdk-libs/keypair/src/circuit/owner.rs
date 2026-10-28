@@ -1,8 +1,8 @@
 use std::{cell::OnceCell, rc::Rc};
 
-use zolana_hasher::primitives::SOLANA_OWNER_TAG;
+use spr_hasher::primitives::SOLANA_OWNER_TAG;
 
-use zolana_zk_dsl::{
+use spr_zk_dsl::{
     circuit::{
         builtins::{
             field::var::{cached, system_of},
@@ -14,7 +14,7 @@ use zolana_zk_dsl::{
     conversion::FromCircuit,
     CircuitError,
 };
-use zolana_zk_gadgets::{hash_bytes::hash_bytes, poseidon};
+use spr_zk_gadgets::{hash_bytes::hash_bytes, poseidon};
 
 /// A tagged signing public key. Equality excludes the nullifier public key; use
 /// `UtxoOwner` equality when that key must also match.

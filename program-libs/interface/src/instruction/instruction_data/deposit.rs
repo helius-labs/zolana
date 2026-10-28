@@ -1,12 +1,12 @@
 use alloc::vec::Vec;
+pub use spr_event::{EncryptedRingDepositData, EncryptedRingDepositDataRef};
+use spr_hasher::{sha256::Sha256BE, Hasher, HasherError};
 use wincode::{
     config::{Configuration, DEFAULT_PREALLOCATION_SIZE_LIMIT},
     containers,
     len::FixIntLen,
     SchemaRead, SchemaWrite,
 };
-pub use zolana_event::{EncryptedRingDepositData, EncryptedRingDepositDataRef};
-use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 type DepositRefConfig = Configuration<true, DEFAULT_PREALLOCATION_SIZE_LIMIT, FixIntLen<u16>>;
 

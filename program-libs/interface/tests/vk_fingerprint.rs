@@ -7,11 +7,11 @@
 //! updated in the same commit) and update the pinned fingerprint below.
 
 use groth16_solana::groth16::Groth16Verifyingkey;
-use zolana_hasher::{sha256::Sha256BE, Hasher};
+use spr_hasher::{sha256::Sha256BE, Hasher};
 
 macro_rules! vks {
     ($($module:ident),* $(,)?) => {
-        [$((stringify!($module), &zolana_interface::verifying_keys::$module::VERIFYINGKEY)),*]
+        [$((stringify!($module), &spr_interface::verifying_keys::$module::VERIFYINGKEY)),*]
     };
 }
 

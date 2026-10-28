@@ -3,7 +3,7 @@
 use ark_bn254::Fr;
 use ark_ff::One;
 use serde_json::json;
-use zolana_program::ZkCircuit;
+use spr_program::ZkCircuit;
 
 use super::{
     fixtures::{Asserted, Refresh},

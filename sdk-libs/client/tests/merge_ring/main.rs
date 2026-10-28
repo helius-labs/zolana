@@ -9,7 +9,7 @@ mod prover_bootstrap;
 mod test_indexer;
 
 use harness::{MergeRingHarness, MergeRingPlan};
-use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
+use spr_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
 
 #[test]
 #[serial_test::serial]

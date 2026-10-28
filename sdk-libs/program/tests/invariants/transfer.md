@@ -11,7 +11,7 @@ no public fixture can instantiate it. Its R1CS rows, soundness, setup/proving sh
 interop and Picus run are therefore covered through the transaction flows in
 `transaction.md` (`INV-TX`, W8). This file checks the native reference those flows are
 compared against, `program::PublicTransfer::hash` and `program::transaction_hash`, against a
-reference written out from `zolana-hasher` in `tests/unit/protocol/transfer/vectors.rs`
+reference written out from `spr-hasher` in `tests/unit/protocol/transfer/vectors.rs`
 (`hash_bytes`, `right_align`, `Poseidon::hashv`). It also pins that the public builtins the
 circuit's `hash` calls (`SolanaAddress::constant(..).hash_bytes()`, `constant`, `SolanaAddress::hash_bytes`,
 `poseidon`) give the native hash on constants. The vectors deposit and withdraw SOL and USDC,

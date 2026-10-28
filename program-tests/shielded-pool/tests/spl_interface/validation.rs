@@ -11,10 +11,8 @@ use spl_token_2022_interface::{
     },
     pod::{PodAccount, PodMint},
 };
-use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_interface::{
-    error::ShieldedPoolError, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_ACCOUNT_LEN,
-};
+use spr_account_checks::account_info::test_account_info::get_account_view;
+use spr_interface::{error::ShieldedPoolError, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_ACCOUNT_LEN};
 
 const MINT_ADDRESS: [u8; 32] = [7; 32];
 

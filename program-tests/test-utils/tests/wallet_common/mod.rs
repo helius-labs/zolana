@@ -3,10 +3,10 @@
 #[path = "../../../../sdk-libs/transaction/tests/transfer_fixtures/mod.rs"]
 mod transfer_fixtures;
 
+use spr_keypair::ShieldedKeypair;
+use spr_test_utils::wallet::{KeypairWalletAuthority, Wallet};
+use spr_transaction::{Address, AssetRegistry};
 pub use transfer_fixtures::*;
-use zolana_keypair::ShieldedKeypair;
-use zolana_test_utils::wallet::{KeypairWalletAuthority, Wallet};
-use zolana_transaction::{Address, AssetRegistry};
 
 pub fn local_authority(keypair: &ShieldedKeypair) -> KeypairWalletAuthority<'_> {
     KeypairWalletAuthority::new(Address::default(), keypair)

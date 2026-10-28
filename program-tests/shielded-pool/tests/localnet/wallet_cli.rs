@@ -16,10 +16,10 @@ use serial_test::serial;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
-use zolana_interface::{pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
-use zolana_test_utils::{localnet::start_shielded_pool_localnet, prover::spawn_workspace_prover};
-use zolana_transaction::Address;
+use spr_client::{Rpc, SolanaRpc};
+use spr_interface::{pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
+use spr_test_utils::{localnet::start_shielded_pool_localnet, prover::spawn_workspace_prover};
+use spr_transaction::Address;
 
 const PROVER_URL_ENV: &str = "ZOLANA_PROVER_URL";
 const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
@@ -369,10 +369,10 @@ struct PoolState {
 /// config (endpoints + selected keypair).
 fn phase_setup_environment() -> Result<CycleEnv> {
     restart_localnet();
-    spawn_workspace_prover(zolana_client::IndexerRequirement::Required);
+    spawn_workspace_prover(spr_client::IndexerRequirement::Required);
 
-    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
-    let indexer_url = zolana_test_utils::localnet::localnet_indexer_url();
+    let rpc_url = spr_test_utils::localnet::localnet_rpc_url();
+    let indexer_url = spr_test_utils::localnet::localnet_indexer_url();
     let prover_url =
         std::env::var(PROVER_URL_ENV).unwrap_or_else(|_| DEFAULT_PROVER_URL.to_owned());
 

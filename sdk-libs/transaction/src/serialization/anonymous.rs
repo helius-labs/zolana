@@ -1,6 +1,6 @@
 use solana_address::Address;
+use spr_keypair::{constants::SALT_LEN, PublicKey, ViewingKey, X25519Pubkey};
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_keypair::{constants::SALT_LEN, PublicKey, ViewingKey, X25519Pubkey};
 
 use super::{change_slots, DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{

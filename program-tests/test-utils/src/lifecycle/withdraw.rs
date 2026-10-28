@@ -10,12 +10,12 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{assemble, ComputeBudgetConfig, ProverClient, SpendProof};
-use zolana_program::instruction::{
+use spr_client::{assemble, ComputeBudgetConfig, ProverClient, SpendProof};
+use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use zolana_transaction::instructions::transact::ConfidentialTransaction;
-use zolana_transaction::{SppProofOutputUtxo, Utxo, SOL_MINT};
+use spr_transaction::instructions::transact::ConfidentialTransaction;
+use spr_transaction::{SppProofOutputUtxo, Utxo, SOL_MINT};
 
 use super::LifecycleHarness;
 use crate::{

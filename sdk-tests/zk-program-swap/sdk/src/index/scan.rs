@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
-use zolana_interface::event::OutputDataEncoding;
-use zolana_transaction::{
+use spr_interface::event::OutputDataEncoding;
+use spr_transaction::{
     instructions::transact::OutputSlot, AssetRegistry, DataRecord, EncryptedScheme,
     ShieldedTransaction, SOL_ASSET_ID,
 };
@@ -10,9 +10,9 @@ use crate::{err, state::PlainTextData};
 pub(crate) fn resolve_mint(
     registry: &AssetRegistry,
     asset_id: u64,
-) -> Result<zolana_transaction::Mint> {
+) -> Result<spr_transaction::Mint> {
     if asset_id == SOL_ASSET_ID {
-        return Ok(zolana_transaction::Mint::SOL);
+        return Ok(spr_transaction::Mint::SOL);
     }
     registry.resolve(asset_id).map_err(err)
 }

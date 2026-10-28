@@ -1,12 +1,12 @@
 use borsh::BorshDeserialize;
-use zolana_event::{
+use spr_event::{
     EncryptedRingDepositOutput, GeneralEvent, OutputDataEncoding, ProoflessOutput,
     ENCRYPTED_RING_DEPOSIT_SCHEME,
 };
 
 use crate::EventDecodeError;
 
-/// Inverse of [`zolana_event::encode_output_data`]: a proofless deposit output payload.
+/// Inverse of [`spr_event::encode_output_data`]: a proofless deposit output payload.
 pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, EventDecodeError> {
     let OutputDataEncoding::Plaintext(blob) = OutputDataEncoding::try_from_slice(data)
         .map_err(|_| EventDecodeError::InvalidOutputData)?
@@ -22,7 +22,7 @@ pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, EventDecodeErr
     ProoflessOutput::try_from_slice(body).map_err(|_| EventDecodeError::InvalidOutputData)
 }
 
-/// Inverse of [`zolana_event::encode_encrypted_ring_deposit_output`].
+/// Inverse of [`spr_event::encode_encrypted_ring_deposit_output`].
 pub fn decode_encrypted_ring_deposit_output_data(
     data: &[u8],
 ) -> Result<EncryptedRingDepositOutput, EventDecodeError> {

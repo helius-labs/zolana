@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
+use spr_interface::{instruction::tag, pda, PROGRAM_ID_PUBKEY};
 
 pub struct CloseNullifierPdas {
     pub authority: Pubkey,

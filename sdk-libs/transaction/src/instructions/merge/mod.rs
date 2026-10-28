@@ -15,10 +15,10 @@ pub use blinding::{
 };
 pub use encryption::MergeOutputSecrets;
 pub use serialization::{MergeOutputCiphertext, MergeOutputPlaintext};
-pub use transaction::MergeProofInputs;
-pub use zolana_interface::instruction::instruction_data::merge_transact::{
+pub use spr_interface::instruction::instruction_data::merge_transact::{
     merge_circuit_width, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
 };
+pub use transaction::MergeProofInputs;
 
 use inputs::{validate_merge_inputs, MergeInputs};
 

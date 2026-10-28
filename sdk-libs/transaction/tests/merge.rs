@@ -3,8 +3,8 @@ mod common;
 use std::cell::RefCell;
 
 use common::{keypair, wallet_utxo};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey};
-use zolana_transaction::{
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey, X25519Pubkey};
+use spr_transaction::{
     instructions::merge::{
         merge_circuit_width, merge_dummy_nullifier, merge_output_blinding, merge_output_key,
         MergeOutputPlaintext, MergeOutputSecrets, MergeProofInputs, MergeTransaction,
@@ -613,7 +613,7 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
             &dummy_nullifiers,
         )
         .unwrap();
-    let assets = zolana_transaction::AssetRegistry::new([(77, mint.asset)]).unwrap();
+    let assets = spr_transaction::AssetRegistry::new([(77, mint.asset)]).unwrap();
     let recovered = recover(&result, &owner, &assets);
     assert_eq!(
         recovered,
@@ -646,8 +646,8 @@ fn ring_merge_preserves_spl_and_explicit_output_context() {
 
 #[test]
 fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
-    use zolana_keypair::NullifierKey;
-    use zolana_transaction::instructions::merge::{
+    use spr_keypair::NullifierKey;
+    use spr_transaction::instructions::merge::{
         merge_private_tx_blinding, DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
     };
     #[derive(serde::Deserialize)]
@@ -724,8 +724,8 @@ fn merge_derivations_match_shared_vectors_and_bind_every_parameter() {
 
 #[test]
 fn merge_output_ciphertext_matches_shared_vectors_and_decrypts_only_under_its_key() {
-    use zolana_keypair::NullifierKey;
-    use zolana_transaction::{
+    use spr_keypair::NullifierKey;
+    use spr_transaction::{
         instructions::merge::{
             merge_output_key, DOMAIN_MERGE_OUTPUT_CIPHERTEXT, DOMAIN_MERGE_OUTPUT_KEY,
         },
@@ -764,7 +764,7 @@ fn merge_output_ciphertext_matches_shared_vectors_and_decrypts_only_under_its_ke
     // The indexer writes the scheme byte the wallet dispatches on.
     assert_eq!(
         EncryptedScheme::Merge.as_byte(),
-        zolana_event::MERGE_OUTPUT_SCHEME
+        spr_event::MERGE_OUTPUT_SCHEME
     );
 
     let mint: [u8; 32] = hex::decode(vector.output_mint).unwrap().try_into().unwrap();
@@ -834,7 +834,7 @@ fn encrypt_with_derived_generates_a_fresh_salt_for_each_attempt() {
 #[test]
 fn merge_decrypt_rejects_non_canonical_ciphertext_aliases() {
     use num_bigint::BigUint;
-    use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+    use spr_hasher::primitives::BN254_SCALAR_MODULUS_BE;
     let plaintext = MergeOutputPlaintext {
         amount: 123,
         mint: Mint::SOL.asset,

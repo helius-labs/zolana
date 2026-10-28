@@ -14,7 +14,7 @@ use solana_clock::Clock;
 use solana_hash::Hash;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use zolana_client::{
+use spr_client::{
     rpc::{
         Context, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsBySignatureResponse, IndexedShieldedTransaction, IndexerRpcConfig,
@@ -22,7 +22,7 @@ use zolana_client::{
     },
     ClientError, ProverClient, Rpc, RpcSendTransactionConfig, WitnessReader, ZolanaClient,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 use crate::{indexer::LeafProof, transaction_trace::TransactionOutcome, ZolanaProgramTest};
 

@@ -1,19 +1,19 @@
-use zolana_tree::nullifier_tree::constants::NUM_BATCHES;
-use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
+use spr_tree::nullifier_tree::constants::NUM_BATCHES;
+use spr_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
 
 pub const STATE_HEIGHT: usize = 32;
 /// Maximum number of updated Solana slots whose final state-tree roots can
 /// coexist on chain. Slots without a tree update consume no history entry.
-pub const STATE_ROOT_HISTORY_CAPACITY: usize = zolana_tree::smt::ROOT_HISTORY_CAPACITY;
+pub const STATE_ROOT_HISTORY_CAPACITY: usize = spr_tree::smt::ROOT_HISTORY_CAPACITY;
 
 // Production nullifier-tree parameters.
 pub const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE: u64 =
-    zolana_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_BATCH_SIZE;
+    spr_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_BATCH_SIZE;
 pub const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 =
-    zolana_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_ZKP_BATCH_SIZE;
+    spr_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_ZKP_BATCH_SIZE;
 pub const NULLIFIER_TREE_HEIGHT: u32 = 40;
 pub const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY: u32 =
-    zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES as u32;
+    spr_tree::nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES as u32;
 
 /// What one nullifier-tree batch append reimburses by default: nothing. The
 /// protocol sponsors nullifier-tree maintenance.
@@ -100,7 +100,7 @@ pub fn nullifier_tree_params() -> NullifierTreeInitParams {
     }
 }
 
-/// Total tree-account byte length. Delegates to the canonical `zolana-tree`
+/// Total tree-account byte length. Delegates to the canonical `spr-tree`
 /// layout so the account allocator and `TreeAccount::init` agree exactly.
 pub fn tree_account_size() -> usize {
     TreeAccount::account_size()

@@ -3,9 +3,9 @@ use std::str::FromStr;
 use crate::rpc::SolanaRpc;
 use anyhow::{anyhow, bail, Context, Result};
 use solana_pubkey::Pubkey;
-use zolana_interface::state::ProtocolConfig;
-use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
-use zolana_smart_account_client::{
+use spr_interface::state::ProtocolConfig;
+use spr_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
+use spr_smart_account_client::{
     roles::Role,
     settings::{settings_member_keys, settings_threshold},
 };

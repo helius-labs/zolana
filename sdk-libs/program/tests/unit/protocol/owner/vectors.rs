@@ -1,8 +1,8 @@
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{hash_bytes, SOLANA_OWNER_TAG},
     Hasher, Poseidon,
 };
-use zolana_program::{circuit::Field, UtxoOwner as ClientOwner};
+use spr_program::{circuit::Field, UtxoOwner as ClientOwner};
 
 use super::keys::{self, Key};
 use crate::{harness::fixture::Named, protocol::asset::vectors::field_of};

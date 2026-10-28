@@ -9,15 +9,15 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use zolana_keypair::{
+use spr_keypair::{
     derivation::{self, DERIVATION_PAYLOAD_PREFIX, ED25519_DERIVATION_MSG},
     hash,
     shielded::{CompressedShieldedAddress, ShieldedAddress},
     Curve, KeypairError, NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait,
     SigningKey, ViewingKey, X25519Pubkey,
 };
-use zolana_test_utils::wallet::{KeypairWalletAuthority, SyncWalletAuthority};
-use zolana_transaction::{Address, TransactionError};
+use spr_test_utils::wallet::{KeypairWalletAuthority, SyncWalletAuthority};
+use spr_transaction::{Address, TransactionError};
 
 const SIGNING_SECRET: [u8; 32] = [31u8; 32];
 
@@ -97,7 +97,7 @@ impl ShieldedKeypairTrait for RemoteKeypair {
 
 // The viewing half of a backend with a host-side viewing key: one line, where
 // twelve verbatim forwarding methods used to be.
-zolana_keypair::forward_viewing_key_trait!(RemoteKeypair => viewing_key);
+spr_keypair::forward_viewing_key_trait!(RemoteKeypair => viewing_key);
 
 fn software_keypair() -> ShieldedKeypair {
     ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&SIGNING_SECRET))
@@ -273,8 +273,8 @@ fn a_remote_keypair_backend_is_a_wallet_authority() {
 #[test]
 fn confidential_encryption_preserves_mint_id_and_ring() {
     use borsh::BorshDeserialize;
-    use zolana_event::OutputDataEncoding;
-    use zolana_transaction::{
+    use spr_event::OutputDataEncoding;
+    use spr_transaction::{
         serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
         Data, EncryptedScheme, Mint, SppProofOutputUtxo,
     };

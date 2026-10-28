@@ -2,7 +2,7 @@ error[E0080]: evaluation panicked: a padded field takes min_len <= max_len
  --> $RUST/core/src/panic.rs
   |
   |         $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `zolana_program::conversion::instantiate_padded::<zolana_transaction::WalletUtxo, 3, 2>::{constant#1}` failed here
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `spr_program::conversion::instantiate_padded::<spr_transaction::WalletUtxo, 3, 2>::{constant#1}` failed here
   |
  --> /zk-tools/zk-dsl/dsl/src/conversion/mod.rs:125:12
   |

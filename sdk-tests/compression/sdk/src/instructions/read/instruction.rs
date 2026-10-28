@@ -1,9 +1,9 @@
 use anyhow::Result;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::pda::nullifier_pda;
+use spr_interface::pda::nullifier_pda;
 
-use zolana_program::{program::UtxoMeta, CompressedProof};
+use spr_program::{program::UtxoMeta, CompressedProof};
 
 use crate::{err, tag, ReadIxData};
 

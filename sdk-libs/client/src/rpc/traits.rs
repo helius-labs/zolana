@@ -8,7 +8,7 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
-use zolana_transaction::{instructions::transact::SppProofInputs, utxo::SppProofInputUtxo};
+use spr_transaction::{instructions::transact::SppProofInputs, utxo::SppProofInputUtxo};
 
 use crate::{authority::ProofAuthority, error::ClientError, prover::transact::witness::SpendProof};
 

@@ -6,7 +6,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod error;
-pub use zolana_event as event;
+pub use spr_event as event;
 pub mod instruction;
 pub mod merge_utils;
 pub mod pda;
@@ -77,7 +77,7 @@ pub const SOL_ASSET_FIELD: [u8; 32] = [
 
 /// Development program id for the shielded-pool program.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =
-    pubkey_array!("spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt");
+    pubkey_array!("ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW");
 
 /// [`SHIELDED_POOL_PROGRAM_ID`] as a `Pubkey`, used by instruction builders.
 pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
@@ -119,23 +119,23 @@ pub const SPL_INTERFACE_PDA_SEED: &[u8] = b"spl_asset_vault";
 /// Kept as a constant so the SBF program validates settlement accounts with a
 /// direct equality check.
 pub const SHIELDED_POOL_CPI_AUTHORITY: [u8; 32] =
-    pubkey_array!("GbAD545QqvKKigMT3YkSA1V5PQBmyPHuNyRiXQPBQfJn");
+    pubkey_array!("CaM8DbtJ2mSecgaHYo9xeT7VSKq7AnaqEUm5p7e5LW4a");
 
 /// [`SHIELDED_POOL_CPI_AUTHORITY`] as a `Pubkey`.
 pub const SHIELDED_POOL_CPI_AUTHORITY_PUBKEY: solana_pubkey::Pubkey =
     solana_pubkey::Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
 
 /// Bump for `SHIELDED_POOL_CPI_AUTHORITY`.
-pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 253;
+pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 250;
 
 /// Canonical native-SOL custody PDA:
 /// `find_program_address(&[b"sol_interface", &[0]], SHIELDED_POOL_PROGRAM_ID)`.
 /// Hardcoded so builders and the SBF program avoid the runtime derivation; the
 /// `pda::sol_interface_const_matches_derivation` test pins it.
-pub const SOL_INTERFACE: [u8; 32] = pubkey_array!("4u5xeYyt3s9iQWiSxLXbFD1XebTKJa3YduTwdecBF5ZG");
+pub const SOL_INTERFACE: [u8; 32] = pubkey_array!("CiNmas621VuyofiDSrEPfTXHKrdZuB6jMKECyNiMpLXE");
 
 /// Canonical bump for [`SOL_INTERFACE`].
-pub const SOL_INTERFACE_BUMP: u8 = 255;
+pub const SOL_INTERFACE_BUMP: u8 = 248;
 
 /// [`SOL_INTERFACE`] as a `Pubkey`.
 pub const SOL_INTERFACE_PUBKEY: solana_pubkey::Pubkey =

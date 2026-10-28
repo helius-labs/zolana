@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use zolana_event::OutputDataEncoding;
+use spr_event::OutputDataEncoding;
 
 /// Raw id of the tree these helpers hash UTXOs under. The SDK reads a single
 /// tree today; the id only has to match between the hash and the tree the
@@ -8,8 +8,8 @@ use zolana_event::OutputDataEncoding;
 pub const TEST_TREE_ID: u16 = 0;
 const SENDER_SLOT_COUNT: usize = 2;
 
-use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey};
-use zolana_transaction::{
+use spr_keypair::{viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey};
+use spr_transaction::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
@@ -108,7 +108,7 @@ pub fn build_transfer(
 
     let recipient_utxo = Utxo {
         owner: spec.recipient.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: spec.amount,
         blinding: spec.blinding,
         ring_program_id: None,
@@ -240,7 +240,7 @@ pub fn build_unified_transfer(
 
     let change_utxo = Utxo {
         owner: spec.sender.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: spec.change_amount,
         blinding: spec.change_blinding,
         ring_program_id: None,
@@ -248,7 +248,7 @@ pub fn build_unified_transfer(
     };
     let recipient_utxo = Utxo {
         owner: spec.recipient.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: spec.amount,
         blinding: spec.blinding,
         ring_program_id: None,
@@ -355,7 +355,7 @@ pub fn split_transaction(
     parts: u8,
     seed: [u8; 32],
 ) -> (ShieldedTransaction, Vec<Utxo>) {
-    use zolana_transaction::{
+    use spr_transaction::{
         serialization::confidential::ConfidentialOutputPlaintext,
         utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     };
@@ -366,7 +366,7 @@ pub fn split_transaction(
         .unwrap();
     let first_nullifier = nullifier_key.nullifier(&hash, &input.blinding).unwrap();
     let tx = owner.get_transaction_viewing_key(&first_nullifier).unwrap();
-    let salt = zolana_keypair::random_salt();
+    let salt = spr_keypair::random_salt();
     let seed = derive_output_blinding_seed(&first_nullifier, &seed).unwrap();
     let view_tag = owner.signing_pubkey().confidential_view_tag().unwrap();
     let mut outputs = Vec::new();

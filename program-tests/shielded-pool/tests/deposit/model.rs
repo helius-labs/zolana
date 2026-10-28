@@ -1,8 +1,8 @@
 use proptest::prelude::*;
 use solana_signer::Signer;
-use zolana_interface::error::ShieldedPoolError;
-use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::litesvm_asserts::{SolDepositOracle, SolDepositSnapshot};
+use spr_interface::error::ShieldedPoolError;
+use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_test_utils::litesvm_asserts::{SolDepositOracle, SolDepositSnapshot};
 
 use shielded_pool_tests::support::fixtures::Pool;
 
@@ -86,7 +86,7 @@ proptest! {
     }
 }
 
-fn model_deposit_data(step: usize, amount: u64) -> zolana_program::instruction::AssetDeposit {
+fn model_deposit_data(step: usize, amount: u64) -> spr_program::instruction::AssetDeposit {
     let mut owner = [0u8; 32];
     owner[24..].copy_from_slice(&(step as u64 + 1).to_be_bytes());
     let mut data = ZolanaProgramTest::sol_shield_data(amount, owner);

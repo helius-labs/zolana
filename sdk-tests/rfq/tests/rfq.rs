@@ -1,16 +1,16 @@
-use zolana_test_utils::utxo::{
+use spr_test_utils::utxo::{
     encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
 };
-use zolana_transaction::utxo::SppProofInputUtxo;
+use spr_transaction::utxo::SppProofInputUtxo;
 mod shared;
 
 use anyhow::{anyhow, Result};
 use shared::{send_cosigned, setup, TestEnv, BUY_USDC, SELL_SOL};
 use solana_signer::Signer;
-use zolana_client::Rpc;
-use zolana_program::instruction::Transact;
-use zolana_test_utils::wallet::{sync_wallet, Filter};
-use zolana_transaction::{
+use spr_client::Rpc;
+use spr_program::instruction::Transact;
+use spr_test_utils::wallet::{sync_wallet, Filter};
+use spr_transaction::{
     instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
     Data, Utxo, SOL_ASSET_ID, SOL_MINT,
 };
@@ -51,7 +51,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
     let inputs = vec![maker_input_utxo, taker_input_utxo];
 
     let sol_to_taker =
-        SppProofOutputUtxo::new(zolana_transaction::Mint::SOL, SELL_SOL, taker_address)?;
+        SppProofOutputUtxo::new(spr_transaction::Mint::SOL, SELL_SOL, taker_address)?;
     let usdc_to_maker =
         SppProofOutputUtxo::new(maker.registry.mint(&usdc_mint)?, BUY_USDC, maker_address)?;
     let mut outputs = vec![sol_to_taker, usdc_to_maker];
@@ -86,7 +86,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
         .prove_transact(
             proof_inputs,
             None,
-            &zolana_test_utils::utxo::ProofKeys(&[
+            &spr_test_utils::utxo::ProofKeys(&[
                 &maker.keypair.nullifier_key,
                 &taker.keypair.nullifier_key,
             ]),
@@ -156,7 +156,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
             SELL_SOL,
             vec![Utxo {
                 owner: taker_address.signing_pubkey,
-                asset: zolana_transaction::Mint::SOL,
+                asset: spr_transaction::Mint::SOL,
                 amount: SELL_SOL,
                 blinding: sol_output.blinding,
                 ring_program_id: None,

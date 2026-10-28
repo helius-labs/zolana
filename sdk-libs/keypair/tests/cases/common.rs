@@ -1,4 +1,4 @@
-use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use spr_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 
 use crate::{scalar_bytes, KeypairWorld};
 

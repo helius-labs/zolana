@@ -3,8 +3,8 @@
 //! nets and the final zero-net rejection (error 7040).
 
 use shielded_pool_program::testing::{Settlement, SettlementAccountsSol, TransactProofInputs};
-use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_interface::{
+use spr_account_checks::account_info::test_account_info::get_account_view;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{CircuitId, InterfaceTransfer},
     SOL_ASSET_FIELD,

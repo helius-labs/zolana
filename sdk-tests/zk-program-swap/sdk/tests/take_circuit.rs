@@ -4,6 +4,12 @@ use groth16_solana::{
     vk::gnark::{parse_gnark_vk_bytes, Groth16VerifyingkeyOwned},
 };
 use solana_address::Address;
+use spr_keypair::ShieldedKeypair;
+use spr_test_utils::utxo::assign_output_blindings;
+use spr_transaction::{
+    instructions::transact::PrivateTxHash,
+    utxo::{derive_output_blinding_seed, derive_private_tx_blinding},
+};
 use swap_program::{
     instructions::{
         take::{TakeProof, TakePublicInput},
@@ -15,12 +21,6 @@ use swap_prover::{CircuitId, TakeProofInputs, PROVER, TAKE_MODE_DERIVED};
 use swap_sdk::{
     instructions::take::{take_blinding_seed, TakeProofInputParams},
     state::{OrderTerms, OrderUtxo},
-};
-use zolana_keypair::ShieldedKeypair;
-use zolana_test_utils::utxo::assign_output_blindings;
-use zolana_transaction::{
-    instructions::transact::PrivateTxHash,
-    utxo::{derive_output_blinding_seed, derive_private_tx_blinding},
 };
 
 fn build_dir() -> std::path::PathBuf {
@@ -70,7 +70,7 @@ fn sample_params() -> TakeProofInputParams {
             take_mode: TAKE_MODE_DERIVED,
         },
         blinding: fe(7),
-        source_mint: zolana_transaction::Mint::new(Address::new_from_array([1; 32]), 3),
+        source_mint: spr_transaction::Mint::new(Address::new_from_array([1; 32]), 3),
         source_amount: 1_000,
         destination_asset_id: 2,
     };
@@ -259,7 +259,7 @@ fn take_rejects_unrecoverable_payouts_and_transaction_blinding() {
                     .into_iter()
                     .enumerate()
                 {
-                    output.blinding = zolana_transaction::utxo::derive_transact_output_blinding(
+                    output.blinding = spr_transaction::utxo::derive_transact_output_blinding(
                         &inputs.first_nullifier,
                         &seed,
                         index as u32,

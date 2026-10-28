@@ -1,4 +1,4 @@
-//! Default-ring spends, built from `zolana-transaction` and `zolana-client`.
+//! Default-ring spends, built from `spr-transaction` and `spr-client`.
 //!
 //! The CLI holds the whole keypair, so a spend is: pick notes from the
 //! wallet's spendable UTXOs, add the outputs to a `ConfidentialTransaction`, encrypt it with the
@@ -8,12 +8,12 @@
 use anyhow::Result;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     sign_transaction, Rpc, RpcSendTransactionConfig, SignedPrivateTransaction, SolanaRpc,
     Submission, ZolanaClient,
 };
-use zolana_program::instruction::TransactInterfaceTransferAccounts;
-use zolana_transaction::instructions::transact::ConfidentialTransaction;
+use spr_program::instruction::TransactInterfaceTransferAccounts;
+use spr_transaction::instructions::transact::ConfidentialTransaction;
 
 use super::sync::SyncContext;
 

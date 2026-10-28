@@ -1,11 +1,11 @@
 use core::mem::{size_of, MaybeUninit};
 
+use spr_hasher::{Hasher, Poseidon};
 use wincode::{
     config::{ConfigCore, ZeroCopy},
     io::Reader,
     ReadResult, SchemaRead, TypeMeta,
 };
-use zolana_hasher::{Hasher, Poseidon};
 
 use crate::error::TreeError;
 

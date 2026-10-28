@@ -16,9 +16,9 @@ use proptest::prelude::*;
 use solana_instruction::Instruction;
 use solana_program_error::ProgramError;
 use solana_system_interface::error::SystemError;
-use zolana_account_checks::AccountError;
-use zolana_interface::{error::ShieldedPoolError, instruction::tag};
-use zolana_test_utils::mollusk::expect_err_exact;
+use spr_account_checks::AccountError;
+use spr_interface::{error::ShieldedPoolError, instruction::tag};
+use spr_test_utils::mollusk::expect_err_exact;
 
 use shielded_pool_tests::support::mollusk::{deposit_fixture, setup_mollusk};
 
@@ -182,7 +182,7 @@ fn non_executable_program_account_still_executes() {
 }
 
 /// Positive case: the `EMIT_EVENT` tag is a no-validation no-op self-CPI
-/// target by design (see `zolana_event::tag::EMIT_EVENT`), so arbitrary
+/// target by design (see `spr_event::tag::EMIT_EVENT`), so arbitrary
 /// payload bytes with no accounts succeed. This is why the garbage-instruction
 /// proptest below excludes that tag.
 #[test]
@@ -213,7 +213,7 @@ proptest! {
     /// Arbitrary account-free instruction bytes are rejected, and the
     /// rejection is deterministic. The one exception is the `EMIT_EVENT` tag,
     /// which is a no-validation no-op self-CPI target by design (see
-    /// `zolana_event::tag::EMIT_EVENT`), so cases carrying it are excluded
+    /// `spr_event::tag::EMIT_EVENT`), so cases carrying it are excluded
     /// here and pinned as a positive case below.
     #[test]
     fn arbitrary_account_free_instruction_bytes_are_rejected_deterministically(

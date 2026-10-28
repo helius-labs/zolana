@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Result};
 use compression_example_program::instructions::read::ReadPublicInput;
 use compression_example_prover::ReadProofInputs;
-use zolana_client::{MerkleProof, NonInclusionProof};
-use zolana_interface::instruction::instruction_data::transact::TreeContext;
-use zolana_program::program::UtxoMeta;
-use zolana_transaction::WalletUtxo;
+use spr_client::{MerkleProof, NonInclusionProof};
+use spr_interface::instruction::instruction_data::transact::TreeContext;
+use spr_program::program::UtxoMeta;
+use spr_transaction::WalletUtxo;
 
 use crate::{err, state::decode_state};
 

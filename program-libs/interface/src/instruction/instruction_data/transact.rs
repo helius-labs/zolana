@@ -1,12 +1,12 @@
 use alloc::vec::Vec;
 use arrayvec::ArrayVec;
-use wincode::{containers, len::FixIntLen, ReadError, SchemaRead, SchemaWrite};
-pub use zolana_event::{
+pub use spr_event::{
     confidential_encrypted_output_body, is_confidential_encrypted_output,
     ring_anonymous_encrypted_output_body, ring_confidential_encrypted_output_body, MessageData,
     OutputUtxo,
 };
-use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
+use spr_hasher::{sha256::Sha256BE, Hasher, HasherError};
+use wincode::{containers, len::FixIntLen, ReadError, SchemaRead, SchemaWrite};
 
 pub use crate::verifying_keys::{
     AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CacheWrite, CircuitId,
@@ -286,7 +286,7 @@ pub struct TransactOutputRef<'a> {
     pub data: Option<&'a [u8]>,
 }
 
-/// Borrowed view of a [`zolana_event::MessageData`]; `data` aliases the buffer.
+/// Borrowed view of a [`spr_event::MessageData`]; `data` aliases the buffer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
 pub struct OutputDataRef<'a> {
     pub view_tag: &'a [u8; 32],

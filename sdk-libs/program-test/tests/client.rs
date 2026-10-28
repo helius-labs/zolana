@@ -4,10 +4,10 @@
 
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_client::Rpc;
-use zolana_keypair::{hash::owner_hash, ShieldedKeypair};
-use zolana_program_test::ZolanaProgramTest;
-use zolana_tree::TreeAccount;
+use spr_client::Rpc;
+use spr_keypair::{hash::owner_hash, ShieldedKeypair};
+use spr_program_test::ZolanaProgramTest;
+use spr_tree::TreeAccount;
 
 #[test]
 #[ignore = "needs the SBF build in target/deploy; run by `just test-program-fast`"]

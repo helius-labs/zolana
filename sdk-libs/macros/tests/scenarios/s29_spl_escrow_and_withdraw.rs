@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_program::{Groth16Prover, TxContext, ZkProgramCircuit};
+use spr_hasher::primitives::solana_owner_identity;
+use spr_program::{Groth16Prover, TxContext, ZkProgramCircuit};
 
 use crate::{
     benchmark::prove,
@@ -84,7 +84,7 @@ fn spl_escrow_then_withdraw_prove_and_verify() {
             vec![(Some(address), USDC, 750), (Some(escrow_owner), USDC, 250)],
             vec![
                 (Some(address), USDC, 250),
-                (None, zolana_transaction::Mint::SOL, 0)
+                (None, spr_transaction::Mint::SOL, 0)
             ],
         )
     );

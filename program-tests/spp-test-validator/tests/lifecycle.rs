@@ -5,18 +5,18 @@ use serial_test::serial;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
-use zolana_smart_account_client::{settings::settings_threshold, SMART_ACCOUNT_PROGRAM_ID};
-use zolana_test_utils::smart_account::settings_member_keys;
-use zolana_test_utils::{
+use spr_client::{Rpc, SolanaRpc};
+use spr_smart_account_client::{settings::settings_threshold, SMART_ACCOUNT_PROGRAM_ID};
+use spr_test_utils::smart_account::settings_member_keys;
+use spr_test_utils::{
     harness::{BootstrapConfig, LocalnetHarness},
     lifecycle::{randomized::Workload, LifecycleHarness},
     localnet::{localnet_rpc_url, start_shielded_pool_localnet},
 };
-use zolana_transaction::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, SOL_MINT};
+use spr_transaction::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, SOL_MINT};
 
 /// Pin the shared Squads `Settings` decoder
-/// (`zolana_test_utils::smart_account::settings::settings_member_keys`) against
+/// (`spr_test_utils::smart_account::settings::settings_member_keys`) against
 /// REAL accounts: the bootstrap creates the five standard smart accounts on a
 /// validator running the mainnet-dumped program binary, then each settings
 /// account is fetched from the validator and decoded, and the decoded member

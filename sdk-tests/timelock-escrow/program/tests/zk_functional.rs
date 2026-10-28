@@ -1,4 +1,8 @@
 use borsh::BorshDeserialize;
+use spr_hasher::primitives::solana_owner_identity;
+use spr_keypair::ViewingKey;
+use spr_program::verifier::VerifyError;
+use spr_program::{CompressedProof, Groth16Prover, SolanaProof, TxContext, ZkProgramCircuit};
 use timelock_escrow_program::circuits::escrow_authority;
 use timelock_escrow_program::circuits::{
     Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw, WithdrawPrivateInputs,
@@ -8,10 +12,6 @@ use timelock_escrow_program::{
     instructions::escrow::slot,
     verifier::{escrow, withdraw},
 };
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_keypair::ViewingKey;
-use zolana_program::verifier::VerifyError;
-use zolana_program::{CompressedProof, Groth16Prover, SolanaProof, TxContext, ZkProgramCircuit};
 
 #[allow(dead_code)]
 mod shared;
@@ -87,7 +87,7 @@ fn escrow_then_withdraw_prove_and_verify() {
     verifier.private_tx_hash = &other_private_tx_hash;
     assert_eq!(verifier.verify(), Err(VerifyError::Proof));
 
-    let transfers = [zolana_program::PublicTransfer {
+    let transfers = [spr_program::PublicTransfer {
         mint: solana_address::Address::default(),
         is_deposit: true,
         amount: 1,
@@ -98,7 +98,7 @@ fn escrow_then_withdraw_prove_and_verify() {
     assert_eq!(verifier.verify(), Err(VerifyError::Proof));
 
     let other_viewer = ViewingKey::from_bytes(&[9u8; 32]);
-    let wrong_address_hash = zolana_program::verifier::address_hash(
+    let wrong_address_hash = spr_program::verifier::address_hash(
         &escrow.public.escrow_owner.owner_hash().unwrap(),
         other_viewer.pubkey().as_bytes(),
     )

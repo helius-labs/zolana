@@ -1,5 +1,5 @@
 use solana_pubkey::Pubkey;
-use zolana_interface::{
+use spr_interface::{
     pda, NULLIFIER_PDA_SEED, SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
     SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SOL_INTERFACE, SOL_INTERFACE_BUMP, TREE_PDA_SEED,
 };
@@ -25,8 +25,8 @@ fn nullifier_pda_bump_recreates_address() {
 #[test]
 fn nullifier_pda_matches_typescript_vector() {
     let tree = Pubkey::from_str_const("2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr");
-    let expected = Pubkey::from_str_const("H1tMM3DkFTTKKoWNQfwLnDTUVkALGhML2ggWfqa724B");
-    assert_eq!(pda::nullifier_pda(&tree, &[7u8; 32]), (expected, 252));
+    let expected = Pubkey::from_str_const("Ckb8uhoA4eDBNXphLtqkZvsHNmu2VXiMC8Uyxw9viGJR");
+    assert_eq!(pda::nullifier_pda(&tree, &[7u8; 32]), (expected, 253));
 }
 
 #[test]

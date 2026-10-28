@@ -2,17 +2,17 @@ mod common;
 
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
-use zolana_event::MessageData;
-use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_instruction::instruction::{
+use spr_event::MessageData;
+use spr_hasher::{sha256::Sha256BE, Hasher};
+use spr_instruction::instruction::{
     TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::{InterfaceTransfer, OwnerTag, TransactOutput},
     ASSOCIATED_TOKEN_PROGRAM_ID, MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     SOL_ASSET_FIELD, SOL_INTERFACE, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::{
         asset_field, signed_magnitude_to_field, ConfidentialTransaction, PublicTransfers,
         SettlementTarget, SettlementTransfer, SppProofInputs,
@@ -413,7 +413,7 @@ fn ordered_settlement_accounts_and_instruction_legs_survive_builder_encryption()
     // Verify the PDA bump against the address library and protocol seeds, independently of the SDK leg conversion.
     let (_, bump) = Address::find_program_address(
         &[b"spl_asset_vault", &[4; 32]],
-        &Address::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID),
+        &Address::new_from_array(spr_interface::SHIELDED_POOL_PROGRAM_ID),
     );
     assert_eq!(
         expected
@@ -471,7 +471,7 @@ fn external_hash_uses_canonical_bytes_and_only_resolves_account_owner_tags() {
     let ext = external_fixture();
     // Literal wire layout: discriminator; LE expiry; encryption context; empty
     // transfers; absent optional hashes; two outputs; two messages; resolved owner.
-    let mut bytes = vec![zolana_interface::instruction::tag::TRANSACT];
+    let mut bytes = vec![spr_interface::instruction::tag::TRANSACT];
     bytes.extend([255; 8]);
     bytes.extend([2; 33]);
     bytes.extend([3; 16]);

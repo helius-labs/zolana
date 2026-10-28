@@ -4,22 +4,22 @@ use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_transaction_error::TransactionError;
+use spr_user_registry::error::UserRegistryError;
+use spr_user_registry_interface::{
+    instruction::{self, discriminator, RegisterData, UpdateKeysData},
+    user_record_pda, MergeEncryptionScheme,
+};
 use user_registry_tests::{
     build_register_ix, build_set_merge_encryption_ix, user_registry_program_id,
     TestTransactionResult, UserRegistryTestRig,
 };
-use zolana_user_registry::error::UserRegistryError;
-use zolana_user_registry_interface::{
-    instruction::{self, discriminator, RegisterData, UpdateKeysData},
-    user_record_pda, MergeEncryptionScheme,
-};
 
 use common::{funded_keypair, keys, register};
 
-// NOTE: stays local instead of reusing zolana-program-test's `Rejection` because
-// that helper's litesvm entry point takes zolana_program_test::ProgramTestError, and
+// NOTE: stays local instead of reusing spr-program-test's `Rejection` because
+// that helper's litesvm entry point takes spr_program_test::ProgramTestError, and
 // this crate drives raw LiteSVM results (TestTransactionResult) without depending on
-// zolana-program-test/zolana-test-utils.
+// spr-program-test/spr-test-utils.
 #[track_caller]
 fn assert_error(result: TestTransactionResult, expected: InstructionError) {
     let failure = result.expect_err("instruction must fail");

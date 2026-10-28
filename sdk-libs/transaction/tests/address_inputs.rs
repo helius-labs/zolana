@@ -1,9 +1,9 @@
 //! Address inputs: the derivation matches the on-chain `NewAddress`, and every
 //! field rule is refused with its own reason.
 use solana_address::Address;
-use zolana_keypair::{PublicKey, ShieldedKeypair, SigningKey};
-use zolana_program::program::{AddressSeed, NewAddress, PdaOwner};
-use zolana_transaction::{
+use spr_keypair::{PublicKey, ShieldedKeypair, SigningKey};
+use spr_program::program::{AddressSeed, NewAddress, PdaOwner};
+use spr_transaction::{
     utxo::SppProofInputUtxo, AddressInputError as A, Mint, TransactionError as E,
 };
 

@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_keypair::ShieldedAddress;
+use spr_keypair::ShieldedAddress;
 
 use super::{
     shape::canonical_shape,

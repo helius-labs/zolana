@@ -15,6 +15,8 @@ pub use ring_config::RingConfig;
 pub use spl_asset_counter::SplAssetCounter;
 pub use spl_asset_registry::SplAssetRegistry;
 #[cfg(feature = "tree")]
+pub use spr_tree::{TreeFeeSchedule, MAX_FEE_PER_NULLIFIER};
+#[cfg(feature = "tree")]
 pub use tree::{
     default_tree_fees, nullifier_tree_params, read_tree_id, state_root_offset, tree_account_size,
     tree_creation_lamports, tree_creation_step_count, tree_id_offset,
@@ -25,5 +27,3 @@ pub use tree::{
     NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY, STATE_HEIGHT,
     STATE_ROOT_HISTORY_CAPACITY, TREE_ALLOCATION_STEP,
 };
-#[cfg(feature = "tree")]
-pub use zolana_tree::{TreeFeeSchedule, MAX_FEE_PER_NULLIFIER};

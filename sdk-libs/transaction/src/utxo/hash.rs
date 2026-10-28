@@ -1,9 +1,9 @@
 use solana_address::Address;
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use zolana_interface::tree_slot::tree_id_field;
+use spr_interface::tree_slot::tree_id_field;
 
 use super::{Blinding, DUMMY_DOMAIN};
 use crate::error::TransactionError;

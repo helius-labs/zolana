@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_interface::{
+use spr_interface::{
     state::cache::{bind_cache_write, CACHE_CAPACITY},
     verifying_keys::{CacheAccess, CacheWrite, MAX_CACHE_WRITES},
 };

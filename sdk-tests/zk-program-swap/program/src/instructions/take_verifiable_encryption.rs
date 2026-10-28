@@ -4,12 +4,12 @@ use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
-use wincode::{SchemaRead, SchemaWrite};
-use zolana_account_checks::AccountIterator;
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_interface::{
+use spr_account_checks::AccountIterator;
+use spr_hasher::{Hasher, Poseidon};
+use spr_interface::{
     instruction::instruction_data::transact::TransactIxData, merge_utils::ciphertext_hash,
 };
+use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{
     error::SwapError,

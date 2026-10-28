@@ -4,15 +4,15 @@ use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use spr_client::{ClientError, ComputeBudgetConfig, Proof, ProofCompressed, Rpc, SolanaRpc};
+use spr_interface::instruction::instruction_data::merge_transact::MergeProof;
+use spr_program_test::localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram};
+use spr_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
+use spr_user_registry_interface::user_registry_program_id;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
-use zolana_client::{ClientError, ComputeBudgetConfig, Proof, ProofCompressed, Rpc, SolanaRpc};
-use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
-use zolana_program_test::localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram};
-use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
-use zolana_user_registry_interface::user_registry_program_id;
 
 pub const ZERO: [u8; 32] = [0u8; 32];
 // Blinding positions in the fixed-position output layout
@@ -139,9 +139,7 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
     let mut programs = vec![
         (
             user_registry_program_id(),
-            artifacts
-                .path("target/deploy/zolana_user_registry.so")
-                .into(),
+            artifacts.path("target/deploy/spr_user_registry.so").into(),
         ),
         (
             SMART_ACCOUNT_PROGRAM_ID,

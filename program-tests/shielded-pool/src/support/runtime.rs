@@ -1,5 +1,5 @@
-use zolana_interface::state;
-use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
+use spr_interface::state;
+use spr_program_test::{ProgramTestError, ZolanaProgramTest};
 
 pub fn tree_account_size() -> u64 {
     state::tree_account_size() as u64

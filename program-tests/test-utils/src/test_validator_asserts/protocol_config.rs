@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::state::{discriminator::PROTOCOL_CONFIG, ProtocolConfig};
+use spr_client::{ClientError, Rpc};
+use spr_interface::state::{discriminator::PROTOCOL_CONFIG, ProtocolConfig};
 
 use super::fetch_state;
 

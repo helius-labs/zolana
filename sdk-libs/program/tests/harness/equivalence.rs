@@ -17,7 +17,7 @@
 use std::time::Duration;
 
 use ark_bn254::Fr;
-use zolana_program::ZkCircuit;
+use spr_program::ZkCircuit;
 
 use super::{
     circom::{Asserts, Compiled},

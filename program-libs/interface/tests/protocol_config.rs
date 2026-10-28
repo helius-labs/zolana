@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_interface::{
+use spr_interface::{
     error::InterfaceError,
     state::{discriminator::PROTOCOL_CONFIG, ProtocolConfig},
 };

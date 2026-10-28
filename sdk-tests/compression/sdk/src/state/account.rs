@@ -1,9 +1,9 @@
 use anyhow::Result;
 pub use compression_example_program::state::AccountState;
 use solana_address::Address;
-use zolana_keypair::{PublicKey, ShieldedAddress, ViewingKey};
-use zolana_program::hasher::{unique_data_hash, DataHasher};
-use zolana_transaction::{Data, DataRecord, Mint, SppProofOutputUtxo, Utxo};
+use spr_keypair::{PublicKey, ShieldedAddress, ViewingKey};
+use spr_program::hasher::{unique_data_hash, DataHasher};
+use spr_transaction::{Data, DataRecord, Mint, SppProofOutputUtxo, Utxo};
 
 use crate::shared::zero_nullifier_key;
 

@@ -1,12 +1,12 @@
 use alloc::vec::Vec;
 
 use arrayvec::{ArrayVec, CapacityError};
-use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{is_canonical_bn254_scalar_be, right_align},
     sha256::Sha256BE,
     Hasher, HasherError,
 };
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 pub const MERGE_DEFAULT_INPUT_COUNT: usize = 24;
 

@@ -2,7 +2,7 @@
 //! additive Poseidon-pad ciphers and signed settlement amounts.
 
 use num_bigint::BigUint;
-use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+use spr_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 
 fn modulus() -> BigUint {
     BigUint::from_bytes_be(&BN254_SCALAR_MODULUS_BE)

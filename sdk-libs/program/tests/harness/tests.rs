@@ -1,4 +1,4 @@
-use zolana_program::{
+use spr_program::{
     circuit::{zero, Assert, Circuit, CircuitVar, Field},
     conversion::ProofInput,
     CircuitError,
@@ -71,7 +71,7 @@ mod external {
     use std::time::Duration;
 
     use ark_bn254::Fr;
-    use zolana_program::circuit::Field;
+    use spr_program::circuit::Field;
 
     use super::{IsZeroClaim, CLAIMED_WIRE};
     use crate::harness::{

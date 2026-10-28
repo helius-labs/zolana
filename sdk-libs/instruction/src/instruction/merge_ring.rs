@@ -1,7 +1,7 @@
 use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::{
+use spr_interface::{
     instruction::{tag, MergeRingIxData, MergeTransactIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
@@ -87,8 +87,8 @@ impl MergeRing {
 #[cfg(test)]
 mod tests {
     use alloc::vec::Vec;
-    use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
-    use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
+    use spr_interface::instruction::instruction_data::merge_transact::MergeProof;
+    use spr_interface::instruction::instruction_data::MergeOutputEncryption;
 
     use super::*;
 

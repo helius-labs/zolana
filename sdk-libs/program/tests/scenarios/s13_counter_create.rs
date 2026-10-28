@@ -1,10 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -16,7 +16,7 @@ pub struct Counter {
     pub count: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Counter {}
+impl spr_program::circuit::CircuitType for circuit::Counter {}
 
 impl ProofInput for Counter {
     type Circuit = circuit::Counter;
@@ -61,7 +61,7 @@ pub(crate) struct CounterCreatePublicInputs {
     pub(crate) owner: ShieldedAddress,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::CounterCreate {}
+impl spr_program::circuit::CircuitType for circuit::CounterCreate {}
 
 impl ProofInput for CounterCreate {
     type Circuit = circuit::CounterCreate;
@@ -95,7 +95,7 @@ impl Placeholder for CounterCreate {
 }
 
 pub(crate) mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataHash,
             DataUtxo, PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoData, UtxoOwner,

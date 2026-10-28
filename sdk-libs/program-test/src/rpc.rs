@@ -6,7 +6,7 @@ use solana_keypair::Signer;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use zolana_client::{compile_message, sign_transaction, ClientError, ComputeBudgetConfig, Rpc};
+use spr_client::{compile_message, sign_transaction, ClientError, ComputeBudgetConfig, Rpc};
 
 use crate::{
     events::{index_events, indexed_events_from_meta, IndexedEvent},

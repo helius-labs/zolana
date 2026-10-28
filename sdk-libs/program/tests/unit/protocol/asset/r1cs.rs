@@ -1,7 +1,7 @@
 use ark_bn254::Fr;
 use ark_ff::One;
-use zolana_program::{circuit::Field, testing, CircuitError, ZkCircuit};
-use zolana_transaction::Mint;
+use spr_program::{circuit::Field, testing, CircuitError, ZkCircuit};
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{

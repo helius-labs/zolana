@@ -1,16 +1,16 @@
 #![cfg(feature = "compression")]
 
 use pinocchio::{AccountView, Address};
-use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_hasher::primitives::right_align;
-use zolana_interface::{
+use spr_account_checks::account_info::test_account_info::get_account_view;
+use spr_hasher::primitives::right_align;
+use spr_interface::{
     instruction::instruction_data::transact::TreeContext, pda::nullifier_pda,
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::program::{
+use spr_program::program::{
     load_tree_id, CompressedAccountError, PdaOwner, ReadRoots, UtxoKey, UtxoMeta,
 };
-use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
+use spr_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
 
 const TREE: [u8; 32] = [21u8; 32];
 const TREE_ID: u16 = 5;
@@ -48,8 +48,8 @@ fn roots_of_pool_tree() -> ReadRoots {
 
 struct ReadState;
 
-impl zolana_program::hasher::DataHasher for ReadState {
-    fn hash(&self) -> Result<[u8; 32], zolana_hasher::HasherError> {
+impl spr_program::hasher::DataHasher for ReadState {
+    fn hash(&self) -> Result<[u8; 32], spr_hasher::HasherError> {
         Ok(right_align(&[9u8]))
     }
 }

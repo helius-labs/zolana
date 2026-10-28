@@ -1,6 +1,6 @@
-use zolana_forester_prover::{build_inputs, reference_nullifier_tree, BatchAddressAppendInputs};
-use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
-use zolana_interface::instruction::NullifierTreeProof;
+use spr_forester_prover::{build_inputs, reference_nullifier_tree, BatchAddressAppendInputs};
+use spr_hasher::hash_chain::create_hash_chain_4_from_slice;
+use spr_interface::instruction::NullifierTreeProof;
 
 pub fn batch_inputs(first_value: u128) -> BatchAddressAppendInputs {
     let values = (0..10u128)
@@ -26,7 +26,7 @@ pub fn batch_inputs(first_value: u128) -> BatchAddressAppendInputs {
 }
 
 pub fn assert_batch_proof(inputs: &BatchAddressAppendInputs, proof: &NullifierTreeProof) {
-    let proof = zolana_tree::nullifier_tree::proof::NullifierTreeProof {
+    let proof = spr_tree::nullifier_tree::proof::NullifierTreeProof {
         a: proof.a,
         b: proof.b,
         c: proof.c,
@@ -34,10 +34,10 @@ pub fn assert_batch_proof(inputs: &BatchAddressAppendInputs, proof: &NullifierTr
     let mut hash = [0u8; 32];
     let bytes = inputs.public_input_hash.to_bytes_be();
     hash[32 - bytes.len()..].copy_from_slice(&bytes);
-    zolana_tree::nullifier_tree::verify::verify_batch_update(10, hash, &proof).unwrap();
+    spr_tree::nullifier_tree::verify::verify_batch_update(10, hash, &proof).unwrap();
     hash[31] ^= 1;
     assert!(
-        zolana_tree::nullifier_tree::verify::verify_batch_update(10, hash, &proof).is_err(),
+        spr_tree::nullifier_tree::verify::verify_batch_update(10, hash, &proof).is_err(),
         "proof must bind the batch statement"
     );
 }

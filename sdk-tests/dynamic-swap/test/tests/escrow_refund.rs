@@ -1,4 +1,4 @@
-use zolana_test_utils::utxo::{
+use spr_test_utils::utxo::{
     assign_output_blindings, encrypt_transaction_data, get_transaction_viewing_key,
     prepare_output_blindings,
 };
@@ -27,13 +27,13 @@ use shared::{
     SOURCE_ASSET_ID, USER_SPL_SHIELD,
 };
 use solana_signer::Signer;
-use zolana_client::user_registry::resolve_registered_address;
-use zolana_client::{ComputeBudgetConfig, Rpc};
-use zolana_keypair::random_blinding;
-use zolana_program::instruction::Transact;
-use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
-use zolana_test_utils::wallet::{Deposit, DepositParams};
-use zolana_transaction::{
+use spr_client::user_registry::resolve_registered_address;
+use spr_client::{ComputeBudgetConfig, Rpc};
+use spr_keypair::random_blinding;
+use spr_program::instruction::Transact;
+use spr_test_utils::test_validator_asserts::wait_for_indexed_utxo;
+use spr_test_utils::wallet::{Deposit, DepositParams};
+use spr_transaction::{
     instructions::transact::{asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo},
     utxo::SppProofInputUtxo,
     utxo::{
@@ -123,7 +123,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             ring_program_id: None,
             data: Data::default(),
         };
-        let source_in = SppProofInputUtxo::from(zolana_test_utils::utxo::indexed(
+        let source_in = SppProofInputUtxo::from(spr_test_utils::utxo::indexed(
             source_utxo,
             &env.user.keypair.nullifier_key,
             env.localnet.client.indexer(),
@@ -225,7 +225,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             asset: SOL_MINT,
             amount: reserved,
             spl_token_account: None,
-            spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+            spl_token_program: Some(spr_interface::pda::spl_token_program_id()),
             memo: None,
         })
         .map_err(|e| anyhow!("maker funding deposit: {e:?}"))?;
@@ -252,7 +252,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         .blinding;
         Utxo {
             owner: escrow_address.signing_pubkey,
-            asset: zolana_transaction::Mint::SOL,
+            asset: spr_transaction::Mint::SOL,
             amount: reserved,
             blinding: funding_blinding,
             ring_program_id: None,
@@ -274,13 +274,13 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         // Both parties derive the same viewing key from their registered viewing
         // pubkeys; the order UTXO's note is encrypted to it so either can rebuild
         // the escrow on settle. The reservation blinding rides in that note, so
-        let source_in = SppProofInputUtxo::from(zolana_test_utils::utxo::indexed(
+        let source_in = SppProofInputUtxo::from(spr_test_utils::utxo::indexed(
             source_utxo.clone(),
             &env.user.keypair.nullifier_key,
             env.localnet.client.indexer(),
             env.localnet.tree_id,
         )?);
-        let maker_funding_in = SppProofInputUtxo::from(zolana_test_utils::utxo::indexed(
+        let maker_funding_in = SppProofInputUtxo::from(spr_test_utils::utxo::indexed(
             maker_funding.clone(),
             escrow_owner.as_ref(),
             env.localnet.client.indexer(),
@@ -323,7 +323,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             .checked_mul(max_price)
             .ok_or_else(|| anyhow!("order_amount * max_price overflows"))?;
         let reservation = Reservation {
-            asset: zolana_transaction::Mint::SOL,
+            asset: spr_transaction::Mint::SOL,
             amount: reserved,
             blinding: reservation_blinding,
         };
@@ -336,7 +336,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             .checked_sub(reserved)
             .ok_or_else(|| anyhow!("reservation exceeds the maker funding amount"))?;
         let mut maker_change = SppProofOutputUtxo::new(
-            zolana_transaction::Mint::SOL,
+            spr_transaction::Mint::SOL,
             maker_change_amount,
             escrow_owner.shielded_address()?,
         )
@@ -393,7 +393,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             .indexer()
             .prove_transact(
                 spp_proof_inputs,
-                &zolana_test_utils::utxo::ProofKeys(&[
+                &spr_test_utils::utxo::ProofKeys(&[
                     &env.user.keypair.nullifier_key,
                     escrow_owner.as_ref(),
                 ]),
@@ -542,7 +542,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             order_amount,
             blinding: order_blinding,
         };
-        let order_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
+        let order_state = spr_test_utils::test_validator_asserts::wait_for_merkle_proof(
             env.localnet.client.indexer(),
             env.localnet.tree,
             order_utxo_hash,
@@ -554,14 +554,14 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             .checked_mul(max_price)
             .ok_or_else(|| anyhow!("order_amount * max_price overflows"))?;
         let reservation = Reservation {
-            asset: zolana_transaction::Mint::SOL,
+            asset: spr_transaction::Mint::SOL,
             amount: reserved,
             blinding: reservation_blinding,
         };
         let reservation_hash = reservation
             .output_utxo(&escrow_owner, order_utxo_hash)?
             .hash(env.localnet.tree_id)?;
-        let reservation_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
+        let reservation_state = spr_test_utils::test_validator_asserts::wait_for_merkle_proof(
             env.localnet.client.indexer(),
             env.localnet.tree,
             reservation_hash,
@@ -595,7 +595,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             .map_err(|e| anyhow!("recipient_out: {e:?}"))?;
         let authority_address = env.authority.address()?;
         let maker_counter = SppProofOutputUtxo::new(
-            zolana_transaction::Mint::SOL,
+            spr_transaction::Mint::SOL,
             maker_counter_amount,
             authority_address,
         )

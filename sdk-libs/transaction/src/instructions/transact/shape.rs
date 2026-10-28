@@ -1,4 +1,4 @@
-pub use zolana_interface::shape::{Shape, SPP_SUPPORTED_SHAPES};
+pub use spr_interface::shape::{Shape, SPP_SUPPORTED_SHAPES};
 
 use crate::error::TransactionError;
 

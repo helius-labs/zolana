@@ -1,4 +1,4 @@
-# zolana-program Invariants
+# spr-program Invariants
 
 Coverage index for the builtins and protocol types under [`../src/circuit/`](../../src/circuit/).
 The per-type checklists define the claims and point to their tests; [`../docs.md`](../../docs.md)
@@ -246,14 +246,14 @@ and INV-TX-20 (public deposit/withdrawal) passed in the full external lane and a
 From the repository root:
 
 ```sh
-just test-zolana-program
-just test-zolana-program-unit
-just test-zolana-program-external
-just test-zolana-program-unit bytes::
-just test-zolana-program-external harness::picus::timeout_cleanup
+just test-spr-program
+just test-spr-program-unit
+just test-spr-program-external
+just test-spr-program-unit bytes::
+just test-spr-program-external harness::picus::timeout_cleanup
 ```
 
-`just test-zolana-program` checks three crates (`zolana-program`, `zolana-macros`,
+`just test-spr-program` checks three crates (`spr-program`, `spr-macros`,
 `timelock-escrow-program`) with tests/all features, runs the
 hermetic unit lane, runs the external lane twice, then runs release tests for the SDK,
 macros and arkworks example. The two focused recipes accept an optional test-name filter.
@@ -276,11 +276,11 @@ circomlib is GPL-3.0 and is not committed. The harness fetches pinned commit
 through `CIRCOMLIB_DIR`:
 
 ```sh
-CIRCOMLIB_DIR=/path/to/circomlib just test-zolana-program-external
+CIRCOMLIB_DIR=/path/to/circomlib just test-spr-program-external
 ```
 
 Compiled circom artifacts, throwaway Powers-of-Tau files selected by circuit size, and the
-pinned circomlib checkout are cached beneath `CARGO_TARGET_TMPDIR/zolana-program-unit`
+pinned circomlib checkout are cached beneath `CARGO_TARGET_TMPDIR/spr-program-unit`
 with file locks. Ceremony artifacts are local test material. Picus limits are per fixture;
 `Unsafe` fails a determinism assertion and `Unknown` remains partial where permitted.
 

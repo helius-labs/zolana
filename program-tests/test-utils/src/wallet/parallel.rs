@@ -9,7 +9,7 @@
 //! serial under both strategies.
 
 use rayon::prelude::*;
-use zolana_transaction::{error::TransactionError, instructions::transact::ShieldedTransaction};
+use spr_transaction::{error::TransactionError, instructions::transact::ShieldedTransaction};
 
 use super::{
     authority::{SyncWalletAuthority, WalletSyncMaterial},

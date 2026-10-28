@@ -1,13 +1,13 @@
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_hasher::{Hasher, Poseidon};
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     circuit::{
         CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,

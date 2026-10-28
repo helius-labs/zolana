@@ -1,4 +1,4 @@
-use zolana_tree::{
+use spr_tree::{
     error::TreeError, NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, UTXO_TREE_HEIGHT,
 };
 

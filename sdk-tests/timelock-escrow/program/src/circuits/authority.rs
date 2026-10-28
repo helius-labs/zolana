@@ -1,5 +1,5 @@
 use pinocchio::Address;
-use zolana_program::ProgramOwner;
+use spr_program::ProgramOwner;
 
 use crate::{escrow_authority_seeds, ID};
 

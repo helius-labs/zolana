@@ -4,17 +4,17 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_system_interface::error::SystemError;
-use zolana_account_checks::AccountError;
-use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
-use zolana_interface::{
+use spr_account_checks::AccountError;
+use spr_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{tag, DepositAssetKind, DepositEntry, EncryptedRingDepositData},
     pda, PROGRAM_ID_PUBKEY,
 };
-use zolana_program::instruction::{DepositAsset, RingAssetDeposit, RingDeposit};
-use zolana_program_test::{Rejection, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use spr_program::instruction::{DepositAsset, RingAssetDeposit, RingDeposit};
+use spr_program_test::{Rejection, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 
-use zolana_test_utils::mollusk::{
+use spr_test_utils::mollusk::{
     expect_err_exact, mollusk_pubkey, snapshot_instruction_accounts, sweep_account_matrix,
     AccountMutation, Expected,
 };

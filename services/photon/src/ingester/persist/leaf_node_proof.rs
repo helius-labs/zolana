@@ -8,8 +8,8 @@ use crate::ingester::persist::persisted_state_tree::{
 use crate::ingester::persist::MerkleProofWithContext;
 use sea_orm::QueryFilter;
 use sea_orm::{ColumnTrait, DatabaseTransaction, EntityTrait};
+use spr_indexer_api::{Hash, SerializablePubkey};
 use std::collections::HashMap;
-use zolana_indexer_api::{Hash, SerializablePubkey};
 
 pub async fn get_multiple_compressed_leaf_proofs_by_indices_with_height(
     txn: &DatabaseTransaction,

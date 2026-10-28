@@ -1,12 +1,12 @@
 use solana_address::Address;
-use zolana_event::MessageData;
-use zolana_instruction::{SettlementAccounts, TransactExternalData};
-use zolana_interface::instruction::{
+use spr_event::MessageData;
+use spr_instruction::{SettlementAccounts, TransactExternalData};
+use spr_interface::instruction::{
     instruction_data::transact::{InterfaceTransfer, TransactOutput},
     tag,
 };
-use zolana_interface::pda;
-use zolana_interface::{MAX_INTERFACE_TRANSFERS, SOL_INTERFACE};
+use spr_interface::pda;
+use spr_interface::{MAX_INTERFACE_TRANSFERS, SOL_INTERFACE};
 
 use crate::{error::TransactionError, SOL_MINT};
 
@@ -34,26 +34,17 @@ pub enum SettlementTransfer {
     Sol {
         is_deposit: bool,
         amount: u64,
-        #[cfg_attr(
-            feature = "serde",
-            serde(with = "zolana_keypair::serde_helpers::address")
-        )]
+        #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::address"))]
         #[cfg_attr(feature = "tsify", tsify(type = "string"))]
         user_sol_account: Address,
     },
     Spl {
-        #[cfg_attr(
-            feature = "serde",
-            serde(with = "zolana_keypair::serde_helpers::address")
-        )]
+        #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::address"))]
         #[cfg_attr(feature = "tsify", tsify(type = "string"))]
         mint: Address,
         is_deposit: bool,
         amount: u64,
-        #[cfg_attr(
-            feature = "serde",
-            serde(with = "zolana_keypair::serde_helpers::address")
-        )]
+        #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::address"))]
         #[cfg_attr(feature = "tsify", tsify(type = "string"))]
         user_spl_token: Address,
     },

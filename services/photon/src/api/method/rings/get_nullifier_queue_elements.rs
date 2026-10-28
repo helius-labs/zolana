@@ -5,7 +5,7 @@ use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
     TransactionTrait,
 };
-use zolana_indexer_api::{
+use spr_indexer_api::{
     GetNullifierQueueElementsRequest, GetNullifierQueueElementsResponse, Hash,
     NullifierQueueElement,
 };
@@ -69,7 +69,7 @@ mod tests {
     use crate::migration::RingsMigrator;
     use sea_orm::{Database, DatabaseConnection, EntityTrait, Set};
     use sea_orm_migration::MigratorTrait;
-    use zolana_indexer_api::{Limit, SerializablePubkey};
+    use spr_indexer_api::{Limit, SerializablePubkey};
 
     fn limit(value: u64) -> Limit {
         Limit::new(value).unwrap()

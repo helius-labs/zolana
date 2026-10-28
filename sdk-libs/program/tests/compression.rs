@@ -1,19 +1,19 @@
 #![cfg(feature = "compression")]
 
 use solana_address::{address, Address};
-use zolana_client::ProofInputUtxo;
-use zolana_hasher::{
+use spr_client::ProofInputUtxo;
+use spr_hasher::{
     primitives::{right_align, BN254_SCALAR_MODULUS_BE},
     Hasher, Poseidon,
 };
-use zolana_interface::{
+use spr_interface::{
     tree_slot::tree_id_field, ADDRESS_DOMAIN, SOL_ASSET_FIELD, ZERO_NULLIFIER_PUBKEY,
 };
-use zolana_keypair::{hash::owner_hash, NullifierKey, PublicKey};
-use zolana_program::program::{
+use spr_keypair::{hash::owner_hash, NullifierKey, PublicKey};
+use spr_program::program::{
     AddressSeed, CompressedAccountError, NewAddress, PdaOwner, UniqueDataUtxo, UtxoMeta,
 };
-use zolana_transaction::SOL_MINT;
+use spr_transaction::SOL_MINT;
 
 const TEST_PDA: Address = address!("6ZKEgsScJbL6JVDpbHLCFCUiPEVgmMSt1j6NudNLqEvh");
 
@@ -104,8 +104,8 @@ fn address_seed_rejects_a_non_canonical_scalar() {
 
 struct HashState([u8; 32]);
 
-impl zolana_program::hasher::DataHasher for HashState {
-    fn hash(&self) -> Result<[u8; 32], zolana_hasher::HasherError> {
+impl spr_program::hasher::DataHasher for HashState {
+    fn hash(&self) -> Result<[u8; 32], spr_hasher::HasherError> {
         Ok(self.0)
     }
 }
@@ -116,7 +116,7 @@ fn unique_state_nullifier_matches_the_protocol_input() {
     let meta = UtxoMeta {
         address: right_align(&[6u8]),
         blinding: right_align(&[5u8]),
-        tree_context: zolana_interface::instruction::instruction_data::transact::TreeContext {
+        tree_context: spr_interface::instruction::instruction_data::transact::TreeContext {
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
         },
@@ -153,7 +153,7 @@ fn unique_state_rejects_a_non_canonical_state_hash() {
     let meta = UtxoMeta {
         address: right_align(&[6u8]),
         blinding: right_align(&[5u8]),
-        tree_context: zolana_interface::instruction::instruction_data::transact::TreeContext {
+        tree_context: spr_interface::instruction::instruction_data::transact::TreeContext {
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
         },

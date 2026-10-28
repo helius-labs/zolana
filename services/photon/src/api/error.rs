@@ -3,8 +3,8 @@ use cadence_macros::statsd_count;
 use jsonrpsee::types::{ErrorCode, ErrorObjectOwned};
 use log::error;
 use solana_pubkey::ParsePubkeyError;
+use spr_indexer_api::ParseHashError;
 use thiserror::Error;
-use zolana_indexer_api::ParseHashError;
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum PhotonApiError {

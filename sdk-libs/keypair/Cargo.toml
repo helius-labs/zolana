@@ -1,17 +1,19 @@
 [package]
-name = "zolana-keypair"
+name = "spr-keypair"
 version = "0.1.0"
 description = "TSPP client keypairs: signing, nullifier, and viewing keys with HPKE-style encryption and view-tag derivation."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+publish = ["crates-io"]
+
 [dependencies]
 x25519-dalek = { workspace = true }
 ark-bn254 = { version = "0.6", optional = true }
 borsh = { workspace = true, optional = true }
-zolana-zk-dsl = { workspace = true, optional = true, features = ["circuit"] }
-zolana-zk-gadgets = { workspace = true, optional = true }
+spr-zk-dsl = { workspace = true, optional = true, features = ["circuit"] }
+spr-zk-gadgets = { workspace = true, optional = true }
 bs58 = { workspace = true }
 ed25519-dalek = { workspace = true }
 aes = { workspace = true }
@@ -19,7 +21,7 @@ ctr = { workspace = true }
 hkdf = { workspace = true }
 zeroize = { workspace = true }
 sha2 = { workspace = true }
-zolana-hasher = { workspace = true, features = ["std"] }
+spr-hasher = { workspace = true, features = ["std"] }
 rand = { workspace = true }
 solana-address = { workspace = true }
 solana-keypair = { workspace = true }
@@ -32,7 +34,7 @@ wasm-bindgen = { workspace = true, optional = true }
 
 [features]
 # How shielded addresses enter a zk circuit.
-circuit = ["dep:ark-bn254", "dep:borsh", "dep:zolana-zk-dsl", "dep:zolana-zk-gadgets"]
+circuit = ["dep:ark-bn254", "dep:borsh", "dep:spr-zk-dsl", "dep:spr-zk-gadgets"]
 serde = ["dep:serde", "dep:serde_bytes"]
 tsify = ["serde", "dep:tsify", "dep:wasm-bindgen"]
 

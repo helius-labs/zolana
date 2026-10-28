@@ -18,8 +18,8 @@ use serde_json::Value;
 use shielded_pool_program::testing::{
     amount_field, solana_owner_identity, TransactProof, TransactProofInputs,
 };
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
-use zolana_hasher::{
+use spr_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
+use spr_hasher::{
     hash_chain::{
         create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
         create_right_hash_chain_from_slice,
@@ -28,7 +28,7 @@ use zolana_hasher::{
     sha256::Sha256,
     Hasher,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::{
         AnonymousRingEddsaProofData, Bsb22Commitment, CircuitId, InputUtxo, OwnerTag,
         TransactIxData, TransactIxDataRef, TransactOutput, TransactProof as ProofData, TreeContext,

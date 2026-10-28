@@ -1,6 +1,6 @@
 use crate::{error::Result, Error};
 use serde::Deserialize;
-use zolana_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S;
+use spr_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S;
 
 pub struct ProvingKeyReport {
     pub prefix: String,

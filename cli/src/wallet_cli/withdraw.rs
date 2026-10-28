@@ -1,7 +1,7 @@
 use anyhow::Result;
 use solana_signer::Signer;
-use zolana_client::SolanaRpc;
-use zolana_transaction::{instructions::transact::ConfidentialTransaction, select_spend, Address};
+use spr_client::SolanaRpc;
+use spr_transaction::{instructions::transact::ConfidentialTransaction, select_spend, Address};
 
 use super::{
     resolve::get_network,

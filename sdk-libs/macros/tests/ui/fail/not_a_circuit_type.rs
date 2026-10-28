@@ -1,4 +1,4 @@
-use zolana_program::{
+use spr_program::{
     conversion::{Allocator, ProofInput},
     CircuitError,
 };

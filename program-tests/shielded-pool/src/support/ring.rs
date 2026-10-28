@@ -3,18 +3,18 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     prover::{field::be, transact::AnonymousEddsaAuthorization},
     AnonymousEddsaTransferInputs, ProofCompressed, Prover, ProverClient, ProverExt, TransferOutput,
 };
-use zolana_hasher::{
+use spr_hasher::{
     hash_chain::{
         create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
         create_right_hash_chain_from_slice,
     },
     primitives::{hash_bytes, solana_owner_identity},
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::{
         instruction_data::transact::{CircuitId, TransactIxData},
         tag,
@@ -25,17 +25,17 @@ use zolana_interface::{
     verifying_keys::AnonymousRingEddsaProofData,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{pubkey::PublicKey, NullifierKey, SigningKey};
-use zolana_program::instruction::Transact;
-use zolana_program_test::RING_TEST_PROGRAM_ID;
-use zolana_test_utils::transact::{
+use spr_keypair::{pubkey::PublicKey, NullifierKey, SigningKey};
+use spr_program::instruction::Transact;
+use spr_program_test::RING_TEST_PROGRAM_ID;
+use spr_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
     dummy_transfer_output, external_data_hash_for_discriminator, inline_outputs, input_utxo,
     new_transact_ix_data, output_owner_pk_hashes, pack_transact_proof, set_output_owner_tags,
     single_tree_slots, sol_public_slots, test_private_tx_blinding, transfer_input,
     TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_transaction::instructions::transact::{transact_message_hash, PrivateTxHash};
+use spr_transaction::instructions::transact::{transact_message_hash, PrivateTxHash};
 
 use super::fixtures::Pool;
 use super::merge::ZeroDeposits;

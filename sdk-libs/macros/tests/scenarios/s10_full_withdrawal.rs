@@ -1,6 +1,6 @@
 use solana_address::Address;
-use zolana_interface::instruction::instruction_data::transact::OwnerTag;
-use zolana_program::{
+use spr_interface::instruction::instruction_data::transact::OwnerTag;
+use spr_program::{
     circuit::{
         Assert, CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxos,
         UtxoTrait,
@@ -8,7 +8,7 @@ use zolana_program::{
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
+use spr_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,

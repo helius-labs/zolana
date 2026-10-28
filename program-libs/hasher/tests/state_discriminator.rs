@@ -1,4 +1,4 @@
-use zolana_hasher::state_discriminator;
+use spr_hasher::state_discriminator;
 
 /// Pinned to `sha256(b"account:" || name)[..8]` computed outside this crate
 /// (Python `hashlib`), so a change to the prefix or the truncation fails here.

@@ -3,10 +3,10 @@
 
 use borsh::BorshSerialize;
 use solana_pubkey::Pubkey;
-use zolana_event::{encode_event_instruction, EventKind, InputTreeSequence, MergeEvent};
-use zolana_event_parser::ParsedInstruction;
-use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
-use zolana_interface::instruction::{
+use spr_event::{encode_event_instruction, EventKind, InputTreeSequence, MergeEvent};
+use spr_event_parser::ParsedInstruction;
+use spr_interface::instruction::instruction_data::MergeOutputEncryption;
+use spr_interface::instruction::{
     instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
     CircuitId, InputUtxo, InterfaceTransfer, MergeRingIxData, MergeTransactIxData, MessageData,
     TransactIxData, TransactOutput, TransactProof, TreeContext,

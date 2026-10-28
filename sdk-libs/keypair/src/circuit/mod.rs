@@ -5,7 +5,7 @@ mod conversion;
 mod owner;
 mod owner_input;
 
-use zolana_zk_dsl::{CircuitError, CircuitErrorKind, ProtocolError, ProtocolErrorKind};
+use spr_zk_dsl::{CircuitError, CircuitErrorKind, ProtocolError, ProtocolErrorKind};
 
 pub use address::ShieldedAddressCircuit;
 #[doc(hidden)]
@@ -18,7 +18,7 @@ pub mod client {
     pub use super::owner_input::UtxoOwner;
 }
 
-#[derive(Debug, thiserror::Error, zolana_zk_dsl::ErrorName)]
+#[derive(Debug, thiserror::Error, spr_zk_dsl::ErrorName)]
 #[error_name(prefix = "CircuitError")]
 #[non_exhaustive]
 pub enum OwnerCircuitErrorKind {

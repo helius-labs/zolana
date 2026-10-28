@@ -1,14 +1,14 @@
 use async_trait::async_trait;
 use solana_address::Address;
-use zolana_event::MessageData;
-use zolana_keypair::{
+use spr_event::MessageData;
+use spr_keypair::{
     derivation,
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::{random_salt, Salt, ViewTag},
     Curve, NullifierKey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
     X25519Pubkey,
 };
-use zolana_transaction::{
+use spr_transaction::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
@@ -364,15 +364,15 @@ fn encrypt_confidential_transfer_with<K: ViewingKeyTrait>(
                 },
             )?;
             if output.ring_program_id.is_some() {
-                let zolana_event::OutputDataEncoding::Encrypted(mut blob) =
+                let spr_event::OutputDataEncoding::Encrypted(mut blob) =
                     borsh::from_slice(&message.data)
                         .map_err(|error| TransactionError::Deserialize(error.to_string()))?
                 else {
                     return Err(TransactionError::MissingOutput);
                 };
                 *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
-                    zolana_transaction::EncryptedScheme::RingConfidential.as_byte();
-                message.data = borsh::to_vec(&zolana_event::OutputDataEncoding::Encrypted(blob))
+                    spr_transaction::EncryptedScheme::RingConfidential.as_byte();
+                message.data = borsh::to_vec(&spr_event::OutputDataEncoding::Encrypted(blob))
                     .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
             }
             Ok(message)
@@ -578,7 +578,7 @@ impl SyncWalletAuthority for ShieldedKeypair {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_keypair::SigningKey;
+    use spr_keypair::SigningKey;
 
     fn authority_fixture() -> (
         ShieldedKeypair,

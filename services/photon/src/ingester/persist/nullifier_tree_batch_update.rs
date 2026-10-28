@@ -411,7 +411,7 @@ mod tests {
     use sea_orm::{Database, DatabaseConnection, Set, TransactionTrait};
     use sea_orm_migration::MigratorTrait;
     use solana_signature::Signature;
-    use zolana_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+    use spr_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
 
     async fn setup_test_db() -> DatabaseConnection {
         let db = Database::connect("sqlite::memory:").await.unwrap();

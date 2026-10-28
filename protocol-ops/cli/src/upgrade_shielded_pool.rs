@@ -6,11 +6,9 @@ use anyhow::{anyhow, bail, Context, Result};
 use solana_loader_v3_interface_v7::{instruction::upgrade, state::UpgradeableLoaderState};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
-    pda, state::ProtocolConfig, BPF_LOADER_UPGRADEABLE_PUBKEY, PROGRAM_ID_PUBKEY,
-};
-use zolana_smart_account_client::execute_sync_ix;
-use zolana_smart_account_client::roles::Role;
+use spr_interface::{pda, state::ProtocolConfig, BPF_LOADER_UPGRADEABLE_PUBKEY, PROGRAM_ID_PUBKEY};
+use spr_smart_account_client::execute_sync_ix;
+use spr_smart_account_client::roles::Role;
 
 use crate::{
     init_protocol::{

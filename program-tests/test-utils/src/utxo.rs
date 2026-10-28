@@ -1,6 +1,6 @@
 use anyhow::Result;
-use zolana_keypair::NullifierKey;
-use zolana_transaction::{Utxo, WalletUtxo};
+use spr_keypair::NullifierKey;
+use spr_transaction::{Utxo, WalletUtxo};
 
 /// Build an indexed note fixture with its committed hashes and physical location.
 pub fn wallet(
@@ -36,28 +36,27 @@ pub fn wallet(
     })
 }
 
-use zolana_transaction::{instructions::transact::SppProofInputs, SppProofOutputUtxo};
+use spr_transaction::{instructions::transact::SppProofInputs, SppProofOutputUtxo};
 
 pub fn finalized_transaction(
-    input_utxos: Vec<zolana_transaction::utxo::SppProofInputUtxo>,
+    input_utxos: Vec<spr_transaction::utxo::SppProofInputUtxo>,
     mut output_utxos: Vec<SppProofOutputUtxo>,
-    sender: &zolana_keypair::ShieldedKeypair,
+    sender: &spr_keypair::ShieldedKeypair,
     payer: solana_address::Address,
     output_tree_id: u16,
     blinding_seed: [u8; 32],
     salt: [u8; 16],
 ) -> SppProofInputs {
-    use zolana_interface::instruction::{OwnerTag, TransactOutput};
-    use zolana_transaction::serialization::{
+    use spr_interface::instruction::{OwnerTag, TransactOutput};
+    use spr_transaction::serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         UtxoSerialization,
     };
     let first_nullifier = input_utxos.first().unwrap().nullifier;
-    let seed =
-        zolana_transaction::utxo::derive_output_blinding_seed(&first_nullifier, &blinding_seed)
-            .unwrap();
+    let seed = spr_transaction::utxo::derive_output_blinding_seed(&first_nullifier, &blinding_seed)
+        .unwrap();
     for (index, output) in output_utxos.iter_mut().enumerate() {
-        output.blinding = zolana_transaction::utxo::derive_transact_output_blinding(
+        output.blinding = spr_transaction::utxo::derive_transact_output_blinding(
             &first_nullifier,
             &seed,
             index as u32,
@@ -105,7 +104,7 @@ pub fn finalized_transaction(
         output_utxos,
         blinding_seed,
         output_tree_id,
-        external_data: zolana_transaction::ExternalData::new(
+        external_data: spr_transaction::ExternalData::new(
             *tx.pubkey().as_bytes(),
             salt,
             outputs,
@@ -118,12 +117,12 @@ pub fn finalized_transaction(
 }
 
 use borsh::BorshDeserialize;
-use zolana_event::{MessageData, OutputDataEncoding};
-use zolana_interface::instruction::{OwnerTag, TransactOutput};
-use zolana_keypair::{
+use spr_event::{MessageData, OutputDataEncoding};
+use spr_interface::instruction::{OwnerTag, TransactOutput};
+use spr_keypair::{
     constants::SALT_LEN, random_blinding, random_salt, ShieldedAddress, ViewingKey, ViewingKeyTrait,
 };
-use zolana_transaction::{
+use spr_transaction::{
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         UtxoSerialization,
@@ -263,11 +262,11 @@ pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
 
 /// Complete each fixture input with the key that owns its published nullifier.
 pub struct ProofKeys<'a>(pub &'a [&'a NullifierKey]);
-impl zolana_client::ProofAuthority for ProofKeys<'_> {
+impl spr_client::ProofAuthority for ProofKeys<'_> {
     fn complete_inputs(
         &self,
-        inputs: &mut [zolana_client::TransferInput],
-    ) -> std::result::Result<(), zolana_client::ClientError> {
+        inputs: &mut [spr_client::TransferInput],
+    ) -> std::result::Result<(), spr_client::ClientError> {
         for (index, input) in inputs.iter_mut().enumerate() {
             if input.nullifier_secret.is_some() {
                 continue;
@@ -282,7 +281,7 @@ impl zolana_client::ProofAuthority for ProofKeys<'_> {
                             num_bigint::BigUint::from_bytes_be(&nullifier) == input.nullifier
                         })
                 })
-                .ok_or(zolana_client::ClientError::InputNullifierMismatch { index })?;
+                .ok_or(spr_client::ClientError::InputNullifierMismatch { index })?;
             key.complete_inputs(std::slice::from_mut(input))?;
         }
         Ok(())
@@ -290,7 +289,7 @@ impl zolana_client::ProofAuthority for ProofKeys<'_> {
 }
 
 /// Non-inclusion witnesses for benchmark padding in a fresh fixture tree.
-pub fn dummy_proofs(transaction: &SppProofInputs) -> Vec<zolana_client::NonInclusionProof> {
+pub fn dummy_proofs(transaction: &SppProofInputs) -> Vec<spr_client::NonInclusionProof> {
     let tree = crate::transact::nullifier_tree().expect("fixture nullifier tree");
     transaction
         .input_utxos
@@ -300,11 +299,11 @@ pub fn dummy_proofs(transaction: &SppProofInputs) -> Vec<zolana_client::NonInclu
             let proof = tree
                 .get_non_inclusion_proof(&num_bigint::BigUint::from_bytes_be(&input.nullifier))
                 .expect("dummy non-inclusion");
-            zolana_client::NonInclusionProof {
+            spr_client::NonInclusionProof {
                 leaf: input.nullifier,
-                merkle_context: zolana_client::MerkleContext {
+                merkle_context: spr_client::MerkleContext {
                     tree_type: 1,
-                    tree: zolana_interface::pda::tree(input.tree_id),
+                    tree: spr_interface::pda::tree(input.tree_id),
                 },
                 path: proof.merkle_proof.to_vec(),
                 low_element: proof.leaf_lower_range_value,
@@ -320,7 +319,7 @@ pub fn dummy_proofs(transaction: &SppProofInputs) -> Vec<zolana_client::NonInclu
 }
 
 /// Resolve real fixture metadata before the transaction is finalized.
-pub fn indexed<I: zolana_client::Rpc>(
+pub fn indexed<I: spr_client::Rpc>(
     utxo: Utxo,
     key: &NullifierKey,
     indexer: &I,
@@ -329,7 +328,7 @@ pub fn indexed<I: zolana_client::Rpc>(
     let hash = utxo.hash(&key.pubkey()?, &[0; 32], &[0; 32], tree_id)?;
     let proof = crate::test_validator_asserts::wait_for_merkle_proof(
         indexer,
-        zolana_interface::pda::tree(tree_id),
+        spr_interface::pda::tree(tree_id),
         hash,
     );
     wallet(utxo, key, tree_id, proof.leaf_index, None, None)

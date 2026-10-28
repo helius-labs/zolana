@@ -88,7 +88,7 @@ failed.
 
 ## Shared backend, oracle, and transaction journal
 
-`zolana_test_utils::backend::LiteSvmPoolBackend` is the common proofless
+`spr_test_utils::backend::LiteSvmPoolBackend` is the common proofless
 workflow backend used by shielded-pool tests. The backend owns protocol/tree
 setup, signer funding, and exposes the transaction journal.
 
@@ -107,7 +107,7 @@ the journaled action or transaction history.
 
 LiteSVM pool-error assertions use
 `Rejection::pool(ShieldedPoolError::X).assert_litesvm(err)` (from
-`zolana_program_test::Rejection`), with `.at(index)` when the failing
+`spr_program_test::Rejection`), with `.at(index)` when the failing
 instruction index matters.
 
 `cross_cutting_cu_budget` pins all proofless administration variants, tree

@@ -5,7 +5,7 @@
 - Error codes 20000-20015 (with gaps) with automatic ProgramError conversion
 
 # Used in
-- `zolana-tree` (`nullifier_tree`) - Batch operation account checks
+- `spr-tree` (`nullifier_tree`) - Batch operation account checks
 
 # Navigation
 - This file: Overview and module organization

@@ -91,7 +91,7 @@ For a smaller payload, add `#[utxo_state(custom_codec)]` and implement the trait
 
 ```rust
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_program::{circuit::UtxoState, EncryptionCodec};
+use spr_program::{circuit::UtxoState, EncryptionCodec};
 
 #[derive(Clone, BorshSerialize, BorshDeserialize, UtxoState)]
 #[utxo_state(custom_codec)]
@@ -244,7 +244,7 @@ impl Circuit for IncrementCircuit {
 
 ### Circuit Types
 
-SDK circuit types are available through `zolana_program::circuit`. The code blocks list documented public SDK methods and their interfaces.
+SDK circuit types are available through `spr_program::circuit`. The code blocks list documented public SDK methods and their interfaces.
 
 1. **`TokenUtxos`**
 
@@ -460,13 +460,13 @@ Declare the build features in `Cargo.toml`:
 crate-type = ["cdylib", "lib"]
 
 [features]
-circuits = ["zolana-program/client"]
-r1cs-export = ["zolana-program/r1cs-export"]
-wasm = ["zolana-program/wasm"]
+circuits = ["spr-program/client"]
+r1cs-export = ["spr-program/r1cs-export"]
+wasm = ["spr-program/wasm"]
 insecure-test-setup = []
 
 [dependencies]
-zolana-program = { workspace = true, features = ["cpi", "verifier"] }
+spr-program = { workspace = true, features = ["cpi", "verifier"] }
 ```
 
 In `lib.rs`, enable circuit definitions for circuit and wasm builds. Exclude generated verifiers and their callers during R1CS export so the first build works before verifier files exist. Apply the same exclusion to the program entrypoint.
@@ -585,7 +585,7 @@ await sendAndConfirm([instruction]);
 The Rust example uses the same fetched UTXO and loaded key bytes. `IncrementInstruction` and `send_and_confirm` are application helpers, matching the TypeScript helpers. The finalized transaction is already typed, so Rust can encrypt its outputs directly. Proof generation accepts a slice of `ShieldedKeypairTrait` implementations and matches inputs by signing identity, independently of keypair order.
 
 ```rust
-let counter = zolana_program::DataUtxo::<Counter>::try_from(counter_wallet_utxo)?;
+let counter = spr_program::DataUtxo::<Counter>::try_from(counter_wallet_utxo)?;
 let step = 1;
 
 let increment = Increment {

@@ -13,9 +13,9 @@ use forester::photon::{Hash, NullifierQueueElement, PAGE_LIMIT};
 use forester::transaction::{compile_message, ComputeBudgetConfig};
 use solana_hash::Hash as Blockhash;
 use solana_pubkey::Pubkey;
-use zolana_interface::{pda, NullifierPda, NULLIFIER_PDA_SIZE};
-use zolana_protocol_instructions::CloseNullifierPdas;
-use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
+use spr_interface::{pda, NullifierPda, NULLIFIER_PDA_SIZE};
+use spr_protocol_instructions::CloseNullifierPdas;
+use spr_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 
 fn forester() -> ForesterSmartAccount {
     ForesterSmartAccount {
