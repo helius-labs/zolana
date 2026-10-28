@@ -91,6 +91,7 @@ export const ShieldedPoolError = Object.freeze({
   TreeFeeTooHigh: 7080,
   TreeCreationMismatch: 7081,
   NonCanonicalMergeCiphertext: 7082,
+  CircuitFeatureDisabled: 7083,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

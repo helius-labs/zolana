@@ -1446,7 +1446,8 @@ verified owner. Its shapes stay within `MAX_TRANSACT_INPUTS`, `MAX_OUTPUTS` and
 | 16 | 2, 4, 8, 16, 24, 48 |
 
 The shielded-pool binary must explicitly enable the `confidential-eddsa` Cargo
-feature to accept this family, including its cached selectors. The feature
+feature to accept this family, including its cached selectors; otherwise it
+returns `CircuitFeatureDisabled` (7083) after validating the shape. The feature
 is disabled by default. `feature-gate` defines the feature state and exports
 indexable metadata containing its name, enabled flag, and the SHA-256 hashes
 of its proving keys. Proof admission uses the same descriptor. A linked

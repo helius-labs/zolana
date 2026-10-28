@@ -21,6 +21,7 @@ Breaking
 
 Added
 
+- `ShieldedPoolError.CircuitFeatureDisabled` identifies a circuit disabled by the deployed program's compile-time features.
 - `ZolanaClient.proveConfidentialEddsaTransact` authorizes one owner inside the proof and returns the remaining transaction signers, while `signTransactMessage` and `transactMessageDigest` expose the signed statement.
 - `PrivateTransactionParams.owner` lets transfer, withdrawal and split builders accept an owner signature inside the proof while another account pays the transaction fee.
 - `ConfidentialTransfer.withConfidentialEddsaShape` and `selectConfidentialEddsaShape` select among twelve proof shapes with up to 48 inputs and 16 outputs.

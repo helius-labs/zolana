@@ -20,7 +20,7 @@ fn instruction_validation_rejects_disabled_circuits_before_proof_verification() 
         },
         owner_pk: [0; 32],
     };
-    let ix = TransactIxData {
+    let mut ix = TransactIxData {
         proof: TransactProof::zeroed(),
         expiry_unix_ts: 0,
         private_tx_hash: [0; 32],
@@ -46,7 +46,7 @@ fn instruction_validation_rejects_disabled_circuits_before_proof_verification() 
     let expected = if cfg!(feature = "confidential-eddsa") {
         Ok(())
     } else {
-        Err(ShieldedPoolError::InvalidTransactShape.into())
+        Err(ShieldedPoolError::CircuitFeatureDisabled.into())
     };
     assert_eq!(
         shielded_pool_program::instructions::transact::validate_circuit_type(
@@ -54,6 +54,17 @@ fn instruction_validation_rejects_disabled_circuits_before_proof_verification() 
             InstructionTag::Transact
         ),
         expected
+    );
+    ix.circuit = CircuitId::ConfidentialEddsa(1, 2, 3, proof);
+    let bytes = ix.serialize().expect("unsupported shape bytes");
+    let borrowed = TransactIxDataRef::from_bytes(&bytes).expect("borrow unsupported shape");
+    assert_eq!(
+        shielded_pool_program::instructions::transact::validate_circuit_type(
+            &borrowed,
+            InstructionTag::Transact
+        ),
+        Err(ShieldedPoolError::InvalidTransactShape.into()),
+        "unsupported shapes retain their shape error regardless of the feature"
     );
 }
 
