@@ -15,7 +15,7 @@ const DEFAULT_SURFPOOL_VERSION: &str = "1.6.0";
 // Cross-compile photon for linux-x64 inside a matching-toolchain container
 // (see rust-toolchain.toml). linux/amd64 builds the x86_64-linux binary natively
 // in the container, avoiding a host cross-linker.
-const PHOTON_LINUX_BUILDER_IMAGE: &str = "rust:1.97-bookworm";
+const PHOTON_LINUX_BUILDER_IMAGE: &str = "rust:1.98-bookworm";
 
 pub struct Options {
     pub tag: String,
@@ -402,7 +402,7 @@ fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> 
     println!("building {bin} (host)");
     let status = Command::new("cargo")
         .current_dir(repo)
-        .args(["build", "--release", "-p", package, "--bin", bin])
+        .args(["build", "--locked", "--release", "-p", package, "--bin", bin])
         .status()
         .with_context(|| format!("failed to run cargo build for {bin}"))?;
     if !status.success() {
@@ -417,7 +417,7 @@ fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path
     println!("building {bin} linux-x64 (docker {PHOTON_LINUX_BUILDER_IMAGE})");
     let mount = format!("{}:/work", path_str(repo)?);
     let build = format!(
-        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin} --target-dir /work/target-linux-x64"
+        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --locked --release -p {package} --bin {bin} --target-dir /work/target-linux-x64"
     );
     let status = Command::new("docker")
         .args([
