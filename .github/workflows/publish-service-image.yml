@@ -32,6 +32,19 @@ on:
       release_source_check:
         type: string
         default: tools/check-release-source.sh
+    outputs:
+      digest:
+        description: Published image digest (sha256:…)
+        value: ${{ jobs.publish.outputs.digest }}
+      image:
+        description: Published image reference (registry/repo:tag)
+        value: ${{ jobs.publish.outputs.image }}
+      service:
+        description: Service that was published
+        value: ${{ jobs.publish.outputs.service }}
+      channel:
+        description: release or preview
+        value: ${{ jobs.publish.outputs.channel }}
 
 permissions:
   contents: read
@@ -49,6 +62,11 @@ jobs:
     name: publish / ${{ inputs.service }}
     runs-on: ubuntu-24.04
     environment: image-publish
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+      image: ${{ steps.publish.outputs.image }}
+      service: ${{ inputs.service }}
+      channel: ${{ inputs.channel }}
     permissions:
       contents: read
       id-token: write
