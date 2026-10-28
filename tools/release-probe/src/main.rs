@@ -4,7 +4,6 @@ use std::{fs, thread, time::Instant};
 
 use anyhow::{anyhow, ensure, Context, Result};
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
-use zeroize::Zeroizing;
 use spr_client::prover::indexed::{IndexedTransferPreparation, IndexedTransferRail};
 use spr_client::{
     error::ClientError,
@@ -20,6 +19,7 @@ use spr_transaction::{
     utxo::{SppProofInputUtxo, SppProofOutputUtxo},
     LocalShieldedKeys, Mint,
 };
+use zeroize::Zeroizing;
 
 fn indexed_case(prover: &ProverClient) -> Result<()> {
     // A fresh zero-value address reservation needs a real non-inclusion proof,
@@ -30,10 +30,6 @@ fn indexed_case(prover: &ProverClient) -> Result<()> {
     let mut seed = [0; 32];
     seed[31] = 42;
     let address = SppProofInputUtxo::new_address(owner.signing_pubkey(), seed, 0)?;
-    ensure!(
-        spr_interface::pda::tree(0).to_string()
-            == "C37FDLpLGLvAUpywCJBjeb9HhGF6YZamYZ6uNqW9XnVD"
-    );
     let keys = LocalShieldedKeys::from_keypair(&owner)?;
     let mut transaction =
         ConfidentialTransaction::new_with_addresses(Vec::new(), vec![address], payer)?;
@@ -183,6 +179,12 @@ fn main() -> Result<()> {
     ensure!(
         args.len() == 5,
         "usage: client-check URL POLICY CONFIDENTIAL_FIXTURE EDDSA_FIXTURE"
+    );
+    let expected_tree = std::env::var("EXPECTED_TREE")
+        .context("EXPECTED_TREE must identify the selected release's protocol tree")?;
+    ensure!(
+        spr_interface::pda::tree(0).to_string() == expected_tree,
+        "SDK tree differs from the selected release"
     );
     let prover = ProverClient::new(args[1].clone())
         .with_tee(TeePolicy::from_file_json(&fs::read_to_string(&args[2])?)?);
