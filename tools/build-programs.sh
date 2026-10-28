@@ -5,6 +5,7 @@ set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
 sbf_tools_version="${SBF_TOOLS_VERSION:-v1.54}"
+shielded_pool_features="bpf-entrypoint${SHIELDED_POOL_FEATURES:+,${SHIELDED_POOL_FEATURES}}"
 
 cd "$root"
 mkdir -p target/deploy
@@ -22,7 +23,7 @@ if [[ $# -gt 0 ]]; then
     build "$@"
 else
     build --manifest-path programs/user-registry/Cargo.toml -- --locked --features bpf-entrypoint
-    build --manifest-path programs/shielded-pool/Cargo.toml -- --locked --features bpf-entrypoint
+    build --manifest-path programs/shielded-pool/Cargo.toml -- --locked --features "$shielded_pool_features"
     build --manifest-path program-tests/ring-test-program/Cargo.toml -- --locked
     build --manifest-path program-tests/spp-recorder-program/Cargo.toml -- --locked
     build --manifest-path sdk-tests/zk-program-swap/program/Cargo.toml -- --locked --features bpf-entrypoint

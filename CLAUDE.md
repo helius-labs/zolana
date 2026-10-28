@@ -460,6 +460,23 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 
 ## SPP Transaction Proving Keys & Verifying Keys
 
+### Compile-time circuit features
+
+`feature-gate` (`program-libs/feature-gate`) owns circuit feature definitions
+and their binary metadata format. `shielded-pool-program/confidential-eddsa`
+forwards to `feature-gate/confidential-eddsa` and enables the new in-circuit
+Ed25519 default-ring family, including cached selectors. It is off by default.
+The same descriptor checks allowed proving-key hashes and supplies the exported
+ELF marker. Existing VK setup markers describe linked keys, not active features.
+
+`just build-programs` leaves the feature off. Test recipes use
+`just build-test-programs`, which explicitly sets
+`SHIELDED_POOL_FEATURES=confidential-eddsa`; the host test crate also explicitly
+enables the program feature. Run `just test-feature-gate` to check both compile
+configurations. Inspect a binary with
+`cargo run -p spr-protocol-cli -- circuit-features --so <program.so>`, or a
+deployment with `circuit-features --program-id <id> --rpc-url <url>`.
+
 The runtime-authorized transfer and anonymous EdDSA ownership
 circuits live in `prover/server/circuits/spp_transaction/`. Their proving
 systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is

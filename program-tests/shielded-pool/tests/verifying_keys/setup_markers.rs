@@ -36,3 +36,24 @@ fn every_verifying_key_marker_is_in_the_program_binary() {
     expected.sort();
     assert_eq!(found, expected);
 }
+
+#[test]
+fn the_test_program_explicitly_enables_the_confidential_eddsa_keys() {
+    let path = program_path();
+    let binary = std::fs::read(&path)
+        .unwrap_or_else(|error| panic!("read {path} (run just build-test-programs): {error}"));
+    let feature = shielded_pool_program::circuit_features::CONFIDENTIAL_EDDSA;
+    assert!(
+        feature.enabled,
+        "the host tests must enable confidential-eddsa"
+    );
+    assert_eq!(
+        feature_gate::find_features(&binary).expect("feature markers parse"),
+        vec![feature_gate::FeatureInfo {
+            name: feature.name.into(),
+            enabled: true,
+            proving_key_sha256s: feature.proving_key_sha256s.to_vec(),
+        }],
+        "the SBF test binary must be built with confidential-eddsa"
+    );
+}

@@ -95,7 +95,7 @@ test: test-shielded-pool test-sdk-libs test-photon
 
 # Everything that needs nothing running. No prover, no validator, no network,
 # and no proving keys. CI runs these same suites on every push, one job each.
-test-hermetic: test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon test-zk-standalone test-spr-program-unit test-spr-program-release
+test-hermetic: test-feature-gate test-cli test-tree test-program-fast test-user-registry-litesvm test-sdk-libs test-example-provers test-photon test-zk-standalone test-spr-program-unit test-spr-program-release
 
 # The tests need the test-only feature. Keep the prover-backed
 # nullifier_tree::prover_e2e module out of this hermetic lane.
@@ -107,7 +107,7 @@ test-tree:
 # Depends on build-programs so the litesvm tests load a fresh .so and actually
 # run (without it `program_test()` finds no .so and the suite skips). Builds
 # the prover server and zolana CLI because transact tests spawn a local prover.
-test-shielded-pool: build-programs build-prover-server build-cli
+test-shielded-pool: build-test-programs build-prover-server build-cli
     cargo nextest run -p spr-interface -p spr-instruction -p spr-protocol-instructions
     cargo nextest run -p shielded-pool-program --lib --tests
     # Proof-backed binaries spawn a shared prover server on a fixed port; run
@@ -120,7 +120,7 @@ test-shielded-pool: build-programs build-prover-server build-cli
 # Fast SBF-backed state and failure tests. No proof server or local validator.
 # The proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
-test-program-fast: build-programs
+test-program-fast: test-feature-gate build-test-programs
     cargo nextest run -p spr-interface -p spr-instruction -p spr-protocol-instructions
     cargo nextest run -p shielded-pool-program --lib --tests
     cargo nextest run -p spr-user-registry --tests
@@ -132,23 +132,23 @@ test-program-fast: build-programs
 
 # Run one shielded-pool intent-level binary, for example:
 # `just test-shielded-pool-case deposit_model`.
-test-shielded-pool-case case: build-programs
+test-shielded-pool-case case: build-test-programs
     cargo nextest run -p shielded-pool-tests --test {{case}}
 
 # Account-aware Mollusk failures and property mutations for SPP and swap.
-test-program-mollusk: build-programs
+test-program-mollusk: build-test-programs
     cargo nextest run -p shielded-pool-tests --test admin_functional --test admin_rejection --test admin_edge_cases
     cargo nextest run -p shielded-pool-tests --test deposit_functional --test deposit_rejection --test deposit_edge_cases --test deposit_mutation
     cargo nextest run -p swap-program --test failing
 
 # Swap wrapper unit, wire-contract, and SBF-backed negative tests.
-test-swap-program: build-programs
+test-swap-program: build-test-programs
     cargo nextest run -p swap-program --tests
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
 # matrices' CI home is `test-client-integration` (`--all-features`), so they do
 # not run twice per PR.
-test-program-proofs-programs-only: build-programs build-prover-server build-cli
+test-program-proofs-programs-only: build-test-programs build-prover-server build-cli
     cargo nextest run -p shielded-pool-tests --features proofs --test transact_functional --test transact_withdrawal --test transact_settlement --test mixed_interface_transfers --test merge_functional --test cache_functional --test cache_queued --test-threads 1
 
 # Groth16-backed program and client matrices, separated from fast state tests.
@@ -160,7 +160,7 @@ test-program-proofs: test-program-proofs-programs-only
 # Mollusk-backed cases in tests/deposit/rejection.rs (the `deposit_rejection`
 # binary's `mollusk_deposit_rejects_*` tests) eject fixtures; LiteSVM-backed
 # rejection tests do not go through Mollusk and produce none.
-eject-mollusk-fixtures output="target/fuzz-fixtures": build-programs
+eject-mollusk-fixtures output="target/fuzz-fixtures": build-test-programs
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{output}}"
@@ -170,7 +170,7 @@ eject-mollusk-fixtures output="target/fuzz-fixtures": build-programs
       'mollusk_deposit_rejects_'
 
 # User-registry litesvm tests only (no Light fixture bundle required).
-test-user-registry-litesvm: build-programs
+test-user-registry-litesvm: build-test-programs
     cargo nextest run -p user-registry-tests
 
 # The standalone zk fixture's verifier program, built like any circuit crate:
@@ -222,7 +222,7 @@ test-ts-example: (_test-ts-live "test:ts:example")
 test-ts-example-optimized-merge-transfer:
     ZOLANA_TS_EXAMPLE=optimized-merge-transfer {{just_executable()}} _test-ts-live test:ts:example
 
-_test-ts-live test-script: build-programs build-prover-server build-cli ensure-photon
+_test-ts-live test-script: build-test-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     # A command substitution that exits nonzero is no `set -e` trigger, so the
@@ -363,7 +363,7 @@ test-client-async-transfer-queue: build-prover-server build-cli
 
 # Program integration tests backed by LiteSVM. Transact tests spawn the prover
 # through the zolana CLI.
-test-programs: build-programs build-prover-server build-cli
+test-programs: build-test-programs build-prover-server build-cli
     cargo nextest run -p shielded-pool-tests --features proofs --test-threads 1
 
 # Proving-key-independent interface, program, and LiteSVM proofless tests.
@@ -371,7 +371,7 @@ test-programs: build-programs build-prover-server build-cli
 # and ring config (including the fixture program's signed CPI into SPP); the
 # proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
-test-proofless-programs: build-programs
+test-proofless-programs: build-test-programs
     cargo test -p spr-interface -p spr-instruction -p spr-protocol-instructions
     cargo test -p shielded-pool-program --lib --tests
     cargo nextest run -p shielded-pool-tests
@@ -418,7 +418,7 @@ bench-tree:
 # profiling .so. Build the plain programs, stash the plain shielded-pool .so,
 # then overwrite target/deploy with the profiling build before running. Clone the
 # SPL Token program from mainnet so mollusk can run the SPL deposit's CPI.
-bench-shielded-pool: build-programs
+bench-shielded-pool: build-test-programs
     cp target/deploy/shielded_pool_program.so target/deploy/shielded_pool_program_plain.so
     cargo build-sbf --tools-version {{sbf-tools-version}} \
         --sbf-out-dir target/deploy \
@@ -605,7 +605,7 @@ escrow-wasm-node-dir := "target/zk/timelock-escrow-program/wasm-node"
 build-escrow-wasm-node:
     cargo run --release -q -p spr-cli -- zk compile -p timelock-escrow-program --skip-r1cs --skip-keys --wasm-target nodejs --wasm-out {{escrow-wasm-node-dir}}
 
-test-escrow-ts: build-programs build-prover-server build-cli ensure-photon build-escrow-wasm-node
+test-escrow-ts: build-test-programs build-prover-server build-cli ensure-photon build-escrow-wasm-node
     #!/usr/bin/env bash
     set -euo pipefail
     program_ids="$(cargo run -q -p xtask -- program-ids)"
@@ -698,7 +698,7 @@ bench-dynamic-swap: ensure-dynamic-swap-keys
 
 # Local-validator proofless deposit coverage only. Unlike test-localnet-e2e,
 # this starts no prover and runs no transact/withdraw circuit.
-test-localnet-deposit: build-programs build-cli
+test-localnet-deposit: build-test-programs build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
@@ -709,7 +709,7 @@ test-localnet-deposit: build-programs build-cli
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$spp_authority" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
 # Local-validator end-to-end SOL cycle.
-test-localnet-e2e: build-programs build-prover-server build-cli
+test-localnet-e2e: build-test-programs build-prover-server build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
@@ -737,7 +737,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
 # Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
 # `#[serial]` test restarts a fresh validator + Photon via the `zolana` CLI,
 # so the protocol-config singleton never collides across tests.
-test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-localnet-e2e-photon: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -767,7 +767,7 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
 # both asset rails (SOL + SPL) on the supported ed25519 wallet rail. The
 # authority wallet doubles as the smoke actor so the SPL `test-mint` rail is
 # permitted. Services and workdir are torn down on exit.
-test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
+test-cli-smoke: build-test-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -822,7 +822,7 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
       tools/cli_smoke.sh
 
 # Run only the proof-bearing batch nullifier-tree lifecycle and its per-batch CU ceiling.
-test-nullifier-batch-proof-cu: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-nullifier-batch-proof-cu: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -843,7 +843,7 @@ test-nullifier-batch-proof-cu: build-programs build-prover-server build-cli ensu
 
 # Decrypt-and-spend lifecycle tests over a fresh validator + Photon per test
 # (program-tests/spp-test-validator).
-test-spp-validator: build-programs build-prover-server build-cli ensure-photon
+test-spp-validator: build-test-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -861,7 +861,7 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
       tools/ci/nextest-suite.sh -p spp-test-validator --test lifecycle --test proof_cu
 
 # Run only real-validator CU ceilings for transact, withdrawal and an 8-input merge.
-test-spp-validator-proof-cu: build-programs build-prover-server build-cli ensure-photon
+test-spp-validator-proof-cu: build-test-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -879,7 +879,7 @@ test-spp-validator-proof-cu: build-programs build-prover-server build-cli ensure
       tools/ci/nextest-suite.sh -p spp-test-validator --test proof_cu --no-capture
 
 # Run the transfer case that also decodes the emitted event.
-test-spp-validator-decode: build-programs build-prover-server build-cli ensure-photon
+test-spp-validator-decode: build-test-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -899,7 +899,7 @@ test-spp-validator-decode: build-programs build-prover-server build-cli ensure-p
 # Run only the merge scenarios from test-spp-validator (consolidations across
 # every merge width plus the disabled-service negative). For debugging the merge flow without
 # running the full lifecycle suite.
-test-spp-validator-merge: build-programs build-prover-server build-cli ensure-photon
+test-spp-validator-merge: build-test-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -918,7 +918,7 @@ test-spp-validator-merge: build-programs build-prover-server build-cli ensure-ph
 
 # Run only the randomized 50-transaction workload from test-spp-validator.
 # Set ZOLANA_RANDOM_SEED (decimal or 0x-prefixed hex) to replay a run.
-test-spp-validator-randomized: build-programs build-prover-server build-cli ensure-photon
+test-spp-validator-randomized: build-test-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -936,7 +936,7 @@ test-spp-validator-randomized: build-programs build-prover-server build-cli ensu
       tools/ci/nextest-suite.sh -p spp-test-validator --test lifecycle --no-capture -E 'test(randomized_mixed_asset)'
 
 # Run the non-randomized spp-validator lifecycle tests.
-test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cli ensure-photon
+test-spp-validator-lifecycle-decode: build-test-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -955,7 +955,7 @@ test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cl
       -E 'not test(randomized_mixed_asset) and not test(merge)'
 
 # Run the transfer lifecycle case.
-test-spp-validator-lifecycle: build-programs build-prover-server build-cli ensure-photon
+test-spp-validator-lifecycle: build-test-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -980,7 +980,7 @@ test-spp-validator-lifecycle: build-programs build-prover-server build-cli ensur
 # flow reads the user-registry record so that program must be co-loaded, and the
 # ring deposits use the Squads smart account binary (ensure-smart-account). The
 # prover server persists while each test restarts the validator + Photon.
-test-ring-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-ring-validator: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -1001,7 +1001,7 @@ test-ring-validator: build-programs build-prover-server build-cli ensure-photon 
 
 # Run only real-validator CU ceilings for ring EdDSA/anonymous transact,
 # ring-authority transact, and an 8-input merge-ring.
-test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-ring-validator-proof-cu: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -1024,7 +1024,7 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
 # 8x16) on the confidential, ring EdDSA and anonymous ring rails, and the 52-input
 # plain and ring merges, on a validator that enforces the 4,096-byte v1 ceiling.
 # Prints each transaction's bytes and compute units.
-test-max-shapes-validator: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-max-shapes-validator: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -1048,7 +1048,7 @@ test-max-shapes-validator: build-programs build-prover-server build-cli ensure-p
 # Regenerate services/photon/tests/fixtures/ring_transact.json from a real ring
 # CPI. The fixture is committed; Photon replays it without a validator. Run this
 # only when the ring account layout or the transaction shape changes.
-dump-ring-fixture: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+dump-ring-fixture: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -1074,14 +1074,14 @@ dump-ring-fixture: build-programs build-prover-server build-cli ensure-photon en
 # through spr_program_test::localnet::FixtureLocalnet with the swap program
 # and the shielded pool loaded, plus Photon and the shared SPP prover, on its
 # own ports, so the tests run in parallel.
-test-swap-validator: ensure-swap-keys build-programs build-prover-server build-cli ensure-photon
+test-swap-validator: ensure-swap-keys build-test-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel
 
 # Timelock escrow lifecycle on a local validator
 # (sdk-tests/timelock-escrow/program/tests/escrow.rs), booted through
 # FixtureLocalnet like test-swap-validator. build-programs generates the
 # escrow's verifying keys before building its program.
-test-escrow-validator: build-programs build-prover-server build-cli ensure-photon
+test-escrow-validator: build-test-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p timelock-escrow-program --features localnet --test escrow
 
 # Runs the swap and escrow lifecycle suites back to back in one CI job.
@@ -1090,7 +1090,7 @@ test-swap-and-escrow-validator: test-swap-validator test-escrow-validator
 # Plaintext compressed-account lifecycle on a local validator
 # (sdk-tests/compression/test/tests/compression.rs), booted through
 # FixtureLocalnet like test-swap-validator.
-test-compression-validator: ensure-compression-keys build-programs build-prover-server build-cli ensure-photon
+test-compression-validator: ensure-compression-keys build-test-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p compression-example-test --test compression
 
 # Minimal spr-client SDK example: deposit, shielded transfer, and withdrawal
@@ -1099,7 +1099,7 @@ test-compression-validator: ensure-compression-keys build-programs build-prover-
 # solana-test-validator via the `zolana` CLI with the shielded pool, the user
 # registry, and the Squads smart account, plus Photon and the SPP prover --
 # mirroring test-spp-validator.
-test-client-example: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-client-example: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -1121,7 +1121,7 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
 # improves on: merge, wait for the merged output to be indexed, fetch its
 # Merkle proof, then prove and send the transfer. Same stack as
 # test-client-example.
-test-client-example-merge-transfer: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-client-example-merge-transfer: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -1145,7 +1145,7 @@ test-client-example-merge-transfer: build-programs build-prover-server build-cli
 # with the merge proof instead of waiting for the merged output to be indexed.
 # Same stack as test-client-example; needs the merge_52_1 proving key, which the
 # prover lazy-loads on the first request.
-test-client-example-optimized-merge-transfer: build-programs build-prover-server build-cli ensure-photon ensure-smart-account
+test-client-example-optimized-merge-transfer: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(tools/ci/xtask.sh program-ids)"
@@ -1168,20 +1168,20 @@ test-client-example-optimized-merge-transfer: build-programs build-prover-server
 # circuits (escrow_open/escrow_settle) prove in-process through the embedded
 # gnark prover. Pass extra nextest args to select a single test binary, e.g.
 # `just test-dynamic-swap --test pair`.
-test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-server build-cli ensure-photon
+test-dynamic-swap *args: ensure-dynamic-swap-keys build-test-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p dynamic-swap-test {{args}}
 
 # Confidential RFQ settlement on a local validator: the maker and taker co-sign
 # one shielded-pool transact that swaps SOL for USDC with no escrow and no custom
 # program (sdk-tests/rfq/tests/rfq.rs), booted through FixtureLocalnet like
 # test-swap-validator.
-test-rfq-validator: build-programs build-prover-server build-cli ensure-photon
+test-rfq-validator: build-test-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p rfq-test --test rfq
 
 # Every FixtureLocalnet example suite in one nextest run. Each test takes its
 # own `LocalnetPorts::for_test` number and they share one prover, so all of
 # them run in parallel.
-test-examples-validator: ensure-swap-keys ensure-dynamic-swap-keys ensure-compression-keys build-programs build-prover-server build-cli ensure-photon
+test-examples-validator: ensure-swap-keys ensure-dynamic-swap-keys ensure-compression-keys build-test-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" cargo nextest run -p swap-test-validator -p timelock-escrow-program -p compression-example-test -p dynamic-swap-test -p rfq-test --features timelock-escrow-program/localnet -E 'not binary(bench_cu) and not (package(timelock-escrow-program) and not binary(escrow))'
 
 install-surfpool:
@@ -1231,6 +1231,18 @@ build-programs:
     [[ -z "${ZOLANA_PREBUILT:-}" ]] || exit 0
     SBF_TOOLS_VERSION={{sbf-tools-version}} ./tools/build-programs.sh
 
+# Test binaries deliberately opt into experimental circuit features.
+build-test-programs:
+    SHIELDED_POOL_FEATURES=confidential-eddsa just build-programs
+
+# Exercise the production default and the explicit test feature independently.
+test-feature-gate:
+    cargo test -p feature-gate --features std
+    cargo test -p feature-gate --features std,confidential-eddsa
+    cargo test -p shielded-pool-program --test circuit_features
+    cargo test -p shielded-pool-program --test circuit_features --features confidential-eddsa
+    cargo test -p spr-protocol-cli circuit_features
+
 # Deploy/upgrade programs to devnet using the local `solana` CLI config.
 # Pass program names to deploy a subset, e.g. `just deploy-devnet shielded-pool`.
 # Requires `just build-programs` first. Direct upgrades use the local config
@@ -1272,7 +1284,7 @@ build-prover-server:
 # Everything the CI localnet matrix runs with; CI builds the three parts in
 # parallel. With ZOLANA_PREBUILT and ZOLANA_NEXTEST_ARCHIVE_DIR set, the suite
 # recipes use them instead of building.
-build-localnet: build-programs build-localnet-tools build-localnet-archives
+build-localnet: build-test-programs build-localnet-tools build-localnet-archives
 
 # The CLIs, the prover server, xtask and the example programs' test keys.
 build-localnet-tools: build-cli build-prover-server ensure-swap-keys ensure-dynamic-swap-keys ensure-compression-keys

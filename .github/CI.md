@@ -99,7 +99,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     31. `zk-tests`: `cargo nextest run`.
     32. Wasm compilation: `just check-wasm`.
     33. Photon binary: `cargo build`.
-    34. SBF programs: `just build-programs`.
+    34. SBF test programs: `just build-test-programs`, explicitly enabling `confidential-eddsa`.
     35. Localnet tools: `just build-localnet-tools`.
     36. Localnet test archives: `just build-localnet-archives`.
     37. Localnet e2e: `just test-localnet-e2e-photon`.
@@ -114,6 +114,11 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     46. Compression: `just test-compression-validator`.
     47. RFQ settlement: `just test-rfq-validator`.
     48. Coverage: `just coverage`.
+
+    `just test-feature-gate` checks the feature-gate crate and shielded-pool
+    admission with `confidential-eddsa` disabled and explicitly enabled, plus
+    the protocol CLI's binary inspection. It is part of `test-hermetic`.
+    Production `just build-programs` keeps the feature disabled by default.
 
 3. [TypeScript](workflows/typescript.yml)
 

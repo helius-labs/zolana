@@ -267,7 +267,7 @@ jobs:
         uses: ./.github/actions/install-sbf-tools
         with:
           version: ${{ env.SBF_TOOLS_VERSION }}
-      - run: just build-programs
+      - run: just build-test-programs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: localnet-programs-${{ github.sha }}

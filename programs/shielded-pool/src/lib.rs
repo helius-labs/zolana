@@ -1,3 +1,4 @@
+pub mod circuit_features;
 pub mod instructions;
 
 /// Test-only re-exports for the program-tests crate (`test-sbf` is never

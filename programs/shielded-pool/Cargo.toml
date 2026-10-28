@@ -15,9 +15,11 @@ bpf-entrypoint = []
 no-entrypoint = []
 cpi = ["no-entrypoint"]
 test-sbf = []
+confidential-eddsa = ["feature-gate/confidential-eddsa"]
 profile-program = ["light-program-profiler/profile-program"]
 
 [dependencies]
+feature-gate = { workspace = true }
 arrayvec = { workspace = true }
 ark-bn254 = { version = "0.6", default-features = false, features = ["scalar_field"] }
 ark-ff = { version = "0.6", default-features = false }

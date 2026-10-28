@@ -212,6 +212,7 @@ pub fn validate_circuit_type(
         || usize::from(ix.circuit.num_outputs()) < ix.outputs.len() // 2.
         || usize::from(ix.circuit.num_public_asset_slots()) > N_PUBLIC_SLOTS
         || !ix.circuit.is_supported()
+        || !crate::circuit_features::circuit_enabled(ix.circuit)
     // 3.
     {
         return Err(ShieldedPoolError::InvalidTransactShape.into());

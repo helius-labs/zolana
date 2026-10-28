@@ -1,0 +1,12 @@
+[package]
+name = "feature-gate"
+version = "0.1.0"
+description = "Indexable circuit feature metadata for Solana program binaries."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+std = []
+confidential-eddsa = []

@@ -1445,6 +1445,16 @@ verified owner. Its shapes stay within `MAX_TRANSACT_INPUTS`, `MAX_OUTPUTS` and
 | 8 | 2, 4, 8, 16, 24, 48 |
 | 16 | 2, 4, 8, 16, 24, 48 |
 
+The shielded-pool binary must explicitly enable the `confidential-eddsa` Cargo
+feature to accept this family, including its cached selectors. The feature
+is disabled by default. `feature-gate` defines the feature state and exports
+indexable metadata containing its name, enabled flag, and the SHA-256 hashes
+of its proving keys. Proof admission uses the same descriptor. A linked
+verifying key alone does not establish that a feature is enabled. The
+`zolana-protocol circuit-features` command reads the metadata from a local
+`.so` or deployed program; absent metadata means the state is unknown. Test
+builds explicitly enable the feature through `just build-test-programs`.
+
 **Ring-authority instantiation.** A separate instantiation proves no owner authorization at all: it is the Solana-only ring variant (no in-circuit signature) and keeps every input owner `pk_field` private (omitted from the public input hash). Each input owner is an opaque field element hashed into `owner_hash` exactly like the merge circuit, so a UTXO of any owner scheme can be spent — the prover supplies the owner `pk_field` directly and the proof never checks ownership. The only in-circuit binding is `nullifier_secret` knowledge through `owner_hash`; authorization is the `ring_config` PDA signer plus the ring program's own policy, requiring `ring_authority_transact_is_enabled` set (instruction `ring_authority_transact`). It pairs only with the anonymous owner-tag variant. Because owners do not authorize the spend, shielded value cannot leave the ring here: the public `ring_program_id` is pinned non-zero and **every** non-dummy input *and* output `ring_program_id` must equal it (strict binding, no zero exemption). A default-ring UTXO can neither be spent nor created through this path. The `ring_program_id` check covers shielded UTXOs only: the shared balance constraints still accept negative public amounts, so SPP alone lets an authority transaction withdraw ring value publicly without an owner signature (the authority still needs the input's `nullifier_secret`). A ring program whose policy forbids authority withdrawals must reject public legs on this path itself; the reference policy ring does so on its delegate path (`DelegatePublicLeg`). Supported shapes:
 
 | Circuit | Use | Shape |
