@@ -15,31 +15,24 @@ import {
 import { Data, SOL_MINT } from "../dist/transaction/index.js";
 import {
   EncryptedScheme,
-  decodeAnonymousRecipient,
-  decodeAnonymousSender,
   decodeConfidential,
   decodePlaintextTransfer,
   decodeProofless,
   decodeSplitBundle,
-  encodeAnonymousRecipient,
-  encodeAnonymousSender,
   encodeConfidential,
   encodeOutputData,
   encodePlaintextTransfer,
   encodeProofless,
   encodeSplitBundle,
-  encryptAnonymous,
   encryptConfidential,
   encryptSplit,
 } from "../dist/transaction/serialization/index.js";
 
 const FIXTURES = new URL("../fixtures/", import.meta.url);
 
-function decryptAnonymous(viewing, txPublicKey, body, salt, slot) {
+function decryptSplit(viewing, txPublicKey, body, salt, slot) {
   return viewing.decryptUtxo(body, txPublicKey, salt, slot);
 }
-
-const decryptSplit = decryptAnonymous;
 
 function decryptConfidential(viewing, txPublicKey, body, salt, slot) {
   return decodeConfidential(viewing.decryptUtxo(body.subarray(33), txPublicKey, salt, slot));
@@ -174,58 +167,6 @@ const serialization = readJson("transaction/serialization-v1.json");
     confidentialBytes,
     encodeConfidential(
       decryptConfidential(recipientViewing, tx.publicKey(), confidentialBody, salt, 0),
-    ),
-  );
-
-  const anonymousRecipient = {
-    ownerPublicKey: recipient.signingPublicKey(),
-    senderPublicKey: keypair.viewingPublicKey(),
-    assetId: 1n,
-    amount: 19n,
-    blinding: blinding(2),
-    data,
-  };
-  const recipientBytes = encodeAnonymousRecipient(anonymousRecipient);
-  const recipientBody = encryptAnonymous(tx, recipient.viewingPublicKey(), recipientBytes, salt, 1);
-  families.anonymousRecipient.wincodeBytes = hex(recipientBytes);
-  families.anonymousRecipient.encryptedBodyBytes = hex(recipientBody);
-  families.anonymousRecipient.envelopeBorshBytes = hex(
-    encodeOutputData(EncryptedScheme.anonymousRecipient, recipientBody, "encrypted"),
-  );
-  families.anonymousRecipient.roundTripVerified = verifiedRoundTrip(
-    "anonymousRecipient",
-    recipientBytes,
-    encodeAnonymousRecipient(
-      decodeAnonymousRecipient(
-        decryptAnonymous(recipientViewing, tx.publicKey(), recipientBody, salt, 1),
-      ),
-    ),
-  );
-
-  const anonymousSender = {
-    ownerPublicKey: keypair.signingPublicKey(),
-    splAssetId: 0n,
-    splAmount: 0n,
-    solAmount: 36n,
-    blindingSeed: outputSeed,
-    recipientViewingPublicKeys: [recipient.viewingPublicKey()],
-    splData: new Data(),
-    solData: data,
-  };
-  const senderBytes = encodeAnonymousSender(anonymousSender);
-  const senderBody = encryptAnonymous(tx, keypair.viewingPublicKey(), senderBytes, salt, 2);
-  families.anonymousSender.wincodeBytes = hex(senderBytes);
-  families.anonymousSender.encryptedBodyBytes = hex(senderBody);
-  families.anonymousSender.envelopeBorshBytes = hex(
-    encodeOutputData(EncryptedScheme.anonymousSender, senderBody, "encrypted"),
-  );
-  families.anonymousSender.roundTripVerified = verifiedRoundTrip(
-    "anonymousSender",
-    senderBytes,
-    encodeAnonymousSender(
-      decodeAnonymousSender(
-        decryptAnonymous(keypair.viewingKey(), tx.publicKey(), senderBody, salt, 2),
-      ),
     ),
   );
 

@@ -1,7 +1,7 @@
 import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
-import type { Address, Bytes16, Bytes32 } from "../../src/interface/index.js";
+import type { Bytes16, Bytes32 } from "../../src/interface/index.js";
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../../src/keypair/index.js";
 import {
   AssetRegistry,
@@ -13,26 +13,18 @@ import {
 } from "../../src/transaction/index.js";
 import {
   EncryptedScheme,
-  anonymousRecipientUtxo,
-  anonymousSenderFromUtxos,
-  anonymousSenderUtxos,
   confidentialPlaintextFromUtxo,
-  decodeAnonymousRecipient,
-  decodeAnonymousSender,
   decodeConfidential,
   decodeOutputData,
   decodePlaintextTransfer,
   decodeProofless,
   decodeSplitBundle,
-  encodeAnonymousRecipient,
-  encodeAnonymousSender,
   encodeConfidential,
   encodeOutputData,
   encodePlaintextTransfer,
   encodeProofless,
   encodeSplitBundle,
   encryptedSchemeFromByte,
-  encryptAnonymous,
   encryptConfidential,
   encryptSplit,
   plaintextTransferFromUtxos,
@@ -171,90 +163,6 @@ describe("manifest-verified transaction serialization", () => {
       ),
     ).toEqual(confidential);
 
-    const anonymousRecipient = {
-      ownerPublicKey: recipient.signingPublicKey(),
-      senderPublicKey: keypair.viewingPublicKey(),
-      assetId: 1n,
-      amount: 19n,
-      blinding: blinding(2),
-      data,
-    };
-    const recipientBytes = encodeAnonymousRecipient(anonymousRecipient);
-    const recipientExpected = family(families, "anonymousRecipient");
-    expect(hex(recipientBytes)).toBe(fixtureString(recipientExpected, "wincodeBytes"));
-    const recipientBody = encryptAnonymous(
-      tx,
-      recipient.viewingPublicKey(),
-      recipientBytes,
-      salt,
-      1,
-    );
-    expect(hex(recipientBody)).toBe(fixtureString(recipientExpected, "encryptedBodyBytes"));
-    expect(
-      hex(encodeOutputData(EncryptedScheme.anonymousRecipient, recipientBody, "encrypted")),
-    ).toBe(fixtureString(recipientExpected, "envelopeBorshBytes"));
-    expect(
-      decodeAnonymousRecipient(
-        recipientViewing.decryptUtxo(recipientBody, tx.publicKey(), salt, 1),
-      ),
-    ).toEqual(anonymousRecipient);
-    expect(decodeAnonymousRecipient(recipientBytes)).toMatchObject({
-      assetId: 1n,
-      amount: 19n,
-    });
-    expect(
-      anonymousRecipientUtxo(
-        {
-          ...anonymousRecipient,
-          data: new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }]),
-        },
-        new AssetRegistry(),
-      ).data.utxoData(),
-    ).toEqual(Uint8Array.of(1));
-    const ringProgramId = "SysvarRent111111111111111111111111111111111" as Address;
-    expect(
-      anonymousRecipientUtxo(
-        {
-          ...anonymousRecipient,
-          data: new Data([{ kind: "ringData", bytes: Uint8Array.of(2) }]),
-        },
-        new AssetRegistry(),
-        ringProgramId,
-      ).ringProgramId,
-    ).toBe(ringProgramId);
-
-    const anonymousSender = {
-      ownerPublicKey: keypair.signingPublicKey(),
-      splAssetId: 0n,
-      splAmount: 0n,
-      solAmount: 36n,
-      blindingSeed: outputSeed,
-      recipientViewingPublicKeys: [recipient.viewingPublicKey()],
-      splData: new Data(),
-      solData: data,
-    };
-    const senderBytes = encodeAnonymousSender(anonymousSender);
-    const senderExpected = family(families, "anonymousSender");
-    expect(hex(senderBytes)).toBe(fixtureString(senderExpected, "wincodeBytes"));
-    const senderBody = encryptAnonymous(tx, keypair.viewingPublicKey(), senderBytes, salt, 2);
-    expect(hex(senderBody)).toBe(fixtureString(senderExpected, "encryptedBodyBytes"));
-    expect(hex(encodeOutputData(EncryptedScheme.anonymousSender, senderBody, "encrypted"))).toBe(
-      fixtureString(senderExpected, "envelopeBorshBytes"),
-    );
-    const decodedSender = decodeAnonymousSender(
-      keypair.viewingKey().decryptUtxo(senderBody, tx.publicKey(), salt, 2),
-    );
-    expect(decodedSender).toEqual(anonymousSender);
-    expect(decodeAnonymousSender(senderBytes)).toMatchObject({
-      splAmount: 0n,
-      solAmount: 36n,
-    });
-    expect(
-      anonymousSenderUtxos(decodedSender, assets, SOL_MINT, firstNullifier).map(
-        (utxo) => utxo.blinding,
-      ),
-    ).toEqual([blinding(0)]);
-
     const split = {
       ownerPublicKey: keypair.signingPublicKey(),
       numOutputs: 3,
@@ -379,20 +287,6 @@ describe("manifest-verified transaction serialization", () => {
           ),
         ).toEqual(view(utxos));
         if (change.length === 0) continue;
-        const sender = anonymousSenderFromUtxos(change, owner, {
-          ...cx,
-          recipientViewingPublicKeys: [],
-        });
-        expect(
-          view(
-            anonymousSenderUtxos(
-              decodeAnonymousSender(encodeAnonymousSender(sender)),
-              assets,
-              SOL_MINT,
-              firstNullifier,
-            ),
-          ),
-        ).toEqual(view(change));
         expect(() => plaintextTransferFromUtxos([...utxos].reverse(), owner, cx)).toThrowError(
           expect.objectContaining({ code: "TRANSACTION_INVALID_OUTPUT_POSITION" }),
         );
@@ -451,82 +345,11 @@ describe("manifest-verified transaction serialization", () => {
   });
 
   /**
-   * A published anonymous slot is attacker-chosen bytes, so the category the
-   * reader sorts a malformed body into is part of the protocol. Each expected
-   * code below is the category Rust produced for the same input, read from
-   * `AnonymousTransferRecipientPlaintext::{serialize,deserialize}` at the
-   * frozen revision: wincode's `ReadError` and `WriteError` both land in
-   * `TransactionError::{Deserialize,Serialize}`
-   * (`sdk-libs/transaction/src/error.rs:250-260`), and `Data::validate` runs
-   * inside `serialize` (`serialization/anonymous.rs:29-38`).
-   */
-  it("sorts a malformed anonymous body into the category Rust does", () => {
-    const fixture = load();
-    const { keypair, recipient } = keys(section(fixture, "inputs"));
-    const { outputSeed, blinding } = slotBlindings(section(fixture, "inputs"));
-    const plaintext = {
-      ownerPublicKey: recipient.signingPublicKey(),
-      senderPublicKey: keypair.viewingPublicKey(),
-      assetId: 1n,
-      amount: 19n,
-      blinding: blinding(2),
-      data: new Data([{ kind: "memo", bytes: new TextEncoder().encode("hi") }]),
-    };
-    const bytes = encodeAnonymousRecipient(plaintext);
-
-    // Rust: Deserialize("Trailing bytes remain after deserialization"). The
-    // finer TypeScript code is recorded as deliberate and widened to the
-    // deserialize family by the oracle's category map.
-    expect(() => decodeAnonymousRecipient(new Uint8Array([...bytes, 0]))).toThrow(
-      expect.objectContaining({ code: "TRANSACTION_TRAILING_BYTES" }),
-    );
-
-    for (const truncated of [bytes.slice(0, -1), new Uint8Array()]) {
-      expect(() => decodeAnonymousRecipient(truncated)).toThrow(
-        expect.objectContaining({ code: "TRANSACTION_DESERIALIZE" }),
-      );
-    }
-
-    // The record tag sits after owner (34), sender (33), asset id (8),
-    // amount (8), blinding (32) and the record count (1).
-    const badTag = new Uint8Array(bytes);
-    const tagOffset = 34 + 33 + 8 + 8 + 32 + 1;
-    expect(badTag[tagOffset]).toBe(3);
-    badTag[tagOffset] = 9;
-    expect(() => decodeAnonymousRecipient(badTag)).toThrow(
-      expect.objectContaining({
-        code: "TRANSACTION_DESERIALIZE",
-        details: { field: "dataRecordTag", tag: 9 },
-      }),
-    );
-
-    // Rust: Serialize("Sequence length would overflow length encoding
-    // scheme: u8"), not the output-count refusal.
-    expect(() =>
-      encodeAnonymousSender({
-        ownerPublicKey: keypair.signingPublicKey(),
-        splAssetId: 0n,
-        splAmount: 0n,
-        solAmount: 1n,
-        blindingSeed: outputSeed,
-        recipientViewingPublicKeys: Array.from({ length: 256 }, () => recipient.viewingPublicKey()),
-        splData: new Data(),
-        solData: new Data(),
-      }),
-    ).toThrow(
-      expect.objectContaining({
-        code: "TRANSACTION_SERIALIZE",
-        details: { field: "recipientViewingPublicKeys", maximum: 0xff, actual: 256 },
-      }),
-    );
-  });
-
-  /**
-   * Rust reaches the cipher through `?` on every rail (`anonymous.rs:135-143`,
-   * `:175-179`; `confidential.rs:139-147`), so a key or cipher failure arrives
-   * as `TransactionError::Keypair`. The trigger below is a destroyed key
-   * because a typed TypeScript caller cannot build the off-curve key that
-   * reaches Rust's own refusal; the category the caller sees is the point.
+   * Rust reaches the cipher through `?` on every rail (`confidential.rs:139-147`),
+   * so a key or cipher failure arrives as `TransactionError::Keypair`. The
+   * trigger below is a destroyed key because a typed TypeScript caller cannot
+   * build the off-curve key that reaches Rust's own refusal; the category the
+   * caller sees is the point.
    */
   it("reports a cipher failure in Rust's category on every rail", () => {
     const fixture = load();
@@ -541,7 +364,6 @@ describe("manifest-verified transaction serialization", () => {
     spent.destroy();
 
     const calls = [
-      () => encryptAnonymous(spent, recipientPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
       () => encryptSplit(spent, recipientPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
       () =>
         encryptConfidential(

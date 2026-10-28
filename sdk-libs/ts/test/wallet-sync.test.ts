@@ -34,7 +34,6 @@ import {
   decryptTransactions,
   deserializeWallet,
   encodeConfidentialSlots,
-  encryptAnonymousTransfer,
   outputBlindingSeed,
   serializeWallet,
   splitBundleFromUtxos,
@@ -54,13 +53,7 @@ import {
   encodeMergeOutputData,
   encryptMergeOutput,
 } from "../src/transaction/serialization/merge.js";
-import { encodeRingDepositPlaintext } from "../src/transaction/serialization/ring-deposit.js";
 import { SOL_ASSET_ID } from "../src/transaction/asset.js";
-import {
-  anonymousRecipientUtxo,
-  anonymousSenderFromUtxos,
-  anonymousSenderUtxos,
-} from "../src/transaction/serialization/codecs.js";
 import { KeyMemo } from "../src/transaction/wallet/key-memo.js";
 import { ZolanaClient } from "../src/client/client.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
@@ -1635,128 +1628,6 @@ describe("wallet sync", () => {
     ]);
   });
 
-  it("classifies an anonymous send whose only recipient is this wallet as a self transfer", async () => {
-    // The anonymous rail carries its recipient list in the sender's own change
-    // slot, so the sender-side row is classified from that list. It used to be
-    // hardcoded outbound while the matching receipt already said selfTransfer.
-    const keypair = ShieldedKeypair.generate();
-    const identity = keypair.shieldedAddress();
-    const wallet = new Wallet({ identity });
-    const spentBlinding = bytes(31);
-    const spent = new Utxo({
-      owner: keypair.signingPublicKey(),
-      asset: SOL_MINT,
-      amount: 100n,
-      blinding: spentBlinding,
-    });
-    const spentHash = spent.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
-    const nullifier = keypair.nullifier(spentHash, spentBlinding);
-    wallet._replace({
-      ...wallet._state(),
-      utxos: [
-        {
-          utxo: spent,
-          outputContext: { hash: spentHash, tree: TREE, leafIndex: 0n },
-          nullifier,
-          spent: false,
-        },
-      ],
-    });
-
-    // 100 in, 60 back as change: the row's amount is the 40 that moved. The
-    // bundle discloses the output seed derived from the spend's nullifier.
-    const outputSeed = outputBlindingSeed(nullifier, bytes(32));
-    const change = anonymousSenderUtxos(
-      {
-        ownerPublicKey: keypair.signingPublicKey(),
-        splAssetId: 0n,
-        splAmount: 0n,
-        solAmount: 60n,
-        blindingSeed: outputSeed,
-        recipientViewingPublicKeys: [keypair.viewingPublicKey()],
-        splData: new Data(),
-        solData: new Data(),
-      },
-      wallet.registry,
-      SOL_MINT,
-      nullifier,
-    );
-    const sender = anonymousSenderFromUtxos(
-      change,
-      { owner: keypair.signingPublicKey(), assets: wallet.registry },
-      {
-        blindingSeed: outputSeed,
-        firstNullifier: nullifier,
-        recipientViewingPublicKeys: [keypair.viewingPublicKey()],
-      },
-    );
-    const recipientPlaintext = {
-      ownerPublicKey: keypair.signingPublicKey(),
-      senderPublicKey: keypair.viewingPublicKey(),
-      assetId: SOL_ASSET_ID,
-      amount: 40n,
-      blinding: bytes(33),
-      data: new Data(),
-    };
-    const recipientUtxo = anonymousRecipientUtxo(recipientPlaintext, wallet.registry);
-
-    const keys = LocalShieldedKeys.fromKeypair(keypair);
-    // The sender bundle is tagged with the identity's signing tag, which is one
-    // of the two stable families `decryptTransactions` opens.
-    const identityTag = keypair.signingPublicKey().confidentialViewTag();
-    const [txKey] = await keys.transactionKeys([
-      { viewingPublicKey: identity.viewingPublicKey, firstNullifier: nullifier },
-    ]);
-    const envelope = encryptAnonymousTransfer(txKey!, {
-      viewingPublicKey: identity.viewingPublicKey,
-      senderViewTag: identityTag,
-      sender,
-      recipients: [
-        {
-          viewTag: keypair.viewingKey().recipientBootstrapViewTag(),
-          recipientPublicKey: keypair.viewingPublicKey(),
-          plaintext: recipientPlaintext,
-        },
-      ],
-    });
-    txKey!.destroy();
-    const slotUtxos = [...change, recipientUtxo];
-
-    await decryptWithKeys(keys, {
-      wallet,
-      transactions: [
-        {
-          slot: 1n,
-          txSignature: SIGNATURE,
-          txViewingPublicKey: envelope.txViewingPublicKey,
-          salt: envelope.salt,
-          outputSlots: envelope.payload.map((slot, index) => ({
-            viewTag: slot?.viewTag ?? bytes(0),
-            outputContext: {
-              hash: slotUtxos[index]!.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
-              tree: TREE,
-              leafIndex: BigInt(index + 1),
-            },
-            payload: slot?.data ?? new Uint8Array(),
-          })),
-          messages: [],
-          nullifiers: [nullifier],
-          proofless: false,
-        },
-      ],
-    });
-
-    // Two rows, unlike the confidential rail, which suppresses an authored
-    // slot's receipt: the sender-bundle row and the recipient receipt. The point
-    // is that neither contradicts the other -- before, the bundle row said
-    // outbound while the receipt beside it already said selfTransfer.
-    const moved = wallet
-      .privateTransactions()
-      .filter((row) => row.kind === "privateTransfer" && row.amount === 40n);
-    expect(moved.map((row) => row.direction)).toEqual(["selfTransfer", "selfTransfer"]);
-    expect(wallet.privateTransactions().filter((row) => row.direction === "outbound")).toEqual([]);
-  });
-
   it("stores an inbound ring confidential output with its ring", async () => {
     const recipient = ShieldedKeypair.generate();
     const sender = ShieldedKeypair.generate();
@@ -1834,8 +1705,8 @@ describe("wallet sync", () => {
               viewTag: recipient.viewingPublicKey().x(),
               outputContext: { hash: bytes(56), tree: TREE, leafIndex: 4n },
               payload: encodeOutputData(
-                EncryptedScheme.anonymousRecipient,
-                new Uint8Array(80),
+                EncryptedScheme.confidential,
+                Uint8Array.from([...recipient.viewingPublicKey().toBytes(), ...new Uint8Array(80)]),
                 "encrypted",
               ),
             },
@@ -1849,159 +1720,83 @@ describe("wallet sync", () => {
     expect(report).toMatchObject({ storedUtxos: 0, undecryptableCandidates: 1 });
   });
 
-  /** Borsh `RingDepositOutput`: owner UTXO hash, asset, amount, no data hash, ring, zero ring data hash, then the envelope. */
-  function ringDepositBody(
-    envelope: ViewingKey,
-    salt: Bytes16,
-    amount: bigint,
-    ciphertext: Uint8Array,
-  ): Uint8Array {
-    const amountBytes = new Uint8Array(8);
-    new DataView(amountBytes.buffer).setBigUint64(0, amount, true);
-    const length = new Uint8Array(4);
-    new DataView(length.buffer).setUint32(0, ciphertext.length, true);
-    return Uint8Array.from([
-      ...bytes(1),
-      ...getAddressEncoder().encode(SOL_MINT),
-      ...amountBytes,
-      0,
-      ...getAddressEncoder().encode(OWNER),
-      ...new Uint8Array(32),
-      ...envelope.publicKey().toBytes(),
-      ...salt,
-      ...length,
-      ...ciphertext,
-    ]);
-  }
-
-  it.each([false, true])(
-    "opens a ring deposit through the key holder only under a wallet tag, zero tag %s",
-    async (zeroTag) => {
-      // A ring deposit carries its own envelope in the published output and is
-      // opened under the ring-deposit cipher label, the one request in a sync
-      // that is not the transfer cipher. The holder must see that label, and the
-      // UTXO it opens is stored ring-bound.
-      const recipient = ShieldedKeypair.generate();
-      const wallet = new Wallet({ identity: recipient.shieldedAddress() });
-      const envelope = ViewingKey.generate();
-      const salt = new Uint8Array(16).fill(5) as Bytes16;
-      const blinding = bytes(29);
-      const utxo = new Utxo({
-        owner: recipient.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: 7_000_000n,
-        blinding,
-        data: new Data([{ kind: "ringData", bytes: new Uint8Array() }]),
-        ringProgramId: OWNER,
-      });
-      const ciphertext = envelope.encryptRingDeposit(
-        recipient.viewingPublicKey(),
-        encodeRingDepositPlaintext({ blinding, ringData: new Uint8Array() }),
-        salt,
-      );
-      const body = ringDepositBody(envelope, salt, utxo.amount, ciphertext);
-      const seen: Parameters<ShieldedKeys["decrypt"]>[0][] = [];
-      const local = LocalShieldedKeys.fromKeypair(recipient);
-      const holder: ShieldedKeys = {
-        ...remoteOver(local),
-        decrypt: (requests) => {
-          seen.push(requests);
-          return local.decrypt(requests);
-        },
-      };
-
-      const report = await decryptWithKeys(holder, {
-        wallet,
-        transactions: [
-          {
-            slot: 3n,
-            txSignature: SIGNATURE,
-            outputSlots: [
-              {
-                viewTag: zeroTag ? bytes(0) : recipient.viewingPublicKey().x(),
-                outputContext: {
-                  hash: utxo.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
-                  tree: TREE,
-                  leafIndex: 9n,
-                },
-                payload: encodeOutputData(EncryptedScheme.ringDeposit, body, "encrypted"),
-              },
-            ],
-            messages: [],
-            nullifiers: [],
-            proofless: true,
-          },
-        ],
-      });
-
-      if (zeroTag) {
-        expect(report).toMatchObject({ storedUtxos: 0 });
-        expect(seen).toEqual([]);
-        return;
-      }
-      expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
-      expect(seen.flat().map((request) => [request.label, request.slotIndex])).toEqual([
-        ["ringDeposit", 0],
-      ]);
-      expect(wallet.utxos()[0]?.utxo).toEqual(utxo);
-      expect(wallet.ringBalances()).toMatchObject([
-        { ringProgramId: OWNER, assets: [{ mint: SOL_MINT, amount: 7_000_000n }] },
-      ]);
-    },
-  );
-
-  it.each([true, false])("opens a ring deposit, payload decoder hook %s", async (hooked) => {
+  it("skips reserved scheme slots without a key request", async () => {
     const recipient = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: recipient.shieldedAddress() });
-    const envelope = ViewingKey.generate();
-    const salt = new Uint8Array(16).fill(6) as Bytes16;
-    const blinding = bytes(30);
-    const utxo = new Utxo({
+    const sender = ShieldedKeypair.generate();
+    const salt = new Uint8Array(16).fill(7) as Bytes16;
+    const output = new Utxo({
       owner: recipient.signingPublicKey(),
       asset: SOL_MINT,
-      amount: 2_000_000_000n,
-      blinding,
-      data: new Data([{ kind: "ringData", bytes: new Uint8Array() }]),
-      ringProgramId: OWNER,
+      amount: 9n,
+      blinding: bytes(41),
     });
-    const ciphertext = envelope.encryptRingDeposit(
+    const body = encryptConfidential(
+      sender,
       recipient.viewingPublicKey(),
-      encodeRingDepositPlaintext({ blinding, ringData: new Uint8Array() }),
+      {
+        assetId: SOL_ASSET_ID,
+        amount: output.amount,
+        blinding: output.blinding,
+        data: output.data,
+      },
       salt,
+      0,
     );
-    const framed = hooked ? Uint8Array.of(1, 2, 3, ...ciphertext) : ciphertext;
-    const decoder = vi.fn((bytes: Uint8Array) => bytes.slice(3));
-    const report = await decryptWithKeys(LocalShieldedKeys.fromKeypair(recipient), {
+    const reserved = [
+      EncryptedScheme.anonymousRecipient,
+      EncryptedScheme.anonymousSender,
+      EncryptedScheme.ringDeposit,
+    ];
+    const payloads = reserved.map((scheme) => encodeOutputData(scheme, body, "encrypted"));
+    expect(payloads.map((payload) => readOutputData(payload).scheme)).toEqual(reserved);
+    const local = LocalShieldedKeys.fromKeypair(recipient);
+    const decrypts: unknown[] = [];
+    const derives: unknown[] = [];
+    const holder: ShieldedKeys = {
+      ...remoteOver(local),
+      decrypt: (requests) => {
+        decrypts.push(requests);
+        return local.decrypt(requests);
+      },
+      derive: (requests) => {
+        derives.push(requests);
+        return local.derive(requests);
+      },
+    };
+
+    const report = await decryptWithKeys(holder, {
       wallet,
       transactions: [
         {
           slot: 3n,
           txSignature: SIGNATURE,
-          outputSlots: [
-            {
-              viewTag: recipient.viewingPublicKey().x(),
-              outputContext: {
-                hash: utxo.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
-                tree: TREE,
-                leafIndex: 9n,
-              },
-              payload: encodeOutputData(
-                EncryptedScheme.ringDeposit,
-                ringDepositBody(envelope, salt, utxo.amount, framed),
-                "encrypted",
-              ),
+          txViewingPublicKey: sender.viewingPublicKey(),
+          salt,
+          outputSlots: payloads.map((payload, index) => ({
+            viewTag:
+              index === 1
+                ? recipient.signingPublicKey().confidentialViewTag()
+                : recipient.viewingPublicKey().x(),
+            outputContext: {
+              hash: output.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
+              tree: TREE,
+              leafIndex: BigInt(index),
             },
-          ],
+            payload,
+          })),
           messages: [],
           nullifiers: [],
-          proofless: true,
+          proofless: false,
         },
       ],
-      ...(hooked ? { config: { depositPayloadDecoder: decoder } } : {}),
     });
-    if (hooked) expect(decoder).toHaveBeenCalledWith(framed);
-    expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
-    expect(wallet.utxos()[0]?.utxo).toEqual(utxo);
+
+    expect(report).toMatchObject({ storedUtxos: 0, undecryptableCandidates: 3 });
+    expect(decrypts).toEqual([]);
+    expect(derives).toEqual([]);
+    expect(wallet.utxos()).toEqual([]);
+    expect(wallet.privateTransactions()).toEqual([]);
   });
 
   it("selects the ring confidential marker for a ring output", () => {

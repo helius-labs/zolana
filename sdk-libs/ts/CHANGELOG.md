@@ -6,13 +6,17 @@ Packages that extend the protocol build on this one through an entry point
 outside semver, and the prover and indexer clients carry the requests such a
 package defines. External wallets use `ed25519DerivationMessage(publicKey)` to
 derive their shielded identity. The bare-payload helper is removed because its
-signatures are rejected by the wallet keys constructors.
+signatures are rejected by the wallet keys constructors. Anonymous transfer and
+ring deposit encryption move to `@heliuslabs/zolana-custom-rings`, and wallet
+sync skips those outputs without decrypting them.
 
 Breaking
 
 - `SHIELDED_POOL_PROGRAM_ID` is `ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW`, with new tree, custody and authority addresses → use the new deployment and fund new notes; accounts and notes from the earlier deployment remain separate.
 - `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
-- `EncryptedScheme.ringAnonymous` is removed and `encryptedSchemeFromByte(9)` throws `TRANSACTION_BAD_DISCRIMINATOR` → decode anonymous ring transfers as `EncryptedScheme.anonymousRecipient` outputs and `EncryptedScheme.anonymousSender` messages.
+- `EncryptedScheme.ringAnonymous` is removed and `encryptedSchemeFromByte(9)` throws `TRANSACTION_BAD_DISCRIMINATOR` → decode anonymous ring transfers with `@heliuslabs/zolana-custom-rings`.
+- `encryptAnonymousTransfer`, `decodeAnonymousRecipient`, `decodeAnonymousSender`, `anonymousRecipientFromUtxos`, `anonymousSenderFromUtxos`, `AnonymousRecipientPlaintext` and `AnonymousSenderPlaintext` are removed from `@heliuslabs/zolana/transaction`, `AnonymousRecipientSlot` from it and `@heliuslabs/zolana/wallet`, and the anonymous and ring deposit plaintext codecs from `@heliuslabs/zolana/internal` → encode and open anonymous transfers and ring deposits with `@heliuslabs/zolana-custom-rings`.
+- `syncWallet` and `decryptTransactions` no longer open anonymous transfer or ring deposit outputs, and `SyncWalletConfig.depositPayloadDecoder` and the `DepositPayloadDecoder` export of `@heliuslabs/zolana/wallet` are removed → sync those outputs with `@heliuslabs/zolana-custom-rings`.
 
 Added
 

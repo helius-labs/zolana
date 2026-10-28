@@ -82,7 +82,6 @@ export {
   decryptToBalances,
   decryptTransactions,
   deserializeWallet,
-  encryptAnonymousTransfer,
   encryptConfidentialTransfer,
   encryptSplit,
   serializeWallet,
@@ -97,7 +96,6 @@ export {
   type TransactionIntent,
 } from "./wallet/index.js";
 export type {
-  AnonymousRecipientSlot,
   ApprovalRequest,
   AssetBalance,
   DecodedProgramTransaction,
@@ -145,8 +143,6 @@ export type {
 export { MERGE, SPLIT, TRANSFER, TRANSFER_PLAINTEXT } from "./serialization/codecs.js";
 export {
   EncryptedScheme,
-  anonymousRecipientFromUtxos,
-  anonymousSenderFromUtxos,
   decodeContextForSlot,
   encryptedSchemeFromByte,
   encryptedSchemeToByte,
@@ -166,8 +162,6 @@ export {
 // of a slot payload and hands back the body to decrypt; the per-scheme decoders
 // turn the returned plaintext into fields.
 export {
-  decodeAnonymousRecipient,
-  decodeAnonymousSender,
   decodeConfidential,
   decodeData,
   decodeOutputData,
@@ -175,8 +169,6 @@ export {
   decodeProofless,
   decodeSplitBundle,
   decodeSplitEncrypted,
-  type AnonymousRecipientPlaintext,
-  type AnonymousSenderPlaintext,
   type ConfidentialOutputPlaintext,
   type ProoflessOutput,
   type SplitEncryptedUtxos,

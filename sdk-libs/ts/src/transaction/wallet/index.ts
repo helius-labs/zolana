@@ -8,10 +8,8 @@ export {
   type TransactionKeyRequest,
 } from "./keys.js";
 export {
-  encryptAnonymousTransfer,
   encryptConfidentialTransfer,
   encryptSplit,
-  type AnonymousRecipientSlot,
   type EncryptedEnvelope,
   type EncryptedSplit,
   type EncryptedTransfer,
