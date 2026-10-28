@@ -29,6 +29,25 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     8. `zolana-protocol-instructions`: `cargo test`.
     9. `zolana-smart-account-client`: `cargo test`.
     10. `zolana-merkle-tree`: `cargo test`.
+    11. Dependency boundaries: `just check-deps`.
+    12. `zolana-cli` consumer: `cargo check`.
+    13. `zolana-client` consumer: `cargo check`.
+    14. `zolana-program-test` consumer: `cargo check`.
+    15. `zolana-test-utils` consumer: `cargo check`.
+    16. `shielded-pool-tests` consumer: `cargo check`.
+    17. `spp-test-validator` consumer: `cargo check`.
+    18. `ring-test-program` consumer: `cargo check`.
+    19. `tree-bench` consumer: `cargo check`.
+    20. `client-example` consumer: `cargo check`.
+    21. `dynamic-swap-test` consumer: `cargo check`.
+    22. `rfq-test` consumer: `cargo check`.
+    23. `swap-test-validator` consumer: `cargo check`.
+    24. `xtask` consumer: `cargo check`.
+    25. `zolana-tree`: `just test-tree`.
+    26. Batch prover binary: `just build-prover-server`.
+    27. Pinned 40×10 key: `target/prover-server download`.
+    28. `zolana-forester-prover` local 40×10 proof: `cargo test --test local_batch_proof -- --ignored`.
+    29. `zolana-forester-prover` Redis 40×10 proof: `cargo test --no-default-features --test remote_batch_proof -- --ignored`.
 
 2. [Rust workspace](workflows/rust.yml)
 

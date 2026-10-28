@@ -60,6 +60,10 @@ cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli \
 The ignored `local_batch_proof` test additionally loads an existing pinned
 40x10 key from `FORESTER_TEST_KEYS_DIR`, generates a proof through Go FFI, and
 verifies it with the checked-in Solana verifier.
+Protocol CI downloads and verifies this key, then explicitly runs both the local
+proof test and the Redis-backed `remote_batch_proof` test through the Forester
+client. The Redis test uses `FORESTER_TEST_PROVER_BIN`, `FORESTER_TEST_KEYS_DIR`,
+and `FORESTER_TEST_REDIS_URL` with an isolated Redis database.
 
 ```sh
 FORESTER_TEST_KEYS_DIR=/path/to/keys cargo test -p zolana-forester-prover \
