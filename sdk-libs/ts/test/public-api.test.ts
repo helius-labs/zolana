@@ -623,8 +623,6 @@ describe("relayed decryption surface", () => {
     for (const name of [
       "decodeOutputData",
       "decodeConfidential",
-      "decodeAnonymousRecipient",
-      "decodeAnonymousSender",
       "decodeSplitBundle",
       "decodeSplitEncrypted",
       "decodePlaintextTransfer",
@@ -633,6 +631,15 @@ describe("relayed decryption surface", () => {
     ]) {
       expect(transaction, name).toHaveProperty(name);
       expect(typeof (transaction as Record<string, unknown>)[name]).toBe("function");
+    }
+    for (const name of [
+      "decodeAnonymousRecipient",
+      "decodeAnonymousSender",
+      "encryptAnonymousTransfer",
+      "anonymousRecipientFromUtxos",
+      "anonymousSenderFromUtxos",
+    ]) {
+      expect(transaction, name).not.toHaveProperty(name);
     }
   });
 

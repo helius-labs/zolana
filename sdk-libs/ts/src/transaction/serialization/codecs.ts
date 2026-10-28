@@ -42,6 +42,7 @@ export const SPLIT = 2;
 export const MERGE = 3;
 export const TRANSFER_PLAINTEXT = 4;
 
+// Schemes 1, 2 and 8 are reserved, sync reads their frames and never opens them.
 export const EncryptedScheme = Object.freeze({
   proofless: 0,
   anonymousRecipient: 1,
@@ -112,26 +113,6 @@ export interface ConfidentialOutputPlaintext {
   readonly blinding: Bytes32;
   readonly ringProgramId?: Address;
   readonly data: Data;
-}
-
-export interface AnonymousRecipientPlaintext {
-  readonly ownerPublicKey: ShieldedPublicKey;
-  readonly senderPublicKey: X25519PublicKey;
-  readonly assetId: bigint;
-  readonly amount: bigint;
-  readonly blinding: Bytes32;
-  readonly data: Data;
-}
-
-export interface AnonymousSenderPlaintext {
-  readonly ownerPublicKey: ShieldedPublicKey;
-  readonly splAssetId: bigint;
-  readonly splAmount: bigint;
-  readonly solAmount: bigint;
-  readonly blindingSeed: Bytes32;
-  readonly recipientViewingPublicKeys: readonly X25519PublicKey[];
-  readonly splData: Data;
-  readonly solData: Data;
 }
 
 export interface SplitBundlePlaintext {
@@ -429,145 +410,6 @@ export function confidentialPlaintextFromUtxo(
     ...(utxo.ringProgramId === undefined ? {} : { ringProgramId: utxo.ringProgramId }),
     data: new Data(utxo.data.records()),
   };
-}
-
-export function encodeAnonymousRecipient(value: AnonymousRecipientPlaintext): Uint8Array {
-  const writer = new Writer();
-  writer.bytes(value.ownerPublicKey.toBytes());
-  writer.bytes(value.senderPublicKey.toBytes());
-  writer.u64(value.assetId);
-  writer.u64(value.amount);
-  writer.bytes(checked<Bytes32>(value.blinding, 32, "blinding"));
-  writeData(writer, value.data);
-  return writer.finish();
-}
-
-export function decodeAnonymousRecipient(bytes: Uint8Array): AnonymousRecipientPlaintext {
-  const reader = new Reader(bytes);
-  const result: AnonymousRecipientPlaintext = {
-    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
-    senderPublicKey: X25519PublicKey.fromBytes(reader.take(33) as Bytes33),
-    assetId: reader.u64(),
-    amount: reader.u64(),
-    blinding: reader.take(32) as Bytes32,
-    data: readData(reader),
-  };
-  reader.exact();
-  return result;
-}
-
-export function anonymousRecipientUtxo(
-  value: AnonymousRecipientPlaintext,
-  assets: AssetRegistry,
-  ringProgramId?: Address,
-): Utxo {
-  const ring = resolveRingProgramId(ringProgramId, value.data);
-  return new Utxo({
-    owner: value.ownerPublicKey,
-    asset: assets.resolve(value.assetId),
-    amount: value.amount,
-    blinding: value.blinding,
-    data: value.data,
-    ...(ring === undefined ? {} : { ringProgramId: ring }),
-  });
-}
-
-export function encodeAnonymousSender(value: AnonymousSenderPlaintext): Uint8Array {
-  if (value.recipientViewingPublicKeys.length > 0xff) {
-    throw new TransactionError("TRANSACTION_SERIALIZE", {
-      field: "recipientViewingPublicKeys",
-      maximum: 0xff,
-      actual: value.recipientViewingPublicKeys.length,
-    });
-  }
-  const writer = new Writer();
-  writer.bytes(value.ownerPublicKey.toBytes());
-  writer.u64(value.splAssetId);
-  writer.u64(value.splAmount);
-  writer.u64(value.solAmount);
-  writer.bytes(checked<Bytes32>(value.blindingSeed, 32, "blinding seed"));
-  writer.u8(value.recipientViewingPublicKeys.length);
-  value.recipientViewingPublicKeys.forEach((key) => {
-    writer.bytes(key.toBytes());
-  });
-  writeData(writer, value.splData);
-  writeData(writer, value.solData);
-  return writer.finish();
-}
-
-export function decodeAnonymousSender(bytes: Uint8Array): AnonymousSenderPlaintext {
-  const reader = new Reader(bytes);
-  const ownerPublicKey = ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34);
-  const splAssetId = reader.u64();
-  const splAmount = reader.u64();
-  const solAmount = reader.u64();
-  const blindingSeed = reader.take(32) as Bytes32;
-  const recipientViewingPublicKeys = Array.from({ length: reader.u8() }, () =>
-    X25519PublicKey.fromBytes(reader.take(33) as Bytes33),
-  );
-  const result: AnonymousSenderPlaintext = {
-    ownerPublicKey,
-    splAssetId,
-    splAmount,
-    solAmount,
-    blindingSeed,
-    recipientViewingPublicKeys,
-    splData: readData(reader),
-    solData: readData(reader),
-  };
-  reader.exact();
-  return result;
-}
-
-/**
- * Rust `AnonymousTransferSenderPlaintext::into_utxos`. The bundle's
- * `blindingSeed` is the derived output seed; the change slots' blindings
- * follow from it and the transaction's first nullifier. A zero amount marks a
- * change output as absent. The SPL change sits at slot 0, and the SOL change
- * at slot 1 after an SPL change, else at slot 0.
- */
-export function anonymousSenderUtxos(
-  value: AnonymousSenderPlaintext,
-  assets: AssetRegistry,
-  solMint: Address,
-  firstNullifier: Bytes32,
-  ringProgramId?: Address,
-): readonly Utxo[] {
-  if (value.splAmount === 0n && !value.splData.isEmpty()) {
-    throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
-  }
-  if (value.solAmount === 0n && !value.solData.isEmpty()) {
-    throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
-  }
-  const slots = changeSlots(value.splAmount > 0n, value.solAmount > 0n);
-  const values: Utxo[] = [];
-  if (value.splAmount > 0n) {
-    const ring = resolveRingProgramId(ringProgramId, value.splData);
-    values.push(
-      new Utxo({
-        owner: value.ownerPublicKey,
-        asset: assets.resolve(value.splAssetId),
-        amount: value.splAmount,
-        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, slots.spl),
-        data: value.splData,
-        ...(ring === undefined ? {} : { ringProgramId: ring }),
-      }),
-    );
-  }
-  if (value.solAmount > 0n) {
-    const ring = resolveRingProgramId(ringProgramId, value.solData);
-    values.push(
-      new Utxo({
-        owner: value.ownerPublicKey,
-        asset: solMint,
-        amount: value.solAmount,
-        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, slots.sol),
-        data: value.solData,
-        ...(ring === undefined ? {} : { ringProgramId: ring }),
-      }),
-    );
-  }
-  return values;
 }
 
 export function encodePlaintextTransfer(value: TransferPlaintextUtxos): Uint8Array {
@@ -992,7 +834,7 @@ export function encryptConfidential(
   );
 }
 
-export function encryptAnonymous(
+export function encryptSplit(
   tx: ViewingKeyLike,
   recipient: X25519PublicKey,
   plaintext: Uint8Array,
@@ -1001,8 +843,6 @@ export function encryptAnonymous(
 ): Uint8Array {
   return inTransactionCategory(() => tx.encryptSlot(recipient, plaintext, salt, slotIndex));
 }
-
-export const encryptSplit = encryptAnonymous;
 
 /**
  * The published body carries the counterparty key in front of the ciphertext.
@@ -1215,88 +1055,6 @@ export function plaintextTransferFromUtxos(
           },
         }),
     recipientSlots,
-  };
-}
-
-export function anonymousRecipientFromUtxos(
-  utxos: readonly Utxo[],
-  owner: OwnerContext,
-  cx: Readonly<{ senderPublicKey: X25519PublicKey }>,
-): AnonymousRecipientPlaintext {
-  const first = singleUtxo(utxos);
-  validateOwner(first, owner.owner, 0);
-  validateRing(first, owner.ringProgramId, 0);
-  return {
-    ownerPublicKey: first.owner,
-    senderPublicKey: cx.senderPublicKey,
-    assetId: owner.assets.assetId(first.asset),
-    amount: first.amount,
-    blinding: copy(first.blinding),
-    data: new Data(first.data.records()),
-  };
-}
-
-export function anonymousSenderFromUtxos(
-  utxos: readonly Utxo[],
-  owner: OwnerContext,
-  cx: SeedBundleContext &
-    Readonly<{
-      recipientViewingPublicKeys: readonly X25519PublicKey[];
-    }>,
-): AnonymousSenderPlaintext {
-  if (utxos.length === 0) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
-  const blindingSeed = checked<Bytes32>(cx.blindingSeed, 32, "blinding seed");
-  const firstNullifier = checked<Bytes32>(cx.firstNullifier, 32, "first nullifier");
-  let splAssetId = 0n;
-  let splAmount = 0n;
-  let solAmount = 0n;
-  let splData = new Data();
-  let solData = new Data();
-  let splSeen = false;
-  let solSeen = false;
-  const slots = changeSlots(
-    utxos.some((utxo) => utxo.asset !== SOL_MINT && utxo.amount > 0n),
-    utxos.some((utxo) => utxo.asset === SOL_MINT && utxo.amount > 0n),
-  );
-  for (const [index, utxo] of utxos.entries()) {
-    validateOwner(utxo, owner.owner, index);
-    validateRing(utxo, owner.ringProgramId, index);
-    if (utxo.asset === SOL_MINT) {
-      if (
-        solSeen ||
-        !equalBytes(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, slots.sol))
-      ) {
-        throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
-          position: slots.sol,
-        });
-      }
-      solSeen = true;
-      solAmount = utxo.amount;
-      solData = new Data(utxo.data.records());
-    } else {
-      if (
-        splSeen ||
-        !equalBytes(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, slots.spl))
-      ) {
-        throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
-          position: slots.spl,
-        });
-      }
-      splSeen = true;
-      splAssetId = owner.assets.assetId(utxo.asset);
-      splAmount = utxo.amount;
-      splData = new Data(utxo.data.records());
-    }
-  }
-  return {
-    ownerPublicKey: owner.owner,
-    splAssetId,
-    splAmount,
-    solAmount,
-    blindingSeed,
-    recipientViewingPublicKeys: [...cx.recipientViewingPublicKeys],
-    splData,
-    solData,
   };
 }
 

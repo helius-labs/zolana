@@ -14,11 +14,7 @@ import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
 import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
 import {
   EncryptedScheme,
-  anonymousRecipientUtxo,
-  anonymousSenderUtxos,
   confidentialUtxo,
-  decodeAnonymousRecipient,
-  decodeAnonymousSender,
   decodePlaintextTransfer,
   decodeProofless,
   decodeSplitBundle,
@@ -31,11 +27,6 @@ import {
   splitEmbeddedKey,
   type ProoflessOutput,
 } from "../serialization/codecs.js";
-import {
-  decodeRingDepositOutput,
-  ringDepositUtxo,
-  type DepositPayloadDecoder,
-} from "../serialization/ring-deposit.js";
 import { decryptMergeOutput, readMergeOutputBody } from "../serialization/merge.js";
 import { Utxo } from "../utxo.js";
 import { KeyMemo } from "./key-memo.js";
@@ -81,7 +72,6 @@ function firstNullifierOf(tx: IndexedShieldedTransaction): Bytes32 {
 }
 
 interface DecryptTransactionsConfig {
-  readonly depositPayloadDecoder?: DepositPayloadDecoder;
   /** Recorded as `Wallet.lastSynced` once the sync commits, as `Wallet::sync` records `synced_at`. */
   readonly syncedAt?: bigint;
 }
@@ -151,7 +141,7 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
         continue;
       }
       const tag = bytesKey(slot.viewTag);
-      if (scheme === EncryptedScheme.anonymousSender || scheme === EncryptedScheme.split) {
+      if (scheme === EncryptedScheme.split) {
         pushInto(senderSites, tag, transaction);
       } else {
         pushInto(recipientSites, tag, { transaction, slot: index });
@@ -161,6 +151,22 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
     if (!classified) unparsedTransactions++;
   }
   return { senderSites, recipientSites, mergeSites, unparsedTransactions };
+}
+
+/** A custom ring records the history of its anonymous and deposit transactions. */
+function carriesReservedScheme(tx: IndexedShieldedTransaction): boolean {
+  return tx.outputSlots.some((slot) => {
+    try {
+      const { scheme } = readOutputData(slot.payload);
+      return (
+        scheme === EncryptedScheme.anonymousRecipient ||
+        scheme === EncryptedScheme.anonymousSender ||
+        scheme === EncryptedScheme.ringDeposit
+      );
+    } catch {
+      return false;
+    }
+  });
 }
 
 function compareBigints(left: bigint, right: bigint): number {
@@ -235,7 +241,6 @@ function rowKey(row: PrivateTransaction): string {
  * advances.
  */
 class SyncPass {
-  readonly #depositPayloadDecoder: DepositPayloadDecoder;
   readonly #owner: ShieldedPublicKey;
   readonly #nullifierPublicKey: Bytes32;
   /** The keys the wallet holds, current first; the pass opens under each. */
@@ -264,7 +269,6 @@ class SyncPass {
 
   constructor(
     input: Readonly<{
-      depositPayloadDecoder?: DepositPayloadDecoder | undefined;
       identity: ShieldedAddress;
       viewingPublicKeys: readonly X25519PublicKey[];
       keys: KeyMemo;
@@ -275,7 +279,6 @@ class SyncPass {
       selfViewingPublicKeys: readonly X25519PublicKey[];
     }>,
   ) {
-    this.#depositPayloadDecoder = input.depositPayloadDecoder ?? ((bytes) => bytes);
     this.#owner = input.identity.signingPublicKey;
     this.#nullifierPublicKey = input.identity.nullifierPublicKey;
     this.#viewingPublicKeys = input.viewingPublicKeys;
@@ -472,22 +475,14 @@ class SyncPass {
     return this.#utxos.filter((entry) => spent.has(bytesKey(entry.nullifier)));
   }
 
-  #recordReceived(
-    tx: IndexedShieldedTransaction,
-    slotIndex: number,
-    sender: X25519PublicKey | undefined,
-    utxo: Utxo,
-  ): void {
-    const direction: PrivateTransactionDirection =
-      sender !== undefined && this.#isSelf(sender) ? "selfTransfer" : "inbound";
+  #recordReceived(tx: IndexedShieldedTransaction, slotIndex: number, utxo: Utxo): void {
     this.#record({
       id: historyId(tx, tx.outputSlots[slotIndex]?.outputContext.leafIndex ?? BigInt(slotIndex)),
       kind: "privateTransfer",
-      direction,
+      direction: "inbound",
       status: "confirmed",
       asset: utxo.asset,
       amount: utxo.amount,
-      ...(sender === undefined ? {} : { counterpartyViewingPublicKey: sender }),
     });
   }
 
@@ -604,6 +599,7 @@ class SyncPass {
     if (tx.txViewingPublicKey === undefined || firstNullifier === undefined || salt === undefined) {
       return;
     }
+    if (carriesReservedScheme(tx)) return;
     const txKey = this.#keys.transactionKey({ viewingPublicKey, firstNullifier });
     if (txKey === undefined) return;
     if (!equalBytes(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
@@ -703,8 +699,8 @@ class SyncPass {
   /**
    * Decode one candidate slot, dispatching on its encoding and scheme byte.
    * Recipient and confidential slots are 1:1 and verified against the slot's
-   * committed leaf; the anonymous and split sender bundles, passed as slot 0,
-   * store their change against the whole transaction.
+   * committed leaf; the split sender bundle, passed as slot 0, stores its
+   * change against the whole transaction.
    */
   decodeSlot(viewingPublicKey: X25519PublicKey, site: Site): void {
     const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
@@ -764,31 +760,6 @@ class SyncPass {
       return;
     }
 
-    if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.anonymousRecipient) {
-      let sender: X25519PublicKey;
-      let utxo: Utxo;
-      const decrypted = this.#decryptSlot(viewingPublicKey, tx, body, site.slot, siteKey);
-      if (decrypted === undefined) return;
-      try {
-        const plaintext = decodeAnonymousRecipient(decrypted);
-        sender = plaintext.senderPublicKey;
-        utxo = anonymousRecipientUtxo(plaintext, this.#assets);
-      } catch (error) {
-        this.#recordUndecryptable(error, siteKey);
-        return;
-      }
-      this.#resolveAssetCandidate(siteKey);
-      if (this.#storeRecipientUtxos([utxo], outputContext, undefined, undefined)) {
-        this.#processedSlots.add(siteKey);
-        // Per-slot, unlike the confidential rail, which suppresses an authored
-        // slot's receipt: an anonymous recipient slot names its sender, so a
-        // self-send's receipt carries the sender the sender-bundle row cannot
-        // show per recipient.
-        this.#recordReceived(tx, site.slot, sender, utxo);
-      }
-      return;
-    }
-
     if (
       frame.encoding === "encrypted" &&
       (frame.scheme === EncryptedScheme.confidential ||
@@ -818,83 +789,8 @@ class SyncPass {
         // `recordConfidentialSend`, so it must not also be logged here as an
         // inbound receipt.
         if (!this.#authored(tx, viewingPublicKey)) {
-          this.#recordReceived(tx, site.slot, undefined, utxo);
+          this.#recordReceived(tx, site.slot, utxo);
         }
-      }
-      return;
-    }
-
-    if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.ringDeposit) {
-      let utxo: Utxo;
-      let dataHash: Bytes32 | undefined;
-      let ringDataHash: Bytes32 | undefined;
-      let output: ReturnType<typeof decodeRingDepositOutput>;
-      let txViewingPublicKey: X25519PublicKey;
-      let ciphertext: Uint8Array;
-      try {
-        output = decodeRingDepositOutput(body);
-        txViewingPublicKey = X25519PublicKey.fromBytes(output.encrypted.txViewingPublicKey);
-        ciphertext = output.encrypted.ciphertext;
-      } catch (error) {
-        this.#recordUndecryptable(error, siteKey);
-        return;
-      }
-      ciphertext = this.#depositPayloadDecoder(ciphertext);
-      const decrypted = this.#open({
-        ciphertext,
-        viewingPublicKey,
-        txViewingPublicKey,
-        salt: output.encrypted.salt,
-        slotIndex: 0,
-        label: "ringDeposit",
-      });
-      if (decrypted === undefined) return;
-      try {
-        utxo = ringDepositUtxo(output, decrypted, this.#owner);
-        dataHash = output.dataHash;
-        // A zero ring data hash is absent in the commitment.
-        ringDataHash = output.ringDataHash.some((byte) => byte !== 0)
-          ? output.ringDataHash
-          : undefined;
-      } catch (error) {
-        this.#recordUndecryptable(error, siteKey);
-        return;
-      }
-      this.#resolveAssetCandidate(siteKey);
-      if (this.#storeRecipientUtxos([utxo], outputContext, dataHash, ringDataHash)) {
-        this.#processedSlots.add(siteKey);
-        this.#recordDeposit(tx, outputContext, utxo);
-      }
-      return;
-    }
-
-    if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.anonymousSender) {
-      let recipients: readonly X25519PublicKey[];
-      let change: readonly Utxo[];
-      const decrypted = this.#decryptSlot(viewingPublicKey, tx, body, site.slot, siteKey);
-      if (decrypted === undefined) return;
-      try {
-        const plaintext = decodeAnonymousSender(decrypted);
-        recipients = plaintext.recipientViewingPublicKeys;
-        change = anonymousSenderUtxos(plaintext, this.#assets, SOL_MINT, firstNullifierOf(tx));
-      } catch (error) {
-        this.#recordUndecryptable(error, siteKey);
-        return;
-      }
-      this.#resolveAssetCandidate(siteKey);
-      for (const utxo of change) this.#storeInTx(utxo, tx);
-      this.#processedSlots.add(siteKey);
-      if (!this.#processedOutbound.has(site.transaction)) {
-        this.#processedOutbound.add(site.transaction);
-        const kind = recipients.length === 0 ? "publicWithdrawal" : "privateTransfer";
-        this.#recordOutboundTransfer(
-          tx,
-          this.#spentAmounts(tx.nullifiers),
-          change,
-          kind,
-          recipients.length === 1 ? recipients[0] : undefined,
-          this.#transferDirection(recipients),
-        );
       }
       return;
     }
@@ -1120,7 +1016,6 @@ export async function decryptTransactions(
   try {
     for (let round = 0; round < maxKeyRounds(mergeSites.length); round++) {
       const pass = new SyncPass({
-        depositPayloadDecoder: input.config?.depositPayloadDecoder,
         identity,
         viewingPublicKeys,
         keys: memo,

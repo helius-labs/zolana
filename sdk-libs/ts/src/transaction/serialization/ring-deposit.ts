@@ -5,52 +5,7 @@ import type {
   Bytes33,
   EncryptedRingDepositData,
 } from "../../interface/types.js";
-import { Reader, Writer, encodeBase58, byteVector } from "../../interface/internal.js";
-import type { ShieldedPublicKey } from "../../keypair/public-key.js";
-
-import { Data, type DataRecord } from "../data.js";
-import { Utxo } from "../utxo.js";
-
-/** Rust `RingDepositPlaintext`. */
-export interface RingDepositPlaintext {
-  readonly blinding: Bytes32;
-  readonly utxoData?: Uint8Array;
-  readonly memo?: Uint8Array;
-  readonly ringData: Uint8Array;
-}
-
-function readByteVector(reader: Reader, name: string): Uint8Array {
-  return reader.bytes(reader.u16(`${name}.length`), name);
-}
-
-export function encodeRingDepositPlaintext(value: RingDepositPlaintext): Uint8Array {
-  const writer = new Writer();
-  writer
-    .bytes(value.blinding, 32, "blinding")
-    .option(value.utxoData, (output, data) => {
-      byteVector(output, data, "utxoData");
-    })
-    .option(value.memo, (output, memo) => {
-      byteVector(output, memo, "memo");
-    });
-  byteVector(writer, value.ringData, "ringData");
-  return writer.finish();
-}
-
-export function decodeRingDepositPlaintext(bytes: Uint8Array): RingDepositPlaintext {
-  const reader = new Reader(bytes);
-  const blinding = reader.bytes(32, "blinding") as Bytes32;
-  const utxoData = reader.option("utxoData", (input) => readByteVector(input, "utxoData"));
-  const memo = reader.option("memo", (input) => readByteVector(input, "memo"));
-  const ringData = readByteVector(reader, "ringData");
-  reader.done();
-  return Object.freeze({
-    blinding,
-    ...(utxoData === undefined ? {} : { utxoData }),
-    ...(memo === undefined ? {} : { memo }),
-    ringData,
-  });
-}
+import { Reader, encodeBase58 } from "../../interface/internal.js";
 
 /** Borsh body after the scheme byte. The ciphertext length is u32 here and u16 in the instruction. */
 export interface RingDepositOutput {
@@ -83,26 +38,6 @@ export function decodeRingDepositOutput(body: Uint8Array): RingDepositOutput {
     ringProgramId,
     ringDataHash,
     encrypted: Object.freeze({ txViewingPublicKey, salt, ciphertext }),
-  });
-}
-
-/** The UTXO a ring deposit describes, from its envelope already opened with the viewing key. */
-export function ringDepositUtxo(
-  output: RingDepositOutput,
-  decrypted: Uint8Array,
-  owner: ShieldedPublicKey,
-): Utxo {
-  const plaintext = decodeRingDepositPlaintext(decrypted);
-  const records: DataRecord[] = [{ kind: "ringData", bytes: plaintext.ringData }];
-  if (plaintext.utxoData) records.push({ kind: "utxoData", bytes: plaintext.utxoData });
-  if (plaintext.memo) records.push({ kind: "memo", bytes: plaintext.memo });
-  return new Utxo({
-    owner,
-    asset: output.asset,
-    amount: output.amount,
-    blinding: plaintext.blinding,
-    data: new Data(records),
-    ringProgramId: output.ringProgramId,
   });
 }
 

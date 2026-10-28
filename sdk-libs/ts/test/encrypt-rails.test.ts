@@ -7,7 +7,6 @@ import {
   Data,
   LocalShieldedKeys,
   createProofOutput,
-  encryptAnonymousTransfer,
   encryptConfidentialTransfer,
   encryptSplit,
   type ShieldedKeys,
@@ -82,30 +81,6 @@ describe("encrypt rails run under a per-transaction key that is wiped after them
         encryptConfidentialTransfer(tx, {
           outputs: [recipientOutput()],
           assets: new AssetRegistry(),
-        }),
-      );
-      expectWiped(minted);
-    });
-
-    it(`${name} anonymous transfer`, async () => {
-      const keys = make();
-      const recipient = ShieldedKeypair.generate();
-      const minted = trackMintedTxViewingKeys();
-      await withTransactionKey(keys, filled(1), (tx) =>
-        encryptAnonymousTransfer(tx, {
-          viewingPublicKey: keys.address().viewingPublicKey,
-          senderViewTag: filled(2),
-          sender: {
-            ownerPublicKey: recipient.signingPublicKey(),
-            splAssetId: 0n,
-            splAmount: 0n,
-            solAmount: 5n,
-            blindingSeed: filled(4),
-            recipientViewingPublicKeys: [recipient.viewingPublicKey()],
-            splData: new Data(),
-            solData: new Data(),
-          },
-          recipients: [],
         }),
       );
       expectWiped(minted);

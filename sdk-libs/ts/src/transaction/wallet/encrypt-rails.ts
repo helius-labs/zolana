@@ -6,14 +6,9 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { encodeConfidentialSlots } from "../instructions/transact.js";
 import {
   EncryptedScheme,
-  encodeAnonymousRecipient,
-  encodeAnonymousSender,
   encodeOutputData,
   encodeSplitBundle,
-  encryptAnonymous,
   encryptSplit as encryptSplitSlot,
-  type AnonymousRecipientPlaintext,
-  type AnonymousSenderPlaintext,
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
 import type { ProofOutputUtxo } from "../utxo.js";
@@ -46,12 +41,6 @@ export type EncryptedTransfer = EncryptedEnvelope<readonly (MessageData | undefi
  */
 export type EncryptedSplit = EncryptedEnvelope<MessageData>;
 
-export interface AnonymousRecipientSlot {
-  readonly viewTag: Bytes32;
-  readonly recipientPublicKey: X25519PublicKey;
-  readonly plaintext: AnonymousRecipientPlaintext;
-}
-
 /**
  * Every sealing step of a transaction, over the per-transaction key
  * `ShieldedKeys.transactionKeys` returns for its first nullifier. The key is
@@ -67,61 +56,6 @@ export function encryptConfidentialTransfer(
     txViewingPublicKey: tx.publicKey(),
     salt,
     payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
-  };
-}
-
-/**
- * Slot 0 carries the sender bundle encrypted to the wallet's own viewing
- * key; recipient `i` occupies slot `i + 1`. Both the order and the slot
- * indices are bound into each ciphertext, so they must match the layout the
- * transfer instruction publishes.
- */
-export function encryptAnonymousTransfer(
-  tx: ViewingKey,
-  input: Readonly<{
-    /** The wallet's own viewing public key, which opens the sender bundle. */
-    viewingPublicKey: X25519PublicKey;
-    senderViewTag: Bytes32;
-    sender: AnonymousSenderPlaintext;
-    recipients: readonly AnonymousRecipientSlot[];
-  }>,
-): EncryptedTransfer {
-  const salt = randomSalt();
-  const slot = (
-    scheme: EncryptedScheme,
-    recipient: X25519PublicKey,
-    plaintext: Uint8Array,
-    slotIndex: number,
-    viewTag: Bytes32,
-  ): MessageData => ({
-    viewTag,
-    data: encodeOutputData(
-      scheme,
-      encryptAnonymous(tx, recipient, plaintext, salt, slotIndex),
-      "encrypted",
-    ),
-  });
-  return {
-    txViewingPublicKey: tx.publicKey(),
-    salt,
-    payload: [
-      slot(
-        EncryptedScheme.anonymousSender,
-        input.viewingPublicKey,
-        encodeAnonymousSender(input.sender),
-        0,
-        input.senderViewTag,
-      ),
-      ...input.recipients.map((recipient, index) =>
-        slot(
-          EncryptedScheme.anonymousRecipient,
-          recipient.recipientPublicKey,
-          encodeAnonymousRecipient(recipient.plaintext),
-          index + 1,
-          recipient.viewTag,
-        ),
-      ),
-    ],
   };
 }
 

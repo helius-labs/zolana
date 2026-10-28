@@ -1,4 +1,3 @@
-import type { DepositPayloadDecoder } from "../transaction/serialization/ring-deposit.js";
 import {
   getAddressEncoder,
   getBase64Decoder,
@@ -64,7 +63,6 @@ export interface SyncClient extends Pick<
 }
 
 export interface SyncWalletConfig {
-  readonly depositPayloadDecoder?: DepositPayloadDecoder;
   /** Stable tags and nullifiers per indexer request. Defaults to 64. */
   readonly queryChunk?: number;
   /** Rows requested per indexer page. Defaults to Photon's maximum, 1000. */
@@ -523,12 +521,7 @@ async function runWalletSync(
     const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
     const clientConfig = input.client.indexerConfig;
     const poll = input.config?.retry ?? clientConfig?.poll ?? DEFAULT_INDEXER_POLL_CONFIG;
-    const decryptConfig = {
-      syncedAt: BigInt(Math.floor(Date.now() / 1_000)),
-      ...(input.config?.depositPayloadDecoder === undefined
-        ? {}
-        : { depositPayloadDecoder: input.config.depositPayloadDecoder }),
-    };
+    const decryptConfig = { syncedAt: BigInt(Math.floor(Date.now() / 1_000)) };
     const validatedPoll = Object.freeze({ ...poll, numRetries: Math.max(poll.numRetries, 1) });
     const ungated: IndexerRpcConfig = Object.freeze({ poll: validatedPoll });
     const requireSlot = input.config?.requireSlot ?? clientConfig?.requireSlot;
