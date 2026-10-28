@@ -1,6 +1,6 @@
 [package]
 name = "spr-interface"
-version = "0.1.0"
+version = "0.1.1"
 description = "Shared instructions, account layouts, and verification interfaces for the SPR shielded pool."
 edition.workspace = true
 license.workspace = true

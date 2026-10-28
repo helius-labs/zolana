@@ -79,7 +79,7 @@ time = ">=0.3, <0.3.46"
 # Local workspace crates.
 spr-event = { path = "program-libs/event", version = "0.1.0" }
 spr-event-parser = { path = "sdk-libs/event", version = "0.1.0" }
-spr-interface = { path = "program-libs/interface", version = "0.1.0" }
+spr-interface = { path = "program-libs/interface", version = "0.1.1" }
 spr-user-registry-interface = { path = "program-libs/user-registry-interface", version = "0.1.0" }
 spr-tree = { path = "program-libs/tree", version = "0.1.0" }
 spr-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
@@ -129,7 +129,7 @@ solana-account-info = "3.1"
 solana-account-view = "2.0"
 solana-account-decoder = "4.1"
 solana-account-decoder-client-types = "4.1"
-solana-address = { version = "2.6", features = ["atomic", "borsh", "bytemuck", "copy", "decode", "wincode"] }
+solana-address = { version = "=2.6.1", features = ["atomic", "borsh", "bytemuck", "copy", "decode", "wincode"] }
 solana-banks-client = { version = "4.1", features = ["agave-unstable-api"] }
 solana-bn254 = "3.2.1"
 solana-clock = "3.0"
