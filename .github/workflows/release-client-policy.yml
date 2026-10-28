@@ -4,20 +4,11 @@ on:
   schedule:
     - cron: "4-59/10 * * * *"
   workflow_dispatch:
-    inputs:
-      pr:
-        description: Generated PR number (empty discovers qualified candidates)
-        type: string
-        default: ""
-      expected_head:
-        description: Exact generated PR commit (controller only)
-        type: string
-      request_id:
-        description: Signed qualification request (controller only)
-        type: string
+  repository_dispatch:
+    types: [validate-client-policy-pr]
 
 concurrency:
-  group: client-policy-${{ inputs.pr || 'discover' }}
+  group: client-policy-${{ github.event.client_payload.pr || 'discover' }}
   cancel-in-progress: false
 
 permissions:
@@ -25,14 +16,13 @@ permissions:
 
 jobs:
   discover:
-    if: github.ref == 'refs/heads/main' && inputs.pr == ''
+    if: github.ref == 'refs/heads/main' && github.event_name != 'repository_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: image-publish
     permissions:
       contents: write
       pull-requests: write
-      actions: write
       id-token: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -45,7 +35,7 @@ jobs:
       - run: python3 tools/release-client-policy.py
 
   candidate:
-    if: github.ref == 'refs/heads/main' && inputs.pr != ''
+    if: github.ref == 'refs/heads/main' && github.event_name == 'repository_dispatch'
     runs-on: ubuntu-24.04
     environment: image-publish
     permissions:
@@ -66,9 +56,9 @@ jobs:
       - id: identity
         env:
           GH_TOKEN: ${{ github.token }}
-          PR: ${{ inputs.pr }}
-          CANDIDATE_HEAD: ${{ inputs.expected_head }}
-          REQUEST_ID: ${{ inputs.request_id }}
+          PR: ${{ github.event.client_payload.pr }}
+          CANDIDATE_HEAD: ${{ github.event.client_payload.expected_head }}
+          REQUEST_ID: ${{ github.event.client_payload.request_id }}
         run: python3 tools/native-policy-checks.py start --pr "$PR" --head "$CANDIDATE_HEAD" --request "$REQUEST_ID"
 
   policy:
@@ -110,7 +100,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - env:
           GH_TOKEN: ${{ github.token }}
-          PR: ${{ inputs.pr }}
+          PR: ${{ github.event.client_payload.pr }}
           CANDIDATE_HEAD: ${{ needs.candidate.outputs.head }}
           BASE: ${{ needs.candidate.outputs.base }}
           MERGE: ${{ needs.candidate.outputs.merge }}
