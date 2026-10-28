@@ -40,9 +40,9 @@ just build-photon         # target/debug/photon
 Use `apt` on Ubuntu / Debian; `apk` is Alpine's package manager. These steps
 were checked on Ubuntu 24.04, not Alpine.
 
-The Go modules require Go 1.27.1. With the default `GOTOOLCHAIN=auto`, the Go
+The Go modules require Go 1.27.3. With the default `GOTOOLCHAIN=auto`, the Go
 package supplied by Ubuntu 24.04 downloads the required toolchain on first use.
-If automatic toolchain downloads are disabled, install Go 1.27.1 or newer
+If automatic toolchain downloads are disabled, install Go 1.27.3 or newer
 separately. Go, Clang, and libclang are required by `just check-all`, because
 Rust build scripts compile the example prover libraries and generate bindings.
 Python 3 is used when `just` evaluates the root justfile.
@@ -145,7 +145,7 @@ The workflow is a backstop, not the enforcement.
 - `just` — `cargo install just --locked`
 - `cargo-nextest` for the Rust test recipes —
   `cargo install cargo-nextest --locked`
-- Go 1.27.1 or newer (for full-workspace checks, example prover libraries,
+- Go 1.27.3 or newer (for full-workspace checks, example prover libraries,
   and `prover/server` builds/tests)
 - PostgreSQL 16 for the Photon production-database migration smoke test
 - Anza / Solana CLI 4.x providing `cargo build-sbf` for SBF program builds,
