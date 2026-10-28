@@ -1,10 +1,10 @@
-use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
-use zolana_program::{
+use spr_hasher::{primitives::hash_bytes, Hasher, Poseidon};
+use spr_program::{
     circuit::{Assert, Circuit, Field},
     conversion::ProofInput,
     CircuitError,
 };
-use zolana_transaction::{
+use spr_transaction::{
     utxo::{ProofInputUtxo, SppProofInputUtxo},
     WalletUtxo,
 };
@@ -62,7 +62,7 @@ impl Circuit for CarriedCircuit {
 
     fn circuit(&self) -> Result<Self::Output, CircuitError> {
         let (nullifier, latest_tree_id, has_latest_tree_id) =
-            zolana_program::testing::utxo_metadata(&self.utxo);
+            spr_program::testing::utxo_metadata(&self.utxo);
         nullifier.assert_equal(&self.nullifier, CARRIED_RULE)?;
         latest_tree_id.assert_equal(&self.latest_tree_id, CARRIED_RULE)?;
         has_latest_tree_id.assert_equal(&self.has_latest_tree_id, CARRIED_RULE)

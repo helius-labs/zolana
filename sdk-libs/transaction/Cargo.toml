@@ -1,20 +1,22 @@
 [package]
-name = "zolana-transaction" # TODO: rename as zolana-sdk
+name = "spr-transaction" # TODO: rename as zolana-sdk
 version = "0.1.0"
-description = "TSPP output UTXO serialization: plaintext and encrypted UTXO layouts for transfer and split, encrypted and decrypted via zolana-keypair."
+description = "TSPP output UTXO serialization: plaintext and encrypted UTXO layouts for transfer and split, encrypted and decrypted via spr-keypair."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+publish = ["crates-io"]
+
 [dependencies]
 ark-bn254 = { version = "0.6", optional = true }
-zolana-zk-dsl = { workspace = true, optional = true, features = ["circuit"] }
-zolana-zk-gadgets = { workspace = true, optional = true }
-zolana-interface = { workspace = true }
-zolana-event = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-instruction = { workspace = true }
+spr-zk-dsl = { workspace = true, optional = true, features = ["circuit"] }
+spr-zk-gadgets = { workspace = true, optional = true }
+spr-interface = { workspace = true }
+spr-event = { workspace = true }
+spr-hasher = { workspace = true }
+spr-keypair = { workspace = true }
+spr-instruction = { workspace = true }
 borsh = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
@@ -29,12 +31,12 @@ wasm-bindgen = { workspace = true, optional = true }
 # How mints and wallet utxos enter a zk circuit.
 circuit = [
     "dep:ark-bn254",
-    "dep:zolana-zk-dsl",
-    "dep:zolana-zk-gadgets",
-    "zolana-keypair/circuit",
+    "dep:spr-zk-dsl",
+    "dep:spr-zk-gadgets",
+    "spr-keypair/circuit",
 ]
-serde = ["dep:serde", "zolana-keypair/serde"]
-tsify = ["serde", "dep:tsify", "dep:wasm-bindgen", "zolana-keypair/tsify"]
+serde = ["dep:serde", "spr-keypair/serde"]
+tsify = ["serde", "dep:tsify", "dep:wasm-bindgen", "spr-keypair/tsify"]
 
 [package.metadata.cargo-machete]
 ignored = ["wasm-bindgen"]
@@ -45,7 +47,7 @@ hex = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 # Pins the client address derivation to the on-chain `NewAddress::derive`.
-zolana-program = { workspace = true, features = ["compression"] }
+spr-program = { path = "../program", features = ["compression"] }
 
 [[test]]
 name = "behavior"

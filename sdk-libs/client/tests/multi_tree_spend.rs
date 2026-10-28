@@ -32,17 +32,17 @@ use crate::{
     transfer_fixture::transfer_prover,
 };
 use solana_address::Address;
-use zolana_client::{
+use spr_client::{
     assemble, prover::field::be, MerkleContext, MerkleProof, NonInclusionProof, SpendProof,
     TransferProofResult, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::{TransactIxData, TransactProof, TreeContext},
     pda,
 };
-use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_transaction::instructions::transact::SppProofInputs;
-use zolana_transaction::{Data, Mint, SppProofOutputUtxo, Utxo};
+use spr_keypair::{ShieldedKeypair, SigningKey};
+use spr_transaction::instructions::transact::SppProofInputs;
+use spr_transaction::{Data, Mint, SppProofOutputUtxo, Utxo};
 
 const SENDER_SEED: u8 = 0x11;
 const RECIPIENT_SEED: u8 = 0x22;
@@ -192,10 +192,7 @@ fn two_input_trees_fill_two_slots_in_declaration_order() {
             .collect();
 
     for (slot, (id, utxo_root, nullifier_root)) in slots.iter().zip(&populated) {
-        assert_eq!(
-            slot.id,
-            be(&zolana_interface::tree_slot::tree_id_field(*id))
-        );
+        assert_eq!(slot.id, be(&spr_interface::tree_slot::tree_id_field(*id)));
         assert_eq!(slot.utxo_root, be(utxo_root));
         assert_eq!(slot.nullifier_root, be(nullifier_root));
     }

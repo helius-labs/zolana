@@ -24,24 +24,15 @@ pub struct WalletUtxo {
     pub utxo: Utxo,
     /// The owner's nullifier pubkey, which [`Self::utxo_hash`] folds in through
     /// `owner_hash`. Kept so converting to an input needs no address lookup.
-    #[cfg_attr(
-        feature = "serde",
-        serde(with = "zolana_keypair::serde_helpers::bytes")
-    )]
+    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub nullifier_pubkey: [u8; 32],
     /// Published commitment, checked by `verify_spendable` or transaction construction.
-    #[cfg_attr(
-        feature = "serde",
-        serde(with = "zolana_keypair::serde_helpers::bytes")
-    )]
+    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub utxo_hash: [u8; 32],
     /// The spend marker, computed while the key was in hand.
-    #[cfg_attr(
-        feature = "serde",
-        serde(with = "zolana_keypair::serde_helpers::bytes")
-    )]
+    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub nullifier: [u8; 32],
     #[cfg_attr(
@@ -49,7 +40,7 @@ pub struct WalletUtxo {
         serde(
             default,
             skip_serializing_if = "Option::is_none",
-            with = "zolana_keypair::serde_helpers::bytes"
+            with = "spr_keypair::serde_helpers::bytes"
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
@@ -59,7 +50,7 @@ pub struct WalletUtxo {
         serde(
             default,
             skip_serializing_if = "Option::is_none",
-            with = "zolana_keypair::serde_helpers::bytes"
+            with = "spr_keypair::serde_helpers::bytes"
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]
@@ -69,7 +60,7 @@ pub struct WalletUtxo {
         serde(
             default,
             skip_serializing_if = "Option::is_none",
-            with = "zolana_keypair::serde_helpers::bytes"
+            with = "spr_keypair::serde_helpers::bytes"
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "Uint8Array"))]

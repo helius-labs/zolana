@@ -16,13 +16,13 @@ use sea_orm::{
 };
 use solana_pubkey::Pubkey;
 use solana_signature::SIGNATURE_BYTES;
-use zolana_indexer_api::{
+use spr_indexer_api::{
     Base64String, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse, Hash,
     IndexedShieldedTransaction, RingsMessage, RingsOutputSlot, SerializablePubkey,
     ShieldedTransaction,
 };
-use zolana_interface::pda;
+use spr_interface::pda;
 
 #[derive(FromQueryResult, Debug)]
 pub(super) struct MatchedRingsTxRow {
@@ -137,7 +137,7 @@ enum MatchBy {
 }
 
 struct ShieldedTransactionPage {
-    context: zolana_indexer_api::Context,
+    context: spr_indexer_api::Context,
     output_tree_id: Option<u16>,
     transactions: Vec<ShieldedTransaction>,
     next_cursor: Option<Base64String>,
@@ -570,7 +570,7 @@ mod tests {
     use crate::monitor::tree_metadata_sync::{upsert_tree_metadata, TreeAccountData};
     use sea_orm::{Database, EntityTrait, Set};
     use sea_orm_migration::MigratorTrait;
-    use zolana_indexer_api::{GetRingsByNullifiersRequest, Limit};
+    use spr_indexer_api::{GetRingsByNullifiersRequest, Limit};
 
     const OUTPUT_TREE: [u8; 32] = [8; 32];
     const OUTPUT_TREE_ID: u16 = 3;
@@ -830,7 +830,7 @@ mod tests {
             first_output_leaf_index: Set(i64::from(id)),
             tx_viewing_pk: Set(None),
             salt: Set(None),
-            proofless: Set(source_tag == zolana_event::tag::RING_DEPOSIT),
+            proofless: Set(source_tag == spr_event::tag::RING_DEPOSIT),
         })
         .exec(db)
         .await
@@ -862,7 +862,7 @@ mod tests {
     #[tokio::test]
     async fn ring_history_pages_include_unknown_tag_deposits_and_merges_only_in_that_ring() {
         use crate::api::method::rings::get_encrypted_utxos_by_tags::get_encrypted_utxos_by_tags;
-        use zolana_event::tag;
+        use spr_event::tag;
 
         let (db, ring) = setup_ring(false).await;
         insert_history_output(&db, 3, Some(ring), tag::RING_DEPOSIT).await;

@@ -7,9 +7,7 @@ use std::{
     time::Instant,
 };
 
-use zolana_program::{
-    testing::check_private_variables, Groth16Prover, ProofResult, ZkProgramCircuit,
-};
+use spr_program::{testing::check_private_variables, Groth16Prover, ProofResult, ZkProgramCircuit};
 
 const ENABLED_BY: &str = "ZOLANA_PROGRAM_BENCHMARK";
 const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/scenarios/BENCHMARK.md");
@@ -21,7 +19,7 @@ its proving key is generated from. **Proof time** is the elapsed time of \
 `Groth16Prover::prove`, which runs the circuit natively, checks that the constraints \
 are satisfied, creates the Groth16 proof and verifies it once.
 
-Regenerate with `just bench-zolana-program`. It runs a release build one test at a time, so \
+Regenerate with `just bench-spr-program`. It runs a release build one test at a time, so \
 each proof has every core for its parallel proving.
 
 | Test | Circuit | Proof | Constraints | Proof time |

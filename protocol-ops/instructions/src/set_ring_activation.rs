@@ -1,7 +1,7 @@
 use alloc::vec;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::{
+use spr_interface::{
     instruction::{encode_instruction, tag, SetRingActivationData},
     pda, PROGRAM_ID_PUBKEY,
 };

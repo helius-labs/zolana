@@ -1,6 +1,6 @@
 use pinocchio::error::ProgramError;
+use spr_hasher::HasherError;
 use thiserror::Error;
-use zolana_hasher::HasherError;
 
 /// A failed compressed-account check. It converts into
 /// `ProgramError::Custom` with a code from [`Self::code`].

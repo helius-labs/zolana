@@ -7,28 +7,28 @@ use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput, TransferOutput};
-use zolana_event_parser::{indexed_events_from_instruction_groups, instruction_may_emit_events};
-use zolana_interface::{
+use spr_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput, TransferOutput};
+use spr_event_parser::{indexed_events_from_instruction_groups, instruction_may_emit_events};
+use spr_interface::{
     instruction::instruction_data::transact::{InterfaceTransfer, TransactIxData},
     state::{cache::empty_cached_input_fields, default_tree_fees, nullifier_tree_params},
     tree_slot::TreeSlot,
     INPUT_TREES,
 };
-use zolana_program_test::{
+use spr_program_test::{
     create_tree_instructions, index_events, IndexedEvent, IndexedTransaction, ParsedInstruction,
     TestIndexer,
 };
-use zolana_protocol_instructions::CreateProtocolConfig;
-pub use zolana_test_utils::localnet::{send_transaction, send_transaction_with_budget};
-use zolana_test_utils::transact::{
+use spr_protocol_instructions::CreateProtocolConfig;
+pub use spr_test_utils::localnet::{send_transaction, send_transaction_with_budget};
+use spr_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, external_data_hash,
     inline_outputs, input_utxo, new_transact_ix_data, output_owner_pk_hashes,
     prove_and_verify_transfer, set_output_owner_tags, sol_public_slots, test_private_tx_blinding,
     transact_input_flags, LegAccounts, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_transaction::instructions::transact::PrivateTxHash;
-use zolana_tree::TreeAccount;
+use spr_transaction::instructions::transact::PrivateTxHash;
+use spr_tree::TreeAccount;
 
 pub struct LocalnetPool {
     pub payer: Keypair,
@@ -66,7 +66,7 @@ pub fn initialize_pool(rpc: &mut SolanaRpc) -> Result<LocalnetPool> {
             &[&payer, &authority],
         )?,
     );
-    let tree_id = zolana_test_utils::nullifier_pda::tree_id(rpc, &create_tree.tree)?;
+    let tree_id = spr_test_utils::nullifier_pda::tree_id(rpc, &create_tree.tree)?;
     Ok(LocalnetPool {
         payer,
         authority,
@@ -110,7 +110,7 @@ pub fn initialize_indexed_pool(
         &[&payer, &authority],
     )?;
     print_signature("create_tree", &create_tree_tx.signature);
-    let tree_id = zolana_test_utils::nullifier_pda::tree_id(rpc, &create_tree.tree)?;
+    let tree_id = spr_test_utils::nullifier_pda::tree_id(rpc, &create_tree.tree)?;
     Ok(LocalnetPool {
         payer,
         authority,
@@ -430,7 +430,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
 #[cfg(test)]
 mod tests {
     use solana_instruction::{AccountMeta, Instruction};
-    use zolana_interface::instruction::tag;
+    use spr_interface::instruction::tag;
 
     use super::*;
 

@@ -1,6 +1,6 @@
 //! Shielded-pool Mollusk fixtures, snapshotted from a green LiteSVM state.
 //! Harness-generic execution and assertion helpers live in
-//! `zolana_test_utils::mollusk`.
+//! `spr_test_utils::mollusk`.
 
 use mollusk_svm::Mollusk;
 use solana_account::Account as MolluskAccount;
@@ -8,13 +8,11 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{state::TreeFeeSchedule, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID};
-use zolana_program::instruction::Deposit;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_protocol_instructions::{
-    ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees,
-};
-use zolana_test_utils::mollusk::{
+use spr_interface::{state::TreeFeeSchedule, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID};
+use spr_program::instruction::Deposit;
+use spr_program_test::ZolanaProgramTest;
+use spr_protocol_instructions::{ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees};
+use spr_test_utils::mollusk::{
     mollusk_instruction, mollusk_with_program, snapshot_instruction_accounts,
 };
 

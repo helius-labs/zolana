@@ -7,11 +7,11 @@ use std::{
 
 use solana_address::Address;
 
-use zolana_client::timing;
-use zolana_event_parser::{decode_encrypted_ring_deposit_output_data, decode_output_data};
-use zolana_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
-use zolana_keypair::viewing_key::ViewTag;
-use zolana_transaction::{
+use spr_client::timing;
+use spr_event_parser::{decode_encrypted_ring_deposit_output_data, decode_output_data};
+use spr_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
+use spr_keypair::viewing_key::ViewTag;
+use spr_transaction::{
     AssetBalance, OutputContext, OutputSlot, ShieldedTransaction, TransactionError,
 };
 
@@ -20,7 +20,7 @@ use crate::wallet::{
     WalletSyncMaterial, DEFAULT_TAG_WINDOW,
 };
 
-use zolana_client::{
+use spr_client::{
     error::ClientError,
     rpc::{AsyncRpc, EncryptedUtxoMatch, Rpc, ShieldedTransaction as RpcShieldedTransaction},
     rpc::{IndexerPollConfig, IndexerRpcConfig},
@@ -1045,12 +1045,12 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use solana_signature::Signature;
-    use zolana_interface::{
+    use spr_interface::{
         event::{encode_output_data, ProoflessOutput},
         pda,
     };
-    use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
-    use zolana_transaction::{
+    use spr_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+    use spr_transaction::{
         instructions::{
             merge::MergeTransaction as MergePlan,
             transact::{ConfidentialTransaction, SppProofInputs, SPP_SUPPORTED_SHAPES},
@@ -1065,7 +1065,7 @@ mod tests {
     };
 
     use super::*;
-    use zolana_client::rpc::{
+    use spr_client::rpc::{
         Context, GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsByTagsResponse, OutputContext, OutputSlot,
     };
@@ -2848,7 +2848,7 @@ mod tests {
             tx_signature: signature_for_slot(slot),
             event_index: Some(0),
             tx_viewing_pk: Some(
-                zolana_keypair::X25519Pubkey::from_bytes(external.tx_viewing_pk)
+                spr_keypair::X25519Pubkey::from_bytes(external.tx_viewing_pk)
                     .expect("tx viewing pk"),
             ),
             salt: Some(external.salt),
@@ -2902,7 +2902,7 @@ mod tests {
                     tree_id: TEST_TREE_ID,
                     leaf_index: 0,
                 },
-                payload: zolana_event::encode_merge_output_data(zolana_event::MergeOutputDataRef {
+                payload: spr_event::encode_merge_output_data(spr_event::MergeOutputDataRef {
                     salt: &prepared.output_ciphertext_salt,
                     ciphertext: &prepared.output_ciphertext,
                     prefix: &[],
@@ -2984,7 +2984,7 @@ mod tests {
         blinding[0] = 0;
         Utxo {
             owner: owner.signing_pubkey(),
-            asset: zolana_transaction::Mint {
+            asset: spr_transaction::Mint {
                 asset,
                 asset_id: if asset == SOL_MINT { 1 } else { 2 },
             },

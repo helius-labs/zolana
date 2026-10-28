@@ -22,8 +22,8 @@ use solana_account::Account;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_account_checks::AccountError;
-use zolana_interface::{
+use spr_account_checks::AccountError;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
         CircuitId, InterfaceTransfer, TransactIxData, TransactProof,
@@ -31,12 +31,12 @@ use zolana_interface::{
     pda, N_PUBLIC_SLOTS, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_ACCOUNT_LEN,
     SPL_TOKEN_ACCOUNT_STATE_OFFSET,
 };
-use zolana_program::instruction::{
+use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplWithdrawalAccounts,
 };
-use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};
+use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};
 
 /// SOL-withdrawal-shaped (negative public amount) transact data with a zeroed
 /// proof: the payer/settlement account checks under test fire during account

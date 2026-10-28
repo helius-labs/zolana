@@ -1,5 +1,5 @@
 use pinocchio::ProgramResult;
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError, instruction::instruction_data::transact::InterfaceTransfer,
 };
 

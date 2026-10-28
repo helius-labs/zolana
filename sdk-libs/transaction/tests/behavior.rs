@@ -1,4 +1,4 @@
-use zolana_transaction::{Data, DataRecord, TransactionError};
+use spr_transaction::{Data, DataRecord, TransactionError};
 
 #[test]
 fn memo_round_trips_and_is_readable() {

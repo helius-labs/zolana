@@ -1,22 +1,22 @@
-# zolana-program
+# spr-program
 
 The SDK for Solana programs built on the shielded pool (SPP). It has three parts:
 
-- **Instructions.** The crate re-exports [`zolana-instruction`](../instruction): the SPP
+- **Instructions.** The crate re-exports [`spr-instruction`](../instruction): the SPP
   instruction builders, the `transact` CPI (feature `cpi`), and the SPP derivations a Solana
   program recomputes. Without features the crate is `no_std` and builds for SBF.
 - **Compressed accounts.** `compression` keeps a pinocchio program's state as SPP UTXOs that
   one of its PDAs owns, and creates, updates and reads them through a `transact` CPI.
 - **ZK programs.** A program with its own Groth16 circuit, whose proof shares `private_tx_hash`
-  with the SPP transaction it CPIs. A `circuit` fn written in the DSL of `zolana_program::circuit` runs
+  with the SPP transaction it CPIs. A `circuit` fn written in the DSL of `spr_program::circuit` runs
   twice:
   - natively on the client, where it builds the SPP transaction's inputs and outputs;
   - as R1CS in the prover, where it checks the constraints and the public hash.
 
   The circuits are arkworks 0.6 R1CS over BN254. The DSL, the prover and the core derives
-  come from [`zolana-zk-dsl`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/dsl), the gadgets from
-  [`zolana-zk-gadgets`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/gadgets), and the UTXO derives from
-  [`zolana-macros`](../macros). This crate re-exports all of them at the paths below.
+  come from [`spr-zk-dsl`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/dsl), the gadgets from
+  [`spr-zk-gadgets`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/gadgets), and the UTXO derives from
+  [`spr-macros`](../macros). This crate re-exports all of them at the paths below.
 
 The ZK program part implements [`docs.md`](docs.md); [`tests/invariants/`](tests/invariants) states what
 each protocol type guarantees and which tests cover it. The builtins' invariants live with the
@@ -32,7 +32,7 @@ No feature is on by default.
 
 | Feature | Contents |
 | --- | --- |
-| none | `no_std`: the `zolana-instruction` re-export and `CompressedProof`. |
+| none | `no_std`: the `spr-instruction` re-export and `CompressedProof`. |
 | `cpi` | The SPP `transact` instruction as a signed CPI from a pinocchio program. |
 | `compression` | Compressed accounts for pinocchio programs (implies `cpi`). |
 | `circuit` | The DSL, `conversion`, `hasher`, the input and UTXO types, `ConfidentialTransaction` and R1CS synthesis. Needs `std`. |
@@ -64,7 +64,7 @@ verifies ZK program proofs. Its client enables `client`, and a key setup needs `
 4. `src/verifier/` is committed. It holds `mod.rs` and, per program, `<program>.rs` with its
    `PublicInputs`, their `hash`, and a `Verifier` with a `verify` method, and `<program>.vk.rs` with the verifying key. The
    export build enables the crate's `r1cs-export` feature, declared as
-   `r1cs-export = ["zolana-program/r1cs-export"]`, and the crate gates `pub mod verifier;` and
+   `r1cs-export = ["spr-program/r1cs-export"]`, and the crate gates `pub mod verifier;` and
    the code that uses it with `#[cfg(not(feature = "r1cs-export"))]`, so the export compiles
    without the generated files. A program in the same crate calls
    `crate::verifier::<program>::Verifier { ... }.verify()`, another crate
@@ -81,10 +81,10 @@ nothing of the protocol; this crate holds the protocol and re-exports everything
 
 | Crate | Holds |
 | --- | --- |
-| [`zolana-zk-dsl`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/dsl) | The builtins (`CircuitVar`, `Bool`, `Uint`, `Bytes`, `Assert`, `Select`), the `Circuit` and `CircuitType` traits, `ProofInput`, `FromCircuit`, `Allocator`, `Records`, the errors, `ZkCircuit`, `CompressedProof`, and the prover: `Groth16Prover`, the Groth16 types, zkeys and the R1CS synthesis. |
-| [`zolana-zk-gadgets`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/gadgets) | `poseidon`, `nonzero_hash_chain`, `is_in`/`assert_in`, `one_hot`/`select_index`, `HashBytes`. |
-| `zolana-keypair` (feature `circuit`) | The owner circuit types and how a `ShieldedAddress` enters a circuit. |
-| `zolana-transaction` (feature `circuit`) | The asset and UTXO circuit types and how a `Mint` and a `WalletUtxo` enter a circuit. |
+| [`spr-zk-dsl`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/dsl) | The builtins (`CircuitVar`, `Bool`, `Uint`, `Bytes`, `Assert`, `Select`), the `Circuit` and `CircuitType` traits, `ProofInput`, `FromCircuit`, `Allocator`, `Records`, the errors, `ZkCircuit`, `CompressedProof`, and the prover: `Groth16Prover`, the Groth16 types, zkeys and the R1CS synthesis. |
+| [`spr-zk-gadgets`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/gadgets) | `poseidon`, `nonzero_hash_chain`, `is_in`/`assert_in`, `one_hot`/`select_index`, `HashBytes`. |
+| `spr-keypair` (feature `circuit`) | The owner circuit types and how a `ShieldedAddress` enters a circuit. |
+| `spr-transaction` (feature `circuit`) | The asset and UTXO circuit types and how a `Mint` and a `WalletUtxo` enter a circuit. |
 
 In this crate, modules are grouped by the phase that uses them:
 
@@ -98,11 +98,11 @@ In this crate, modules are grouped by the phase that uses them:
 | `wasm/` | The wasm bindings. |
 
 The public paths follow the same split. The crate root holds what the client and the prover
-use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what lies between.
+use, `spr_program::circuit` the DSL, and `spr_program::conversion` what lies between.
 
 ## Abstractions
 
-### `zolana_program`: client and prover
+### `spr_program`: client and prover
 
 | Name | What it is good for |
 | --- | --- |
@@ -132,7 +132,7 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | `VerifyingKeyExport` | Where `export_verifying_key` writes the `VERIFYINGKEY` constant: the output directory, filename and setup kind. The digest is computed from the key object. The file comes from groth16-solana's generator. Keys from the local setup are `InsecureTest`. Only a validated ceremony zkey import can be exported as `Production`; the digest pins its serialized key. |
 | `SolanaVerifyingKey` | The verifying key in the groth16-solana layout, from an arkworks `VerifyingKey`. It converts into the `Groth16Verifyingkey` that `verify_groth16` takes. |
 
-### `zolana_program::circuit`: the DSL
+### `spr_program::circuit`: the DSL
 
 **Values and hashing**
 
@@ -176,7 +176,7 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | --- | --- |
 | `TxContext` | The transaction settings in circuit form, the output tree as a `Uint<16>`. `check` derives the output blindings and `private_tx_blinding` from them and the first spent input's nullifier, and selects the output tree. |
 | `PublicInputs` | Hashes a circuit's public fields, then the transfer-aware `transaction_hash`, into the public hash. The generated verifier derives it from the SPP private hash and the actual public transfers. |
-| `ConfidentialTransaction<P>` | The transaction's inputs and outputs registered with `with(item)`, with no SPP shape. `TransactionItem` registers token UTXOs, typed or raw-hash state UTXOs, unique state UTXOs, and `NewAddress` reservations. Inputs are stably ordered with real inputs before dummies; outputs retain registration order. Padding is compact by default; `with_dummy_padding()` preserves dummy input slots and publishes dummy padding. `check` refuses value that a transfer moved into or out of a UTXO the transaction does not contain, blinds and hashes the outputs, a trailing `TokenUtxos` output of zero as an empty UTXO, and computes `private_tx_hash` and the public hash. The client places each empty output in its slot with `zolana_transaction`'s `add_empty_output_utxo`. |
+| `ConfidentialTransaction<P>` | The transaction's inputs and outputs registered with `with(item)`, with no SPP shape. `TransactionItem` registers token UTXOs, typed or raw-hash state UTXOs, unique state UTXOs, and `NewAddress` reservations. Inputs are stably ordered with real inputs before dummies; outputs retain registration order. Padding is compact by default; `with_dummy_padding()` preserves dummy input slots and publishes dummy padding. `check` refuses value that a transfer moved into or out of a UTXO the transaction does not contain, blinds and hashes the outputs, a trailing `TokenUtxos` output of zero as an empty UTXO, and computes `private_tx_hash` and the public hash. The client places each empty output in its slot with `spr_transaction`'s `add_empty_output_utxo`. |
 | `CheckedTransaction` | What `check` returns: the public hash, `private_tx_hash` and the slots. |
 | `Circuit` | Defines `type Output: CircuitOutput` and `fn circuit(&self) -> Result<Self::Output, CircuitError>`. Used for both standalone constraints and transaction programs. |
 | `CircuitOutput` | Sealed output contract. `()` adds no public inputs; a `PublicHashOutput`, such as `CheckedTransaction`, binds its public hash to one public input. The SDK owns the allocation and equality constraints for these outputs. |
@@ -189,7 +189,7 @@ use, `zolana_program::circuit` the DSL, and `zolana_program::conversion` what li
 | `FailedConstraint` | The first failing row and its innermost label. |
 | `CircuitSize` | Constraints and public and private variables, for comparing a proof's synthesis with the placeholder's. |
 
-### `zolana_program::testing` (feature `test-support`)
+### `spr_program::testing` (feature `test-support`)
 
 | Name | What it is good for |
 | --- | --- |
@@ -209,7 +209,7 @@ and passes their circuit variables to the gadget. For example, a field square
 root is supplied as an input and constrained by its square:
 
 ```rust
-use zolana_program::{circuit::CircuitVar, CircuitError};
+use spr_program::{circuit::CircuitVar, CircuitError};
 
 #[track_caller]
 fn assert_square_root(
@@ -288,7 +288,7 @@ Set `#![deny(unused_must_use, unused_variables, unused_assignments)]`,
 crates or modules. Use `#[deny(clippy::disallowed_types)]` on circuit impls and
 gadgets to apply the collection restrictions in [`clippy.toml`](clippy.toml).
 
-### `zolana_program::conversion`: between the two
+### `spr_program::conversion`: between the two
 
 Everything the derives generate goes through these, and each can be written by hand.
 
@@ -303,7 +303,7 @@ Everything the derives generate goes through these, and each can be written by h
 | `Records` | What a `CircuitVar` cannot hold, keyed by hash: addresses, `Mint`s and spent UTXOs. |
 | `field`, `field_bytes`, `to_bytes` | SDK bytes to circuit values and back. |
 
-### `zolana_program::hasher` (feature `circuit`)
+### `spr_program::hasher` (feature `circuit`)
 
 | Name | What it is good for |
 | --- | --- |
@@ -312,7 +312,7 @@ Everything the derives generate goes through these, and each can be written by h
 | `data_hash`, `unique_data_hash` | A data UTXO's data hash under the `DATA` and `UNIQ` domains: a state or an addressed state. |
 | `ToByteArray` | A value as the 32 bytes a hash takes. |
 
-`zolana_program::EncryptionCodec` (feature `circuit`) defines a state's encryption plaintext
+`spr_program::EncryptionCodec` (feature `circuit`) defines a state's encryption plaintext
 and reconstructs the state after decryption. `UtxoState` generates a complete Borsh-backed
 codec by default. Use `#[utxo_state(custom_codec)]` and implement the trait to encode a
 smaller payload without changing ordinary Borsh serialization. The SDK checks that the
@@ -320,7 +320,7 @@ payload reconstructs the original commitment before accepting an output, and ver
 the UTXO commitment after decoding. Reconstruction uses only the payload; custom
 decoders must reject malformed and trailing bytes. See the [encryption payload example](docs.md#utxo).
 
-### `zolana_program::program` (feature `compression`)
+### `spr_program::program` (feature `compression`)
 
 A compressed account is a UTXO a program PDA owns whose data hash commits to the program's
 plaintext state. The PDA's nullifier key is zero, so the program recomputes the UTXO hash
@@ -359,12 +359,12 @@ Rules a program keeps:
   never signs transact data a client built.
 - The state hash commits to its type tag; the SDK wraps it with `UNIQ` and the address.
 
-### `zolana_program::wasm` (feature `wasm`)
+### `spr_program::wasm` (feature `wasm`)
 
 The bindings a ZK program's wasm module exports to JavaScript, which `zolana zk compile`
 builds with wasm-pack: `ProgramTransaction`, `FinalizedTransaction` and `DataUtxo` as
 TypeScript types and a `<name>Transaction` function per program. The rest is the zk DSL's
-wasm runtime (`zolana_zk_dsl::wasm`), shared with standalone circuits: a `<Name>Prover` per
+wasm runtime (`spr_zk_dsl::wasm`), shared with standalone circuits: a `<Name>Prover` per
 program from a proving key or a zkey (feature `wasm-prover`) whose `prove` returns a `Proof`
 with `publicInputs` (a program has one, its public hash), `verifyProof` (feature
 `wasm-verify`), and `initProverThreads`, which starts a thread pool sized to the core count
@@ -394,7 +394,7 @@ stateDiagram-v2
     Inputs --> Native : create_program_transaction instantiates natively
     Native --> Checked : circuit, then check
     Checked --> Refused : a rule breaks or a slot does not resolve
-    Checked --> Program : resolve slots, finalize with zolana_transaction
+    Checked --> Program : resolve slots, finalize with spr_transaction
     Program --> SppProver : the finalized transaction, encrypted
     [*] --> Prover : new_with_test_setup from the placeholder, or new with loaded keys
     Program --> R1cs : the proof inputs
@@ -412,7 +412,7 @@ stateDiagram-v2
 
 `create_program_transaction` instantiates the inputs natively, which runs the range checks and
 fills the records. It then runs `circuit`, resolves each slot of the `CheckedTransaction`
-against the records and converts the amounts. `zolana_transaction` finalizes the SPP
+against the records and converts the amounts. `spr_transaction` finalizes the SPP
 transaction, which pads to the smallest SPP shape that fits and is encrypted before the SPP
 proof, and its `padding_independent_private_tx_hash` must equal the circuit's. A broken rule
 or a slot without a record stops it with a named `CircuitError` or `ClientError`.
@@ -455,9 +455,9 @@ was built with, the others their inputs' asset.
 ## Tests
 
 ```bash
-just test-zolana-program-unit       # the unit suite
-just test-zolana-program-release    # the scenario suites and the macro tests, in release
-just test-zolana-program-external   # the unit suite with the circom, snarkjs and Picus checks
+just test-spr-program-unit       # the unit suite
+just test-spr-program-release    # the scenario suites and the macro tests, in release
+just test-spr-program-external   # the unit suite with the circom, snarkjs and Picus checks
 just check-wasm                     # the wasm32 builds
 just test-zk-program-wasm           # the wasm module in Chromium
 ```

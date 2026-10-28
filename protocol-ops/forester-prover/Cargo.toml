@@ -1,5 +1,5 @@
 [package]
-name = "zolana-forester-prover"
+name = "spr-forester-prover"
 version = "0.1.0"
 publish = false
 description = "Batch nullifier-tree proofs with existing gnark keys, locally through Go FFI or over HTTP."
@@ -24,7 +24,7 @@ solana-address = { workspace = true }
 solana-bn254 = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-interface = { workspace = true }
-zolana-merkle-tree = { workspace = true }
-zolana-tree = { workspace = true, features = ["verify"] }
+spr-hasher = { workspace = true }
+spr-interface = { workspace = true }
+spr-merkle-tree = { workspace = true }
+spr-tree = { workspace = true, features = ["verify"] }

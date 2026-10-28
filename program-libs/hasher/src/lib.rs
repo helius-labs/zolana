@@ -1,4 +1,4 @@
-//! # zolana-hasher
+//! # spr-hasher
 //!
 //! Trait for generic hash function usage on Solana.
 //!

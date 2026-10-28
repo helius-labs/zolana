@@ -3,14 +3,14 @@ mod wallet_common;
 use std::collections::HashMap;
 
 use proptest::{prelude::*, test_runner::TestCaseError};
+use spr_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+#[cfg(feature = "parallel")]
+use spr_test_utils::wallet::SyncReport;
+use spr_test_utils::wallet::Wallet;
+use spr_transaction::{AssetRegistry, ShieldedTransaction, Utxo};
 use wallet_common::{
     build_transfer, keypair_from_index, local_authority, unique31, unique_nullifier, TransferSpec,
 };
-use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
-#[cfg(feature = "parallel")]
-use zolana_test_utils::wallet::SyncReport;
-use zolana_test_utils::wallet::Wallet;
-use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo};
 
 const NUM_CPS: usize = 3;
 const WINDOW: u64 = 8;

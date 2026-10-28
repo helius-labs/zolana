@@ -3,7 +3,7 @@ use pinocchio::{
     error::ProgramError,
     AccountView,
 };
-use zolana_interface::{error::ShieldedPoolError, state::ProtocolConfig};
+use spr_interface::{error::ShieldedPoolError, state::ProtocolConfig};
 
 use crate::instructions::shared::{load_config, load_config_mut};
 

@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput};
-use zolana_keypair::X25519Pubkey;
+use spr_event::{EncryptedRingDepositOutput, MessageData, OutputDataEncoding, ProoflessOutput};
+use spr_keypair::X25519Pubkey;
 
 use crate::{
     error::TransactionError,

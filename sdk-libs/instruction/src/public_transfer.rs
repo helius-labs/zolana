@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_hasher::{primitives::hash_bytes, Hasher, HasherError, Poseidon};
+use spr_hasher::{primitives::hash_bytes, Hasher, HasherError, Poseidon};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PublicTransfer {

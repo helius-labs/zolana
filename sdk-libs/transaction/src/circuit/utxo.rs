@@ -1,11 +1,11 @@
-use zolana_interface::DUMMY_DOMAIN;
+use spr_interface::DUMMY_DOMAIN;
 
-use zolana_keypair::circuit::UtxoOwner;
-use zolana_zk_dsl::{
+use spr_keypair::circuit::UtxoOwner;
+use spr_zk_dsl::{
     circuit::{constant, zero, Assert, Bool, CircuitType, CircuitVar, Uint},
     CircuitError,
 };
-use zolana_zk_gadgets::{poseidon, HashBytes};
+use spr_zk_gadgets::{poseidon, HashBytes};
 
 use super::SolanaAddress;
 
@@ -31,7 +31,7 @@ pub struct UtxoMeta {
     /// Client-supplied nullifier metadata, not derived or verified by this circuit.
     /// The first input is bound through transaction blinding; later nullifiers
     /// are bound by the SPP proof through the shared private transaction hash.
-    /// Public only for the zolana-program protocol circuits; application
+    /// Public only for the spr-program protocol circuits; application
     /// authorization must not depend on carried values.
     #[doc(hidden)]
     pub nullifier: CircuitVar,

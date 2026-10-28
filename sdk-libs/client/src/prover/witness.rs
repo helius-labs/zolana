@@ -10,8 +10,8 @@
 //! become: slots in, complete witnesses out. Moving it to the server later is
 //! then a change of implementation rather than of every call site.
 
-use zolana_interface::pda;
-use zolana_transaction::utxo::SppProofInputUtxo;
+use spr_interface::pda;
+use spr_transaction::utxo::SppProofInputUtxo;
 
 use crate::{
     error::ClientError,

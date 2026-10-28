@@ -3,7 +3,7 @@
 use ark_bn254::Fr;
 use ark_ff::One;
 use serde_json::json;
-use zolana_transaction::Mint;
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{balance, Balance, TOKEN, TRANSFER, WITHDRAW},

@@ -36,10 +36,10 @@ struct CycleEnv {
 /// tree, and fund the recipient owner.
 fn phase_bootstrap() -> TestResult<CycleEnv> {
     restart_localnet();
-    spawn_workspace_prover(zolana_client::IndexerRequirement::Required);
+    spawn_workspace_prover(spr_client::IndexerRequirement::Required);
 
-    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
-    let indexer_url = zolana_test_utils::localnet::localnet_indexer_url();
+    let rpc_url = spr_test_utils::localnet::localnet_rpc_url();
+    let indexer_url = spr_test_utils::localnet::localnet_indexer_url();
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
@@ -286,14 +286,14 @@ fn phase_shielded_transfer(
     let change_output = real_output(
         payer_utxo.owner,
         payer_nullifier_pk,
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         CHANGE_AMOUNT,
         [13u8; 31],
     );
     let recipient_output = real_output(
         recipient_public_key,
         recipient_nullifier_pk,
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         TRANSFER_AMOUNT,
         [17u8; 31],
     );
@@ -394,7 +394,7 @@ fn phase_shielded_transfer(
 
     let recipient_utxo = Utxo {
         owner: recipient_public_key,
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_blinding,
         ring_program_id: None,

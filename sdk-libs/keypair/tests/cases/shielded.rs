@@ -1,4 +1,4 @@
-use zolana_keypair::{
+use spr_keypair::{
     hash::owner_hash, random_salt, CompressedShieldedAddress, Curve, KeypairError, ShieldedAddress,
     ShieldedKeypair, SigningKey, ViewingKey, SHIELDED_ADDRESS_LEN,
 };
@@ -105,7 +105,7 @@ pub(crate) fn solana_signer_matches_solana_keypair() {
     );
 
     assert!(shielded
-        .try_sign_message(zolana_keypair::derivation::ED25519_DERIVATION_MSG)
+        .try_sign_message(spr_keypair::derivation::ED25519_DERIVATION_MSG)
         .is_err());
 }
 

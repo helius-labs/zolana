@@ -1,8 +1,8 @@
-use zolana_hasher::{sha256::Sha256BE, Hasher};
-use zolana_instruction::{
+use spr_hasher::{sha256::Sha256BE, Hasher};
+use spr_instruction::{
     ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::{
         instruction_data::transact::{
             CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OwnerTag,
@@ -441,8 +441,8 @@ fn external_data_hash_matches_canonical_parity_fixture() {
     assert_eq!(
         got,
         [
-            0, 48, 136, 56, 248, 74, 7, 219, 225, 215, 128, 219, 102, 69, 164, 92, 241, 44, 41, 83,
-            226, 123, 73, 163, 68, 187, 120, 91, 46, 124, 56, 8,
+            0, 241, 140, 64, 223, 18, 254, 5, 208, 212, 96, 255, 89, 111, 117, 81, 207, 114, 100,
+            237, 144, 148, 195, 56, 187, 158, 14, 80, 49, 252, 205, 76,
         ]
     );
 }

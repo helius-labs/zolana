@@ -4,15 +4,15 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     transaction_size, ComputeBudgetConfig, MergeProver, ProverClient, ProverExt, SpendProof,
 };
-use zolana_interface::error::ShieldedPoolError;
-use zolana_program::instruction::MergeTransact;
-use zolana_program_test::Rejection;
-use zolana_smart_account_client::execute_sync_ix;
-use zolana_transaction::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, Utxo, WalletUtxo};
-use zolana_user_registry_interface::{
+use spr_interface::error::ShieldedPoolError;
+use spr_program::instruction::MergeTransact;
+use spr_program_test::Rejection;
+use spr_smart_account_client::execute_sync_ix;
+use spr_transaction::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, Utxo, WalletUtxo};
+use spr_user_registry_interface::{
     instruction::{register, set_merge_encryption, RegisterData},
     user_record_pda, MergeEncryptionScheme,
 };
@@ -139,7 +139,7 @@ impl LifecycleHarness {
                 )
             })
             .collect::<Result<Vec<_>>>()?;
-        let transaction = zolana_transaction::instructions::merge::MergeTransaction::new(notes)?
+        let transaction = spr_transaction::instructions::merge::MergeTransaction::new(notes)?
             .with_output_tree_id(tree_id)
             .encrypt(&keypair)?;
         let total = transaction.output_utxo.amount;
@@ -378,7 +378,7 @@ impl LifecycleHarness {
             )),
             Err(error) => {
                 let client_error = error
-                    .downcast_ref::<zolana_client::ClientError>()
+                    .downcast_ref::<spr_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 Rejection::pool(ShieldedPoolError::MergeEncryptionSchemeMismatch)
                     .at(0)
@@ -415,7 +415,7 @@ impl LifecycleHarness {
             )),
             Err(error) => {
                 let client_error = error
-                    .downcast_ref::<zolana_client::ClientError>()
+                    .downcast_ref::<spr_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
                     .at(0)

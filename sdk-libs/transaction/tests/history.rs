@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_transaction::{
+use spr_transaction::{
     History, HistoryKind, Mint, OutputContext, OutputSlot, ShieldedTransaction, WalletUtxo,
 };
 

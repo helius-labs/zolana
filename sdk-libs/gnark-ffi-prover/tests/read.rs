@@ -1,5 +1,5 @@
-use zolana_client::{MerkleContext, MerkleProof, NonInclusionProof};
-use zolana_gnark_ffi_prover::utxo_read_proof_inputs;
+use spr_client::{MerkleContext, MerkleProof, NonInclusionProof};
+use spr_gnark_ffi_prover::utxo_read_proof_inputs;
 
 fn value(n: u8) -> [u8; 32] {
     let mut bytes = [0u8; 32];

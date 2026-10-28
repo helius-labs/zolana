@@ -1,4 +1,4 @@
-use zolana_interface::DUMMY_DOMAIN;
+use spr_interface::DUMMY_DOMAIN;
 
 use super::{utxo_domain, Amount, Balance, HasBalance, Output, SpentInput, Utxo, UtxoTrait};
 use crate::{
@@ -148,7 +148,7 @@ impl TokenUtxos {
         let mut asset = inputs
             .first()
             .map(|input| input.asset.clone())
-            .unwrap_or_else(|| SolanaAddress::constant(&zolana_transaction::SOL_MINT));
+            .unwrap_or_else(|| SolanaAddress::constant(&spr_transaction::SOL_MINT));
         let mut has_real = Bool::constant(false);
         let mut dummies = Vec::with_capacity(inputs.len());
         let mut amounts = Vec::with_capacity(inputs.len());

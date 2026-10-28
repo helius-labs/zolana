@@ -1,9 +1,9 @@
-use wincode::{SchemaRead, SchemaWrite};
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use zolana_program::hasher::{DataHasher, HasherError};
+use spr_program::hasher::{DataHasher, HasherError};
+use wincode::{SchemaRead, SchemaWrite};
 
 pub const ACCOUNT_DATA_DOMAIN: &[u8; 42] = b"zolana:compression-example:account-data:v1";
 

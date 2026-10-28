@@ -1,4 +1,4 @@
-use zolana_keypair::{
+use spr_keypair::{
     derivation::{
         ed25519_derivation_message, expand_roles, is_derivation_input, DERIVATION_PAYLOAD_PREFIX,
         DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1, DOM_SEP_KEY, DOM_SEP_NONCE,

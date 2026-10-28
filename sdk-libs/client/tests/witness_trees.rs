@@ -30,12 +30,12 @@ use std::{
 
 use serde_json::{json, Value};
 use solana_address::Address;
-use zolana_client::{
+use spr_client::{
     AsyncWitnessReader, AsyncZolanaIndexer, ClientError, InputWitnesses, WitnessReader,
     ZolanaIndexer, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_interface::pda;
-use zolana_transaction::utxo::SppProofInputUtxo;
+use spr_interface::pda;
+use spr_transaction::utxo::SppProofInputUtxo;
 
 /// Two trees whose inputs alternate. Fetching per tree and concatenating
 /// returns tree 7's two witnesses first, which `attach_input_proofs` would then
@@ -189,7 +189,7 @@ fn blocking_transaction_proofs_fetch_all_tree_proofs_concurrently() {
     });
 
     let mut inputs = interleaved_inputs();
-    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    let owner = spr_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
     for input in &mut inputs {
         input.utxo.owner = owner;
     }
@@ -371,13 +371,13 @@ fn write_response(stream: &mut TcpStream, body: &Value) {
 #[test]
 fn address_only_transactions_fetch_non_inclusion_from_each_named_tree() {
     let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
-    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    let owner = spr_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
     let inputs: Vec<_> = [(7, 1u8), (9, 2), (7, 3)]
         .into_iter()
         .map(|(tree, seed)| {
             SppProofInputUtxo::new_address(
                 owner,
-                zolana_hasher::primitives::right_align(&[seed]),
+                spr_hasher::primitives::right_align(&[seed]),
                 tree,
             )
             .unwrap()
@@ -401,7 +401,7 @@ fn address_only_transactions_fetch_non_inclusion_from_each_named_tree() {
 #[tokio::test]
 async fn async_address_only_transaction_fetches_its_tree() {
     let indexer = AsyncZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
-    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    let owner = spr_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
     let input = SppProofInputUtxo::new_address(owner, [0; 32], 7).unwrap();
     let witnesses = indexer
         .transaction_proofs(std::slice::from_ref(&input), None)
@@ -422,7 +422,7 @@ async fn async_address_only_transaction_fetches_its_tree() {
 #[test]
 fn incomplete_transaction_proofs_report_each_kind_separately() {
     let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::ExtraProof));
-    let owner = zolana_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
+    let owner = spr_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
     let mut spend = input(0, 7, 1);
     spend.utxo.owner = owner;
     let address = SppProofInputUtxo::new_address(owner, [0; 32], 7).unwrap();

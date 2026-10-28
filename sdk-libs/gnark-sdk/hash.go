@@ -27,7 +27,7 @@ func Poseidon(api frontend.API, inputs ...frontend.Variable) frontend.Variable {
 	return gadget.PoseidonHash(api, inputs)
 }
 
-// HashBytes is zolana_hasher's hash_bytes of a fixed-length byte string, one
+// HashBytes is spr_hasher's hash_bytes of a fixed-length byte string, one
 // variable per byte: 31-byte big-endian chunks folded left to right.
 // Bit checks, the std range checker adds a BSB22 commitment.
 func HashBytes(api frontend.API, bytes []frontend.Variable) frontend.Variable {

@@ -1,9 +1,9 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
-use zolana_client::Rpc;
-use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::ShieldedTransaction;
+use spr_client::Rpc;
+use spr_keypair::ShieldedKeypair;
+use spr_transaction::ShieldedTransaction;
 
 use crate::err;
 

@@ -25,14 +25,14 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{NonInclusionProof, SpendProof};
-use zolana_interface::{
+use spr_client::{NonInclusionProof, SpendProof};
+use spr_interface::{
     instruction::{encode_instruction, tag, CreateRingConfigData},
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::instruction::RingAssetDeposit;
-use zolana_program_test::RING_TEST_PROGRAM_ID;
-use zolana_transaction::{
+use spr_program::instruction::RingAssetDeposit;
+use spr_program_test::RING_TEST_PROGRAM_ID;
+use spr_transaction::{
     serialization::confidential::Confidential, ShieldedTransaction, Utxo, WalletUtxo,
 };
 
@@ -298,7 +298,7 @@ impl RingHarness {
 /// so the author re-derives the transaction viewing key and decrypts the slot at
 /// `slot_index == output position`.
 pub(crate) fn decode_output_blinding(
-    viewing_key: &zolana_keypair::ViewingKey,
+    viewing_key: &spr_keypair::ViewingKey,
     indexed: &ShieldedTransaction,
     slot_index: u32,
 ) -> Result<[u8; 32]> {
@@ -318,7 +318,7 @@ pub(crate) fn decode_output_blinding(
         .output_data()
         .ok_or_else(|| anyhow!("output slot {slot_index} undecodable"))?;
     let body = match &output_data {
-        zolana_event::OutputDataEncoding::Encrypted(blob) => blob
+        spr_event::OutputDataEncoding::Encrypted(blob) => blob
             .split_first()
             .map(|(_, body)| body)
             .ok_or_else(|| anyhow!("empty output blob"))?,

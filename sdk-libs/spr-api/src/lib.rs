@@ -5,7 +5,7 @@
 //! blocking `RpcClient` drives its nonblocking one. Requests go through an
 //! [`HttpClient`]: a `reqwest` client by default (the `reqwest` feature), or the application's own
 //! networking stack; a [`BlockingHttpClient`] is carried on the runtime's
-//! blocking pool. The `zolana-client` prover clients use the same traits.
+//! blocking pool. The `spr-client` prover clients use the same traits.
 
 #[cfg(feature = "reqwest")]
 use std::io::Read;
@@ -26,8 +26,7 @@ use http::{
     Method, StatusCode,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use zeroize::Zeroizing;
-use zolana_indexer_api::{
+use spr_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
         GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
@@ -35,8 +34,9 @@ use zolana_indexer_api::{
     },
     RpcMethod,
 };
+use zeroize::Zeroizing;
 
-pub use zolana_indexer_api::{
+pub use spr_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
@@ -200,7 +200,7 @@ impl HttpClient for OnBlockingPool {
     }
 }
 
-/// Sends the requests of a [`ZolanaApi`] and of the `zolana-client` async
+/// Sends the requests of a [`ZolanaApi`] and of the `spr-client` async
 /// prover client.
 pub trait HttpClient: fmt::Debug + Send + Sync {
     /// Send `request` and answer with the server's response, whatever its
@@ -211,7 +211,7 @@ pub trait HttpClient: fmt::Debug + Send + Sync {
     fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a>;
 }
 
-/// Sends the requests of a [`BlockingZolanaApi`] and of the `zolana-client`
+/// Sends the requests of a [`BlockingZolanaApi`] and of the `spr-client`
 /// blocking prover client.
 pub trait BlockingHttpClient: fmt::Debug + Send + Sync {
     /// As [`HttpClient::send`].
@@ -731,7 +731,7 @@ impl BlockingZolanaApi {
     }
 
     /// The API and the runtime it runs on, for a blocking client built over
-    /// this one's async calls, such as `zolana-client`'s blocking indexer.
+    /// this one's async calls, such as `spr-client`'s blocking indexer.
     pub fn into_parts(self) -> (ZolanaApi, Arc<BlockingRuntime>) {
         (self.api, self.runtime)
     }
@@ -1011,7 +1011,7 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
-    use zolana_indexer_api::{GET_ENCRYPTED_UTXOS_BY_TAGS, GET_MERKLE_PROOFS};
+    use spr_indexer_api::{GET_ENCRYPTED_UTXOS_BY_TAGS, GET_MERKLE_PROOFS};
 
     const NO_TRANSACTIONS: &str = r#"{"jsonrpc":"2.0","id":"test-account","result":{"context":{"blockTime":0,"slot":7},"transactions":[]}}"#;
 
@@ -1341,10 +1341,10 @@ mod tests {
         ));
         assert!(optional_limit(Some(1)).is_ok());
         assert!(matches!(
-            required_limit(zolana_indexer_api::PAGE_LIMIT + 1),
+            required_limit(spr_indexer_api::PAGE_LIMIT + 1),
             Err(ApiError::InvalidRequest { field: "limit", .. })
         ));
-        assert!(required_limit(zolana_indexer_api::PAGE_LIMIT).is_ok());
+        assert!(required_limit(spr_indexer_api::PAGE_LIMIT).is_ok());
     }
 
     #[test]

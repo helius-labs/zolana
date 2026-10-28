@@ -3,8 +3,8 @@
 //! actions tests use to drive the programs.
 //!
 //! Test-only. SDK users sync by querying the indexer for their tags and
-//! decrypting with `zolana_transaction::decrypt_spendable`, and build
-//! transactions with `zolana_transaction` and `zolana_client` directly.
+//! decrypting with `spr_transaction::decrypt_spendable`, and build
+//! transactions with `spr_transaction` and `spr_client` directly.
 
 pub mod actions;
 pub mod authority;

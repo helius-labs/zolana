@@ -1,8 +1,8 @@
 use serde_json::{json, Value};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_instruction::instruction::{CloseCache, CreateCache};
-use zolana_interface::{
+use spr_instruction::instruction::{CloseCache, CreateCache};
+use spr_interface::{
     instruction::{
         CacheAccess, CacheWrite, CircuitId, CreateCacheData, InputUtxo, OwnerTag, TransactIxData,
         TransactOutput, TransactProof, TreeContext,
@@ -343,7 +343,7 @@ fn cache_account_vector() -> Value {
         *utxo_hashes.get_mut(slot).expect("slot") = hash;
     }
     let account = CacheAccount {
-        discriminator: zolana_interface::state::discriminator::CACHE,
+        discriminator: spr_interface::state::discriminator::CACHE,
         bump: 254,
         tree_id: 0x0203u16.to_le_bytes(),
         expires_at: 1_800_000_000i64.to_le_bytes(),
@@ -370,7 +370,7 @@ fn cache_account_vector() -> Value {
 
 fn compute_cache_vectors() -> Value {
     json!({
-        "description": "Cache encodings the TypeScript SDK must reproduce: the create and close cache instructions, the cache PDA, the cache account layout, the cached input fields every owner-signed transfer publishes, the write binding of the transact external data hash, and the cached circuit selectors in transact instruction data. Regenerate with `cargo test -p zolana-program --test cache_vectors print_cache_vectors -- --ignored --nocapture`.",
+        "description": "Cache encodings the TypeScript SDK must reproduce: the create and close cache instructions, the cache PDA, the cache account layout, the cached input fields every owner-signed transfer publishes, the write binding of the transact external data hash, and the cached circuit selectors in transact instruction data. Regenerate with `cargo test -p spr-program --test cache_vectors print_cache_vectors -- --ignored --nocapture`.",
         "createCache": create_cache_vector(),
         "closeCache": close_cache_vectors(),
         "cachePdas": cache_pda_vectors(),

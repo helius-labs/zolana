@@ -1,11 +1,11 @@
 //! Post-instruction checks for `create_spl_interface` (registry + vault).
 
 use solana_pubkey::Pubkey;
-use zolana_interface::{
+use spr_interface::{
     pda,
     state::{discriminator::SPL_ASSET_REGISTRY, SplAssetCounter, SplAssetRegistry},
 };
-use zolana_program_test::ZolanaProgramTest;
+use spr_program_test::ZolanaProgramTest;
 
 const TOKEN_ACCOUNT_MINT_OFFSET: usize = 0;
 const TOKEN_ACCOUNT_OWNER_OFFSET: usize = 32;

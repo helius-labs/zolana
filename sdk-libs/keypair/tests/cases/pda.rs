@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_keypair::{
+use spr_keypair::{
     random_salt, Curve, KeypairError, NullifierKey, PublicKey, ShieldedKeypairTrait, ShieldedPda,
     ViewingKeyTrait,
 };

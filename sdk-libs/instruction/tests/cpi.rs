@@ -1,9 +1,9 @@
 #![cfg(feature = "cpi")]
 
 use pinocchio::{error::ProgramError, AccountView, Address};
-use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_instruction::cpi::{SppTransactAccounts, TransactAccountsError};
-use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
+use spr_account_checks::account_info::test_account_info::get_account_view;
+use spr_instruction::cpi::{SppTransactAccounts, TransactAccountsError};
+use spr_interface::SHIELDED_POOL_PROGRAM_ID;
 
 const PDA: [u8; 32] = [4u8; 32];
 

@@ -42,7 +42,7 @@ use crate::ingester::typedefs::block_info::{
 
 use crate::metric;
 use crate::monitor::{start_latest_slot_updater, LATEST_SLOT};
-use zolana_indexer_api::Hash;
+use spr_indexer_api::Hash;
 
 pub fn get_grpc_stream_with_rpc_fallback(
     endpoint: String,

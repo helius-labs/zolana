@@ -64,7 +64,7 @@ export function resolveRingProgramId(
 
 // The transact blinding family lives with the key material, next to the merge
 // derivations; it is re-exported here because callers reach for it beside the
-// UTXO hash it feeds, the way Rust re-exports `zolana_program::derivation`.
+// UTXO hash it feeds, the way Rust re-exports `spr_program::derivation`.
 export {
   outputBlindingSeed,
   privateTxBlinding,

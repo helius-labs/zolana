@@ -2,13 +2,13 @@ mod wallet_common;
 
 use std::time::{Duration, Instant};
 
+use spr_keypair::{viewing_key::ViewTag, ShieldedKeypair};
+use spr_test_utils::wallet::{SyncReport, Wallet, DEFAULT_TAG_WINDOW};
+use spr_transaction::{AssetRegistry, ShieldedTransaction, Utxo};
 use wallet_common::{
     build_transfer, keypair_from_index, local_authority, unique31, unique_nullifier, wallet_for,
     TransferSpec,
 };
-use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair};
-use zolana_test_utils::wallet::{SyncReport, Wallet, DEFAULT_TAG_WINDOW};
-use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo};
 
 const KNOWN_SENDERS: usize = 100;
 const KNOWN_RECIPIENTS: usize = 50;

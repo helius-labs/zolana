@@ -183,8 +183,8 @@ jobs:
           shared-key: zk-program
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - run: rustup target add wasm32-unknown-unknown
-      - run: just test-zolana-program-unit
-      - run: just test-zolana-program-release
+      - run: just test-spr-program-unit
+      - run: just test-spr-program-release
       - run: just check-wasm
 
   test-programs:
@@ -509,18 +509,19 @@ jobs:
           version: ${{ env.SBF_TOOLS_VERSION }}
       - run: just test-zk-standalone-program
 
+  # Disabled in CI; run `just coverage` to collect coverage locally.
   # Line/region coverage over the library and binary crates: the program-libs,
   # the SDK crates, the CLI, forester, and photon. Informational — it renders a
   # summary table into the run's job summary and uploads lcov/HTML reports, but
   # there is no `--fail-under-lines` gate yet; add one when the team picks a
   # target. The on-chain programs, the test/example crates, and xtask are
-  # excluded, and zolana-client is collected `--lib` only, so the job stays
+  # excluded, and spr-client is collected `--lib` only, so the job stays
   # hermetic — no prover, validator, or database. See tools/coverage-packages.py
   # for what is measured and why. Code executed inside the SVM is not measured.
   coverage:
     name: coverage (llvm-cov)
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    if: ${{ false }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: ./.github/actions/setup-rust

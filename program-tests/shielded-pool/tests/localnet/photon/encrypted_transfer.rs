@@ -15,10 +15,10 @@ fn shield_encrypted_transfer_eddsa_recovered_by_decryption() -> TestResult {
 
 fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     restart_localnet();
-    spawn_workspace_prover(zolana_client::IndexerRequirement::Required);
+    spawn_workspace_prover(spr_client::IndexerRequirement::Required);
 
-    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
-    let indexer_url = zolana_test_utils::localnet::localnet_indexer_url();
+    let rpc_url = spr_test_utils::localnet::localnet_rpc_url();
+    let indexer_url = spr_test_utils::localnet::localnet_indexer_url();
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
@@ -74,7 +74,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         assert_eq!((utxo.asset.asset, utxo.amount), (SOL_MINT, half));
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero, tree_id)?;
         let state = wait_for_merkle_proof(&indexer, tree_address, utxo_hash);
-        input_utxos.push(zolana_test_utils::utxo::wallet(
+        input_utxos.push(spr_test_utils::utxo::wallet(
             utxo,
             &sender.nullifier_key,
             tree_id,
@@ -107,7 +107,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     // The payer owns the inputs, so it signs as their owner as well.
     let owner_signers = proof_inputs.owner_signer_pubkeys()?;
     // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
-    let mut assembled = zolana_client::assemble(proof_inputs, &spend_proofs, &[])?;
+    let mut assembled = spr_client::assemble(proof_inputs, &spend_proofs, &[])?;
     let proof = assembled.prove(&ProverClient::local(), &sender)?;
     let ix_data = assembled.with_proof(proof);
 
@@ -126,7 +126,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         &[transfer_ix],
         &payer.pubkey(),
         &[&payer],
-        zolana_client::ComputeBudgetConfig::new(1_400_000),
+        spr_client::ComputeBudgetConfig::new(1_400_000),
     )?;
     print_signature("encrypted_transfer", &transfer_sig);
 

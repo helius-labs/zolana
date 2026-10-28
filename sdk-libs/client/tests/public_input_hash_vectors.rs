@@ -8,11 +8,11 @@
 //! fold from a left one.
 
 use serde::{Deserialize, Serialize};
-use zolana_client::{
+use spr_client::{
     prover::merge::{MergePublicInputBinding, MergePublicInputs},
     PublicInputs, PublicTransfers,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::MergeOutputEncryption,
     tree_slot::{tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, N_PUBLIC_SLOTS,
@@ -348,9 +348,9 @@ fn compute_vectors() -> PublicInputHashVectors {
                       Every value is a 32-byte big-endian hex string; nullifier, output hash and \
                       owner lists span the circuit width, with 0 for compact padding, and a \
                       published owner list shorter than the outputs is padded with 0. Transfers \
-                      are zolana_client::PublicInputs::hash; merges and ring_merges hash the \
+                      are spr_client::PublicInputs::hash; merges and ring_merges hash the \
                       MergeProver::build element order, ring_merges without the ciphertext. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs \
-                      print_public_input_hash_vectors: cargo test -p zolana-client --test \
+                      print_public_input_hash_vectors: cargo test -p spr-client --test \
                       public_input_hash_vectors print_public_input_hash_vectors -- --ignored \
                       --nocapture"
             .to_string(),

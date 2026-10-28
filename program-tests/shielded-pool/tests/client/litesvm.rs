@@ -11,22 +11,22 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     IndexerRequirement, MergeSubmission, ProofDataSource, ProverClient, Rpc,
     SignedPrivateTransaction, Submission,
 };
-use zolana_interface::{instruction::instruction_data::transact::OwnerTag, state::read_tree_id};
-use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_test_utils::prover::spawn_workspace_prover;
-use zolana_transaction::{
+use spr_interface::{instruction::instruction_data::transact::OwnerTag, state::read_tree_id};
+use spr_keypair::ShieldedKeypair;
+use spr_program_test::ZolanaProgramTest;
+use spr_test_utils::prover::spawn_workspace_prover;
+use spr_transaction::{
     instructions::{
         merge::MergeTransaction,
         transact::{ConfidentialTransaction, Shape},
     },
     WalletUtxo,
 };
-use zolana_user_registry_interface::{user_record_pda, UserRecord, USER_REGISTRY_PROGRAM_ID};
+use spr_user_registry_interface::{user_record_pda, UserRecord, USER_REGISTRY_PROGRAM_ID};
 
 /// A harness with a tree, and the tree's address and id.
 fn harness_with_tree() -> (ZolanaProgramTest, Pubkey, u16) {
@@ -219,7 +219,7 @@ fn write_merging_record(harness: &mut ZolanaProgramTest, owner: Pubkey, wallet: 
         bump,
         nullifier_pubkey: wallet.nullifier_key.pubkey().expect("nullifier pubkey"),
         viewing_pubkey: *wallet.viewing_pubkey().as_bytes(),
-        merge_encryption: zolana_user_registry_interface::MergeEncryptionScheme::PoseidonCtrV1,
+        merge_encryption: spr_user_registry_interface::MergeEncryptionScheme::PoseidonCtrV1,
     };
     let mut data = vec![UserRecord::DISCRIMINATOR];
     record.serialize(&mut data).expect("serialize the record");

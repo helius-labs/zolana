@@ -4,7 +4,7 @@ use crate::ingester::persist::leaf_node::leaf_index_to_node_index;
 use crate::metric;
 use cadence_macros::statsd_count;
 use log::info;
-use zolana_indexer_api::{Hash, SerializablePubkey};
+use spr_indexer_api::{Hash, SerializablePubkey};
 
 #[derive(Debug, Clone)]
 pub struct MerkleProofWithContext {

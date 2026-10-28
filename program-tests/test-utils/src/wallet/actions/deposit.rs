@@ -6,13 +6,13 @@ use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::instruction::{
+use spr_keypair::ShieldedAddress;
+use spr_program::instruction::{
     AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
-use zolana_transaction::{TransactionError, SOL_MINT};
+use spr_transaction::{TransactionError, SOL_MINT};
 
-use zolana_client::{
+use spr_client::{
     error::ClientError,
     rpc::{compile_message, AsyncRpc, ComputeBudgetConfig, Rpc},
 };
@@ -207,7 +207,7 @@ mod tests {
     use solana_hash::Hash;
     use solana_keypair::Keypair;
     use solana_transaction::versioned::VersionedTransaction;
-    use zolana_keypair::ShieldedKeypair;
+    use spr_keypair::ShieldedKeypair;
 
     use super::*;
 
@@ -287,7 +287,7 @@ mod tests {
             asset: SOL_MINT,
             amount: 1_000,
             spl_token_account: None,
-            spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+            spl_token_program: Some(spr_interface::pda::spl_token_program_id()),
             memo: None,
         })
         .expect("prepared deposit");
@@ -305,7 +305,7 @@ mod tests {
             asset: SOL_MINT,
             amount: 1_000,
             spl_token_account: None,
-            spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+            spl_token_program: Some(spr_interface::pda::spl_token_program_id()),
             memo: None,
         })
         .expect("prepared deposit");
@@ -340,7 +340,7 @@ mod tests {
             amount: 1_000,
             memo: None,
             spl_token_account: Some(user_token),
-            spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+            spl_token_program: Some(spr_interface::pda::spl_token_program_id()),
         })
         .expect("prepared deposit");
 
@@ -351,7 +351,7 @@ mod tests {
             DepositAsset::Spl(DepositSplAccounts {
                 mint,
                 user_token,
-                token_program: zolana_interface::pda::spl_token_program_id(),
+                token_program: spr_interface::pda::spl_token_program_id(),
             })
         );
     }

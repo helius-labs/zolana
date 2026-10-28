@@ -1,5 +1,5 @@
 use solana_program_error::ProgramError;
-use zolana_hasher::HasherError;
+use spr_hasher::HasherError;
 
 #[test]
 fn error_codes_are_stable() {

@@ -8,25 +8,25 @@ use num_bigint::BigUint;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{SolanaRpc, STATE_TREE_HEIGHT};
-use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
-use zolana_interface::{
+use spr_client::{SolanaRpc, STATE_TREE_HEIGHT};
+use spr_hasher::{primitives::solana_owner_identity, Poseidon};
+use spr_interface::{
     instruction::instruction_data::transact::InterfaceTransfer, pda, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
-use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use zolana_program::instruction::{
+use spr_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
+use spr_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use spr_program::instruction::{
     Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use zolana_program_test::{rpc_state_root, single_deposit_view, TestIndexer, ZolanaProgramTest};
-use zolana_transaction::{Data, Utxo, SOL_MINT};
+use spr_program_test::{rpc_state_root, single_deposit_view, TestIndexer, ZolanaProgramTest};
+use spr_transaction::{Data, Utxo, SOL_MINT};
 
 use shielded_pool_tests::support::localnet::{
     account_lamports, build_sol_transfer_witness, initialize_indexed_pool, on_chain_current_roots,
     print_signature, send_indexed, LocalnetPool, SolTransferWitness, SolTransferWitnessArgs,
 };
 
-use zolana_test_utils::transact::{
+use spr_test_utils::transact::{
     change_and_dummy_outputs, dummy_input, nullifier_tree, public_sol_field, real_output,
     single_tree_slots, sol_leg, transfer_input, transfer_output, TransferInputArgs,
 };
@@ -102,9 +102,9 @@ struct UnshieldOutcome {
 /// Boot the prover, connect to the local validator, create the pool, and fund
 /// the recipient owner.
 fn phase_setup() -> TestResult<SolCycle> {
-    zolana_test_utils::prover::spawn_workspace_prover(zolana_client::IndexerRequirement::Required);
+    spr_test_utils::prover::spawn_workspace_prover(spr_client::IndexerRequirement::Required);
 
-    let rpc_url = zolana_test_utils::localnet::localnet_rpc_url();
+    let rpc_url = spr_test_utils::localnet::localnet_rpc_url();
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
@@ -177,7 +177,7 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
         .deposit_utxo(
             &shield_view.utxo_hash,
             payer_owner,
-            zolana_transaction::SOL_ASSET_ID,
+            spr_transaction::SOL_ASSET_ID,
         )
         .map_err(|err| anyhow!("indexed deposit UTXO: {err:?}"))?;
     assert_eq!(
@@ -247,14 +247,14 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     let change_output = real_output(
         shielded.utxo.owner,
         shielded.nullifier_pk,
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         CHANGE_AMOUNT,
         [13u8; 31],
     );
     let recipient_output = real_output(
         recipient_public_key,
         recipient_nullifier_pk,
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         TRANSFER_AMOUNT,
         [17u8; 31],
     );
@@ -348,7 +348,7 @@ fn phase_unshield(
 
     let recipient_utxo = Utxo {
         owner: transferred.public_key,
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: TRANSFER_AMOUNT,
         blinding: transferred.blinding,
         ring_program_id: None,

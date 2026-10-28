@@ -1,11 +1,11 @@
 use anyhow::Result;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::{TransactProof, TreeContext},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::instruction::nullifier_pda_accounts;
+use spr_program::instruction::nullifier_pda_accounts;
 
 use crate::{account_address, account_pda, err, shared::DEFAULT_TREE_ID, tag, CreateIxData};
 

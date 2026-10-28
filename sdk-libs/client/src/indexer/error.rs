@@ -16,29 +16,29 @@ const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 /// response lost while reading its body.
 ///
 /// The message comes from `ApiError`'s display, which masks the `api-key`.
-pub fn indexer_error(error: zolana_api::ApiError) -> ClientError {
+pub fn indexer_error(error: spr_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
         #[cfg(feature = "reqwest")]
-        zolana_api::ApiError::Request(error)
+        spr_api::ApiError::Request(error)
             if error.is_timeout() || error.is_connect() || error.is_request() =>
         {
             ClientError::IndexerUnavailable(message)
         }
-        zolana_api::ApiError::HttpClient(_) | zolana_api::ApiError::ResponseLost(_) => {
+        spr_api::ApiError::HttpClient(_) | spr_api::ApiError::ResponseLost(_) => {
             ClientError::IndexerUnavailable(message)
         }
-        zolana_api::ApiError::Response { status, .. }
+        spr_api::ApiError::Response { status, .. }
             if status == http::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() =>
         {
             ClientError::IndexerUnavailable(message)
         }
-        zolana_api::ApiError::JsonRpc {
+        spr_api::ApiError::JsonRpc {
             method,
             code: Some(JSON_RPC_METHOD_NOT_FOUND),
             ..
         } => ClientError::UnsupportedRpcMethod(method),
-        zolana_api::ApiError::JsonRpc {
+        spr_api::ApiError::JsonRpc {
             code: Some(JSON_RPC_INTERNAL_ERROR),
             ..
         } => ClientError::IndexerUnavailable(message),
@@ -65,19 +65,19 @@ mod tests {
         let error = reqwest::Client::new().get(url).send().await.unwrap_err();
         assert!(error.is_request() && !error.is_timeout() && !error.is_connect());
         assert!(matches!(
-            indexer_error(zolana_api::ApiError::Request(error)),
+            indexer_error(spr_api::ApiError::Request(error)),
             ClientError::IndexerUnavailable(_)
         ));
     }
 
     #[test]
     fn retries_a_custom_client_that_got_no_response() {
-        let error = indexer_error(zolana_api::ApiError::HttpClient("offline".into()));
+        let error = indexer_error(spr_api::ApiError::HttpClient("offline".into()));
         assert!(
             matches!(&error, ClientError::IndexerUnavailable(message) if message.contains("offline")),
             "{error:?}"
         );
-        let error = indexer_error(zolana_api::ApiError::ResponseLost("reset".into()));
+        let error = indexer_error(spr_api::ApiError::ResponseLost("reset".into()));
         assert!(
             matches!(&error, ClientError::IndexerUnavailable(message) if message.contains("reset")),
             "{error:?}"
@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn a_custom_client_failure_keeps_the_api_key_out() {
-        let error = indexer_error(zolana_api::ApiError::HttpClient(
+        let error = indexer_error(spr_api::ApiError::HttpClient(
             "connect error for https://gw/v1?api-key=SECRET".into(),
         ));
         let message = error.to_string();

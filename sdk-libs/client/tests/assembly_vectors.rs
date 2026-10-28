@@ -21,8 +21,8 @@
 //!   including the dummy slot.
 //! - `assemble_outputs`: `output_hashes` and `private_tx_output_hashes`
 //!   separately, because they are not the same vector.
-//! - `SppProofInputs::message_hash()` (zolana-transaction) against `sha256` of
-//!   the `private_tx_hash` zolana-client assembled followed by the external
+//! - `SppProofInputs::message_hash()` (spr-transaction) against `sha256` of
+//!   the `private_tx_hash` spr-client assembled followed by the external
 //!   data hash, the cross-crate agreement
 //!   `validate_authorization` depends on.
 //!
@@ -50,15 +50,15 @@ use crate::{
 };
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_client::{
+use spr_client::{
     assemble, prover::field::be, MerkleContext, MerkleProof, NonInclusionProof, ProofAuthority,
     SpendProof, TransferProofResult, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_interface::instruction::instruction_data::transact::{TransactIxData, TransactProof};
-use zolana_keypair::{hash::sha256, ShieldedKeypair, SigningKey};
-use zolana_transaction::instructions::transact::SppProofInputs;
-use zolana_transaction::utxo::SppProofInputUtxo;
-use zolana_transaction::{
+use spr_interface::instruction::instruction_data::transact::{TransactIxData, TransactProof};
+use spr_keypair::{hash::sha256, ShieldedKeypair, SigningKey};
+use spr_transaction::instructions::transact::SppProofInputs;
+use spr_transaction::utxo::SppProofInputUtxo;
+use spr_transaction::{
     instructions::transact::PrivateTxHash, Data, Mint, SppProofOutputUtxo, Utxo,
 };
 
@@ -314,7 +314,7 @@ fn dummy_output_fixture() -> SppProofInputs {
 fn spend_proof() -> SpendProof {
     let context = MerkleContext {
         tree_type: 1,
-        tree: zolana_interface::pda::tree(TREE_ID),
+        tree: spr_interface::pda::tree(TREE_ID),
     };
     SpendProof {
         state: MerkleProof {
@@ -621,7 +621,7 @@ fn pinned_input_and_output_vectors_rebuild_the_pinned_private_tx_hash() {
 // Cross-crate agreement.
 // ---------------------------------------------------------------------------
 
-/// `SppProofInputs::message_hash()` in zolana-transaction and the digest
+/// `SppProofInputs::message_hash()` in spr-transaction and the digest
 /// `AnonymousRingEddsaProver::build` derives from the assembled `private_tx_hash`
 /// must stay bit-identical: `validate_authorization` checks a signature against
 /// the second and the wallet signs the first.

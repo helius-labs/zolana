@@ -7,20 +7,18 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_event_parser::indexed_events_from_instruction_groups;
-use zolana_interface::{
+use spr_event_parser::indexed_events_from_instruction_groups;
+use spr_interface::{
     error::ShieldedPoolError, instruction::EncryptedRingDepositData, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::random_blinding;
-use zolana_program::instruction::{
+use spr_keypair::random_blinding;
+use spr_program::instruction::{
     AssetDeposit, Deposit, DepositAsset, DepositSplAccounts, RingAssetDeposit, RingDeposit,
 };
-use zolana_program_test::{
+use spr_program_test::{
     ring_deposit_output_from_event, test_blinding, Rejection, RING_TEST_PROGRAM_ID,
 };
-use zolana_transaction::{
-    owner_utxo_hash, serialization::RingDepositPlaintext, Data, Utxo, SOL_MINT,
-};
+use spr_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext, Data, Utxo, SOL_MINT};
 
 use super::{RingDepositRecord, RingHarness, SplRingDepositAccounts};
 use crate::{
@@ -121,7 +119,7 @@ impl RingHarness {
         let owner = self.actor(name).keypair.signing_pubkey();
         self.actor_mut(name).spendable.push(Utxo {
             owner,
-            asset: zolana_transaction::Mint::SOL,
+            asset: spr_transaction::Mint::SOL,
             amount,
             blinding,
             ring_program_id: None,
@@ -144,7 +142,7 @@ impl RingHarness {
             DepositAsset::Spl(DepositSplAccounts {
                 mint: spl.mint,
                 user_token: spl.user_token,
-                token_program: zolana_interface::pda::spl_token_program_id(),
+                token_program: spr_interface::pda::spl_token_program_id(),
             }),
         )?;
         let ix = Deposit {
@@ -198,7 +196,7 @@ impl RingHarness {
         let ring = Address::new_from_array(self.ring_program_id.to_bytes());
         let utxo = Utxo {
             owner,
-            asset: zolana_transaction::Mint::SOL,
+            asset: spr_transaction::Mint::SOL,
             amount,
             blinding,
             ring_program_id: Some(ring),
@@ -243,7 +241,7 @@ impl RingHarness {
             DepositAsset::Spl(DepositSplAccounts {
                 mint,
                 user_token,
-                token_program: zolana_interface::pda::spl_token_program_id(),
+                token_program: spr_interface::pda::spl_token_program_id(),
             }),
         )?;
         let ix = RingDeposit {

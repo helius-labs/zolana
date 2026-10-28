@@ -6,11 +6,11 @@ use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_keypair::{
+use spr_keypair::{
     viewing_key::ViewTag, x25519::X25519_PUBKEY_LEN, PublicKey, ShieldedAddress, ShieldedKeypair,
     X25519Pubkey,
 };
-use zolana_user_registry_interface::{
+use spr_user_registry_interface::{
     instruction::{register, set_merge_encryption, update_keys, RegisterData, UpdateKeysData},
     user_record_pda, user_registry_program_id, MergeEncryptionScheme, UserRecord,
 };
@@ -567,8 +567,8 @@ mod tests {
     use solana_account::Account;
     use solana_keypair::Keypair;
     use solana_signer::Signer;
-    use zolana_keypair::{ShieldedKeypair, SigningKey};
-    use zolana_user_registry_interface::user_registry_program_id;
+    use spr_keypair::{ShieldedKeypair, SigningKey};
+    use spr_user_registry_interface::user_registry_program_id;
 
     use super::*;
 
@@ -810,7 +810,7 @@ mod tests {
         assert_eq!(message.static_account_keys().first(), Some(&owner));
         assert_eq!(
             registry_instruction_tag(&message),
-            zolana_user_registry_interface::instruction::discriminator::UPDATE_KEYS
+            spr_user_registry_interface::instruction::discriminator::UPDATE_KEYS
         );
 
         let current = registry_holding(owner, fields(&address));
@@ -1121,7 +1121,7 @@ mod tests {
         // Tag 0 = register (first user-registry instruction tag).
         assert_eq!(
             ensure_registered_ix_tag(&rpc),
-            zolana_user_registry_interface::instruction::discriminator::REGISTER
+            spr_user_registry_interface::instruction::discriminator::REGISTER
         );
     }
 
@@ -1162,7 +1162,7 @@ mod tests {
         );
         assert_eq!(
             ensure_registered_ix_tag(&rpc),
-            zolana_user_registry_interface::instruction::discriminator::UPDATE_KEYS
+            spr_user_registry_interface::instruction::discriminator::UPDATE_KEYS
         );
     }
 
@@ -1201,7 +1201,7 @@ mod tests {
         assert!(matches!(outcome, StrictRegistration::Written(_)));
         assert_eq!(
             ensure_registered_ix_tag(&rpc),
-            zolana_user_registry_interface::instruction::discriminator::REGISTER
+            spr_user_registry_interface::instruction::discriminator::REGISTER
         );
     }
 

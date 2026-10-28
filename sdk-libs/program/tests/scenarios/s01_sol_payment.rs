@@ -1,9 +1,9 @@
-use zolana_keypair::{ShieldedAddress, ViewingKey};
-use zolana_program::{
+use spr_keypair::{ShieldedAddress, ViewingKey};
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -28,7 +28,7 @@ pub(crate) struct PaymentPublicInputs {
     pub(crate) recipient: ShieldedAddress,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Payment {}
+impl spr_program::circuit::CircuitType for circuit::Payment {}
 
 impl ProofInput for Payment {
     type Circuit = circuit::Payment;
@@ -69,7 +69,7 @@ impl Placeholder for Payment {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoOwner, UtxoTrait,

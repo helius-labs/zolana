@@ -1,17 +1,17 @@
 use solana_pubkey::Pubkey;
-use zolana_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
-use zolana_interface::{
+use spr_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
+use spr_instruction::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
+};
+use spr_interface::{
     instruction::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
         TransactProof, TreeContext,
     },
     MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
-use zolana_keypair::ViewingKey;
-use zolana_program::instruction::{
-    Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
-};
-use zolana_transaction::{
+use spr_keypair::ViewingKey;
+use spr_transaction::{
     instructions::transact::{canonical_shape, MAX_SPEND_INPUTS},
     serialization::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},

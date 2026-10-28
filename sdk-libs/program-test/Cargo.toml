@@ -1,22 +1,24 @@
 [package]
-name = "zolana-program-test"
-version = "0.23.0"
+name = "spr-program-test"
+version = "0.1.0"
 description = "Reusable LiteSVM program-test environment for Zolana development."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+publish = ["crates-io"]
+
 [features]
 default = []
 # `localnet`: boot a surfpool validator and Photon through the `zolana` CLI and
 # talk to them with the RPC and indexer clients.
-localnet = ["zolana-client/client"]
+localnet = ["spr-client/client"]
 # Resolve the shielded-pool .so via SHIELDED_POOL_PROGRAM_PATH (env var or
 # absolute path passed at construction time). The default search path is
 # `<workspace>/target/deploy/shielded_pool_program.so`.
 
 [dependencies]
-zolana-protocol-instructions = { workspace = true }
+spr-protocol-instructions = { workspace = true }
 base64 = { workspace = true }
 litesvm = { workspace = true }
 num-bigint = { workspace = true }
@@ -34,16 +36,16 @@ solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-error = { workspace = true }
 thiserror = { workspace = true }
-zolana-client = { workspace = true }
-zolana-interface = { workspace = true }
-zolana-program = { workspace = true }
-zolana-event = { workspace = true }
-zolana-event-parser = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-merkle-tree = { workspace = true }
-zolana-tree = { workspace = true }
+spr-client = { workspace = true }
+spr-interface = { workspace = true }
+spr-instruction = { workspace = true }
+spr-event = { workspace = true }
+spr-event-parser = { workspace = true }
+spr-keypair = { workspace = true }
+spr-transaction = { workspace = true }
+spr-hasher = { workspace = true }
+spr-merkle-tree = { workspace = true }
+spr-tree = { workspace = true }
 
 [[test]]
 name = "indexer_events"

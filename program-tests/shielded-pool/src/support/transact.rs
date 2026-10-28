@@ -3,15 +3,15 @@
 
 use solana_account::Account;
 use solana_pubkey::Pubkey;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_test_utils::prover::spawn_workspace_prover;
-use zolana_tree::TreeAccount;
+use spr_program_test::ZolanaProgramTest;
+use spr_test_utils::prover::spawn_workspace_prover;
+use spr_tree::TreeAccount;
 
 pub use super::fixtures::Pool;
 
 /// Start the workspace prover and return an initialized pool backend.
 pub fn proof_env() -> Pool {
-    spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
+    spawn_workspace_prover(spr_client::IndexerRequirement::Optional);
     Pool::initialized()
 }
 

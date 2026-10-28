@@ -1,11 +1,13 @@
 [package]
-name = "zolana-hasher"
-version = "5.0.0"
+name = "spr-hasher"
+version = "0.1.1"
 description = "Trait for generic usage of hash functions on Solana"
 readme = "README.md"
 repository.workspace = true
 license.workspace = true
 edition = "2021"
+
+publish = ["crates-io"]
 
 [features]
 default = ["std"]

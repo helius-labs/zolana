@@ -1,8 +1,8 @@
 //! `zolana zk` and `zolana build-zk-program` over the circuit crate build of
-//! the zk DSL (`zolana_program::build`).
+//! the zk DSL (`spr_program::build`).
 
 use anyhow::{anyhow, Result};
-use zolana_program::{
+use spr_program::{
     build::{
         self, BuildError, BuildOptions, CompileOptions, ExportVerifierOptions, ImportOptions,
         PackageSelection, SbfOptions, SetupOptions, WasmTarget,

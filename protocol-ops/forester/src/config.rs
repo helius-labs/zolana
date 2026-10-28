@@ -53,11 +53,11 @@ impl ForesterConfig {
     }
 
     /// Local keys select in-process proving; otherwise use the configured service.
-    pub fn prover(&self) -> Result<zolana_forester_prover::ProverClient> {
+    pub fn prover(&self) -> Result<spr_forester_prover::ProverClient> {
         if let Some(keys) = &self.proving_keys_dir {
-            Ok(zolana_forester_prover::ProverClient::local(keys.clone())?)
+            Ok(spr_forester_prover::ProverClient::local(keys.clone())?)
         } else {
-            Ok(zolana_forester_prover::ProverClient::new(
+            Ok(spr_forester_prover::ProverClient::new(
                 self.require_prover_url()?.to_owned(),
             )?)
         }
@@ -154,7 +154,7 @@ mod local_proving_tests {
         };
         assert!(matches!(
             config.prover().unwrap().proof_data_source(),
-            zolana_forester_prover::indexed::ProofDataSource::Client
+            spr_forester_prover::indexed::ProofDataSource::Client
         ));
     }
 }

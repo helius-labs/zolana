@@ -8,7 +8,7 @@ use sea_orm::{
     TransactionTrait,
 };
 use solana_signature::SIGNATURE_BYTES;
-use zolana_indexer_api::{
+use spr_indexer_api::{
     GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
     PAGE_LIMIT,
 };

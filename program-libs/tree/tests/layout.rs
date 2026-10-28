@@ -1,6 +1,6 @@
 use core::mem::{offset_of, size_of};
 
-use zolana_tree::{
+use spr_tree::{
     nullifier_tree::{
         batch::Batch,
         constants::NULLIFIER_TREE_ZKP_BATCHES,

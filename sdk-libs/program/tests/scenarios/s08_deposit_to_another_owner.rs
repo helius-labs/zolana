@@ -1,10 +1,10 @@
 use solana_address::Address;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
+use spr_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -30,7 +30,7 @@ struct DepositPublicInputs {
     amount: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Deposit {}
+impl spr_program::circuit::CircuitType for circuit::Deposit {}
 
 impl ProofInput for Deposit {
     type Circuit = circuit::Deposit;
@@ -73,7 +73,7 @@ impl Placeholder for Deposit {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             PublicInputs, SolanaAddress, TokenUtxos, TxContext, Uint, Utxo, UtxoOwner, UtxoTrait,
@@ -105,7 +105,7 @@ mod circuit {
             let tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
             let mut deposit = TokenUtxos::new_init(
                 &self.public.recipient,
-                &SolanaAddress::constant(&zolana_transaction::SOL_MINT),
+                &SolanaAddress::constant(&spr_transaction::SOL_MINT),
             );
             deposit.deposit(&self.public.amount, &private.source)?;
 

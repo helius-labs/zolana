@@ -1,11 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_address::Address;
-use zolana_keypair::ViewingKey;
-use zolana_program::{
+use spr_keypair::ViewingKey;
+use spr_program::{
     hasher::{data_hash, unique_data_hash, DataHasher, Hasher, HasherError, Poseidon},
     DataUtxo, ProgramOwner,
 };
-use zolana_transaction::{Mint, SppProofOutputUtxo};
+use spr_transaction::{Mint, SppProofOutputUtxo};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 struct State {
@@ -14,7 +14,7 @@ struct State {
 
 impl DataHasher for State {
     fn hash(&self) -> Result<[u8; 32], HasherError> {
-        Poseidon::hashv(&[&zolana_hasher::primitives::right_align(
+        Poseidon::hashv(&[&spr_hasher::primitives::right_align(
             &self.value.to_be_bytes(),
         )])
     }
@@ -56,7 +56,7 @@ fn ordinary_and_addressed_state_decode_with_their_respective_hash_domains() {
     assert!(DataUtxo::<State>::try_from(owner.input(&tampered, 0, 2).unwrap()).is_err());
 }
 
-impl zolana_program::EncryptionCodec for State {
+impl spr_program::EncryptionCodec for State {
     fn serialize_for_encryption(&self) -> std::io::Result<Vec<u8>> {
         borsh::to_vec(self)
     }

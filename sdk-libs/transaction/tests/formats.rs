@@ -1,9 +1,9 @@
 mod common;
 
 use common::{keypair, wallet_utxo};
-use zolana_event::{OutputDataEncoding, ProoflessOutput};
-use zolana_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN};
-use zolana_transaction::{
+use spr_event::{OutputDataEncoding, ProoflessOutput};
+use spr_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN};
+use spr_transaction::{
     serialization::{
         anonymous::{
             AnonymousRecipient, AnonymousSenderBundle, AnonymousTransferRecipientPlaintext,
@@ -464,14 +464,14 @@ fn plaintext_encoder_rejects_unknown_duplicate_reordered_and_gapped_positions() 
     let mut widest = plaintext();
     widest.sender = None;
     let recipient = widest.recipient_slots.first().unwrap().clone();
-    widest.recipient_slots = vec![recipient.clone(); zolana_interface::MAX_OUTPUTS];
+    widest.recipient_slots = vec![recipient.clone(); spr_interface::MAX_OUTPUTS];
     assert_eq!(
         widest
             .clone()
             .into_utxos(&[1; 32], &assets, None)
             .unwrap()
             .len(),
-        zolana_interface::MAX_OUTPUTS
+        spr_interface::MAX_OUTPUTS
     );
     widest.recipient_slots.push(recipient);
     assert_eq!(
@@ -662,7 +662,7 @@ fn ring_deposit_recovers_all_optional_records_and_reproduces_the_commitment() {
             let mut bytes = wincode::serialize(&plaintext).unwrap();
             bytes.push(0);
             let tx = keypair(55).viewing_key;
-            let malformed = zolana_event::EncryptedRingDepositData {
+            let malformed = spr_event::EncryptedRingDepositData {
                 tx_viewing_pk: *tx.pubkey().as_bytes(),
                 salt: [7; 16],
                 ciphertext: tx
@@ -763,7 +763,7 @@ fn data_and_payload_lengths_match_literal_little_endian_layouts() {
 
 #[test]
 fn encoders_publish_the_expected_envelope_and_scheme_with_decodable_bodies() {
-    use zolana_transaction::serialization::{
+    use spr_transaction::serialization::{
         anonymous::{AnonymousRecipientEncode, AnonymousSenderEncode},
         confidential::ConfidentialEncode,
     };

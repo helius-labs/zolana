@@ -1,10 +1,12 @@
 [package]
-name = "zolana-indexer-api"
+name = "spr-indexer-api"
 version = "0.1.0"
 description = "Shared JSON-RPC contract for the Zolana indexer."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+
+publish = ["crates-io"]
 
 [features]
 default = []

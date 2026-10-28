@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, process::Command};
 
 use sha2::{Digest, Sha256};
-use zolana_program::{Groth16Keys, ProvingKey, VerifyingKey};
+use spr_program::{Groth16Keys, ProvingKey, VerifyingKey};
 
 #[test]
 fn export_checks_the_pinned_key_before_writing_a_verifier() {

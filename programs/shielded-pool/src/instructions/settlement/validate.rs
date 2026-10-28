@@ -5,7 +5,7 @@ use pinocchio::{
     AccountView,
 };
 use spl_token_2022_interface::{extension::PodStateWithExtensions, pod::PodAccount};
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError, SHIELDED_POOL_CPI_AUTHORITY, SOL_INTERFACE, SPL_INTERFACE_PDA_SEED,
     SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_ACCOUNT_INITIALIZED, SPL_TOKEN_PROGRAM_ID,
 };
@@ -71,7 +71,7 @@ pub(crate) fn validate_sol_settlement(
     {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
-    Ok(zolana_interface::SOL_INTERFACE_BUMP)
+    Ok(spr_interface::SOL_INTERFACE_BUMP)
 }
 
 #[inline(always)]

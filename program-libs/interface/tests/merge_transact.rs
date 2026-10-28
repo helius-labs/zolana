@@ -1,4 +1,4 @@
-use zolana_interface::instruction::{
+use spr_interface::instruction::{
     instruction_data::merge_transact::{
         MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeTransactIxData,
         MergeTransactIxDataRef, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,

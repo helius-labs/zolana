@@ -7,9 +7,9 @@ use http::{
     header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
     Method, StatusCode,
 };
+use spr_api::{ApiError, HttpRequest};
 use url::Url;
 use zeroize::Zeroizing;
-use zolana_api::{ApiError, HttpRequest};
 
 #[cfg(feature = "reqwest")]
 use crate::prover::endpoint::scrub;
@@ -246,7 +246,7 @@ pub(crate) fn transport_error(error: ApiError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_prover_tee::FixtureProver;
+    use spr_prover_tee::FixtureProver;
 
     use crate::prover::tee::{FixtureSession, NitroFixture, TeePolicy};
 

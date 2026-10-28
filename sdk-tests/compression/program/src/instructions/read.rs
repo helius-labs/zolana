@@ -4,13 +4,13 @@ use groth16_solana::{
 };
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
-use wincode::{SchemaRead, SchemaWrite};
-use zolana_account_checks::AccountIterator;
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_program::{
+use spr_account_checks::AccountIterator;
+use spr_hasher::{Hasher, Poseidon};
+use spr_program::{
     program::{PdaOwner, ReadRoots, UtxoMeta},
     CompressedProof,
 };
+use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{
     error::{compressed_account_error, CompressionError},

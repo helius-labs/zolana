@@ -4,13 +4,13 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     assemble, transaction_size, ComputeBudgetConfig, ProverClient, Shape, SpendProof,
 };
-use zolana_keypair::PublicKey;
-use zolana_program::instruction::Transact;
-use zolana_transaction::instructions::transact::ConfidentialTransaction;
-use zolana_transaction::{
+use spr_keypair::PublicKey;
+use spr_program::instruction::Transact;
+use spr_transaction::instructions::transact::ConfidentialTransaction;
+use spr_transaction::{
     serialization::confidential::Confidential, Data, ShieldedTransaction, SppProofOutputUtxo, Utxo,
     WalletUtxo, SOL_MINT,
 };
@@ -406,7 +406,7 @@ impl LifecycleHarness {
 }
 
 pub(crate) fn decode_output_blinding(
-    viewing_key: &zolana_keypair::ViewingKey,
+    viewing_key: &spr_keypair::ViewingKey,
     indexed: &ShieldedTransaction,
     slot_index: u32,
 ) -> Result<[u8; 32]> {
@@ -426,7 +426,7 @@ pub(crate) fn decode_output_blinding(
         .output_data()
         .ok_or_else(|| anyhow!("output slot {slot_index} undecodable"))?;
     let body = match &output_data {
-        zolana_event::OutputDataEncoding::Encrypted(blob) => blob
+        spr_event::OutputDataEncoding::Encrypted(blob) => blob
             .split_first()
             .map(|(_, body)| body)
             .ok_or_else(|| anyhow!("empty output blob"))?,

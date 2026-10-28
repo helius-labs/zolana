@@ -1,9 +1,9 @@
 use anyhow::{bail, Result};
 use solana_signer::Signer;
-use zolana_client::user_registry::{register_if_absent, StrictRegistration};
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
-use zolana_transaction::Address;
-use zolana_user_registry_interface::{
+use spr_client::user_registry::{register_if_absent, StrictRegistration};
+use spr_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
+use spr_transaction::Address;
+use spr_user_registry_interface::{
     instruction::set_merge_encryption, user_record_pda, MergeEncryptionScheme,
 };
 

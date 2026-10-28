@@ -1,7 +1,7 @@
 //! Shared `transact` proof-wiring helpers: witness construction, prover
 //! round-trips used by the shielded-pool proof tests and the validator
 //! lifecycle harnesses. The public-input hash is NOT re-assembled here: callers
-//! use the canonical `zolana_client::PublicInputs::hash()`.
+//! use the canonical `spr_client::PublicInputs::hash()`.
 
 use anyhow::{anyhow, Context, Result};
 use groth16_solana::groth16::Groth16Verifier;
@@ -10,15 +10,15 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     prover::field::{be, right_align_slice},
     spawn_prover, CacheReadInputs, Proof, ProofCompressed, ProofInputUtxo, ProverClient, ProverExt,
     PublicInputs, PublicTransfers, TransferInput, TransferInputs, TransferOutput, TreeSlotFields,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
-use zolana_hasher::Poseidon;
-use zolana_interface::{
+use spr_hasher::primitives::{hash_bytes, solana_owner_identity};
+use spr_hasher::Poseidon;
+use spr_interface::{
     instruction::{
         instruction_data::transact::{
             CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, ResolvedOutput, TransactIxData,
@@ -36,17 +36,17 @@ use zolana_interface::{
     verifying_keys::{CacheAccess, CacheWrite, MAX_CACHE_WRITES},
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
 };
-use zolana_keypair::{
+use spr_keypair::{
     hash::owner_hash, NullifierKey, PublicKey, ShieldedAddress, ViewingKey, X25519Pubkey,
 };
-use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
-use zolana_merkle_tree::MerkleTree;
-use zolana_program::instruction::{
+use spr_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
+use spr_merkle_tree::MerkleTree;
+use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
 };
-use zolana_program::TransactExternalData;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{
+use spr_program::TransactExternalData;
+use spr_program_test::ZolanaProgramTest;
+use spr_transaction::{
     instructions::transact::PrivateTxHash,
     instructions::transact::{signed_magnitude_to_field, BN254_MODULUS_DEC},
     utxo::SppProofInputUtxo,
@@ -55,7 +55,7 @@ use zolana_transaction::{
     },
     SppProofOutputUtxo, Utxo,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 pub fn signed_to_field(value: i64) -> [u8; 32] {
     signed_magnitude_to_field(value >= 0, value.unsigned_abs())
@@ -472,7 +472,7 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         .collect();
     // Every helper here spends from the state tree, so the rail publishes the
     // empty cache selection; a cached spend builds its own.
-    let cache = zolana_client::CacheReadInputs::uncached(
+    let cache = spr_client::CacheReadInputs::uncached(
         empty_cached_input_fields(args.inputs.len()).expect("cache selection"),
     );
     TransferInputs {
@@ -540,7 +540,7 @@ fn expand_blinding(blinding: &[u8; 31]) -> [u8; 32] {
 pub fn real_output(
     signing_pubkey: PublicKey,
     nullifier_pubkey: [u8; 32],
-    asset: zolana_transaction::Mint,
+    asset: spr_transaction::Mint,
     amount: u64,
     blinding: [u8; 31],
 ) -> SppProofOutputUtxo {
@@ -581,7 +581,7 @@ pub fn change_and_dummy_outputs(
     let change = real_output(
         owner,
         change_nullifier_pk,
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         0,
         change_blinding,
     );
@@ -659,7 +659,7 @@ pub fn dummy_nullifier(blinding: &[u8; 31], tree_id: u16) -> Result<[u8; 32]> {
 /// own nullifier (see [`dummy_nullifier`]).
 pub fn dummy_input_with_proof(
     blinding: &[u8; 31],
-    non_inclusion: &zolana_client::NonInclusionProof,
+    non_inclusion: &spr_client::NonInclusionProof,
     tree_id: u16,
 ) -> Result<TransferInput> {
     let input_utxo = SppProofInputUtxo::dummy_with_blinding(expand_blinding(blinding), tree_id)?;
@@ -709,7 +709,7 @@ pub fn cached_spend_input(
     let nullifier_pk = nullifier_key.pubkey()?;
     let utxo = Utxo {
         owner,
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: 0,
         blinding: expand_blinding(blinding),
         ring_program_id: None,

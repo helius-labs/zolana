@@ -1,5 +1,5 @@
-use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
-use zolana_keypair::NullifierKey;
+use spr_hasher::{primitives::right_align, Hasher, Poseidon};
+use spr_keypair::NullifierKey;
 
 use crate::{error::TransactionError, utxo::derive_private_tx_blinding};
 

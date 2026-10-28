@@ -14,7 +14,7 @@
 //! `.so` binary.
 
 use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, tree_roots, Pool};
-use zolana_interface::state::cache::empty_cached_input_fields;
+use spr_interface::state::cache::empty_cached_input_fields;
 
 use borsh::BorshSerialize;
 use num_bigint::BigUint;
@@ -22,24 +22,24 @@ use solana_clock::Clock;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{PublicInputs, PublicTransfers, TransferInput, STATE_TREE_HEIGHT};
-use zolana_event::{OutputDataEncoding, ProoflessOutput};
-use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
-use zolana_interface::{
+use spr_client::{PublicInputs, PublicTransfers, TransferInput, STATE_TREE_HEIGHT};
+use spr_event::{OutputDataEncoding, ProoflessOutput};
+use spr_hasher::{primitives::solana_owner_identity, Poseidon};
+use spr_interface::{
     error::ShieldedPoolError, instruction::instruction_data::transact::InterfaceTransfer, pda,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
-use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use zolana_program::instruction::{
+use spr_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
+use spr_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };
-use zolana_program_test::Rejection;
-use zolana_transaction::{
+use spr_program_test::Rejection;
+use spr_transaction::{
     instructions::transact::PrivateTxHash, Data, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
-use zolana_test_utils::transact::{
+use spr_test_utils::transact::{
     build_spl_withdrawal, build_transfer_prover_inputs, change_and_dummy_outputs,
     derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output, external_data_hash,
     fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
@@ -95,7 +95,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
                 mint: other_mint,
                 spl_interface: pda::spl_interface(&other_mint),
                 user_token_account: other_user_token,
-                token_program: zolana_program_test::ZolanaProgramTest::token_program_id(),
+                token_program: spr_program_test::ZolanaProgramTest::token_program_id(),
             },
         )],
         data: substituted_data,
@@ -424,7 +424,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     let shielded_output = real_output(
         owner_public_key,
         nullifier_pk,
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         AMOUNT,
         [23u8; 31],
     );
@@ -629,11 +629,11 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
 
     let registry_data = env
         .rpc
-        .account_data(&zolana_interface::pda::spl_asset_registry(&mint))
+        .account_data(&spr_interface::pda::spl_asset_registry(&mint))
         .expect("asset registry");
-    let asset = zolana_transaction::Mint::new(
+    let asset = spr_transaction::Mint::new(
         mint,
-        zolana_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
+        spr_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
             .expect("asset registry")
             .asset_id,
     );
@@ -738,7 +738,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
                 spl_interface: vault,
                 token_authority: payer.pubkey(),
                 user_token_account: user_token,
-                token_program: zolana_program_test::ZolanaProgramTest::token_program_id(),
+                token_program: spr_program_test::ZolanaProgramTest::token_program_id(),
             },
         )],
         data,
@@ -934,14 +934,14 @@ fn phase_transfer_to_recipient(
     let mut change_output = real_output(
         payer_utxo.owner,
         payer_nullifier_pk,
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         CHANGE_AMOUNT,
         [13u8; 31],
     );
     let mut recipient_output = real_output(
         recipient_public_key,
         recipient_nullifier_pk,
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         TRANSFER_AMOUNT,
         [17u8; 31],
     );
@@ -1107,7 +1107,7 @@ fn phase_withdraw_recipient_utxo(
 
     let recipient_utxo = Utxo {
         owner: recipient_public_key,
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: TRANSFER_AMOUNT,
         blinding: recipient_output.blinding,
         ring_program_id: None,

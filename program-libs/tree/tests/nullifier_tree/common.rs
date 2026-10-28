@@ -1,6 +1,6 @@
 use core::mem::size_of;
 
-use zolana_tree::nullifier_tree::{error::NullifierTreeError, layout::NullifierTreeLayout};
+use spr_tree::nullifier_tree::{error::NullifierTreeError, layout::NullifierTreeLayout};
 
 pub fn init_tree_account_data<const ZKP_BATCHES: usize>(
     account_data: &mut [u8],

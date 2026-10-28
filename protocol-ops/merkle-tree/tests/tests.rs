@@ -1,5 +1,5 @@
-use zolana_hasher::{zero_bytes::poseidon::ZERO_BYTES, Hasher, Keccak, Poseidon, Sha256};
-use zolana_merkle_tree::MerkleTree;
+use spr_hasher::{zero_bytes::poseidon::ZERO_BYTES, Hasher, Keccak, Poseidon, Sha256};
+use spr_merkle_tree::MerkleTree;
 
 fn append<H>(canopy_depth: usize)
 where

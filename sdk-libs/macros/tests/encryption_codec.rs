@@ -1,13 +1,13 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_address::Address;
-use zolana_keypair::ViewingKey;
-use zolana_program::{
+use spr_keypair::ViewingKey;
+use spr_program::{
     circuit::{poseidon, CircuitType, CircuitVar, DataHash, UtxoData, UtxoState},
     conversion::{to_bytes, Allocator, ProofInput},
     hasher::{data_hash, unique_data_hash, DataHasher, Hasher, HasherError, Poseidon, ToByteArray},
     CircuitError, DataUtxo, EncryptionCodec, ProgramOwner,
 };
-use zolana_transaction::{Mint, SppProofOutputUtxo, WalletUtxo};
+use spr_transaction::{Mint, SppProofOutputUtxo, WalletUtxo};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
 #[utxo_state(custom_codec)]

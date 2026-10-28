@@ -1,7 +1,7 @@
 use crate::instructions::shared::caused_by;
 use pinocchio::{AccountView, ProgramResult};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{error::ShieldedPoolError, instruction::SetRingActivationData};
+use spr_account_checks::AccountIterator;
+use spr_interface::{error::ShieldedPoolError, instruction::SetRingActivationData};
 
 use crate::instructions::{
     protocol_config::loader::validate_ring_creation_authority,

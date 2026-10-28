@@ -159,7 +159,7 @@ SPEC_DIVERGENCE (resolved 2026-07-23): the spec's instruction table previously o
   - Location: `program-libs/interface/src/state/spl_asset_counter.rs:46-55` (`fn allocate_id`), `create_spl_interface/processor.rs:51-59`
   - Error: `ShieldedPoolError::InvalidSplAssetRegistry = 7011`
   - Severity: Critical (asset-id uniqueness)
-  - Suggested test: property (proptest over sequences) + positive; harness: `cargo test -p zolana-interface` + program-tests integration
+  - Suggested test: property (proptest over sequences) + positive; harness: `cargo test -p spr-interface` + program-tests integration
 
 - [x] **INV-CREATE-SPL-08: the counter must be initialized before use**
   - Covered by: `program-tests/shielded-pool/tests/spl_interface/rejection.rs` `spl_interface_creation_rejects_a_cosplay_counter_account`

@@ -24,16 +24,16 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     3. Go bridge: `go test ./...`.
     4. Remote-only build: `cargo check --no-default-features`.
     5. `forester`: `cargo test`.
-    6. `zolana-forester-prover`: `cargo test`.
-    7. `zolana-protocol-cli`: `cargo test`.
-    8. `zolana-protocol-instructions`: `cargo test`.
-    9. `zolana-smart-account-client`: `cargo test`.
-    10. `zolana-merkle-tree`: `cargo test`.
+    6. `spr-forester-prover`: `cargo test`.
+    7. `spr-protocol-cli`: `cargo test`.
+    8. `spr-protocol-instructions`: `cargo test`.
+    9. `spr-smart-account-client`: `cargo test`.
+    10. `spr-merkle-tree`: `cargo test`.
     11. Dependency boundaries: `just check-deps`.
-    12. `zolana-cli` consumer: `cargo check`.
-    13. `zolana-client` consumer: `cargo check`.
-    14. `zolana-program-test` consumer: `cargo check`.
-    15. `zolana-test-utils` consumer: `cargo check`.
+    12. `spr-cli` consumer: `cargo check`.
+    13. `spr-client` consumer: `cargo check`.
+    14. `spr-program-test` consumer: `cargo check`.
+    15. `spr-test-utils` consumer: `cargo check`.
     16. `shielded-pool-tests` consumer: `cargo check`.
     17. `spp-test-validator` consumer: `cargo check`.
     18. `ring-test-program` consumer: `cargo check`.
@@ -43,11 +43,11 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     22. `rfq-test` consumer: `cargo check`.
     23. `swap-test-validator` consumer: `cargo check`.
     24. `xtask` consumer: `cargo check`.
-    25. `zolana-tree`: `just test-tree`.
+    25. `spr-tree`: `just test-tree`.
     26. Batch prover binary: `just build-prover-server`.
     27. Pinned 40×10 key: `target/prover-server download`.
-    28. `zolana-forester-prover` local 40×10 proof: `cargo test --test local_batch_proof -- --ignored`.
-    29. `zolana-forester-prover` Redis 40×10 proof: `cargo test --no-default-features --test remote_batch_proof -- --ignored`.
+    28. `spr-forester-prover` local 40×10 proof: `cargo test --test local_batch_proof -- --ignored`.
+    29. `spr-forester-prover` Redis 40×10 proof: `cargo test --no-default-features --test remote_batch_proof -- --ignored`.
 
 2. [Rust workspace](workflows/rust.yml)
 
@@ -71,30 +71,30 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     3. Unused dependencies: `cargo machete`.
     4. Rust linting: `just clippy`.
     5. Workspace compilation: `just check-all`.
-    6. `zolana-cli`: `cargo nextest run`.
+    6. `spr-cli`: `cargo nextest run`.
     7. `xtask`: `cargo nextest run`.
-    8. `zolana-interface`: `cargo nextest run`.
-    9. `zolana-instruction`: `cargo nextest run`.
-    10. `zolana-protocol-instructions`: `cargo nextest run`.
+    8. `spr-interface`: `cargo nextest run`.
+    9. `spr-instruction`: `cargo nextest run`.
+    10. `spr-protocol-instructions`: `cargo nextest run`.
     11. `shielded-pool-program`: `cargo nextest run`.
     12. `shielded-pool-tests`: `cargo nextest run`.
-    13. `zolana-user-registry`: `cargo nextest run`.
+    13. `spr-user-registry`: `cargo nextest run`.
     14. `user-registry-tests`: `cargo nextest run`.
     15. `swap-program`: `cargo nextest run`.
-    16. `zolana-program-test`: `cargo nextest run`.
-    17. `zolana-program`: `cargo nextest run`, `cargo test`.
-    18. `zolana-keypair`: `cargo nextest run`, `cargo test --doc`.
-    19. `zolana-event-parser`: `cargo nextest run`.
-    20. `zolana-transaction`: `cargo nextest run`.
-    21. `zolana-client`: `cargo nextest run`, `cargo test --doc`.
-    22. `zolana-test-utils`: `cargo nextest run`.
-    23. `zolana-rpc-http`: `cargo nextest run`.
-    24. `zolana-gnark-ffi-prover`: `cargo nextest run`.
+    16. `spr-program-test`: `cargo nextest run`.
+    17. `spr-program`: `cargo nextest run`, `cargo test`.
+    18. `spr-keypair`: `cargo nextest run`, `cargo test --doc`.
+    19. `spr-event-parser`: `cargo nextest run`.
+    20. `spr-transaction`: `cargo nextest run`.
+    21. `spr-client`: `cargo nextest run`, `cargo test --doc`.
+    22. `spr-test-utils`: `cargo nextest run`.
+    23. `spr-rpc-http`: `cargo nextest run`.
+    24. `spr-gnark-ffi-prover`: `cargo nextest run`.
     25. `swap-prover`: `cargo nextest run`.
     26. `dynamic-swap-prover`: `cargo nextest run`.
     27. `sdk-libs/gnark-sdk`: `go test`.
-    28. `zolana-zk-standalone-fixture`: `cargo test`.
-    29. `zolana-macros`: `cargo test`.
+    28. `spr-zk-standalone-fixture`: `cargo test`.
+    29. `spr-macros`: `cargo test`.
     30. `timelock-escrow-program`: `cargo test`.
     31. `zk-tests`: `cargo nextest run`.
     32. Wasm compilation: `just check-wasm`.
@@ -128,9 +128,9 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     3. Package smoke test: `npm pack`, `tsc`, `node`.
     4. SDK e2e: `just test-ts-e2e`.
     5. Escrow e2e: `just test-escrow-ts`.
-    6. `zolana-program-wasm-test-program`: `cargo test`.
+    6. `spr-program-wasm-test-program`: `cargo test`.
     7. `sdk-libs/program/tests/wasm`: `npm test`.
-    8. `zolana-zk-standalone-fixture`: `cargo test`.
+    8. `spr-zk-standalone-fixture`: `cargo test`.
     9. Standalone Wasm: `node --test`.
 
 4. [Photon](workflows/photon.yml)
@@ -149,7 +149,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     1. PostgreSQL migrations: `cargo run --bin photon-migration`.
     2. OpenAPI generation: `cargo run --bin photon-openapi`.
     3. OpenAPI drift: `git diff --exit-code`.
-    4. `zolana-indexer-api`: `cargo test`.
+    4. `spr-indexer-api`: `cargo test`.
     5. `photon-indexer`: `cargo test`.
 
     Protocol-ops changes do not select this workflow.
@@ -181,7 +181,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     **Runs:**
 
     1. Changed-file filter: `git diff`.
-    2. `zolana-client` async transfer: `cargo nextest run`.
+    2. `spr-client` async transfer: `cargo nextest run`.
 
     The path gate skips the test for ops-only, TypeScript-only, and Markdown-only PRs outside `programs/`.
 

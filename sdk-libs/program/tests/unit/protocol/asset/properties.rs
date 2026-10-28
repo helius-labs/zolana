@@ -1,8 +1,8 @@
 use ark_bn254::Fr;
 use proptest::prelude::*;
 use solana_address::Address;
-use zolana_hasher::primitives::hash_bytes;
-use zolana_transaction::Mint;
+use spr_hasher::primitives::hash_bytes;
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{AssetHash, IsEqual, HASH_BROKEN, HASH_WIRE},
@@ -16,7 +16,7 @@ fn arbitrary_mint() -> impl Strategy<Value = Mint> {
         .prop_map(|(bytes, asset_id)| Mint::new(Address::new_from_array(bytes), asset_id))
 }
 
-fn hash(mint: &Mint) -> zolana_program::circuit::Field {
+fn hash(mint: &Mint) -> spr_program::circuit::Field {
     field_of(&hash_bytes(mint.asset.as_array()).expect("hash_bytes"))
 }
 

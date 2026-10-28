@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_program::circuit::UtxoState;
+use spr_program::circuit::UtxoState;
 
 #[derive(Clone, BorshSerialize, BorshDeserialize, UtxoState)]
 struct SkippedState {

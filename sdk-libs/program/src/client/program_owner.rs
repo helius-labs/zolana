@@ -2,11 +2,11 @@ use std::collections::HashSet;
 
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_keypair::{
+use spr_keypair::{
     constants::BLINDING_LEN, hash::owner_hash, NullifierKey, PublicKey, ShieldedAddress,
     ViewingKey, X25519Pubkey,
 };
-use zolana_transaction::{
+use spr_transaction::{
     decrypt, utxo::Utxo, AssetRegistry, DecryptionResult, LocalShieldedKeys, ShieldedTransaction,
     SppProofOutputUtxo, WalletUtxo,
 };
@@ -173,7 +173,7 @@ mod tests {
 
     impl DataHasher for State {
         fn hash(&self) -> Result<[u8; 32], HasherError> {
-            Poseidon::hashv(&[&zolana_hasher::primitives::right_align(
+            Poseidon::hashv(&[&spr_hasher::primitives::right_align(
                 &self.value.to_be_bytes(),
             )])
         }
@@ -183,7 +183,7 @@ mod tests {
     fn malformed_state_is_reported_instead_of_disappearing() {
         let mut utxo = WalletUtxo::dummy(0).unwrap();
         utxo.utxo.data =
-            zolana_transaction::Data::new(vec![zolana_transaction::DataRecord::UtxoData(vec![1])]);
+            spr_transaction::Data::new(vec![spr_transaction::DataRecord::UtxoData(vec![1])]);
         let error = decode_data_utxos::<State>([utxo])
             .err()
             .expect("malformed state");

@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_program::circuit::PublicInputs;
+use spr_program::circuit::PublicInputs;
 
 #[derive(Clone, PublicInputs)]
 struct PayoutPublicInputs {

@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use anyhow::{bail, Context as AnyhowContext, Result};
 
 use crate::api::service::{OpenApiSpec, PhotonApi};
-use utoipa::openapi::Components;
-use utoipa::openapi::Response;
-use zolana_indexer_api::{
+use spr_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
@@ -16,6 +14,8 @@ use zolana_indexer_api::{
     NullifierQueueElement, RingsMessage, RingsOutputContext, RingsOutputSlot, SerializablePubkey,
     SerializableSignature, ShieldedTransaction, UserRecord,
 };
+use utoipa::openapi::Components;
+use utoipa::openapi::Response;
 
 use crate::common::relative_project_path;
 

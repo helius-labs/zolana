@@ -8,8 +8,7 @@ use jsonrpsee::{
     RpcModule,
 };
 use log::debug;
-use tower_http::cors::{Any, CorsLayer};
-use zolana_indexer_api::{
+use spr_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
         GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
@@ -17,7 +16,8 @@ use zolana_indexer_api::{
     },
     RpcMethod,
 };
-use zolana_rpc_http::MethodPathLayer;
+use spr_rpc_http::MethodPathLayer;
+use tower_http::cors::{Any, CorsLayer};
 
 use super::service::PhotonApi;
 

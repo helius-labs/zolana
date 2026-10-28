@@ -1,4 +1,4 @@
-use zolana_program::{
+use spr_program::{
     transaction_hash,
     verifier::{groth16_solana, public_hash, verify_groth16, Field, VerifyError},
     CompressedProof, PublicTransfer,

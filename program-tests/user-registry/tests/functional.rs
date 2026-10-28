@@ -2,13 +2,13 @@ mod common;
 
 use solana_keypair::Keypair;
 use solana_signer::Signer;
+use spr_user_registry_interface::{
+    instruction::{self, RegisterData},
+    user_record_pda, MergeEncryptionScheme,
+};
 use user_registry_tests::{
     build_register_ix, build_set_merge_encryption_ix, build_update_keys_ix,
     user_registry_program_id, UserRecord, UserRegistryTestRig,
-};
-use zolana_user_registry_interface::{
-    instruction::{self, RegisterData},
-    user_record_pda, MergeEncryptionScheme,
 };
 
 use common::{funded_keypair, keys, register};

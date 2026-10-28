@@ -1,8 +1,8 @@
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
     pda, N_PUBLIC_SLOTS,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::{CacheAccounts, SppProofInputs},
     utxo::SppProofInputUtxo,
 };
@@ -195,7 +195,7 @@ pub fn assemble_with_dummy_policy(
 ) -> Result<AssembledTransfer, ClientError> {
     let shape = proof_inputs.check_shape()?;
 
-    let zolana_transaction::ExternalData {
+    let spr_transaction::ExternalData {
         expiry_unix_ts,
         interface_transfers,
         data_hash,
@@ -209,7 +209,7 @@ pub fn assemble_with_dummy_policy(
     let interface_transfers = interface_transfers
         .iter()
         .copied()
-        .map(zolana_transaction::instructions::transact::SettlementTransfer::interface_transfer)
+        .map(spr_transaction::instructions::transact::SettlementTransfer::interface_transfer)
         .collect();
 
     let cache_accounts = proof_inputs.cache_accounts;
@@ -283,15 +283,15 @@ mod tests {
 
     fn wallet_input(
         utxo: Utxo,
-        key: &zolana_keypair::NullifierKey,
+        key: &spr_keypair::NullifierKey,
         tree_id: u16,
-    ) -> zolana_transaction::WalletUtxo {
+    ) -> spr_transaction::WalletUtxo {
         let nullifier_pubkey = key.pubkey().unwrap();
         let utxo_hash = utxo
             .hash(&nullifier_pubkey, &[0; 32], &[0; 32], tree_id)
             .unwrap();
         let nullifier = key.nullifier(&utxo_hash, &utxo.blinding).unwrap();
-        zolana_transaction::WalletUtxo {
+        spr_transaction::WalletUtxo {
             utxo,
             nullifier_pubkey,
             utxo_hash,
@@ -309,8 +309,8 @@ mod tests {
     }
 
     use solana_address::Address;
-    use zolana_keypair::ShieldedKeypair;
-    use zolana_transaction::{
+    use spr_keypair::ShieldedKeypair;
+    use spr_transaction::{
         instructions::transact::{
             asset_field, ConfidentialTransaction, SettlementTransfer, Shape, SppProofInputs,
         },
@@ -321,7 +321,7 @@ mod tests {
     use crate::rpc::{
         MerkleContext, MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
     };
-    use zolana_transaction::utxo::SppProofInputUtxo;
+    use spr_transaction::utxo::SppProofInputUtxo;
 
     #[test]
     fn attaches_dummy_nullifier_proofs_in_slot_order() {
@@ -342,14 +342,13 @@ mod tests {
 
     #[test]
     fn cached_inputs_take_dummy_nullifier_proofs_in_slot_order() {
-        let owner = ShieldedKeypair::from_keypair(zolana_keypair::SigningKey::from_ed25519_bytes(
-            &[3u8; 32],
-        ))
-        .expect("ed25519 keypair");
+        let owner =
+            ShieldedKeypair::from_keypair(spr_keypair::SigningKey::from_ed25519_bytes(&[3u8; 32]))
+                .expect("ed25519 keypair");
         let cached: SppProofInputUtxo = wallet_input(
             Utxo {
                 owner: owner.signing_pubkey(),
-                asset: zolana_transaction::Mint::SOL,
+                asset: spr_transaction::Mint::SOL,
                 amount: 1,
                 blinding: [1u8; 32],
                 ring_program_id: None,
@@ -417,7 +416,7 @@ mod tests {
         let input = wallet_input(
             Utxo {
                 owner: sender.signing_pubkey(),
-                asset: zolana_transaction::Mint::SOL,
+                asset: spr_transaction::Mint::SOL,
                 amount: 10,
                 blinding: [1u8; 32],
                 ring_program_id: None,
@@ -450,9 +449,9 @@ mod tests {
         let mut proof = fake_spend_proof();
         proof.state.leaf = real.utxo_hash;
         proof.state.leaf_index = real.leaf_index;
-        proof.state.merkle_context.tree = zolana_interface::pda::tree(real.tree_id);
+        proof.state.merkle_context.tree = spr_interface::pda::tree(real.tree_id);
         proof.nullifier.leaf = real.nullifier;
-        proof.nullifier.merkle_context.tree = zolana_interface::pda::tree(real.tree_id);
+        proof.nullifier.merkle_context.tree = spr_interface::pda::tree(real.tree_id);
         let dummy: Vec<_> = requested
             .iter()
             .map(|nullifier| {

@@ -1,10 +1,10 @@
 use solana_address::Address;
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use zolana_interface::tree_slot::tree_id_field;
-use zolana_keypair::{NullifierKey, PublicKey};
+use spr_interface::tree_slot::tree_id_field;
+use spr_keypair::{NullifierKey, PublicKey};
 
 use super::{owner_utxo_hash, program_id_proof_input_hash, Blinding, UTXO_DOMAIN};
 use crate::{
@@ -28,10 +28,7 @@ pub struct Utxo {
     /// The resolved mint. Commitments use its address; payloads use its ID.
     pub asset: Mint,
     pub amount: u64,
-    #[cfg_attr(
-        feature = "serde",
-        serde(with = "zolana_keypair::serde_helpers::bytes")
-    )]
+    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub blinding: Blinding,
     #[cfg_attr(
@@ -39,7 +36,7 @@ pub struct Utxo {
         serde(
             default,
             skip_serializing_if = "Option::is_none",
-            with = "zolana_keypair::serde_helpers::option_address"
+            with = "spr_keypair::serde_helpers::option_address"
         )
     )]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "string"))]
@@ -70,7 +67,7 @@ impl Utxo {
         ring_data_hash: &[u8; 32],
         tree_id: u16,
     ) -> Result<[u8; 32], TransactionError> {
-        let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
+        let owner_hash = spr_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
         let asset = hash_bytes(self.asset.asset.as_array())?;
         let ring_program_id = program_id_proof_input_hash(&self.ring_program_id)?;
         let ring_hash = Poseidon::hashv(&[ring_data_hash, &ring_program_id])?;

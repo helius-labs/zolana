@@ -23,6 +23,6 @@ pub enum Error {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
-    Hasher(#[from] zolana_hasher::HasherError),
+    Hasher(#[from] spr_hasher::HasherError),
 }
 pub(crate) type Result<T> = std::result::Result<T, Error>;

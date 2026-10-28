@@ -1,13 +1,21 @@
-use zolana_test_utils::utxo::{
+use spr_test_utils::utxo::{
     encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
 };
-use zolana_transaction::utxo::SppProofInputUtxo;
+use spr_transaction::utxo::SppProofInputUtxo;
 mod shared;
 
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use shared::{send, setup, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT};
+use spr_client::user_registry::ensure_registered;
+use spr_client::Rpc;
+use spr_keypair::random_blinding;
+use spr_test_utils::wallet::Filter;
+use spr_transaction::{
+    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
+    SOL_ASSET_ID, SOL_MINT,
+};
 use swap_sdk::{
     index::index_taker,
     instructions::{
@@ -17,14 +25,6 @@ use swap_sdk::{
     prover::SwapProverClient,
     shared::input_sum,
     state::{OrderTerms, OrderUtxo},
-};
-use zolana_client::user_registry::ensure_registered;
-use zolana_client::Rpc;
-use zolana_keypair::random_blinding;
-use zolana_test_utils::wallet::Filter;
-use zolana_transaction::{
-    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
-    SOL_ASSET_ID, SOL_MINT,
 };
 
 const EXPIRY: u64 = 2_000_000_000;
@@ -155,7 +155,7 @@ fn make_and_take_swap_inline() -> Result<()> {
             .indexer()
             .prove_transact(
                 spp_proof_inputs,
-                &zolana_keypair::NullifierKey::from_secret([0; 31]),
+                &spr_keypair::NullifierKey::from_secret([0; 31]),
             )
             .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
@@ -220,7 +220,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         let order_hash = order_utxo
             .output_utxo(taker_address.viewing_pubkey)?
             .hash(localnet.tree_id)?;
-        let order_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
+        let order_state = spr_test_utils::test_validator_asserts::wait_for_merkle_proof(
             localnet.client.indexer(),
             localnet.tree,
             order_hash,
@@ -236,9 +236,8 @@ fn make_and_take_swap_inline() -> Result<()> {
             .first()
             .ok_or_else(|| anyhow!("missing order input"))?
             .nullifier();
-        let seed =
-            zolana_transaction::derive_output_blinding_seed(&first_nullifier, &blinding_seed)?;
-        zolana_test_utils::utxo::assign_output_blindings(
+        let seed = spr_transaction::derive_output_blinding_seed(&first_nullifier, &blinding_seed)?;
+        spr_test_utils::utxo::assign_output_blindings(
             &mut transaction_outputs,
             &first_nullifier,
             &seed,
@@ -306,8 +305,8 @@ fn make_and_take_swap_inline() -> Result<()> {
             .indexer()
             .prove_transact(
                 take_spp_proof_inputs,
-                &zolana_test_utils::utxo::ProofKeys(&[
-                    &zolana_keypair::NullifierKey::from_secret([0; 31]),
+                &spr_test_utils::utxo::ProofKeys(&[
+                    &spr_keypair::NullifierKey::from_secret([0; 31]),
                     &taker.keypair.nullifier_key,
                 ]),
             )

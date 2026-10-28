@@ -1,19 +1,19 @@
 use anyhow::{anyhow, Result};
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_interface::{
+use spr_interface::{
     event::OutputDataEncoding,
     instruction::{
         instruction_data::transact::{OwnerTag, TransactOutput, TransactProof, TreeContext},
         tag::TRANSACT,
     },
 };
-use zolana_keypair::NullifierKey;
-use zolana_program::{
+use spr_keypair::NullifierKey;
+use spr_program::{
     program::{SppTransactCpi, UniqueDataUtxo, ACCOUNT_BLINDING_SEED},
     TransactExternalData,
 };
-use zolana_transaction::{
+use spr_transaction::{
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     ExternalData, SppProofOutputUtxo,
 };

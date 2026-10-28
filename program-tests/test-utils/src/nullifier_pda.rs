@@ -1,8 +1,8 @@
 use solana_account::Account;
 use solana_pubkey::Pubkey;
-use zolana_client::{ClientError, Rpc};
-use zolana_interface::{pda, NullifierPda, NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY};
-use zolana_tree::{TreeAccount, TreeFeeSchedule};
+use spr_client::{ClientError, Rpc};
+use spr_interface::{pda, NullifierPda, NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY};
+use spr_tree::{TreeAccount, TreeFeeSchedule};
 
 use crate::test_validator_asserts::{fetch_account, fetch_optional_account};
 

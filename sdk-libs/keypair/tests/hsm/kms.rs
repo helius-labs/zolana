@@ -11,7 +11,7 @@ use aws_sdk_kms::{
 };
 use aws_smithy_mocks::{mock, mock_client, Rule, RuleMode};
 use ed25519_dalek::Signer;
-use zolana_keypair::{
+use spr_keypair::{
     constants::BLINDING_LEN,
     derivation::{self, INFO_NF_KEY_ED25519, INFO_VIEW_KEY_ED25519_X25519},
     hash,

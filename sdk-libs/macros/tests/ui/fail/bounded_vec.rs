@@ -1,8 +1,8 @@
-use zolana_program::{
+use spr_program::{
     circuit::{UtxoState, PublicInputs},
     conversion::ProofInput,
 };
-use zolana_transaction::WalletUtxo;
+use spr_transaction::WalletUtxo;
 
 #[derive(ProofInput)]
 struct Unbounded {

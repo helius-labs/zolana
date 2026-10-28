@@ -3,7 +3,7 @@
 Covers `TxContext`, `ConfidentialTransaction::check` and `PublicInputs` of
 `src/circuit/transaction.rs`: the output blindings, `private_tx_hash`,
 `transaction_hash`, the public hash and the value balance, against the native
-`zolana-transaction` `FinalizedTransaction`. Invariants every type shares live in
+`spr-transaction` `FinalizedTransaction`. Invariants every type shares live in
 `cross-cutting.md`. ID prefix: `INV-TX`; the tests live in
 `tests/unit/protocol/transaction/`.
 
@@ -26,7 +26,7 @@ Covers `TxContext`, `ConfidentialTransaction::check` and `PublicInputs` of
 - "the public hash is the native one"
 
 `Checked<P>` runs a shape's `check` alone. The native reference (`reference.rs`) rebuilds every
-shape with `zolana_transaction::ConfidentialTransaction` (blinding seed, output tree, outputs,
+shape with `spr_transaction::ConfidentialTransaction` (blinding seed, output tree, outputs,
 settlements, canonical padding, `finalize`), then hashes it:
 
 - the private transaction hash with `padding_independent_private_tx_hash`

@@ -1,7 +1,7 @@
 use crate::instructions::shared::caused_by;
 use pinocchio::{account::RefMut, error::ProgramError, AccountView, ProgramResult};
-use zolana_interface::error::ShieldedPoolError;
-use zolana_tree::{TreeAccount, UNINITIALIZED};
+use spr_interface::error::ShieldedPoolError;
+use spr_tree::{TreeAccount, UNINITIALIZED};
 
 /// What the first allocation step commits a tree creation to: its payer and
 /// exact instruction data, which every later step must repeat, so no other

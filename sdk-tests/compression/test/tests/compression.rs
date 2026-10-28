@@ -1,4 +1,4 @@
-use zolana_test_utils::utxo::prepare_output_blindings;
+use spr_test_utils::utxo::prepare_output_blindings;
 mod shared;
 
 use anyhow::{anyhow, bail, Result};
@@ -18,10 +18,10 @@ use shared::{send, send_from, setup, tree_root, Environment};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     ComputeBudgetConfig, NonInclusionProof, ProofCompressed, ProverClient, ProverExt, Rpc,
 };
-use zolana_interface::{
+use spr_interface::{
     event::OutputDataEncoding,
     instruction::instruction_data::transact::{
         OwnerTag, TransactOutput, TransactProof, TreeContext,
@@ -29,17 +29,17 @@ use zolana_interface::{
     pda::nullifier_pda,
     state::tree::{default_tree_fees, nullifier_tree_params},
 };
-use zolana_keypair::ShieldedKeypair;
-use zolana_program::{
+use spr_keypair::ShieldedKeypair;
+use spr_program::{
     instruction::{AssetDeposit, Deposit, DepositAsset, Transact},
     program::UtxoMeta,
 };
-use zolana_program_test::{create_tree_instructions, fixture, next_tree_id};
-use zolana_test_utils::test_validator_asserts::{
+use spr_program_test::{create_tree_instructions, fixture, next_tree_id};
+use spr_test_utils::test_validator_asserts::{
     wait_for_indexed_utxo, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
-use zolana_transaction::WalletUtxo;
-use zolana_transaction::{
+use spr_transaction::WalletUtxo;
+use spr_transaction::{
     instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
     utxo::SppProofInputUtxo,
     Data, Utxo, SOL_MINT,
@@ -77,7 +77,7 @@ fn assert_account(
     )?;
     if wallet_utxo.utxo != *expected_output
         || wallet_utxo.utxo_hash != expected_hash
-        || zolana_interface::pda::tree(wallet_utxo.tree_id) != expected_tree
+        || spr_interface::pda::tree(wallet_utxo.tree_id) != expected_tree
         || state.authority != expected_authority.to_bytes()
         || state.value != expected_value
         || address == [0u8; 32]
@@ -182,10 +182,10 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
     .proofless_output()
     .ok_or_else(|| anyhow!("indexed deposit output is not a proofless UTXO"))?;
 
-    let input_utxo: SppProofInputUtxo = zolana_test_utils::utxo::indexed(
+    let input_utxo: SppProofInputUtxo = spr_test_utils::utxo::indexed(
         Utxo {
             owner: attacker.signing_pubkey(),
-            asset: zolana_transaction::Mint::SOL,
+            asset: spr_transaction::Mint::SOL,
             amount: deposited.amount,
             blinding: deposited.blinding,
             ring_program_id: None,
@@ -207,7 +207,7 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
     // padding in the second output slot.
     let mut poison_outputs = vec![
         SppProofOutputUtxo {
-            asset: zolana_transaction::Mint::SOL,
+            asset: spr_transaction::Mint::SOL,
             amount: POISON_AMOUNT,
             owner_address: Some(pda_shielded_address(&pda)?),
             owner_tag: Some(pda.to_bytes()),
@@ -269,7 +269,7 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
 fn default_tree_is_tree_pda_zero() {
     assert_eq!(
         compression_example_program::instructions::shared::DEFAULT_TREE,
-        zolana_interface::pda::tree(0)
+        spr_interface::pda::tree(0)
     );
 }
 
@@ -649,7 +649,7 @@ fn update_account(
         env,
         Update {
             payer: env.authority.pubkey(),
-            input_tree: zolana_interface::pda::tree(current.utxo.tree_id),
+            input_tree: spr_interface::pda::tree(current.utxo.tree_id),
             output_tree: output_tree.address,
             meta,
             input_nullifier,

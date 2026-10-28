@@ -14,11 +14,11 @@ solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-system-interface = { workspace = true }
 wincode = { workspace = true }
-zolana-client = { workspace = true }
-zolana-interface = { workspace = true }
-zolana-program = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-transaction = { workspace = true }
+spr-client = { workspace = true }
+spr-interface = { workspace = true }
+spr-program = { workspace = true }
+spr-keypair = { workspace = true }
+spr-transaction = { workspace = true }
 
 [dev-dependencies]
-zolana-test-utils.workspace = true
+spr-test-utils.workspace = true

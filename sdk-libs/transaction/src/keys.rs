@@ -17,7 +17,7 @@
 //! place: proving. That capability lives on the client layer, next to the
 //! witness types that need it, and is deliberately absent here.
 
-use zolana_keypair::{
+use spr_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::Salt,
     NullifierKey, ViewingKey, X25519Pubkey,

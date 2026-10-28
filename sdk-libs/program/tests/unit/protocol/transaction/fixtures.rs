@@ -1,6 +1,6 @@
 use solana_address::Address;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     circuit::{
         poseidon, Assert, CheckedTransaction, Circuit, CircuitType, CircuitVar,
         ConfidentialTransaction, DataUtxo, Field, PublicInputs, TokenUtxos, Uint, UtxoTrait,
@@ -8,7 +8,7 @@ use zolana_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, TxContext,
 };
-use zolana_transaction::WalletUtxo;
+use spr_transaction::WalletUtxo;
 
 use super::reference::{Expected, Reference};
 use crate::{
@@ -227,7 +227,7 @@ pub trait Shape:
 
 /// A constraint-only fixture: `program` builds its transaction and `check`s it,
 /// then every hash the check returns is asserted equal to `expected`, the
-/// value the native `zolana-transaction` builder computes.
+/// value the native `spr-transaction` builder computes.
 #[derive(Clone, Debug)]
 pub struct Asserted<P> {
     pub program: P,

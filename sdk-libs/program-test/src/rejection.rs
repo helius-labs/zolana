@@ -3,8 +3,8 @@
 use litesvm::types::FailedTransactionMetadata;
 use solana_instruction::error::InstructionError;
 use solana_transaction_error::TransactionError;
-use zolana_client::ClientError;
-use zolana_interface::error::ShieldedPoolError;
+use spr_client::ClientError;
+use spr_interface::error::ShieldedPoolError;
 
 use crate::ProgramTestError;
 

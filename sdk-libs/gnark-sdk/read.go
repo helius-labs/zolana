@@ -10,11 +10,11 @@ import (
 
 // UtxoRead proves a UTXO is unspent without spending it: its hash is a leaf of
 // the state tree and its nullifier is absent from the nullifier tree. The
-// field names are the keys zolana-gnark-ffi-prover's utxo_read_proof_inputs
+// field names are the keys spr-gnark-ffi-prover's utxo_read_proof_inputs
 // writes.
 //
 // The proof is sound only together with the program's checks, which
-// zolana_program::program::ReadRoots performs:
+// spr_program::program::ReadRoots performs:
 //  1. both roots come from the shielded pool tree account's root histories,
 //  2. the nullifier PDA of the nullifier on that tree does not exist.
 //

@@ -7,8 +7,8 @@ use std::collections::HashSet;
 
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
-use zolana_interface::MAX_INPUT_TREES;
-use zolana_transaction::{
+use spr_interface::MAX_INPUT_TREES;
+use spr_transaction::{
     error::TransactionError,
     instructions::{merge::MAX_MERGE_INPUTS, transact::MAX_SPEND_INPUTS},
     select_merge, select_spend, select_spend_excluding, Mint, WalletUtxo,

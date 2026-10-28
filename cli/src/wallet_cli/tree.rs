@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Result};
 use solana_keypair::{read_keypair_file, Keypair};
 use solana_signer::Signer;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
-use zolana_interface::state::{default_tree_fees, nullifier_tree_params, TreeFeeSchedule};
-use zolana_protocol_instructions::{CreateProtocolConfig, CreateTree, SetTreeFees};
-use zolana_transaction::Address;
+use spr_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
+use spr_interface::state::{default_tree_fees, nullifier_tree_params, TreeFeeSchedule};
+use spr_protocol_instructions::{CreateProtocolConfig, CreateTree, SetTreeFees};
+use spr_transaction::Address;
 
 use super::{
     material::load_sender_from_resolved_sync,

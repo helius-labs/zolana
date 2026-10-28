@@ -2,8 +2,8 @@ use std::{cmp::Ordering, str::FromStr};
 
 use num_bigint::{BigUint, RandBigInt, ToBigUint};
 use rand::thread_rng;
-use zolana_hasher::{bigint::bigint_to_be_bytes_array, Hasher, Poseidon};
-use zolana_merkle_tree::indexed_array::{
+use spr_hasher::{bigint::bigint_to_be_bytes_array, Hasher, Poseidon};
+use spr_merkle_tree::indexed_array::{
     array::{IndexedArray, IndexedElement},
     errors::IndexedArrayError,
     HIGHEST_ADDRESS_PLUS_ONE,

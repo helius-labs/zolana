@@ -8,7 +8,7 @@ use pinocchio::{
 };
 use pinocchio::{AccountView, ProgramResult};
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
-use zolana_program::cpi::{SppTransactAccounts, TransactAccountsError};
+use spr_program::cpi::{SppTransactAccounts, TransactAccountsError};
 
 use crate::error::SwapError;
 

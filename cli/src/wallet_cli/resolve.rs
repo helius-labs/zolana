@@ -82,7 +82,7 @@ mod tests {
             .expect("time")
             .as_nanos();
         let path = std::env::temp_dir().join(format!(
-            "zolana-cli-resolve-{}-{stamp}.json",
+            "spr-cli-resolve-{}-{stamp}.json",
             std::process::id()
         ));
         let config = CliConfigFile {
@@ -114,7 +114,7 @@ mod tests {
             airdrop_lamports: None,
         })
         .expect("resolve network");
-        assert_eq!(resolved.tree, zolana_interface::pda::tree(0));
+        assert_eq!(resolved.tree, spr_interface::pda::tree(0));
     }
 
     #[test]

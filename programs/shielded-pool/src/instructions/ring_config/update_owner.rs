@@ -1,6 +1,6 @@
 use pinocchio::{address::address_eq, AccountView, Address, ProgramResult};
-use zolana_account_checks::{checks::check_signer, AccountIterator};
-use zolana_interface::error::ShieldedPoolError;
+use spr_account_checks::{checks::check_signer, AccountIterator};
+use spr_interface::error::ShieldedPoolError;
 
 use crate::instructions::ring_config::loader::load_and_validate_ring_authority_mut;
 

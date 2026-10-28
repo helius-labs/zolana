@@ -27,12 +27,12 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
-use zolana_keypair::ShieldedAddress;
-use zolana_program::instruction::{
+use spr_client::{ClientError, ComputeBudgetConfig, Rpc};
+use spr_keypair::ShieldedAddress;
+use spr_program::instruction::{
     AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
-use zolana_transaction::{Data, Utxo, SOL_MINT};
+use spr_transaction::{Data, Utxo, SOL_MINT};
 
 use crate::{
     harness::{BootstrapConfig, LocalnetHarness},
@@ -183,7 +183,7 @@ impl Deposit<'_> {
                 DepositAsset::Spl(DepositSplAccounts {
                     mint,
                     user_token: self.sender,
-                    token_program: zolana_interface::pda::spl_token_program_id(),
+                    token_program: spr_interface::pda::spl_token_program_id(),
                 }),
             )
         };
@@ -224,23 +224,22 @@ impl Deposit<'_> {
                 ClientError::Rpc(format!("no indexed deposit output for {signature}"))
             })?;
         let asset = if asset == SOL_MINT {
-            zolana_transaction::Mint::SOL
+            spr_transaction::Mint::SOL
         } else {
-            let address = zolana_interface::pda::spl_asset_registry(&asset);
+            let address = spr_interface::pda::spl_asset_registry(&asset);
             let account = rpc
                 .get_account(address)?
                 .ok_or(ClientError::AccountNotFound {
                     address: address.to_bytes(),
                 })?;
-            let registry =
-                zolana_interface::state::SplAssetRegistry::from_account_bytes(&account.data)
-                    .map_err(|error| {
-                        ClientError::Rpc(format!("invalid asset registry: {error:?}"))
-                    })?;
+            let registry = spr_interface::state::SplAssetRegistry::from_account_bytes(
+                &account.data,
+            )
+            .map_err(|error| ClientError::Rpc(format!("invalid asset registry: {error:?}")))?;
             if registry.mint != asset {
                 return Err(ClientError::Rpc("asset registry mint mismatch".into()));
             }
-            zolana_transaction::Mint::new(asset, registry.asset_id)
+            spr_transaction::Mint::new(asset, registry.asset_id)
         };
         let utxo = Utxo {
             owner: self.recipient.signing_pubkey,

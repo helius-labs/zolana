@@ -1,12 +1,12 @@
 use solana_address::Address;
-use zolana_program::{
+use spr_program::{
     circuit::{
         CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
+use spr_transaction::{instructions::transact::SettlementTransfer, Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,

@@ -4,15 +4,15 @@
 mod conversion;
 mod utxo;
 
-use zolana_zk_dsl::{CircuitError, CircuitErrorKind, ProtocolError, ProtocolErrorKind};
+use spr_zk_dsl::{CircuitError, CircuitErrorKind, ProtocolError, ProtocolErrorKind};
 
 pub use conversion::{MintRecords, UtxoRecords};
+pub use spr_zk_dsl::circuit::SolanaAddress;
 pub use utxo::Utxo;
 #[doc(hidden)]
 pub use utxo::{SpentInput, UtxoMeta};
-pub use zolana_zk_dsl::circuit::SolanaAddress;
 
-#[derive(Debug, thiserror::Error, zolana_zk_dsl::ErrorName)]
+#[derive(Debug, thiserror::Error, spr_zk_dsl::ErrorName)]
 #[error_name(prefix = "CircuitError")]
 #[non_exhaustive]
 pub enum UtxoCircuitErrorKind {

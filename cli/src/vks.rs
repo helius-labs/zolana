@@ -15,11 +15,11 @@ use solana_address::Address;
 use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_loader_v4_interface::state::LoaderV4State;
 use solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, loader_v4};
-use zolana_client::{
+use spr_client::{
     prover::{known_proving_keys, redact_api_key},
     ProverClient, Rpc, SolanaRpc,
 };
-use zolana_interface::PROGRAM_ID_PUBKEY;
+use spr_interface::PROGRAM_ID_PUBKEY;
 
 use crate::{
     args::{VksCheckOptions, VksCommand, VksSourceOptions},
@@ -39,7 +39,7 @@ enum Required<'a> {
     ShieldedPool(&'a KeyNames),
     /// Every key an `--expect` manifest lists. Other production keys may sit
     /// beside them, such as the shielded-pool markers every program linking
-    /// `zolana-interface` embeds.
+    /// `spr-interface` embeds.
     Listed(&'a KeyNames),
 }
 

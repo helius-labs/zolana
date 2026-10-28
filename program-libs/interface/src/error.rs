@@ -1,7 +1,7 @@
 use solana_program_error::ProgramError;
-use thiserror::Error;
 #[cfg(feature = "tree")]
-use zolana_tree::TreeError;
+use spr_tree::TreeError;
+use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterfaceError {

@@ -6,15 +6,15 @@
 //! whenever a new section is added:
 //!
 //! ```bash
-//! cargo test -p zolana-keypair --test vectors print_key_derivation_vectors -- --ignored --nocapture
+//! cargo test -p spr-keypair --test vectors print_key_derivation_vectors -- --ignored --nocapture
 //! ```
 //!
-//! The `merge_recovery` section is computed by `zolana-transaction` (the merge
+//! The `merge_recovery` section is computed by `spr-transaction` (the merge
 //! derivations live there); this file carries it through unchanged and
 //! `sdk-libs/transaction/tests/merge.rs` asserts it.
 
 use serde::{Deserialize, Serialize};
-use zolana_keypair::{
+use spr_keypair::{
     derivation::{ed25519_derivation_message, is_derivation_input, MERGE_INFO},
     symmetric_apply, ShieldedKeypair, SigningKey, ViewingKey,
 };

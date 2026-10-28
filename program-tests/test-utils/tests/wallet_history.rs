@@ -1,11 +1,11 @@
 mod wallet_common;
 
+use spr_test_utils::wallet::{PrivateTransactionDirection, PrivateTransactionKind};
+use spr_transaction::{AssetRegistry, TransactionError, SOL_MINT};
 use wallet_common::{
     build_transfer, keypair_from_index, local_authority, unique31, unique_nullifier, wallet_for,
     TransferSpec,
 };
-use zolana_test_utils::wallet::{PrivateTransactionDirection, PrivateTransactionKind};
-use zolana_transaction::{AssetRegistry, TransactionError, SOL_MINT};
 
 const WINDOW: u64 = 8;
 

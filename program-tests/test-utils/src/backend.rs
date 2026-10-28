@@ -8,8 +8,8 @@
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::state::read_tree_id;
-use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
+use spr_interface::state::read_tree_id;
+use spr_program_test::{ProgramTestError, ZolanaProgramTest};
 
 pub struct LiteSvmPoolBackend {
     pub rpc: ZolanaProgramTest,

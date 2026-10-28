@@ -24,8 +24,8 @@ export {
   type KeypairErrorCode,
   type KeypairErrorDetails,
 } from "./error.js";
-// The Rust-public constants from `zolana_keypair::constants` and the public
-// half of the `zolana_keypair::derivation` registry.
+// The Rust-public constants from `spr_keypair::constants` and the public
+// half of the `spr_keypair::derivation` registry.
 export {
   BLINDING_LENGTH,
   SALT_LENGTH,

@@ -35,7 +35,7 @@ pub use proofless::{
 /// Event). `deposit` emits it verbatim via the `emit_event` self-CPI; `transact`
 /// and `merge` emit only [`TransactEvent`] / [`MergeEvent`] and an indexer
 /// rebuilds this view from that body plus the emitting instruction's data and
-/// account list (`zolana-event-parser`).
+/// account list (`spr-event-parser`).
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct GeneralEvent {
     pub inputs: Vec<Input>,

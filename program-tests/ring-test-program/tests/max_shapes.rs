@@ -8,13 +8,13 @@ use anyhow::{anyhow, Result};
 use serial_test::serial;
 use solana_message::v1::MAX_TRANSACTION_SIZE;
 use solana_signature::Signature;
-use zolana_client::Shape;
-use zolana_test_utils::{
+use spr_client::Shape;
+use spr_test_utils::{
     nullifier_pda::assert_nullifier_pdas,
     ring::{RingHarness, RingRail},
     test_validator_asserts::assert_transaction_compute_units,
 };
-use zolana_transaction::{instructions::merge::MAX_MERGE_INPUTS, SOL_MINT};
+use spr_transaction::{instructions::merge::MAX_MERGE_INPUTS, SOL_MINT};
 
 const DEPOSIT_AMOUNT: u64 = 100_000_000;
 /// A real input's nullifier (32) and tree index (1) in the instruction data,

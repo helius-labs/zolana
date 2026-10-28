@@ -1,13 +1,13 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_address::Address;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     circuit::Circuit,
     conversion::{to_bytes, Allocator, FromCircuit, Placeholder, ProofInput},
     hasher::unique_data_hash,
     CircuitError, Groth16Prover, ProgramOwner, TxContext, ZkProgramCircuit,
 };
-use zolana_program::{
+use spr_program::{
     derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     program::{
         AddressSeed, NewAddress, PdaOwner, SppTransactCpi, UniqueDataUtxo as NativeUniqueDataUtxo,
@@ -25,7 +25,7 @@ pub struct Counter {
     pub count: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Counter {}
+impl spr_program::circuit::CircuitType for circuit::Counter {}
 
 impl ProofInput for Counter {
     type Circuit = circuit::Counter;
@@ -61,7 +61,7 @@ struct UniqueCounterCreatePublicInputs {
     owner: ShieldedAddress,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::UniqueCounterCreate {}
+impl spr_program::circuit::CircuitType for circuit::UniqueCounterCreate {}
 
 impl ProofInput for UniqueCounterCreate {
     type Circuit = circuit::UniqueCounterCreate;
@@ -95,7 +95,7 @@ impl Placeholder for UniqueCounterCreate {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             constant, poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataHash, PublicInputs, TxContext, Uint, UniqueDataUtxo, UtxoData, UtxoOwner,
@@ -177,8 +177,7 @@ fn unique_counter_create_prove_and_verify() {
     let pda_owner = PdaOwner::new(program.pda()).expect("pda owner");
     let address = *NewAddress::derive(
         &pda_owner,
-        AddressSeed::new(zolana_hasher::primitives::right_align(&42u64.to_be_bytes()))
-            .expect("seed"),
+        AddressSeed::new(spr_hasher::primitives::right_align(&42u64.to_be_bytes())).expect("seed"),
     )
     .expect("address")
     .address();
@@ -189,9 +188,9 @@ fn unique_counter_create_prove_and_verify() {
         0,
     )
     .expect("output blinding");
-    let output_hash = zolana_client::ProofInputUtxo::new(
+    let output_hash = spr_client::ProofInputUtxo::new(
         *pda_owner.owner_hash(),
-        &zolana_transaction::SOL_MINT,
+        &spr_transaction::SOL_MINT,
         0,
         &output_blinding,
         0,
@@ -218,20 +217,20 @@ fn unique_counter_create_prove_and_verify() {
         finalized.padding_independent_private_tx_hash().unwrap(),
         private_tx_hash
     );
-    let keys = zolana_transaction::LocalShieldedKeys::from_keypair(&keypair(5)).unwrap();
+    let keys = spr_transaction::LocalShieldedKeys::from_keypair(&keypair(5)).unwrap();
     let spp = finalized
         .encrypt_with_keys(&keys)
         .expect("encrypted address creation");
     let non_inclusion: Vec<_> = spp
         .input_utxos
         .iter()
-        .map(|input| zolana_client::NonInclusionProof {
+        .map(|input| spr_client::NonInclusionProof {
             leaf: input.nullifier,
-            merkle_context: zolana_client::MerkleContext {
+            merkle_context: spr_client::MerkleContext {
                 tree_type: 2,
-                tree: zolana_interface::pda::tree(input.tree_id),
+                tree: spr_interface::pda::tree(input.tree_id),
             },
-            path: vec![[0; 32]; zolana_client::NULLIFIER_TREE_HEIGHT],
+            path: vec![[0; 32]; spr_client::NULLIFIER_TREE_HEIGHT],
             low_element: [0; 32],
             low_element_index: 0,
             high_element: [0xff; 32],
@@ -242,14 +241,14 @@ fn unique_counter_create_prove_and_verify() {
         })
         .collect();
     let assembled =
-        zolana_client::assemble(spp.clone(), &[], &non_inclusion).expect("address witness");
+        spr_client::assemble(spp.clone(), &[], &non_inclusion).expect("address witness");
     let witness = assembled.prover_inputs.inputs.first().unwrap();
     assert_eq!(
         witness.utxo.domain,
-        zolana_hasher::primitives::right_align(&zolana_interface::ADDRESS_DOMAIN.to_be_bytes())
+        spr_hasher::primitives::right_align(&spr_interface::ADDRESS_DOMAIN.to_be_bytes())
     );
     assert_eq!(witness.nullifier_secret, Some(0u8.into()));
-    let instruction = assembled.with_proof(zolana_interface::instruction::TransactProof::zeroed());
+    let instruction = assembled.with_proof(spr_interface::instruction::TransactProof::zeroed());
     assert_eq!(instruction.private_tx_hash, private_tx_hash);
     assert_eq!(instruction.inputs.first().unwrap().nullifier_hash, address);
     assert_eq!(
@@ -258,16 +257,16 @@ fn unique_counter_create_prove_and_verify() {
             .first()
             .unwrap()
             .utxo_tree_root_index,
-        zolana_interface::instruction::instruction_data::transact::NO_UTXO_ROOT
+        spr_interface::instruction::instruction_data::transact::NO_UTXO_ROOT
     );
 
     let mut bad = spp;
     bad.input_utxos.first_mut().unwrap().utxo.amount = 1;
-    assert!(zolana_client::assemble(bad, &[], &non_inclusion).is_err());
+    assert!(spr_client::assemble(bad, &[], &non_inclusion).is_err());
     let native_owner = owner.instantiate(&Allocator::native()).unwrap();
-    let other = zolana_program::circuit::UniqueDataUtxo::<circuit::Counter>::new_init(
+    let other = spr_program::circuit::UniqueDataUtxo::<circuit::Counter>::new_init(
         &native_owner,
-        &zolana_program::circuit::constant(43u64),
+        &spr_program::circuit::constant(43u64),
     )
     .unwrap();
     assert_ne!(to_bytes(&other.address()).unwrap(), address);
@@ -303,7 +302,7 @@ crate::shared::native_state_hash!(Counter, [], count);
 
 #[test]
 fn native_unique_counter_matches_the_circuit_commitment_and_payload() {
-    use zolana_interface::{
+    use spr_interface::{
         event::OutputDataEncoding,
         instruction::instruction_data::transact::{TransactProof, TreeContext},
     };
@@ -323,7 +322,7 @@ fn native_unique_counter_matches_the_circuit_commitment_and_payload() {
     let pda_owner = PdaOwner::new(program.pda()).unwrap();
     let address = NewAddress::derive(
         &pda_owner,
-        AddressSeed::new(zolana_hasher::primitives::right_align(&42u64.to_be_bytes())).unwrap(),
+        AddressSeed::new(spr_hasher::primitives::right_align(&42u64.to_be_bytes())).unwrap(),
     )
     .unwrap();
     let native = NativeUniqueDataUtxo::<Counter>::new_init(

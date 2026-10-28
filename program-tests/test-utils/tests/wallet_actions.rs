@@ -11,22 +11,19 @@ use borsh::BorshDeserialize;
 use input_fixture::wallet_utxo;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use test_indexer::TestIndexer;
-use transfer_fixture::transfer_prover;
-use zolana_client::{AsyncRpc, ClientError, Rpc, TransferProver};
-use zolana_event::OutputDataEncoding;
-use zolana_interface::{
+use spr_client::{AsyncRpc, ClientError, Rpc, TransferProver};
+use spr_event::OutputDataEncoding;
+use spr_interface::{
     instruction::{OwnerTag, TransactProof},
     pda, SOL_ASSET_FIELD,
 };
-use zolana_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
-use zolana_test_utils::wallet::{
+use spr_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
+use spr_test_utils::wallet::{
     create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
     ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority, SyncWalletAuthority,
     TransferParams, Wallet, WalletAuthority, WithdrawalLeg, WithdrawalParams,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::transact::{
         signed_magnitude_to_field, ConfidentialTransaction, SettlementTransfer, Shape,
         SppProofInputs,
@@ -35,10 +32,13 @@ use zolana_transaction::{
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     AssetRegistry, Data, Mint, SppProofOutputUtxo, TransactionError, Utxo, WalletUtxo, SOL_MINT,
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
+use test_indexer::TestIndexer;
+use transfer_fixture::transfer_prover;
 
 fn test_keypair() -> ShieldedKeypair {
     ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(
-        &zolana_keypair::random_blinding(),
+        &spr_keypair::random_blinding(),
     ))
     .unwrap()
 }
@@ -49,7 +49,7 @@ fn input(owner: &ShieldedKeypair, asset: Mint, amount: u64) -> WalletUtxo {
             owner: owner.signing_pubkey(),
             asset,
             amount,
-            blinding: zolana_keypair::random_blinding(),
+            blinding: spr_keypair::random_blinding(),
             ring_program_id: None,
             data: Data::default(),
         },
@@ -94,7 +94,7 @@ fn prover_of(mut tx: SppProofInputs) -> TransferProver {
 fn assert_outputs(
     tx: &SppProofInputs,
     sender: &ShieldedKeypair,
-    expected: &[(zolana_keypair::ShieldedAddress, Mint, u64)],
+    expected: &[(spr_keypair::ShieldedAddress, Mint, u64)],
 ) {
     let first = tx.first_nullifier().unwrap();
     let seed = derive_output_blinding_seed(&first, &tx.blinding_seed).unwrap();
@@ -206,7 +206,7 @@ fn transfer_round_trip_outputs_and_slots() {
     assert!(tx.external_data.interface_transfers.is_empty());
     assert_eq!(
         tx.public_transfers().unwrap(),
-        zolana_client::PublicTransfers::default()
+        spr_client::PublicTransfers::default()
     );
     prover_of(tx).build().unwrap();
 }
@@ -257,7 +257,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
         .into_iter()
         .map(|nf| indexer.dummy_nullifier_proof(nf))
         .collect();
-    let assembled = zolana_client::assemble(tx.clone(), &proofs, &dummy).unwrap();
+    let assembled = spr_client::assemble(tx.clone(), &proofs, &dummy).unwrap();
     let ix = assembled.with_proof(TransactProof::zeroed());
     assert_eq!(ix.outputs, tx.external_data.outputs);
     assert_eq!(ix.salt, tx.external_data.salt);
@@ -432,7 +432,7 @@ impl WalletAuthority for AsyncTestAuthority {
 
     async fn shielded_address(
         &self,
-    ) -> Result<zolana_keypair::shielded::ShieldedAddress, TransactionError> {
+    ) -> Result<spr_keypair::shielded::ShieldedAddress, TransactionError> {
         SyncWalletAuthority::shielded_address(&KeypairWalletAuthority::new(
             self.solana_pubkey(),
             &self.keypair,
@@ -459,7 +459,7 @@ impl WalletAuthority for AsyncTestAuthority {
         &self,
         first_nullifier: &[u8; 32],
         sender_view_tag: [u8; 32],
-        sender: &zolana_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
+        sender: &spr_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
         recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_anonymous_transfer(
@@ -506,7 +506,7 @@ fn async_authority_invokes_approval() {
             recipient: Pubkey::new_unique(),
             asset: SOL_MINT,
             amount: 60,
-            spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+            spl_token_program: Some(spr_interface::pda::spl_token_program_id()),
         }],
     })
     .expect("created")
@@ -522,7 +522,7 @@ fn async_authority_invokes_approval() {
 #[tokio::test]
 async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
     use solana_account::Account;
-    use zolana_transaction::{Data, Utxo, SOL_MINT};
+    use spr_transaction::{Data, Utxo, SOL_MINT};
 
     struct RegistryAbsent;
 
@@ -547,7 +547,7 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
     .expect("wallet");
     let utxo = Utxo {
         owner: sender.signing_pubkey(),
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: 10,
         blinding: {
             let mut blinding = [7u8; 32];

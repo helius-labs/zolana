@@ -1,7 +1,7 @@
 //! Test helpers for the Squads smart-account program.
 //!
 //! The client surface (program id, PDA derivations, the `execute_sync_ix`
-//! builder, and the role table) lives in `zolana-smart-account-client` and is
+//! builder, and the role table) lives in `spr-smart-account-client` and is
 //! re-exported here so existing test imports keep working. This module adds
 //! the localnet `ProgramConfig` fixture and the standard five-role account
 //! layout the SPP tests share: the localnet fixture `ProgramConfig` starts at
@@ -16,17 +16,17 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_smart_account_client::{create_role_smart_account_ix, roles::Role};
+use spr_smart_account_client::{create_role_smart_account_ix, roles::Role};
 pub mod settings;
 
 pub use settings::settings_member_keys;
-pub use zolana_smart_account_client::{
+pub use spr_smart_account_client::{
     execute_sync_each, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
     treasury_pda, Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
 };
 
 // Anchor account discriminator: sha256("account:ProgramConfig")[0..8]
-pub use zolana_smart_account_client::PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR;
+pub use spr_smart_account_client::PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR;
 const PROGRAM_CONFIG_ACCOUNT_LEN: usize = 160;
 const PROGRAM_CONFIG_DISCRIMINATOR_END: usize = 8;
 const PROGRAM_CONFIG_TREASURY_START: usize = 64;
@@ -116,7 +116,7 @@ pub struct StandardSigners {
 }
 
 /// Derive the five standard role accounts from the shared role table
-/// (`zolana_smart_account_client::roles`) above the localnet fixture's base
+/// (`spr_smart_account_client::roles`) above the localnet fixture's base
 /// index 0: protocol/tree/ring/merge/forester at seeds 1..=5, the same table
 /// `zolana-protocol init-protocol` deploys with.
 pub fn standard_accounts() -> StandardAccounts {

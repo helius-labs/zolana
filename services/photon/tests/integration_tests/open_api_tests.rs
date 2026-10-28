@@ -1,6 +1,6 @@
 use photon_indexer::openapi::update_docs;
+use spr_indexer_api::MAX_USER_RECORD_OWNERS;
 use utoipa::openapi::{OpenApi, RefOr, Required};
-use zolana_indexer_api::MAX_USER_RECORD_OWNERS;
 
 const METHODS: &[&str] = &[
     "getEncryptedUtxosByTags",

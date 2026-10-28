@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_api::{BlockingRuntime, BlockingZolanaApi, ZolanaApi};
+use spr_api::{BlockingRuntime, BlockingZolanaApi, ZolanaApi};
 #[cfg(feature = "reqwest")]
-use zolana_interface::instruction::instruction_data::transact::TransactIxData;
+use spr_interface::instruction::instruction_data::transact::TransactIxData;
 #[cfg(feature = "reqwest")]
-use zolana_transaction::instructions::transact::SppProofInputs;
+use spr_transaction::instructions::transact::SppProofInputs;
 
 #[cfg(feature = "reqwest")]
 use crate::{

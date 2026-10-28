@@ -1,7 +1,7 @@
 //! The startup check of a prover's `GET /proving-keys` report against the
 //! proving-key sha256 each committed verifying key pins.
 
-use zolana_client::{
+use spr_client::{
     prover::{known_proving_keys, ProverKeyStatus, ProverKeys, ProvingKeyCheck},
     ClientError,
 };

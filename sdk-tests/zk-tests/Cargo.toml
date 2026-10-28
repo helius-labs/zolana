@@ -16,6 +16,6 @@ solana-keypair = { workspace = true }
 solana-signer = { workspace = true }
 # The one implementation of the v1 header budget, so the test sends what the
 # SDK sends.
-zolana-client = { workspace = true }
-zolana-zk-dsl = { workspace = true, features = ["client", "setup"] }
-zolana-zk-standalone-fixture = { path = "../zk-standalone", features = ["circuits"] }
+spr-client = { workspace = true }
+spr-zk-dsl = { workspace = true, features = ["client", "setup"] }
+spr-zk-standalone-fixture = { path = "../zk-standalone", features = ["circuits"] }

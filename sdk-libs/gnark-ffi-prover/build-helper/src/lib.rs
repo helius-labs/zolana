@@ -1,14 +1,14 @@
-//! Build-script half of `zolana-gnark-ffi-prover`, kept dependency-free so it
+//! Build-script half of `spr-gnark-ffi-prover`, kept dependency-free so it
 //! adds nothing to the build-dependency graph. A prover crate's `build.rs` is
-//! `fn main() -> Result<(), zolana_gnark_ffi_prover_build::BuildError> {
-//! zolana_gnark_ffi_prover_build::build_prover_archive() }`.
+//! `fn main() -> Result<(), spr_gnark_ffi_prover_build::BuildError> {
+//! spr_gnark_ffi_prover_build::build_prover_archive() }`.
 //!
 //! The prover crate keeps a Go `main` package in `circuits/` whose `go.mod`
 //! requires the bridge module `zolana/gnarkffiprover` but does not replace it.
 //! The bridge ships inside this crate, in `go/`, and the build supplies the
 //! `replace` that points at it. The bridge is therefore found wherever this
 //! crate is unpacked (workspace member, path or git dependency, registry
-//! download), and it always matches the `zolana-gnark-ffi-prover` release
+//! download), and it always matches the `spr-gnark-ffi-prover` release
 //! whose `prover!` macro declares its exports.
 //!
 //! The build reads `circuits/go.mod` and `circuits/go.sum` but never writes
@@ -120,7 +120,7 @@ impl error::Error for BuildError {
 
 /// Build the calling crate's `circuits/` Go `main` package into a C archive
 /// and link it. The archive exports the bridge functions that
-/// `zolana_gnark_ffi_prover::prover!` declares.
+/// `spr_gnark_ffi_prover::prover!` declares.
 pub fn build_prover_archive() -> Result<(), BuildError> {
     let manifest_dir = env_path("CARGO_MANIFEST_DIR")?;
     let out_dir = env_path("OUT_DIR")?;

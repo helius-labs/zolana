@@ -111,7 +111,7 @@ impl PublicKey {
 
     /// Commits the Solana owner identity with its domain tag.
     pub fn owner_proof_input_hash(&self) -> Result<[u8; 32], KeypairError> {
-        Ok(zolana_hasher::primitives::solana_owner_identity(
+        Ok(spr_hasher::primitives::solana_owner_identity(
             &self.confidential_view_tag()?,
         )?)
     }

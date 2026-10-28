@@ -26,7 +26,7 @@ mod tests {
     use crate::common::rings_tree::RingsTreeKind;
     use serde_json::Value;
     use solana_signature::SIGNATURE_BYTES;
-    use zolana_indexer_api::{
+    use spr_indexer_api::{
         Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsRequest, Hash, MerkleContext, NonInclusionProof, RingsMessage,
         RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,

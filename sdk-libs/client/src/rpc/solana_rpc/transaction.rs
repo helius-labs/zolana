@@ -6,8 +6,8 @@ use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransaction, UiCompiledInstruction, UiInstruction, UiLoadedAddresses, UiMessage,
 };
-use zolana_event_parser::{InstructionGroup, ParsedInstruction};
-use zolana_interface::{
+use spr_event_parser::{InstructionGroup, ParsedInstruction};
+use spr_interface::{
     instruction::{
         instruction_data::transact::{fetch_tag, TransactIxData},
         tag,

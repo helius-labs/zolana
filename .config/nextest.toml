@@ -36,7 +36,7 @@ slow-timeout = { period = "60s", terminate-after = 10 }
 # contend on those ports. `cargo test`'s in-binary parallelism happened to avoid
 # this per-recipe; nextest's process-per-test does not, so the group is required.
 #
-# Suites that boot through `zolana_program_test::localnet::FixtureLocalnet`
+# Suites that boot through `spr_program_test::localnet::FixtureLocalnet`
 # (swap, timelock escrow, dynamic swap, rfq, compression) are not in the group:
 # each test takes its own `LocalnetPorts::for_test` number and they share one
 # prover, so they run in parallel.

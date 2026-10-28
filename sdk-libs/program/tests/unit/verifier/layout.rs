@@ -1,6 +1,6 @@
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{PublicField, PublicFieldKind, PublicInputLayout, UtxoOwner};
-use zolana_transaction::Mint;
+use spr_keypair::ShieldedAddress;
+use spr_program::{PublicField, PublicFieldKind, PublicInputLayout, UtxoOwner};
+use spr_transaction::Mint;
 
 use super::{Settlement, Unconditional};
 

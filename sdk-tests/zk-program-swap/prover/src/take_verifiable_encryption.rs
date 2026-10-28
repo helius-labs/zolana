@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use zolana_client::ProofInputUtxo;
-use zolana_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
+use spr_client::ProofInputUtxo;
+use spr_gnark_ffi_prover::{decimal, utxo_proof_inputs, ProofInputMap};
 
 use crate::{CircuitId, OrderProof, OrderTermsProofInput, PROVER};
 
@@ -49,7 +49,7 @@ impl TakeVerifiableEncryptionProofInputs {
         map
     }
 
-    pub fn prove(&self) -> zolana_gnark_ffi_prover::Result<OrderProof> {
+    pub fn prove(&self) -> spr_gnark_ffi_prover::Result<OrderProof> {
         Ok(PROVER
             .prove(CircuitId::TakeVerifiableEncryption, &self.witness())?
             .compress()?
@@ -61,7 +61,7 @@ impl TakeVerifiableEncryptionProofInputs {
 mod tests {
     use std::collections::HashSet;
 
-    use zolana_gnark_ffi_prover::utxo_proof_input_keys;
+    use spr_gnark_ffi_prover::utxo_proof_input_keys;
 
     use super::*;
     use crate::{order_terms::expected_order_terms_witness_keys, TAKE_MODE_VERIFIABLE};

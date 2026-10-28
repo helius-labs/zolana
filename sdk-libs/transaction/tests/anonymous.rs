@@ -1,5 +1,5 @@
-use zolana_keypair::{PublicKey, ViewingKey};
-use zolana_transaction::{
+use spr_keypair::{PublicKey, ViewingKey};
+use spr_transaction::{
     serialization::anonymous::*, utxo::derive_transact_output_blinding, AssetRegistry, Data,
     DataRecord, Mint, OwnerCx, TransactionError, Utxo, UtxoSerialization, SOL_ASSET_ID,
 };

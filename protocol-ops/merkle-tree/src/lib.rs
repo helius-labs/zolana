@@ -4,8 +4,8 @@ pub mod indexed_array;
 use std::marker::PhantomData;
 
 use crate::indexed_array::errors::IndexedArrayError;
+use spr_hasher::{errors::HasherError, Hasher};
 use thiserror::Error;
-use zolana_hasher::{errors::HasherError, Hasher};
 
 #[derive(Debug, Error, PartialEq)]
 pub enum ReferenceMerkleTreeError {
@@ -426,7 +426,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use zolana_hasher::{zero_bytes::poseidon::ZERO_BYTES, Poseidon};
+    use spr_hasher::{zero_bytes::poseidon::ZERO_BYTES, Poseidon};
 
     use super::*;
 

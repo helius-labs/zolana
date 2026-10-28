@@ -2,7 +2,7 @@ use super::loader::load_cache_mut;
 use pinocchio::{
     account::RefMut, address::address_eq, error::ProgramError, AccountView, ProgramResult,
 };
-use zolana_interface::{error::ShieldedPoolError, state::CacheAccount};
+use spr_interface::{error::ShieldedPoolError, state::CacheAccount};
 
 /// A cache account validated once for a whole instruction: the writer holds the
 /// stored `write_authority` and the cache has not expired. The account parser

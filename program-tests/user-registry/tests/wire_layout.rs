@@ -1,10 +1,10 @@
 use borsh::to_vec;
-use user_registry_tests::build_register_ix;
-use zolana_user_registry::error::UserRegistryError;
-use zolana_user_registry_interface::{
+use spr_user_registry::error::UserRegistryError;
+use spr_user_registry_interface::{
     instruction::{discriminator, RegisterData, SetMergeEncryptionData},
     MergeEncryptionScheme, UserRecord,
 };
+use user_registry_tests::build_register_ix;
 
 /// Active error codes retain their wire values after retired variants are removed.
 #[test]

@@ -7,11 +7,11 @@
 
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
-use zolana_event::{
+use spr_event::{
     encode_merge_output_data, tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent,
     MergeOutputDataRef, MessageData, OutputUtxo, SplTransfer, TransactEvent,
 };
-use zolana_interface::instruction::instruction_data::{
+use spr_interface::instruction::instruction_data::{
     merge_ring::MergeRingIxDataRef,
     merge_transact::{MergeOutputEncryption, MergeTransactIxDataRef},
     settlement_accounts,
@@ -136,7 +136,7 @@ pub fn transact_general_event(
 
 /// One [`SplTransfer`] per interface transfer, in leg order. `is_deposit` and
 /// `amount` come from the transfer; the mint comes from the leg's settlement
-/// group. `settlement_accounts` is the window [`zolana_interface::instruction::settlement_accounts`]
+/// group. `settlement_accounts` is the window [`spr_interface::instruction::settlement_accounts`]
 /// located, so the owner signers before it and any cache after it need no counting here.
 fn settlement_transfers(
     transfers: &[InterfaceTransfer],

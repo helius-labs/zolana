@@ -8,15 +8,15 @@ publish = false
 
 [features]
 default = ["local-prover"]
-local-prover = ["zolana-forester-prover/gnark"]
+local-prover = ["spr-forester-prover/gnark"]
 
 [dependencies]
-zolana-forester-prover = { workspace = true, default-features = false }
+spr-forester-prover = { workspace = true, default-features = false }
 bs58 = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }
 solana-address = { workspace = true }
-zolana-protocol-instructions = { workspace = true }
+spr-protocol-instructions = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
@@ -41,10 +41,10 @@ solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 
 # Shielded-pool interface for instruction-data shapes and builders.
-zolana-interface = { workspace = true }
+spr-interface = { workspace = true }
 
 # Tree + nullifier-queue state for the read-only `info` report.
-zolana-tree = { workspace = true }
+spr-tree = { workspace = true }
 
-zolana-smart-account-client = { workspace = true }
+spr-smart-account-client = { workspace = true }
 num-bigint = { workspace = true }

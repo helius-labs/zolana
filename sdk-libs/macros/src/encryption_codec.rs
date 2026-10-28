@@ -58,18 +58,18 @@ pub(crate) fn generate(input: &DeriveInput) -> Result<TokenStream> {
         .make_where_clause()
         .predicates
         .push(syn::parse_quote!(
-            #ident #ty_generics: ::zolana_program::__private::borsh::BorshSerialize
-                + ::zolana_program::__private::borsh::BorshDeserialize
+            #ident #ty_generics: ::spr_program::__private::borsh::BorshSerialize
+                + ::spr_program::__private::borsh::BorshDeserialize
         ));
     let (impl_generics, _, where_clause) = generics.split_for_impl();
     Ok(quote! {
-        impl #impl_generics ::zolana_program::EncryptionCodec for #ident #ty_generics #where_clause {
+        impl #impl_generics ::spr_program::EncryptionCodec for #ident #ty_generics #where_clause {
             fn serialize_for_encryption(&self) -> ::std::io::Result<::std::vec::Vec<u8>> {
-                ::zolana_program::__private::borsh::to_vec(self)
+                ::spr_program::__private::borsh::to_vec(self)
             }
 
             fn deserialize_after_decryption(bytes: &[u8]) -> ::std::io::Result<Self> {
-                <Self as ::zolana_program::__private::borsh::BorshDeserialize>::try_from_slice(bytes)
+                <Self as ::spr_program::__private::borsh::BorshDeserialize>::try_from_slice(bytes)
             }
         }
     })

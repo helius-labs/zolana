@@ -18,11 +18,11 @@ use std::{
 };
 
 use solana_address::Address;
-use zolana_client::{
+use spr_client::{
     IndexerRequirement, ProofDataSource, ProverClient, ProverLaunch, Rpc, SolanaRpc, ZolanaClient,
     ZolanaIndexer,
 };
-use zolana_interface::{pda, state::tree::read_tree_id, SHIELDED_POOL_PROGRAM_ID};
+use spr_interface::{pda, state::tree::read_tree_id, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::{fixture::write_test_fixture, paths, ProgramTestError};
 

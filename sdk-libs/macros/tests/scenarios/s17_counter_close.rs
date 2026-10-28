@@ -1,6 +1,6 @@
 use solana_address::Address;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     circuit::{
         Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs,
         UtxoTrait,
@@ -8,7 +8,7 @@ use zolana_program::{
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::WalletUtxo;
+use spr_transaction::WalletUtxo;
 
 use crate::{
     benchmark::prove,

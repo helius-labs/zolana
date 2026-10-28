@@ -1,7 +1,7 @@
 use anyhow::Result;
 use solana_address::Address;
-use zolana_keypair::ShieldedAddress;
-use zolana_transaction::{
+use spr_keypair::ShieldedAddress;
+use spr_transaction::{
     instructions::transact::{Shape, SppProofOutputUtxo},
     utxo::derive_transact_output_blinding,
 };

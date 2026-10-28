@@ -529,7 +529,7 @@ pub(crate) fn to_json_ring(inputs: &TransferInputs) -> Result<String, ClientErro
 
 #[cfg(test)]
 mod merge_tests {
-    use zolana_interface::INPUT_TREES;
+    use spr_interface::INPUT_TREES;
 
     use super::*;
     use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
@@ -757,11 +757,11 @@ mod merge_tests {
         }
         assert_eq!(
             value["publicAssets"].as_array().map(|a| a.len()),
-            Some(zolana_interface::N_PUBLIC_SLOTS)
+            Some(spr_interface::N_PUBLIC_SLOTS)
         );
         assert_eq!(
             value["publicAmounts"].as_array().map(|a| a.len()),
-            Some(zolana_interface::N_PUBLIC_SLOTS)
+            Some(spr_interface::N_PUBLIC_SLOTS)
         );
         assert_tree_slot_contract(&value);
         assert_eq!(value["blindingSeed"], "0xa");

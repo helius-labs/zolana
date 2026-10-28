@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 use solana_signature::Signature;
-use zolana_client::{
+use spr_client::{
     EncryptedUtxoMatch, IndexerPollConfig, IndexerRpcConfig, Rpc, SolanaRpc, UtxoScan,
     ZolanaIndexer,
 };
-use zolana_transaction::SpendableDecryptionResult;
+use spr_transaction::SpendableDecryptionResult;
 
 use super::{
     material::{load_sender_from_resolved_sync, WalletMaterial},

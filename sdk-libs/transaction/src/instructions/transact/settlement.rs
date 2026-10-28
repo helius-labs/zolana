@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
+use spr_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 
 use super::ConfidentialTransaction;
 use crate::{
@@ -42,10 +42,10 @@ impl ConfidentialTransaction {
             return Err(TransactionError::ZeroInterfaceTransferAmount);
         }
         validate_settlement_target(asset, target)?;
-        if self.public_transfers.len() >= zolana_interface::MAX_INTERFACE_TRANSFERS {
+        if self.public_transfers.len() >= spr_interface::MAX_INTERFACE_TRANSFERS {
             return Err(TransactionError::TooManyInterfaceTransfers {
                 got: self.public_transfers.len().saturating_add(1),
-                max: zolana_interface::MAX_INTERFACE_TRANSFERS,
+                max: spr_interface::MAX_INTERFACE_TRANSFERS,
             });
         }
         self.public_transfers.push(PublicTransferRequest {
@@ -80,10 +80,10 @@ impl ConfidentialTransaction {
     }
 
     pub(super) fn validate_interface_transfers(&self) -> Result<(), TransactionError> {
-        if self.public_transfers.len() > zolana_interface::MAX_INTERFACE_TRANSFERS {
+        if self.public_transfers.len() > spr_interface::MAX_INTERFACE_TRANSFERS {
             return Err(TransactionError::TooManyInterfaceTransfers {
                 got: self.public_transfers.len(),
-                max: zolana_interface::MAX_INTERFACE_TRANSFERS,
+                max: spr_interface::MAX_INTERFACE_TRANSFERS,
             });
         }
         for transfer in &self.public_transfers {
@@ -132,7 +132,7 @@ pub const BN254_MODULUS_DEC: &str =
     "21888242871839275222246405745257275088548364400416034343698204186575808495617";
 
 pub fn signed_magnitude_to_field(is_deposit: bool, amount: u64) -> [u8; 32] {
-    let magnitude = zolana_hasher::primitives::right_align(&amount.to_be_bytes());
+    let magnitude = spr_hasher::primitives::right_align(&amount.to_be_bytes());
     if is_deposit {
         magnitude
     } else {
@@ -141,7 +141,7 @@ pub fn signed_magnitude_to_field(is_deposit: bool, amount: u64) -> [u8; 32] {
 }
 
 pub fn asset_field(asset: &Address) -> Result<[u8; 32], TransactionError> {
-    Ok(zolana_hasher::primitives::hash_bytes(asset.as_array())?)
+    Ok(spr_hasher::primitives::hash_bytes(asset.as_array())?)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

@@ -1,7 +1,7 @@
 #![cfg(all(feature = "client", feature = "setup"))]
 use solana_address::Address;
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
-use zolana_program::{
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
+use spr_program::{
     circuit::{
         zero, Assert, CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, NewAddress,
         PublicInputs, TokenUtxos, UtxoTrait,
@@ -9,7 +9,7 @@ use zolana_program::{
     conversion::ProofInput,
     CircuitError, Groth16Prover, ProgramOwner, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 #[test]
 fn raw_state_commitment_reserves_an_address_and_closes_with_private_padding() {
@@ -119,8 +119,7 @@ fn optional_inputs_keep_real_deposits_before_padding_without_changing_refund_ord
         .create_finalized_transaction(&sender, sender.solana_address().expect("payer"))
         .expect("create transaction");
     let output = created.output_utxos().first().expect("state output");
-    let deposit =
-        zolana_transaction::SppProofOutputUtxo::new(Mint::SOL, 77, owner).expect("deposit");
+    let deposit = spr_transaction::SppProofOutputUtxo::new(Mint::SOL, 77, owner).expect("deposit");
     let deposit = program.input(&deposit, 0, 1).expect("deposit input");
     // 2. Check either funded deposit precedes padding.
     for first_funded in [false, true] {
@@ -158,7 +157,7 @@ fn optional_inputs_keep_real_deposits_before_padding_without_changing_refund_ord
                 vec![0, 77]
             }
         );
-        zolana_program::ZkCircuit::check_constraints(&close)
+        spr_program::ZkCircuit::check_constraints(&close)
             .expect("the private ordering satisfies R1CS");
     }
 }

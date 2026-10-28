@@ -3,7 +3,7 @@
 //! the equivalence checks before pinning the new value.
 
 use sha2::{Digest, Sha256};
-use zolana_program::ZkCircuit;
+use spr_program::ZkCircuit;
 
 use super::fixture::{export, picus_export};
 

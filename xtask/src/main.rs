@@ -116,7 +116,7 @@ fn main() {
         }
         Some("generate-account-snapshots") => {
             let (deploy_dir, accounts_dir) = parse_account_snapshot_options(args.collect());
-            match zolana_program_test::fixture::write_protocol_snapshot(
+            match spr_program_test::fixture::write_protocol_snapshot(
                 &deploy_dir.join("shielded_pool_program.so"),
                 &accounts_dir,
             ) {
@@ -180,21 +180,21 @@ fn parse_account_snapshot_options(args: Vec<String>) -> (PathBuf, PathBuf) {
 fn print_program_ids() {
     println!(
         "SHIELDED_POOL_PROGRAM_ID={}",
-        bs58::encode(zolana_interface::SHIELDED_POOL_PROGRAM_ID).into_string()
+        bs58::encode(spr_interface::SHIELDED_POOL_PROGRAM_ID).into_string()
     );
     println!(
         "USER_REGISTRY_PROGRAM_ID={}",
-        bs58::encode(zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID).into_string()
+        bs58::encode(spr_user_registry_interface::USER_REGISTRY_PROGRAM_ID).into_string()
     );
     println!(
         "RING_TEST_PROGRAM_ID={}",
-        bs58::encode(zolana_program_test::RING_TEST_PROGRAM_ID).into_string()
+        bs58::encode(spr_program_test::RING_TEST_PROGRAM_ID).into_string()
     );
     println!(
         "SWAP_PROGRAM_ID={}",
         bs58::encode(swap_program::ID).into_string()
     );
-    println!("DEFAULT_TREE_ADDRESS={}", zolana_interface::pda::tree(0));
+    println!("DEFAULT_TREE_ADDRESS={}", spr_interface::pda::tree(0));
 }
 
 #[derive(Debug)]
@@ -429,11 +429,11 @@ fn tx_size(args: Vec<String>) {
     use solana_keypair::Keypair;
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
-    use zolana_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
-    use zolana_interface::instruction::instruction_data::{
+    use spr_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
+    use spr_interface::instruction::instruction_data::{
         merge_circuit_width, MAX_MERGE_INPUTS, MERGE_SUPPORTED_INPUT_COUNTS,
     };
-    use zolana_interface::{
+    use spr_interface::{
         instruction::{
             tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
             TransactProof, TreeContext,
@@ -447,14 +447,14 @@ fn tx_size(args: Vec<String>) {
     // recipient viewing key and the plaintext. A ring output names its ring
     // program in the plaintext, which makes it longer.
     let confidential_output_data_len = |ring_program_id: Option<solana_address::Address>| {
-        use zolana_transaction::{
+        use spr_transaction::{
             serialization::{
                 confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
                 UtxoSerialization,
             },
             Data, SOL_ASSET_ID,
         };
-        let throwaway = zolana_keypair::ViewingKey::new();
+        let throwaway = spr_keypair::ViewingKey::new();
         Confidential::encode_plaintext(
             &ConfidentialOutputPlaintext {
                 asset_id: SOL_ASSET_ID,
@@ -576,7 +576,7 @@ fn tx_size(args: Vec<String>) {
 
     let repeated_spl_withdraw_accounts = |leg_count: usize| {
         use solana_instruction::AccountMeta;
-        use zolana_interface::SHIELDED_POOL_CPI_AUTHORITY_PUBKEY;
+        use spr_interface::SHIELDED_POOL_CPI_AUTHORITY_PUBKEY;
 
         let mut accounts = vec![
             AccountMeta::new(payer_pk, true),
@@ -812,7 +812,7 @@ fn tx_size(args: Vec<String>) {
         }
         data.circuit =
             CircuitId::ConfidentialEddsa(circuit_n as u8, circuit_m as u8, N_PUBLIC_SLOTS as u8);
-        zolana_program::instruction::Transact {
+        spr_program::instruction::Transact {
             payer: payer_pk,
             input_trees: vec![tree],
             output_tree: tree,
@@ -833,7 +833,7 @@ fn tx_size(args: Vec<String>) {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
         data.circuit = circuit;
-        zolana_program::instruction::RingTransact {
+        spr_program::instruction::RingTransact {
             payer: payer_pk,
             input_trees: vec![tree],
             output_tree: tree,
@@ -848,7 +848,7 @@ fn tx_size(args: Vec<String>) {
     let slots = N_PUBLIC_SLOTS as u8;
     let ring_eddsa = |n: usize, m: usize| CircuitId::ConfidentialRingEddsa(n as u8, m as u8, slots);
     let anonymous = |n: usize, m: usize| {
-        use zolana_interface::verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment};
+        use spr_interface::verifying_keys::{AnonymousRingEddsaProofData, Bsb22Commitment};
         CircuitId::AnonymousRingEddsa(
             n as u8,
             m as u8,
@@ -924,11 +924,11 @@ fn tx_size(args: Vec<String>) {
             .into_iter()
             .chain([3, 9, 25, MAX_MERGE_INPUTS - 1])
     {
-        use zolana_interface::instruction::{
+        use spr_interface::instruction::{
             instruction_data::{MergeOutputEncryption, MergeProof},
             MergeTransactIxData,
         };
-        use zolana_program::instruction::{MergeRing, MergeTransact};
+        use spr_program::instruction::{MergeRing, MergeTransact};
         let nullifiers = (0..input_count)
             .map(|index| [index as u8 + 1; 32])
             .collect::<Vec<_>>();
@@ -947,7 +947,7 @@ fn tx_size(args: Vec<String>) {
             nullifier_tree_root_index: 0,
         };
         let settings = Pubkey::new_unique();
-        let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;
+        let vault = spr_smart_account_client::smart_account_pda(&settings, 0).0;
         let ring_merge_ix = MergeRing {
             input_tree: tree,
             output_tree: tree,
@@ -979,7 +979,7 @@ fn tx_size(args: Vec<String>) {
         };
         let merge_ix_accounts = merge_ix.accounts.len();
         let merge_ix_data_len = merge_ix.data.len();
-        let sync_ix = zolana_smart_account_client::execute_sync_ix(
+        let sync_ix = spr_smart_account_client::execute_sync_ix(
             &settings,
             0,
             &[payer_pk],

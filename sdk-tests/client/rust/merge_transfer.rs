@@ -8,12 +8,12 @@ use client_example::{
     setup_merge_scenario, MergeScenario,
 };
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     ComputeBudgetConfig, IndexerRpcConfig, MergeProver, ProverClient, ProverExt, Rpc, SolanaRpc,
     WitnessReader, ZolanaClient, ZolanaIndexer,
 };
-use zolana_program::instruction::{MergeTransact, Transact};
-use zolana_transaction::{
+use spr_program::instruction::{MergeTransact, Transact};
+use spr_transaction::{
     decrypt_spendable,
     instructions::{
         merge::{MergeTransaction, MAX_MERGE_INPUTS},
@@ -21,7 +21,7 @@ use zolana_transaction::{
     },
     AssetRegistry, SOL_MINT,
 };
-use zolana_user_registry_interface::user_record_pda;
+use spr_user_registry_interface::user_record_pda;
 
 /// One merge spends exactly `MAX_MERGE_INPUTS` inputs.
 const UTXO_COUNT: usize = MAX_MERGE_INPUTS;

@@ -1,32 +1,30 @@
 //! Real-proof coverage for transactions with multiple ordered interface transfers.
 
 use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, Pool};
-use zolana_interface::state::cache::empty_cached_input_fields;
+use spr_interface::state::cache::empty_cached_input_fields;
 
 use num_bigint::BigUint;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
-    PublicInputs, PublicTransfers, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
-};
-use zolana_event::SplTransfer;
-use zolana_event_parser::general_event_from_indexed;
-use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
-use zolana_interface::{
+use spr_client::{PublicInputs, PublicTransfers, TransferInput, TransferOutput, STATE_TREE_HEIGHT};
+use spr_event::SplTransfer;
+use spr_event_parser::general_event_from_indexed;
+use spr_hasher::{primitives::solana_owner_identity, Poseidon};
+use spr_interface::{
     instruction::instruction_data::transact::{InterfaceTransfer, TransactIxData},
     pda,
     tree_slot::TreeSlot,
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
-use zolana_merkle_tree::MerkleTree;
-use zolana_program::instruction::{
+use spr_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
+use spr_merkle_tree::MerkleTree;
+use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };
-use zolana_program_test::ZolanaProgramTest;
-use zolana_test_utils::transact::{
+use spr_program_test::ZolanaProgramTest;
+use spr_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
     dummy_transfer_output, external_data_hash, fe, inline_outputs, input_utxo,
     new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
@@ -34,7 +32,7 @@ use zolana_test_utils::transact::{
     test_private_tx_blinding, transfer_input, transfer_output, LegAccounts, TransferInputArgs,
     TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_transaction::{instructions::transact::PrivateTxHash, Utxo, SOL_MINT};
+use spr_transaction::{instructions::transact::PrivateTxHash, Utxo, SOL_MINT};
 
 const SOL_SPLIT_TOTAL: u64 = 1_000_000_000;
 const SPL_SPLIT_TOTAL: u64 = 1_000;
@@ -229,7 +227,7 @@ fn change_and_dummy_outputs(
     let mut outputs = vec![real_witness_output(
         payer_owner,
         nullifier_pk,
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         0,
         [30u8; 31],
         output_tree_id,
@@ -241,7 +239,7 @@ fn change_and_dummy_outputs(
 fn real_witness_output(
     signing_pubkey: PublicKey,
     nullifier_pk: [u8; 32],
-    asset: zolana_transaction::Mint,
+    asset: spr_transaction::Mint,
     amount: u64,
     blinding: [u8; 31],
     output_tree_id: u16,
@@ -533,7 +531,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
         .create_token_account_with_program(&mint, &payer.pubkey(), token_program)
         .expect("second recipient token account");
     let vault_before = env.rpc.token_balance(&vault).expect("vault balance");
-    let mint_field = zolana_hasher::primitives::hash_bytes(&mint.to_bytes()).expect("mint field");
+    let mint_field = spr_hasher::primitives::hash_bytes(&mint.to_bytes()).expect("mint field");
     let spl_interface_bump = pda::spl_interface_with_bump(&mint).1;
     let interface_transfers = vec![
         InterfaceTransfer::SplWithdrawal {
@@ -647,17 +645,17 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let payer_owner = PublicKey::from_ed25519(&payer.pubkey().to_bytes());
     let registry_data = env
         .rpc
-        .account_data(&zolana_interface::pda::spl_asset_registry(&deposit_mint))
+        .account_data(&spr_interface::pda::spl_asset_registry(&deposit_mint))
         .expect("asset registry");
     let deposit_asset_id =
-        zolana_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
+        spr_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
             .expect("asset registry")
             .asset_id;
     let outputs = vec![
         real_witness_output(
             payer_owner,
             note.nullifier_pk,
-            zolana_transaction::Mint::SOL,
+            spr_transaction::Mint::SOL,
             sol_deposit_amount,
             [41u8; 31],
             env.tree_id,
@@ -665,7 +663,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         real_witness_output(
             payer_owner,
             note.nullifier_pk,
-            zolana_transaction::Mint::new(deposit_mint, deposit_asset_id),
+            spr_transaction::Mint::new(deposit_mint, deposit_asset_id),
             spl_deposit_amount,
             [42u8; 31],
             env.tree_id,
@@ -689,10 +687,10 @@ fn three_distinct_assets_support_opposite_public_directions() {
         sol_leg(&payer.pubkey()),
         spl_leg(&deposit_mint, &deposit_token),
     ];
-    let withdraw_field = zolana_hasher::primitives::hash_bytes(&withdraw_mint.to_bytes())
-        .expect("withdraw mint field");
-    let deposit_field = zolana_hasher::primitives::hash_bytes(&deposit_mint.to_bytes())
-        .expect("deposit mint field");
+    let withdraw_field =
+        spr_hasher::primitives::hash_bytes(&withdraw_mint.to_bytes()).expect("withdraw mint field");
+    let deposit_field =
+        spr_hasher::primitives::hash_bytes(&deposit_mint.to_bytes()).expect("deposit mint field");
     let data = prove_spend(
         &env,
         note,

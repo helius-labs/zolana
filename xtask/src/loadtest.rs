@@ -34,13 +34,13 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 // `Rpc` is in scope for send_transaction_with_config, which is a
 // trait method rather than an inherent one on SolanaRpc.
-use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
-use zolana_keypair::ShieldedKeypair;
-use zolana_test_utils::wallet::{
+use spr_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
+use spr_keypair::ShieldedKeypair;
+use spr_test_utils::wallet::{
     create_transfer_sync, sign_private_transaction_sync, sync_wallet, KeypairWalletAuthority,
     TransferParams, Wallet,
 };
-use zolana_transaction::{Address, AssetRegistry};
+use spr_transaction::{Address, AssetRegistry};
 
 /// One completed transfer, broken into the phases that can each be slow for a
 /// different reason.
@@ -486,7 +486,7 @@ fn worker(
         }
         wallet
             .utxos
-            .retain(|note| zolana_interface::pda::tree(note.tree_id) == tree);
+            .retain(|note| spr_interface::pda::tree(note.tree_id) == tree);
         timing.sync_ms = mark.elapsed().as_millis() as u64;
         if stats.warmup_sync_ms.is_none() {
             stats.warmup_sync_ms = Some(timing.sync_ms);

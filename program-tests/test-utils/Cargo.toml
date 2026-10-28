@@ -1,5 +1,5 @@
 [package]
-name = "zolana-test-utils"
+name = "spr-test-utils"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -11,7 +11,7 @@ mollusk = ["dep:mollusk-svm", "dep:solana-program-error"]
 parallel = ["dep:rayon"]
 
 [dependencies]
-zolana-protocol-instructions = { workspace = true }
+spr-protocol-instructions = { workspace = true }
 anyhow = { workspace = true }
 base64 = { workspace = true }
 borsh = { workspace = true }
@@ -36,19 +36,19 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true, features = ["serde"] }
 solana-transaction-error = { workspace = true }
-zolana-client = { workspace = true, features = ["solana-rpc"] }
-zolana-interface = { workspace = true }
-zolana-smart-account-client = { workspace = true }
-zolana-event = { workspace = true }
-zolana-event-parser = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-merkle-tree = { workspace = true }
-zolana-program = { workspace = true }
-zolana-program-test = { workspace = true, features = ["localnet"] }
-zolana-transaction = { workspace = true }
-zolana-tree = { workspace = true }
-zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+spr-client = { workspace = true, features = ["solana-rpc"] }
+spr-interface = { workspace = true }
+spr-smart-account-client = { workspace = true }
+spr-event = { workspace = true }
+spr-event-parser = { workspace = true }
+spr-hasher = { workspace = true }
+spr-keypair = { workspace = true }
+spr-merkle-tree = { workspace = true }
+spr-program = { workspace = true }
+spr-program-test = { workspace = true, features = ["localnet"] }
+spr-transaction = { workspace = true }
+spr-tree = { workspace = true }
+spr-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
 proptest = { workspace = true }

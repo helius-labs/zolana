@@ -1,6 +1,6 @@
 use solana_address::Address;
-use zolana_interface::instruction::instruction_data::transact::OwnerTag;
-use zolana_keypair::{shielded::ShieldedAddress, PublicKey};
+use spr_interface::instruction::instruction_data::transact::OwnerTag;
+use spr_keypair::{shielded::ShieldedAddress, PublicKey};
 
 use super::{ConfidentialTransaction, Recipient};
 use crate::{error::TransactionError, Mint, WalletUtxo};

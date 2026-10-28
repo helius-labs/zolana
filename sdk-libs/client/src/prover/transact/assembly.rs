@@ -1,17 +1,17 @@
 use num_bigint::BigUint;
-use zolana_event::is_confidential_encrypted_output;
-use zolana_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
-use zolana_hasher::{
+use spr_event::is_confidential_encrypted_output;
+use spr_hasher::zero_suffix_hash_chain::create_padded_right_hash_chain_4;
+use spr_hasher::{
     hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::solana_owner_identity,
 };
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::{InputUtxo, TreeContext, NO_UTXO_ROOT},
     tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, MAX_INPUT_TREES,
 };
-use zolana_keypair::PublicKey;
-use zolana_transaction::{
+use spr_keypair::PublicKey;
+use spr_transaction::{
     instructions::transact::{PrivateTxHash, PublicTransfers, Shape},
     utxo::SppProofInputUtxo,
     utxo::{
@@ -543,7 +543,7 @@ pub struct PublicInputs<'a, Roots = &'a [TreeSlot; INPUT_TREES]> {
     /// Per-tx ring program (pk_field-encoded); 0 on default transact.
     pub ring_program_id: &'a [u8; 32],
     /// The transaction's dummy-input policy packed with every input's tree
-    /// index, built by [`zolana_interface::tree_slot::pack_input_flags`]. It
+    /// index, built by [`spr_interface::tree_slot::pack_input_flags`]. It
     /// occupies the element the plain dummy-input boolean used to.
     pub input_flags: &'a [u8; 32],
     /// Unique owner signers in first-occurrence order, then zero padding. The
@@ -650,7 +650,7 @@ impl TransferInputUtxo {
             input.validate_address()?;
         } else if ProofInputUtxo::try_from(input)?.hash()? != input.utxo_hash {
             return Err(
-                zolana_transaction::TransactionError::InputCommitmentMismatch { index }.into(),
+                spr_transaction::TransactionError::InputCommitmentMismatch { index }.into(),
             );
         }
         if input.is_dummy() {
@@ -753,15 +753,15 @@ mod tests {
 
     fn wallet_input(
         utxo: Utxo,
-        key: &zolana_keypair::NullifierKey,
+        key: &spr_keypair::NullifierKey,
         tree_id: u16,
-    ) -> zolana_transaction::WalletUtxo {
+    ) -> spr_transaction::WalletUtxo {
         let nullifier_pubkey = key.pubkey().unwrap();
         let utxo_hash = utxo
             .hash(&nullifier_pubkey, &[0; 32], &[0; 32], tree_id)
             .unwrap();
         let nullifier = key.nullifier(&utxo_hash, &utxo.blinding).unwrap();
-        zolana_transaction::WalletUtxo {
+        spr_transaction::WalletUtxo {
             utxo,
             nullifier_pubkey,
             utxo_hash,
@@ -779,23 +779,23 @@ mod tests {
     }
 
     use borsh::to_vec;
-    use zolana_keypair::{ShieldedKeypair, SigningKey};
-    use zolana_transaction::{utxo::SppProofInputUtxo, Data, Utxo};
+    use spr_keypair::{ShieldedKeypair, SigningKey};
+    use spr_transaction::{utxo::SppProofInputUtxo, Data, Utxo};
 
     use crate::rpc::{MerkleContext, MerkleProof, NULLIFIER_TREE_HEIGHT};
     use solana_address::Address;
-    use zolana_event::{
+    use spr_event::{
         OutputDataEncoding, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
         RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
     };
-    use zolana_interface::{
+    use spr_interface::{
         instruction::{OwnerTag, TransactOutput},
         state::cache::{
             bind_cache_write, cached_input_fields, empty_cached_input_fields, CACHE_CAPACITY,
         },
         verifying_keys::{CacheAccess, CacheWrite},
     };
-    use zolana_transaction::instructions::transact::CacheAccounts;
+    use spr_transaction::instructions::transact::CacheAccounts;
 
     use super::*;
     use crate::prover::{cache::CacheSelection, CacheReadInputs};
@@ -810,7 +810,7 @@ mod tests {
             leaf: [0u8; 32],
             merkle_context: MerkleContext {
                 tree_type: 0,
-                tree: zolana_interface::pda::tree(tree_id),
+                tree: spr_interface::pda::tree(tree_id),
             },
             path: vec![[0u8; 32]; STATE_TREE_HEIGHT],
             leaf_index: 0,
@@ -825,7 +825,7 @@ mod tests {
             leaf: [0u8; 32],
             merkle_context: MerkleContext {
                 tree_type: 0,
-                tree: zolana_interface::pda::tree(9),
+                tree: spr_interface::pda::tree(9),
             },
             path: vec![[0u8; 32]; NULLIFIER_TREE_HEIGHT],
             low_element: [0u8; 32],
@@ -853,7 +853,7 @@ mod tests {
         let utxo: SppProofInputUtxo = wallet_input(
             Utxo {
                 owner: owner.signing_pubkey(),
-                asset: zolana_transaction::Mint::SOL,
+                asset: spr_transaction::Mint::SOL,
                 amount: 0,
                 blinding: [0u8; 32],
                 ring_program_id: None,
@@ -867,7 +867,7 @@ mod tests {
         state.leaf = utxo.utxo_hash;
         let mut nullifier = non_inclusion_proof(nullifier_root, 7);
         nullifier.leaf = utxo.nullifier;
-        nullifier.merkle_context.tree = zolana_interface::pda::tree(tree_id);
+        nullifier.merkle_context.tree = spr_interface::pda::tree(tree_id);
         TransferInputUtxo {
             utxo,
             proof: Some(SpendProof { state, nullifier }),
@@ -893,7 +893,7 @@ mod tests {
         let nullifier_proof = nullifier_proof.map(|(root, root_index)| {
             let mut proof = non_inclusion_proof(root, root_index);
             proof.leaf = utxo.nullifier;
-            proof.merkle_context.tree = zolana_interface::pda::tree(tree_id);
+            proof.merkle_context.tree = spr_interface::pda::tree(tree_id);
             proof
         });
         TransferInputUtxo {
@@ -920,7 +920,7 @@ mod tests {
 
     fn output(seed: u8) -> SppProofOutputUtxo {
         SppProofOutputUtxo::new(
-            zolana_transaction::Mint::SOL,
+            spr_transaction::Mint::SOL,
             1,
             keypair(seed).shielded_address().unwrap(),
         )
@@ -1095,7 +1095,7 @@ mod tests {
             SppProofInputUtxo::new_address(keypair(seed).signing_pubkey(), [seed; 32], 0).unwrap();
         let mut nullifier = non_inclusion_proof(nullifier_root, 7);
         nullifier.leaf = utxo.nullifier;
-        nullifier.merkle_context.tree = zolana_interface::pda::tree(0);
+        nullifier.merkle_context.tree = spr_interface::pda::tree(0);
         TransferInputUtxo {
             utxo,
             proof: None,
@@ -1275,7 +1275,7 @@ mod tests {
         assert!(matches!(
             derive(&inputs, &[beyond], writing()),
             Err(ClientError::Transaction(
-                zolana_transaction::TransactionError::CacheSlotOutOfRange { slot: 36 }
+                spr_transaction::TransactionError::CacheSlotOutOfRange { slot: 36 }
             ))
         ));
         assert!(matches!(
@@ -1285,20 +1285,20 @@ mod tests {
                 writing()
             ),
             Err(ClientError::Transaction(
-                zolana_transaction::TransactionError::DuplicateCacheWriteSlot { index: 1, slot: 5 }
+                spr_transaction::TransactionError::DuplicateCacheWriteSlot { index: 1, slot: 5 }
             ))
         ));
         let seventeen: Vec<_> = (0..17).map(|slot| cached_output(slot + 1, slot)).collect();
         assert!(matches!(
             derive(&inputs, &seventeen, writing()),
             Err(ClientError::Transaction(
-                zolana_transaction::TransactionError::TooManyCacheWrites { index: 16, max: 16 }
+                spr_transaction::TransactionError::TooManyCacheWrites { index: 16, max: 16 }
             ))
         ));
         assert!(matches!(
             derive(&inputs, &[cached_output(1, 5)], CacheAccounts::default()),
             Err(ClientError::Transaction(
-                zolana_transaction::TransactionError::CachedOutputWithoutWriteCache { index: 0 }
+                spr_transaction::TransactionError::CachedOutputWithoutWriteCache { index: 0 }
             ))
         ));
         let padding = SppProofOutputUtxo {
@@ -1308,13 +1308,13 @@ mod tests {
         assert!(matches!(
             derive(&inputs, &[padding], writing()),
             Err(ClientError::Transaction(
-                zolana_transaction::TransactionError::CachedDummyOutput
+                spr_transaction::TransactionError::CachedDummyOutput
             ))
         ));
         assert!(matches!(
             derive(&inputs, &[output(1)], writing()),
             Err(ClientError::Transaction(
-                zolana_transaction::TransactionError::UnusedWriteCache
+                spr_transaction::TransactionError::UnusedWriteCache
             ))
         ));
     }

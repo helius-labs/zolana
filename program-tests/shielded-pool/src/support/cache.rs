@@ -11,9 +11,9 @@ use solana_clock::Clock;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ProverClient, ProverExt, PublicInputs, PublicTransfers};
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_interface::{
+use spr_client::{ProverClient, ProverExt, PublicInputs, PublicTransfers};
+use spr_hasher::primitives::solana_owner_identity;
+use spr_interface::{
     instruction::instruction_data::{
         transact::{CacheAccess, CircuitId, NO_UTXO_ROOT},
         CreateCacheData,
@@ -26,10 +26,10 @@ use zolana_interface::{
     },
     N_PUBLIC_SLOTS,
 };
-use zolana_keypair::{pubkey::PublicKey, NullifierKey};
-use zolana_program::instruction::{CreateCache, Transact};
-use zolana_program_test::ZolanaProgramTest;
-use zolana_test_utils::{
+use spr_keypair::{pubkey::PublicKey, NullifierKey};
+use spr_program::instruction::{CreateCache, Transact};
+use spr_program_test::ZolanaProgramTest;
+use spr_test_utils::{
     prover::spawn_workspace_prover,
     transact::{
         build_transfer_prover_inputs, cache_read_selection, cached_spend_input, compact_input,
@@ -40,7 +40,7 @@ use zolana_test_utils::{
         TransferProverInputsArgs, TEST_BLINDING_SEED,
     },
 };
-use zolana_transaction::{instructions::transact::PrivateTxHash, Mint};
+use spr_transaction::{instructions::transact::PrivateTxHash, Mint};
 
 use crate::support::transact::tree_roots;
 
@@ -95,7 +95,7 @@ impl CachedSpendFixture {
             (1..=self.n_inputs).contains(&self.cached_slots),
             "a cached spend draws between one input and all of them from the cache"
         );
-        spawn_workspace_prover(zolana_client::IndexerRequirement::Optional);
+        spawn_workspace_prover(spr_client::IndexerRequirement::Optional);
 
         let payer = rpc.payer.insecure_clone();
         let payer_bytes = payer.pubkey().to_bytes();

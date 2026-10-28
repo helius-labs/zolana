@@ -3,14 +3,14 @@
 use crate::input_fixture::wallet_utxo;
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
-use zolana_client::{MergeProver, ProverClient, ProverExt, Rpc};
-use zolana_interface::{
+use spr_client::{MergeProver, ProverClient, ProverExt, Rpc};
+use spr_interface::{
     instruction::instruction_data::merge_transact::MergeProof,
     verifying_keys::{merge_ring_24_1, merge_ring_52_1, merge_ring_8_1},
 };
-use zolana_keypair::{random_blinding, ShieldedKeypair};
-use zolana_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
-use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Mint, Utxo};
+use spr_keypair::{random_blinding, ShieldedKeypair};
+use spr_transaction::instructions::merge::{MergeTransaction, MAX_MERGE_INPUTS};
+use spr_transaction::{instructions::merge::merge_output_blinding, Data, Mint, Utxo};
 
 use crate::{harness::MergeRingHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 

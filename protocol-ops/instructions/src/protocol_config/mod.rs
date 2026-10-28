@@ -2,7 +2,7 @@ use alloc::vec;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::{
+use spr_interface::{
     instruction::{
         encode_instruction, tag, CreateProtocolConfigData, PauseTreeData, SetTreeFeesData,
         UpdateProtocolConfigData,

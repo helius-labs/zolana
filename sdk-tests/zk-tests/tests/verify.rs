@@ -6,11 +6,9 @@ use litesvm::LiteSVM;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_client::{compile_message, sign_transaction, ComputeBudgetConfig};
-use zolana_zk_dsl::{conversion::field_bytes, Groth16Prover};
-use zolana_zk_standalone_fixture::{
-    instruction::withdrawal_data, verifier::withdrawal, Withdrawal,
-};
+use spr_client::{compile_message, sign_transaction, ComputeBudgetConfig};
+use spr_zk_dsl::{conversion::field_bytes, Groth16Prover};
+use spr_zk_standalone_fixture::{instruction::withdrawal_data, verifier::withdrawal, Withdrawal};
 
 /// A pairing check with four public inputs needs more than the 200,000 units
 /// a single instruction gets by default.
@@ -18,7 +16,7 @@ const COMPUTE_UNITS: u32 = 400_000;
 
 fn program_so() -> Vec<u8> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/deploy/zolana_zk_standalone_fixture.so");
+        .join("../../target/deploy/spr_zk_standalone_fixture.so");
     std::fs::read(&path).unwrap_or_else(|error| {
         panic!(
             "{}: {error}; build it with `just build-zk-standalone`",

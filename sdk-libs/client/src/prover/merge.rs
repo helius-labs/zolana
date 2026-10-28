@@ -3,8 +3,8 @@ pub use public_inputs::{MergePublicInputBinding, MergePublicInputs};
 
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_hasher::primitives::pack_be;
-use zolana_interface::{
+use spr_hasher::primitives::pack_be;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::{
@@ -18,8 +18,8 @@ use zolana_interface::{
     state::cache::CACHE_CAPACITY,
     tree_slot::tree_slots_hash_chain,
 };
-use zolana_keypair::{viewing_key::Salt, NullifierKey};
-use zolana_transaction::{
+use spr_keypair::{viewing_key::Salt, NullifierKey};
+use spr_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
         MergeOutputCiphertext, MergeOutputPlaintext, MergeProofInputs,

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use zolana_hasher::{hash_chain::create_nonzero_hash_chain_from_slice, Hasher, Poseidon};
+use spr_hasher::{hash_chain::create_nonzero_hash_chain_from_slice, Hasher, Poseidon};
 
 const NONZERO_HASH_CHAIN_VECTORS_JSON: &str =
     include_str!("../../../test-vectors/nonzero_hash_chain.json");
@@ -76,7 +76,7 @@ fn compute_vectors() -> NonZeroHashChainVectors {
                       does. The len_<L> entries fold e[i] = i + 1; padded_len_3 equals \
                       len_3 and reversed_len_3 differs from it. Produced by \
                       program-libs/hasher/tests/nonzero_hash_chain.rs print_nonzero_hash_chain_vectors: \
-                      cargo test -p zolana-hasher --test nonzero_hash_chain \
+                      cargo test -p spr-hasher --test nonzero_hash_chain \
                       print_nonzero_hash_chain_vectors -- --ignored --nocapture"
             .to_string(),
         vectors,

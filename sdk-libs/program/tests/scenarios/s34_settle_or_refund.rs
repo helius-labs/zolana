@@ -1,11 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_interface::shape::Shape;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_interface::shape::Shape;
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -19,7 +19,7 @@ pub struct Reservation {
     pub fill_price: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Reservation {}
+impl spr_program::circuit::CircuitType for circuit::Reservation {}
 
 impl ProofInput for Reservation {
     type Circuit = circuit::Reservation;
@@ -72,7 +72,7 @@ struct SettlePublicInputs {
     execution_price: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Settle {}
+impl spr_program::circuit::CircuitType for circuit::Settle {}
 
 impl ProofInput for Settle {
     type Circuit = circuit::Settle;
@@ -116,7 +116,7 @@ impl Placeholder for Settle {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, Assert, Bool, CheckedTransaction, Circuit, CircuitVar,
             ConfidentialTransaction, DataHash, DataUtxo, PublicInputs, TokenUtxos, TxContext, Uint,
@@ -268,21 +268,20 @@ fn settle_or_refund_prove_and_verify() {
         .verify(&refunded_result)
         .expect("the refund proof verifies");
 
-    let outputs =
-        |spp_proof_inputs: &zolana_transaction::instructions::transact::SppProofInputs| {
-            spp_proof_inputs
-                .output_utxos
-                .iter()
-                .map(|output| {
-                    (
-                        output.owner_address,
-                        output.asset,
-                        output.amount,
-                        output.data.utxo_data().map(<[u8]>::to_vec),
-                    )
-                })
-                .collect::<Vec<_>>()
-        };
+    let outputs = |spp_proof_inputs: &spr_transaction::instructions::transact::SppProofInputs| {
+        spp_proof_inputs
+            .output_utxos
+            .iter()
+            .map(|output| {
+                (
+                    output.owner_address,
+                    output.asset,
+                    output.amount,
+                    output.data.utxo_data().map(<[u8]>::to_vec),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
     let reservation_bytes = |fill_price| {
         Some(
             borsh::to_vec(&Reservation {

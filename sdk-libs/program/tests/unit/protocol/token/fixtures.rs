@@ -1,11 +1,11 @@
-use zolana_hasher::primitives::hash_bytes;
-use zolana_keypair::hash::owner_hash;
-use zolana_program::{
+use spr_hasher::primitives::hash_bytes;
+use spr_keypair::hash::owner_hash;
+use spr_program::{
     circuit::{constant, Assert, Circuit, CircuitVar, Field, HashBytes, TokenUtxos, UtxoTrait},
     conversion::ProofInput,
     CircuitError,
 };
-use zolana_transaction::WalletUtxo;
+use spr_transaction::WalletUtxo;
 
 use crate::{
     harness::fixture::{rule_broken, Refusal},

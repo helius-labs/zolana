@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{hash_bytes, right_align, solana_owner_identity, SOLANA_OWNER_TAG},
     Hasher, Poseidon,
 };

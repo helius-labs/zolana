@@ -1,5 +1,5 @@
 use proptest::prelude::*;
-use zolana_transaction::Mint;
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{

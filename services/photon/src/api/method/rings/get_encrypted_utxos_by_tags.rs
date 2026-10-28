@@ -13,10 +13,10 @@ use sea_orm::{
 };
 use solana_pubkey::Pubkey;
 use solana_signature::SIGNATURE_BYTES;
-use zolana_indexer_api::{
+use spr_indexer_api::{
     Base64String, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetRingsByTagsRequest, Hash,
 };
-use zolana_interface::pda;
+use spr_interface::pda;
 
 #[derive(FromQueryResult, Debug)]
 struct EncryptedUtxoRow {

@@ -1,4 +1,4 @@
-use zolana_hasher::{
+use spr_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, HasherError, Poseidon,
 };

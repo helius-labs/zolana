@@ -1,8 +1,8 @@
 use crate::instructions::shared::caused_by;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{
+use spr_account_checks::AccountIterator;
+use spr_interface::{
     error::ShieldedPoolError, instruction::CreateProtocolConfigData, state::ProtocolConfig,
     BPF_LOADER_UPGRADEABLE_ID, SPP_PROTOCOL_CONFIG_PDA_SEED,
 };

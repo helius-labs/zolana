@@ -1,10 +1,10 @@
-use zolana_hasher::primitives::hash_bytes;
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_hasher::primitives::hash_bytes;
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -33,7 +33,7 @@ struct TypedUpdatePublicInputs {
     count: u32,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::TypedUpdate {}
+impl spr_program::circuit::CircuitType for circuit::TypedUpdate {}
 
 impl ProofInput for TypedUpdate {
     type Circuit = circuit::TypedUpdate;
@@ -75,7 +75,7 @@ impl Placeholder for TypedUpdate {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataUtxo,
             HashBytes, PublicInputs, SolanaAddress, TxContext, Uint, Utxo, UtxoOwner,

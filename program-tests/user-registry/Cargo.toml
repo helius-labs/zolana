@@ -18,13 +18,13 @@ solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
-zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+spr-user-registry-interface = { workspace = true, features = ["solana"] }
 # The one implementation of "what budget a v1 header must state", so the rig
 # cannot drift from what the SDK sends.
-zolana-client = { workspace = true }
-zolana-keypair = { workspace = true }
+spr-client = { workspace = true }
+spr-keypair = { workspace = true }
 
 [dev-dependencies]
 solana-transaction-error = { workspace = true }
-zolana-program = { workspace = true }
-zolana-user-registry = { workspace = true }
+spr-program = { workspace = true }
+spr-user-registry = { workspace = true }

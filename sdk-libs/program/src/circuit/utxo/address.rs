@@ -15,7 +15,7 @@ impl NewAddress {
     #[track_caller]
     pub fn new(owner: &UtxoOwner, seed: &CircuitVar) -> Result<Self, CircuitError> {
         owner.key().tag().assert_equal(
-            &constant(u64::from(zolana_hasher::primitives::SOLANA_OWNER_TAG)),
+            &constant(u64::from(spr_hasher::primitives::SOLANA_OWNER_TAG)),
             "an address is owned by a Solana signer",
         )?;
         owner.nullifier_pk().assert_equal(

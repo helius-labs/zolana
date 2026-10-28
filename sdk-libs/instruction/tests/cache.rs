@@ -1,11 +1,11 @@
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
-use zolana_hasher::hash_chain::create_right_hash_chain_4_from_slice;
-use zolana_instruction::instruction::{
+use spr_hasher::hash_chain::create_right_hash_chain_4_from_slice;
+use spr_instruction::instruction::{
     CacheWriteAccounts, CloseCache, CreateCache, MergeRing, MergeTransact,
 };
-use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
-use zolana_interface::{
+use spr_interface::instruction::instruction_data::MergeOutputEncryption;
+use spr_interface::{
     instruction::{
         instruction_data::merge_transact::MergeProof, tag, CreateCacheData, MergeTransactIxData,
     },
@@ -41,8 +41,8 @@ fn merge_data(cache_slot: Option<u8>) -> MergeTransactIxData {
     }
 }
 
-fn writes(pairs: &[(u8, u8)]) -> [zolana_interface::verifying_keys::CacheWrite; MAX_CACHE_WRITES] {
-    use zolana_interface::verifying_keys::{CacheAccess, CacheWrite};
+fn writes(pairs: &[(u8, u8)]) -> [spr_interface::verifying_keys::CacheWrite; MAX_CACHE_WRITES] {
+    use spr_interface::verifying_keys::{CacheAccess, CacheWrite};
     let mut out = CacheAccess::NO_WRITES;
     for (entry, (output, slot)) in out.iter_mut().zip(pairs) {
         *entry = CacheWrite {
@@ -55,7 +55,7 @@ fn writes(pairs: &[(u8, u8)]) -> [zolana_interface::verifying_keys::CacheWrite; 
 
 #[test]
 fn cache_access_validates_read_and_write_masks_independently() {
-    use zolana_interface::verifying_keys::CacheAccess;
+    use spr_interface::verifying_keys::CacheAccess;
     for (reads, pairs, inputs, outputs, valid) in [
         (0, &[][..], 2, 2, false),
         (1, &[], 2, 2, true),
@@ -114,7 +114,7 @@ fn cache_access_validates_read_and_write_masks_independently() {
 
 #[test]
 fn a_write_after_the_first_unused_entry_is_refused() {
-    use zolana_interface::verifying_keys::{CacheAccess, CacheWrite};
+    use spr_interface::verifying_keys::{CacheAccess, CacheWrite};
     let mut write_slots = writes(&[(0, 1)]);
     if let Some(entry) = write_slots.get_mut(2) {
         *entry = CacheWrite { output: 1, slot: 2 };
@@ -129,7 +129,7 @@ fn a_write_after_the_first_unused_entry_is_refused() {
 
 #[test]
 fn only_the_packed_prefix_counts_as_writes() {
-    use zolana_interface::verifying_keys::{CacheAccess, CacheWrite};
+    use spr_interface::verifying_keys::{CacheAccess, CacheWrite};
     let access = CacheAccess {
         read_bitmap: 0,
         write_slots: writes(&[(1, 30), (0, 2)]),
@@ -154,7 +154,7 @@ fn only_the_packed_prefix_counts_as_writes() {
 
 #[test]
 fn cache_write_binding_commits_to_destination_writes_and_external_data() {
-    use zolana_interface::state::cache::bind_cache_write;
+    use spr_interface::state::cache::bind_cache_write;
     let original = [1; 32];
     assert_eq!(bind_cache_write(original, None).unwrap(), original);
     let pairs = writes(&[(0, 0), (1, 1)]);
@@ -252,7 +252,7 @@ fn the_skip_path_matches_the_plain_fold_for_every_selection() {
                 empty_cached_input_fields(input_count).unwrap()
             } else {
                 [
-                    zolana_interface::tree_slot::tree_id_field(9),
+                    spr_interface::tree_slot::tree_id_field(9),
                     create_right_hash_chain_4_from_slice(&read_list(read_bitmap, input_count))
                         .unwrap(),
                 ]

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_api::{SerializableSignature, ZolanaApi};
+use spr_api::{SerializableSignature, ZolanaApi};
 
 use crate::{
     error::ClientError,

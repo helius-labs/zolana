@@ -1,10 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program::{
+use spr_keypair::{ShieldedAddress, ShieldedKeypair};
+use spr_program::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, UtxoOwner, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -23,7 +23,7 @@ pub struct EscrowTerms {
     pub unlock: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::EscrowTerms {}
+impl spr_program::circuit::CircuitType for circuit::EscrowTerms {}
 
 impl ProofInput for EscrowTerms {
     type Circuit = circuit::EscrowTerms;
@@ -73,7 +73,7 @@ pub(crate) struct EscrowPublicInputs {
     pub(crate) escrow_owner: ShieldedAddress,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Escrow {}
+impl spr_program::circuit::CircuitType for circuit::Escrow {}
 
 impl ProofInput for Escrow {
     type Circuit = circuit::Escrow;
@@ -116,7 +116,7 @@ impl Placeholder for Escrow {
 }
 
 pub(crate) mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction, DataHash,
             DataUtxo, PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoData, UtxoOwner,

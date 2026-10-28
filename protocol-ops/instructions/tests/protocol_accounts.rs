@@ -1,14 +1,12 @@
 use borsh::BorshDeserialize;
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::{tag, CreateTreeData, SetTreeFeesData};
-use zolana_interface::state::{
+use spr_interface::instruction::{tag, CreateTreeData, SetTreeFeesData};
+use spr_interface::state::{
     default_tree_fees, nullifier_tree_params, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
 };
-use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
-use zolana_protocol_instructions::{
-    ClaimTreeLamports, CloseNullifierPdas, CreateTree, SetTreeFees,
-};
+use spr_interface::{pda, PROGRAM_ID_PUBKEY};
+use spr_protocol_instructions::{ClaimTreeLamports, CloseNullifierPdas, CreateTree, SetTreeFees};
 
 #[test]
 fn close_nullifier_pdas_builder_encodes_data_and_exact_accounts() {

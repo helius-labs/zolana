@@ -1,10 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program::{
+use spr_keypair::{ShieldedAddress, ShieldedKeypair};
+use spr_program::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -23,7 +23,7 @@ pub struct Pool {
     pub airdrop_id: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Pool {}
+impl spr_program::circuit::CircuitType for circuit::Pool {}
 
 impl ProofInput for Pool {
     type Circuit = circuit::Pool;
@@ -74,7 +74,7 @@ struct CreatePoolPublicInputs {
     airdrop_id: u64,
 }
 
-impl zolana_program::circuit::CircuitType for circuit::CreatePool {}
+impl spr_program::circuit::CircuitType for circuit::CreatePool {}
 
 impl ProofInput for CreatePool {
     type Circuit = circuit::CreatePool;
@@ -114,7 +114,7 @@ impl Placeholder for CreatePool {
 }
 
 pub(crate) mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, zero, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataHash, DataUtxo, PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoData,

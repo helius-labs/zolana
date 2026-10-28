@@ -1,5 +1,5 @@
-use zolana_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
-use zolana_interface::{
+use spr_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
+use spr_interface::{
     error::ShieldedPoolError,
     tree_slot::{
         input_flags_tree_index_shift, pack_input_flags, populated_tree_slots_hash_chain,
@@ -304,14 +304,14 @@ fn input_flags_match_the_cross_language_vectors() {
 
 #[test]
 fn a_resolved_slot_carries_the_tree_id_and_the_roots_at_its_context() {
-    use zolana_interface::{
+    use spr_interface::{
         instruction::instruction_data::transact::TreeContext,
         state::{
             default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
         },
         tree_slot::resolve_tree_slot,
     };
-    use zolana_tree::{TreeAccount, TreeError, UTXO_TREE_HEIGHT};
+    use spr_tree::{TreeAccount, TreeError, UTXO_TREE_HEIGHT};
 
     let mut data = vec![0u8; TreeAccount::account_size()];
     let params = nullifier_tree_params();

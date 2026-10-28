@@ -1,4 +1,4 @@
-use zolana_program::ZkProgramCircuit;
+use spr_program::ZkProgramCircuit;
 
 #[derive(Clone, ZkProgramCircuit)]
 struct MissingPublic {

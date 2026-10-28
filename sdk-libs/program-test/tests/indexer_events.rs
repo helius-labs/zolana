@@ -1,10 +1,10 @@
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_event::{EventKind, GeneralEvent, Input};
-use zolana_hasher::Poseidon;
-use zolana_interface::state::STATE_HEIGHT;
-use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::{IndexerError, TestIndexer};
+use spr_event::{EventKind, GeneralEvent, Input};
+use spr_hasher::Poseidon;
+use spr_interface::state::STATE_HEIGHT;
+use spr_merkle_tree::MerkleTree;
+use spr_program_test::{IndexerError, TestIndexer};
 
 fn sample_transact_event() -> GeneralEvent {
     GeneralEvent {
@@ -19,7 +19,7 @@ fn sample_transact_event() -> GeneralEvent {
         }],
         messages: Vec::new(),
         outputs: vec![
-            zolana_event::OutputUtxo {
+            spr_event::OutputUtxo {
                 view_tag: [0x11; 32],
                 utxo_hash: {
                     let mut h = [0u8; 32];
@@ -28,7 +28,7 @@ fn sample_transact_event() -> GeneralEvent {
                 },
                 data: vec![1, 2, 3],
             },
-            zolana_event::OutputUtxo {
+            spr_event::OutputUtxo {
                 view_tag: [0x33; 32],
                 utxo_hash: {
                     let mut h = [0u8; 32];
@@ -84,7 +84,7 @@ fn test_indexer_transact_leaf_indices_must_be_contiguous() {
 fn proved_transaction_with_a_deposit_leg_keeps_encrypted_outputs() {
     let mut indexer = TestIndexer::new();
     let mut event = sample_transact_event();
-    event.spl_transfers.push(zolana_event::SplTransfer {
+    event.spl_transfers.push(spr_event::SplTransfer {
         is_deposit: true,
         amount: 100,
         asset: None,
@@ -96,7 +96,7 @@ fn proved_transaction_with_a_deposit_leg_keeps_encrypted_outputs() {
     for (indexed, output) in indexer.utxos().iter().zip(&event.outputs) {
         assert_eq!(indexed.utxo_hash, output.utxo_hash);
         match &indexed.payload {
-            zolana_program_test::IndexedPayload::Encrypted(data) => assert_eq!(data, &output.data),
+            spr_program_test::IndexedPayload::Encrypted(data) => assert_eq!(data, &output.data),
             _ => panic!("proved deposit output was misclassified"),
         }
     }
@@ -170,7 +170,7 @@ fn test_indexer_interleaves_outputs_in_two_trees() {
 /// rebuilds outputs, nullifier, viewing key and salt from it, so only the
 /// execution-assigned values travel in the emitted [`TransactEvent`].
 fn sample_transact_instruction_data() -> Vec<u8> {
-    use zolana_interface::instruction::{
+    use spr_interface::instruction::{
         CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext,
     };
 
@@ -208,7 +208,7 @@ fn sample_transact_instruction_data() -> Vec<u8> {
             nullifier_tree_root_index: 0,
         }],
     };
-    let mut data = vec![zolana_event::tag::TRANSACT];
+    let mut data = vec![spr_event::tag::TRANSACT];
     data.extend_from_slice(&ix.serialize().expect("serialize transact"));
     data
 }
@@ -216,11 +216,11 @@ fn sample_transact_instruction_data() -> Vec<u8> {
 #[test]
 fn indexed_emit_event_round_trip_through_index_events() {
     use solana_pubkey::Pubkey;
-    use zolana_event::{encode_event_instruction, InputTreeSequence, TransactEvent};
-    use zolana_event_parser::{
+    use spr_event::{encode_event_instruction, InputTreeSequence, TransactEvent};
+    use spr_event_parser::{
         indexed_events_from_instruction_groups, InstructionGroup, ParsedInstruction,
     };
-    use zolana_program_test::index_events;
+    use spr_program_test::index_events;
 
     let spp = Pubkey::new_unique();
     let expected = sample_transact_event();
@@ -249,23 +249,23 @@ fn indexed_emit_event_round_trip_through_index_events() {
 
     let mut indexer = TestIndexer::new();
     let signature = Signature::from([0xAB; 64]);
-    let mut tree_data = vec![0; zolana_interface::state::tree_account_size()];
-    zolana_tree::TreeAccount::init(
+    let mut tree_data = vec![0; spr_interface::state::tree_account_size()];
+    spr_tree::TreeAccount::init(
         &mut tree_data,
         1,
         STATE_HEIGHT as u8,
         [7; 32],
         7,
-        zolana_interface::state::nullifier_tree_params(),
-        zolana_interface::state::default_tree_fees(
-            zolana_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+        spr_interface::state::nullifier_tree_params(),
+        spr_interface::state::default_tree_fees(
+            spr_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
         )
         .expect("tree fees"),
     )
     .expect("tree account");
     let account = solana_account::Account {
         data: tree_data,
-        owner: Address::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID),
+        owner: Address::new_from_array(spr_interface::SHIELDED_POOL_PROGRAM_ID),
         ..Default::default()
     };
     index_events(&mut indexer, &events, signature, |address| {

@@ -18,23 +18,23 @@ solana-pubkey = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
-zolana-client = { workspace = true, features = ["solana-rpc"] }
-zolana-interface = { workspace = true }
-zolana-keypair = { workspace = true }
-zolana-program-test = { workspace = true, features = ["localnet"] }
-zolana-test-utils = { workspace = true }
-zolana-transaction = { workspace = true }
-zolana-user-registry-interface = { workspace = true, features = ["solana"] }
+spr-client = { workspace = true, features = ["solana-rpc"] }
+spr-interface = { workspace = true }
+spr-keypair = { workspace = true }
+spr-program-test = { workspace = true, features = ["localnet"] }
+spr-test-utils = { workspace = true }
+spr-transaction = { workspace = true }
+spr-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
 # Solana transactions serialize with bincode 1.x wire format; bincode 2.x is not
 # byte-compatible, so this must stay pinned to match the runtime.
 bincode = "1.3"
 num-bigint = { workspace = true }
-zolana-hasher = { workspace = true }
-zolana-merkle-tree = { workspace = true }
-zolana-program = { workspace = true }
-zolana-tree = { workspace = true }
+spr-hasher = { workspace = true }
+spr-merkle-tree = { workspace = true }
+spr-program = { workspace = true }
+spr-tree = { workspace = true }
 mollusk-svm = { workspace = true }
 light-program-profiler = { workspace = true, features = ["mollusk"] }
 solana-account = { workspace = true }

@@ -1,4 +1,4 @@
-use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
+use spr_hasher::primitives::is_canonical_bn254_scalar_be;
 
 use crate::nullifier_tree::{error::NullifierTreeError, layout::NullifierTreeLayout};
 

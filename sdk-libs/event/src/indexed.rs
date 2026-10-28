@@ -1,5 +1,5 @@
 use solana_pubkey::Pubkey;
-use zolana_event::{tag, EventKind, GeneralEvent};
+use spr_event::{tag, EventKind, GeneralEvent};
 
 use crate::{
     instruction::{InstructionGroup, ParsedInstruction},

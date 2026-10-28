@@ -1,5 +1,5 @@
-use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon};
-use zolana_tree::nullifier_tree::{
+use spr_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon};
+use spr_tree::nullifier_tree::{
     batch::{Batch, BatchState},
     error::NullifierTreeError,
     init::{hash_chain_groups_are_full, SUPPORTED_ZKP_BATCH_SIZES},

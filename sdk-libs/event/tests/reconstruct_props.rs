@@ -10,21 +10,21 @@ mod support;
 
 use proptest::prelude::*;
 use solana_pubkey::Pubkey;
-use support::{
-    emit_event_data, emit_instruction, merge_ix, merge_output_data, merge_ring_ix, source,
-    transact_ix, transact_source, INPUT_TREE, OUTPUT_TREE, SALT, TX_VIEWING_PK,
-};
-use zolana_event::{
+use spr_event::{
     tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent, MessageData, OutputUtxo,
     SplTransfer, TransactEvent,
 };
-use zolana_event_parser::{
+use spr_event_parser::{
     indexed_events_from_instruction_groups, reconstruct_general_event, InstructionGroup,
     ParsedInstruction,
 };
-use zolana_interface::instruction::{
+use spr_interface::instruction::{
     instruction_data::merge_transact::MAX_MERGE_INPUTS, InputUtxo, InterfaceTransfer, OwnerTag,
     TransactOutput,
+};
+use support::{
+    emit_event_data, emit_instruction, merge_ix, merge_output_data, merge_ring_ix, source,
+    transact_ix, transact_source, INPUT_TREE, OUTPUT_TREE, SALT, TX_VIEWING_PK,
 };
 
 /// Leaves room for `first_input_queue_seq + position` without overflow.

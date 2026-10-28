@@ -1,5 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_program::{circuit::UtxoState, Bytes};
+use spr_program::{circuit::UtxoState, Bytes};
 
 #[derive(Clone, BorshSerialize, BorshDeserialize, UtxoState)]
 struct ShortBytes {

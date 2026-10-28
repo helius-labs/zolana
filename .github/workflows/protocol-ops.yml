@@ -50,23 +50,23 @@ jobs:
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Check Rust formatting
-        run: cargo fmt -p forester -p zolana-forester-prover -p zolana-protocol-cli -p zolana-protocol-instructions -p zolana-smart-account-client -p zolana-merkle-tree -- --check
+        run: cargo fmt -p forester -p spr-forester-prover -p spr-protocol-cli -p spr-protocol-instructions -p spr-smart-account-client -p spr-merkle-tree -- --check
       - run: go test ./...
         working-directory: protocol-ops/forester-prover/go
       - name: Check protocol crates
-        run: cargo clippy -p forester -p zolana-forester-prover -p zolana-protocol-cli -p zolana-protocol-instructions -p zolana-smart-account-client -p zolana-merkle-tree --all-targets -- -D warnings
+        run: cargo clippy -p forester -p spr-forester-prover -p spr-protocol-cli -p spr-protocol-instructions -p spr-smart-account-client -p spr-merkle-tree --all-targets -- -D warnings
       - name: Check remote-only proving
-        run: cargo check -p forester -p zolana-forester-prover --no-default-features --all-targets
+        run: cargo check -p forester -p spr-forester-prover --no-default-features --all-targets
       - name: Check dependency boundaries
         run: just check-deps
       - name: Compile consumers of shared protocol libraries
         run: |
           cargo check --all-targets \
-            -p zolana-cli -p zolana-client -p zolana-program-test -p zolana-test-utils \
+            -p spr-cli -p spr-client -p spr-program-test -p spr-test-utils \
             -p shielded-pool-tests -p spp-test-validator -p ring-test-program -p tree-bench \
             -p client-example -p dynamic-swap-test -p rfq-test -p swap-test-validator -p xtask \
-            --features zolana-client/proofs,zolana-test-utils/parallel,shielded-pool-tests/localnet,shielded-pool-tests/proofs
-      - run: cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli -p zolana-protocol-instructions -p zolana-smart-account-client -p zolana-merkle-tree
+            --features spr-client/proofs,spr-test-utils/parallel,shielded-pool-tests/localnet,shielded-pool-tests/proofs
+      - run: cargo test -p forester -p spr-forester-prover -p spr-protocol-cli -p spr-protocol-instructions -p spr-smart-account-client -p spr-merkle-tree
       - name: Test the program tree against the reference implementation
         run: just test-tree
 
@@ -103,6 +103,6 @@ jobs:
       - name: Download and verify the pinned 40x10 key
         run: target/prover-server download --run-mode forester-test --keys-dir "$FORESTER_TEST_KEYS_DIR" --max-retries 3
       - name: Prove locally through the Forester client
-        run: cargo test -p zolana-forester-prover --test local_batch_proof -- --ignored
+        run: cargo test -p spr-forester-prover --test local_batch_proof -- --ignored
       - name: Prove through Redis using the remote-only Forester client
-        run: cargo test -p zolana-forester-prover --no-default-features --test remote_batch_proof -- --ignored
+        run: cargo test -p spr-forester-prover --no-default-features --test remote_batch_proof -- --ignored

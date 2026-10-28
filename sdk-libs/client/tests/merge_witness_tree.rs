@@ -11,17 +11,17 @@ use borsh::to_vec;
 use input_fixture::wallet_utxo;
 use solana_account::Account;
 use solana_address::Address;
-use zolana_client::{
+use spr_client::{
     client::ZolanaClient, rpc::IndexerRpcConfig, ClientError, InputWitnesses, MergeSubmission,
     MerkleContext, MerkleProof, NonInclusionProof, ProverClient, Rpc, SpendProof, WitnessReader,
 };
-use zolana_interface::pda;
-use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
-use zolana_transaction::{
+use spr_interface::pda;
+use spr_keypair::{random_blinding, ShieldedKeypair, SigningKey};
+use spr_transaction::{
     instructions::merge::MergeTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
 };
-use zolana_user_registry_interface::MergeEncryptionScheme;
-use zolana_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
+use spr_user_registry_interface::MergeEncryptionScheme;
+use spr_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
 
 const TREE_ID: u16 = 2;
 

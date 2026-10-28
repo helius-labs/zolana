@@ -1,7 +1,7 @@
 use crate::instructions::shared::caused_by;
 use pinocchio::{account::RefMut, error::ProgramError, AccountView, ProgramResult};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{error::ShieldedPoolError, state::SplAssetCounter};
+use spr_account_checks::AccountIterator;
+use spr_interface::{error::ShieldedPoolError, state::SplAssetCounter};
 
 use crate::instructions::{
     protocol_config::loader::load_protocol_config,

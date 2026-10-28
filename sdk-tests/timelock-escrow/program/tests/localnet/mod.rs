@@ -1,16 +1,16 @@
 use anyhow::{anyhow, Result};
 use solana_instruction::Instruction;
 use solana_signer::Signer;
-use timelock_escrow_program::circuits::escrow_authority;
-use zolana_client::{ComputeBudgetConfig, IndexerRpcConfig, Rpc};
-use zolana_keypair::ShieldedKeypair;
-use zolana_program::instruction::{AssetDeposit, Deposit, DepositAsset};
-use zolana_program_test::{
+use spr_client::{ComputeBudgetConfig, IndexerRpcConfig, Rpc};
+use spr_keypair::ShieldedKeypair;
+use spr_program::instruction::{AssetDeposit, Deposit, DepositAsset};
+use spr_program_test::{
     fixture,
     localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
     workspace_path,
 };
-use zolana_transaction::ShieldedTransaction;
+use spr_transaction::ShieldedTransaction;
+use timelock_escrow_program::circuits::escrow_authority;
 
 const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 

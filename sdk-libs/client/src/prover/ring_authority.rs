@@ -8,9 +8,9 @@
 
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_interface::instruction::instruction_data::transact::TreeContext;
-use zolana_transaction::{
+use spr_hasher::primitives::solana_owner_identity;
+use spr_interface::instruction::instruction_data::transact::TreeContext;
+use spr_transaction::{
     instructions::transact::PublicTransfers, utxo::program_id_proof_input_hash, ExternalData,
     SppProofOutputUtxo,
 };

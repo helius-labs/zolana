@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address};
-use zolana_account_checks::AccountIterator;
-use zolana_interface::{
+use spr_account_checks::AccountIterator;
+use spr_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MAX_MERGE_INPUTS,
 };
 

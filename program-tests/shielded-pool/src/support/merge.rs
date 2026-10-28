@@ -6,30 +6,28 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     prover::MergeCacheTarget, MergeProver, MerkleContext, MerkleProof, NonInclusionProof,
     ProofCompressed, ProverClient, ProverExt, SpendProof, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::Poseidon;
-use zolana_interface::{
+use spr_hasher::Poseidon;
+use spr_interface::{
     instruction::{
         instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, MergeRingIxData,
         MergeTransactIxData,
     },
     verifying_keys::{merge_24_1, merge_52_1, merge_8_1},
 };
-use zolana_keypair::{
+use spr_keypair::{
     hash::owner_hash, NullifierKey, PublicKey, ShieldedKeypair, ShieldedKeypairTrait,
 };
-use zolana_merkle_tree::indexed::{
-    IndexedMerkleTree, NonInclusionProof as IndexedNonInclusionProof,
-};
-use zolana_merkle_tree::MerkleTree;
-use zolana_program::instruction::{CacheWriteAccounts, MergeRing, MergeTransact};
-use zolana_program_test::{test_blinding, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
-use zolana_test_utils::transact::nullifier_tree;
-use zolana_transaction::{instructions::merge::merge_dummy_nullifier, Data, Mint, Utxo};
-use zolana_user_registry_interface::{
+use spr_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof as IndexedNonInclusionProof};
+use spr_merkle_tree::MerkleTree;
+use spr_program::instruction::{CacheWriteAccounts, MergeRing, MergeTransact};
+use spr_program_test::{test_blinding, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use spr_test_utils::transact::nullifier_tree;
+use spr_transaction::{instructions::merge::merge_dummy_nullifier, Data, Mint, Utxo};
+use spr_user_registry_interface::{
     state::{MergeEncryptionScheme, UserRecord},
     user_record_pda, USER_REGISTRY_PROGRAM_ID,
 };
@@ -51,7 +49,7 @@ pub fn write_user_record(
     owner: Pubkey,
     merging_enabled: bool,
 ) -> Pubkey {
-    let viewing_pubkey = *zolana_keypair::ViewingKey::from_bytes(&[7; 32])
+    let viewing_pubkey = *spr_keypair::ViewingKey::from_bytes(&[7; 32])
         .pubkey()
         .as_bytes();
     let (address, bump) = user_record_pda(&owner);
@@ -219,7 +217,7 @@ impl RealMerge {
 }
 
 pub struct PaddedMerge {
-    pub transaction: zolana_transaction::instructions::merge::MergeProofInputs,
+    pub transaction: spr_transaction::instructions::merge::MergeProofInputs,
     pub proofs: Vec<SpendProof>,
     pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
@@ -258,7 +256,7 @@ impl PaddedMerge {
             .deposits
             .iter()
             .map(|deposit| {
-                zolana_test_utils::utxo::wallet(
+                spr_test_utils::utxo::wallet(
                     deposit.utxo.clone(),
                     &nullifier_key,
                     tree_id,
@@ -270,12 +268,12 @@ impl PaddedMerge {
             })
             .collect();
         let merge = match ring {
-            Some(ring) => zolana_transaction::instructions::merge::MergeTransaction::new_with_ring(
+            Some(ring) => spr_transaction::instructions::merge::MergeTransaction::new_with_ring(
                 notes,
                 Address::new_from_array(ring.to_bytes()),
                 None,
             ),
-            None => zolana_transaction::instructions::merge::MergeTransaction::new(notes),
+            None => spr_transaction::instructions::merge::MergeTransaction::new(notes),
         }
         .expect("merge");
         let mut transaction = merge
@@ -298,7 +296,7 @@ impl PaddedMerge {
         };
         for slot in transaction.input_utxos.len()..padded_count {
             let mut dummy =
-                zolana_transaction::utxo::SppProofInputUtxo::dummy(tree_id).expect("dummy");
+                spr_transaction::utxo::SppProofInputUtxo::dummy(tree_id).expect("dummy");
             dummy.nullifier = merge_dummy_nullifier(&nullifier_key, &first_nullifier, slot as u8)
                 .expect("dummy nullifier");
             transaction.input_utxos.push(dummy);

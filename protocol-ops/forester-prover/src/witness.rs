@@ -2,8 +2,8 @@ use crate::BatchAddressAppendInputs;
 use anyhow::{anyhow, bail, Result};
 use num_bigint::BigUint;
 use num_traits::Num;
-use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
+use spr_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
+use spr_merkle_tree::indexed::IndexedMerkleTree;
 pub type ReferenceNullifierTree = IndexedMerkleTree<Poseidon, usize>;
 const NULLIFIER_INIT_NEXT_VALUE_DEC: &str =
     "21888242871839275222246405745257275088548364400416034343698204186575808495616";

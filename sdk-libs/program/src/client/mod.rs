@@ -8,19 +8,19 @@ mod transfer;
 #[cfg(feature = "client")]
 mod utxo;
 
-use zolana_keypair::random_blinding;
+use spr_keypair::random_blinding;
 
 pub use data_utxo::DataUtxo;
 pub use encryption_codec::EncryptionCodec;
 pub use program_owner::ProgramOwner;
-pub use zolana_keypair::circuit::client::UtxoOwner;
-pub use zolana_zk_dsl::Bytes;
-pub use zolana_zk_dsl::{PublicField, PublicFieldKind, PublicHashField, PublicInputLayout};
+pub use spr_keypair::circuit::client::UtxoOwner;
+pub use spr_zk_dsl::Bytes;
+pub use spr_zk_dsl::{PublicField, PublicFieldKind, PublicHashField, PublicInputLayout};
 
 #[cfg(feature = "client")]
-pub use transaction::{ProgramTransaction, ZkProgramCircuit};
+pub use spr_zk_dsl::ZkCircuit;
 #[cfg(feature = "client")]
-pub use zolana_zk_dsl::ZkCircuit;
+pub use transaction::{ProgramTransaction, ZkProgramCircuit};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(
@@ -30,10 +30,7 @@ pub use zolana_zk_dsl::ZkCircuit;
 )]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 pub struct TxContext {
-    #[cfg_attr(
-        feature = "serde",
-        serde(with = "zolana_keypair::serde_helpers::bytes")
-    )]
+    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
     #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
     pub blinding_seed: [u8; 32],
     #[cfg_attr(

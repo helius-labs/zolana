@@ -3,7 +3,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use super::deposit::{DepositAsset, DepositBuildError, DepositLayout};
-use zolana_interface::{
+use spr_interface::{
     instruction::{tag, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
@@ -104,7 +104,7 @@ impl RingDeposit {
 mod tests {
     use super::*;
     use crate::instruction::{DepositAsset, DepositSplAccounts};
-    use zolana_interface::instruction::{DepositAssetKind, MAX_DEPOSIT_ASSETS};
+    use spr_interface::instruction::{DepositAssetKind, MAX_DEPOSIT_ASSETS};
 
     fn ring_entry(asset: DepositAsset, seed: u8) -> RingAssetDeposit {
         RingAssetDeposit {

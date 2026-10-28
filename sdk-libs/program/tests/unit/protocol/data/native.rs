@@ -1,9 +1,9 @@
-use zolana_program::{
+use spr_program::{
     circuit::{Field, UtxoData},
     conversion::{Allocator, ProofInput},
     CircuitError, ZkCircuit,
 };
-use zolana_transaction::Mint;
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{

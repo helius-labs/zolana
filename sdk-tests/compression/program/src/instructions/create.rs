@@ -1,10 +1,8 @@
 use light_program_profiler::profile;
 use pinocchio::{address::address_eq, AccountView, ProgramResult};
+use spr_interface::instruction::instruction_data::transact::{TransactProof, TreeContext};
+use spr_program::program::{load_tree_id, AddressSeed, PdaOwner, SppTransactCpi, UniqueDataUtxo};
 use wincode::{SchemaRead, SchemaWrite};
-use zolana_interface::instruction::instruction_data::transact::{TransactProof, TreeContext};
-use zolana_program::program::{
-    load_tree_id, AddressSeed, PdaOwner, SppTransactCpi, UniqueDataUtxo,
-};
 
 use crate::{
     error::{compressed_account_error, CompressionError},
@@ -37,7 +35,7 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         return Err(CompressionError::InvalidTree.into());
     }
     if load_tree_id(parsed.input_tree).map_err(compressed_account_error)?
-        != zolana_program::ADDRESS_TREE_ID
+        != spr_program::ADDRESS_TREE_ID
     {
         return Err(CompressionError::InvalidTree.into());
     }

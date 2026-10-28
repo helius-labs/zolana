@@ -7,7 +7,7 @@ import { rightAlign } from "./bytes.js";
  * Tree slots a transact or merge proof carries in its public inputs. Every
  * proof publishes exactly this many `(id, utxo_root, nullifier_root)` slots;
  * an unused slot is all zero and sits after the used ones. Mirrors Rust
- * `zolana_interface::INPUT_TREES`.
+ * `spr_interface::INPUT_TREES`.
  */
 export const INPUT_TREES = 5;
 

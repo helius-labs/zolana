@@ -1,6 +1,6 @@
 use arrayvec::ArrayVec;
 use pinocchio::{error::ProgramError, AccountView};
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     event::{InputTreeSequence, TransactEvent},
     instruction::instruction_data::transact::{ResolvedOutput, TransactIxDataRef},

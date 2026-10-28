@@ -1,6 +1,6 @@
 use pinocchio::ProgramResult;
 use shielded_pool_program::instructions::transact::validate_circuit_type;
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
@@ -270,7 +270,7 @@ fn compact_padding_shortens_the_instruction_and_a_sent_zero_is_rejected() {
 /// authority has no cached twin at all.
 #[test]
 fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
-    use zolana_interface::verifying_keys::CacheAccess;
+    use spr_interface::verifying_keys::CacheAccess;
     const CACHE: CacheAccess = CacheAccess {
         read_bitmap: 3,
         write_slots: CacheAccess::NO_WRITES,
@@ -317,9 +317,8 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
 
 fn cache_writes(
     pairs: &[(u8, u8)],
-) -> [zolana_interface::verifying_keys::CacheWrite;
-       zolana_interface::verifying_keys::MAX_CACHE_WRITES] {
-    use zolana_interface::verifying_keys::{CacheAccess, CacheWrite};
+) -> [spr_interface::verifying_keys::CacheWrite; spr_interface::verifying_keys::MAX_CACHE_WRITES] {
+    use spr_interface::verifying_keys::{CacheAccess, CacheWrite};
     let mut out = CacheAccess::NO_WRITES;
     for (entry, (output, slot)) in out.iter_mut().zip(pairs) {
         *entry = CacheWrite {
@@ -336,7 +335,7 @@ fn cache_writes(
 /// rejected.
 #[test]
 fn a_cached_selector_counts_only_the_sent_slots() {
-    use zolana_interface::verifying_keys::CacheAccess;
+    use spr_interface::verifying_keys::CacheAccess;
     for (read_bitmap, write_slots, valid) in [
         (0b1, CacheAccess::NO_WRITES, true),
         (0b11, CacheAccess::NO_WRITES, false),
@@ -368,7 +367,7 @@ fn a_cached_selector_counts_only_the_sent_slots() {
 
 #[test]
 fn a_cached_selector_must_fit_the_inputs_the_outputs_and_the_cache() {
-    use zolana_interface::verifying_keys::{CacheAccess, CacheWrite};
+    use spr_interface::verifying_keys::{CacheAccess, CacheWrite};
     let mut gap = cache_writes(&[(0, 1)]);
     if let Some(entry) = gap.get_mut(2) {
         *entry = CacheWrite { output: 1, slot: 2 };

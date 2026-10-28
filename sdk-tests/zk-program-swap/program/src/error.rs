@@ -1,6 +1,6 @@
 use solana_program_error::ProgramError;
+use spr_hasher::HasherError;
 use thiserror::Error;
-use zolana_hasher::HasherError;
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 #[repr(u32)]

@@ -2,6 +2,7 @@ mod support;
 
 use reqwest::blocking::Client;
 use serde_json::Value;
+use spr_forester_prover::ProverClient;
 use std::{
     fs::{self, OpenOptions},
     net::TcpListener,
@@ -10,7 +11,6 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use zolana_forester_prover::ProverClient;
 
 struct ProverServer {
     child: Child,

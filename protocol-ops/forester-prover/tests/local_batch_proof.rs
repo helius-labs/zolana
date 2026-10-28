@@ -2,8 +2,8 @@
 
 mod support;
 
+use spr_forester_prover::ProverClient;
 use std::path::PathBuf;
-use zolana_forester_prover::ProverClient;
 
 #[test]
 #[ignore = "requires the pinned batch_address-append_40_10.key in FORESTER_TEST_KEYS_DIR"]

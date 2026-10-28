@@ -21,20 +21,20 @@ use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::STATE_TREE_HEIGHT;
-use zolana_client::{
+use spr_client::STATE_TREE_HEIGHT;
+use spr_client::{
     prover::field::be, ComputeBudgetConfig, ProverClient, ProverExt, PublicInputs, PublicTransfers,
     TransferOutput,
 };
-use zolana_hasher::Poseidon;
-use zolana_hasher::{
+use spr_hasher::Poseidon;
+use spr_hasher::{
     hash_chain::{
         create_hash_chain_4_from_slice, create_right_hash_chain_4_from_slice,
         create_right_hash_chain_from_slice,
     },
     primitives::{hash_bytes, solana_owner_identity},
 };
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
@@ -51,17 +51,17 @@ use zolana_interface::{
     verifying_keys::AnonymousRingEddsaProofData,
     INPUT_TREES, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
-use zolana_merkle_tree::MerkleTree;
-use zolana_program::instruction::{
+use spr_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
+use spr_merkle_tree::MerkleTree;
+use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use zolana_program_test::{test_blinding, Rejection};
-use zolana_test_utils::nullifier_pda::{
+use spr_program_test::{test_blinding, Rejection};
+use spr_test_utils::nullifier_pda::{
     assert_nullifier_pda, assert_nullifier_pdas, assert_tree_lamports_after_spend,
     nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
 };
-use zolana_test_utils::transact::{
+use spr_test_utils::transact::{
     build_transfer_prover_inputs, change_and_dummy_outputs, derive_test_transfer_output_blindings,
     dummy_input, dummy_transfer_output, external_data_hash_for_discriminator, fe, inline_outputs,
     input_utxo, input_utxo_in_tree, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
@@ -69,8 +69,8 @@ use zolana_test_utils::transact::{
     test_private_tx_blinding, transact_input_flags, transfer_input, transfer_output, tree_contexts,
     TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
-use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
-use zolana_tree::TreeAccount;
+use spr_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
+use spr_tree::TreeAccount;
 
 /// Build valid eddsa-rail `transact` instruction data with a real proof at
 /// `n_inputs x n_outputs`: one real zero-value input (a proofless SOL deposit
@@ -395,7 +395,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
-    let ring = solana_address::Address::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
+    let ring = solana_address::Address::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID);
 
     let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
@@ -407,7 +407,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
     let utxo = Utxo {
         owner: owner_public_key,
-        asset: zolana_transaction::Mint::SOL,
+        asset: spr_transaction::Mint::SOL,
         amount: 0,
         blinding,
         ring_program_id: Some(ring),
@@ -834,7 +834,7 @@ fn transact_with_no_sent_outputs_appends_nothing() {
         (utxo_next_before, nullifier_next_before + 2),
         "no output appended and both inputs nullified"
     );
-    zolana_test_utils::nullifier_pda::assert_nullifier_pdas(&env.rpc, &tree, &nullifiers)
+    spr_test_utils::nullifier_pda::assert_nullifier_pdas(&env.rpc, &tree, &nullifiers)
         .expect("nullifier PDAs for the sent inputs");
 }
 
@@ -847,16 +847,16 @@ fn single_deposit_spend(
     env: &mut Pool,
     compact: bool,
 ) -> (
-    zolana_keypair::ShieldedKeypair,
-    zolana_transaction::instructions::transact::SppProofInputs,
-    zolana_client::SpendProof,
-    Vec<zolana_client::NonInclusionProof>,
+    spr_keypair::ShieldedKeypair,
+    spr_transaction::instructions::transact::SppProofInputs,
+    spr_client::SpendProof,
+    Vec<spr_client::NonInclusionProof>,
 ) {
     use shielded_pool_tests::support::merge::ZeroDeposits;
-    use zolana_client::{MerkleContext, MerkleProof, NonInclusionProof, SpendProof};
-    use zolana_keypair::{ShieldedKeypair, ShieldedKeypairTrait};
-    use zolana_merkle_tree::indexed::NonInclusionProof as IndexedNonInclusionProof;
-    use zolana_transaction::instructions::transact::ConfidentialTransaction;
+    use spr_client::{MerkleContext, MerkleProof, NonInclusionProof, SpendProof};
+    use spr_keypair::{ShieldedKeypair, ShieldedKeypairTrait};
+    use spr_merkle_tree::indexed::NonInclusionProof as IndexedNonInclusionProof;
+    use spr_transaction::instructions::transact::ConfidentialTransaction;
 
     let payer = env.rpc.payer.insecure_clone();
     let (tree, tree_id) = (env.tree, env.tree_id);
@@ -873,7 +873,7 @@ fn single_deposit_spend(
     }
     .deposit();
     let deposit = deposits.deposits.first().expect("one deposit");
-    let note = zolana_test_utils::utxo::wallet(
+    let note = spr_test_utils::utxo::wallet(
         deposit.utxo.clone(),
         &nullifier_key,
         tree_id,
@@ -947,10 +947,10 @@ fn single_deposit_spend(
 /// count.
 fn send_assembled_spend(
     env: &mut Pool,
-    keypair: &zolana_keypair::ShieldedKeypair,
-    mut assembled: zolana_client::AssembledTransfer,
+    keypair: &spr_keypair::ShieldedKeypair,
+    mut assembled: spr_client::AssembledTransfer,
 ) -> (Vec<[u8; 32]>, usize) {
-    use zolana_client::ProofAuthority;
+    use spr_client::ProofAuthority;
     keypair
         .complete_inputs(&mut assembled.prover_inputs.inputs)
         .expect("complete inputs");
@@ -958,7 +958,7 @@ fn send_assembled_spend(
         .prove_transfer(&assembled.prover_inputs)
         .expect("prove transfer");
     let data = assembled
-        .with_proof(zolana_test_utils::transact::pack_transact_proof(&proof).expect("pack proof"));
+        .with_proof(spr_test_utils::transact::pack_transact_proof(&proof).expect("pack proof"));
     let nullifiers = data
         .inputs
         .iter()
@@ -994,7 +994,7 @@ fn transact_with_compact_padding_spends_and_appends_only_the_sent_slots() {
     let (keypair, proof_inputs, spend, dummy_nullifier_proofs) =
         single_deposit_spend(&mut env, true);
     let assembled =
-        zolana_client::assemble(proof_inputs, &[spend], &dummy_nullifier_proofs).expect("assemble");
+        spr_client::assemble(proof_inputs, &[spend], &dummy_nullifier_proofs).expect("assemble");
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
     let (nullifiers, output_count) = send_assembled_spend(&mut env, &keypair, assembled);
     assert_eq!((nullifiers.len(), output_count), (1, 1));
@@ -1003,9 +1003,9 @@ fn transact_with_compact_padding_spends_and_appends_only_the_sent_slots() {
         (utxo_next_before + 1, nullifier_next_before + 1),
         "one output appended and one nullifier queued"
     );
-    zolana_test_utils::nullifier_pda::assert_nullifier_pdas(&env.rpc, &tree, &nullifiers)
+    spr_test_utils::nullifier_pda::assert_nullifier_pdas(&env.rpc, &tree, &nullifiers)
         .expect("nullifier PDA for the sent input");
-    zolana_test_utils::nullifier_pda::assert_nullifier_pdas_absent(&env.rpc, &tree, &[[0u8; 32]])
+    spr_test_utils::nullifier_pda::assert_nullifier_pdas_absent(&env.rpc, &tree, &[[0u8; 32]])
         .expect("no nullifier PDA for compact padding");
 }
 
@@ -1052,14 +1052,14 @@ fn transact_past_the_dummy_threshold_accepts_only_compact_padding() {
         .expect("write threshold tree account");
 
     assert!(matches!(
-        zolana_client::prover::indexed::IndexedTransferPreparation {
+        spr_client::prover::indexed::IndexedTransferPreparation {
             transaction: dummy_padded,
-            rail: zolana_client::prover::indexed::IndexedTransferRail::Confidential,
+            rail: spr_client::prover::indexed::IndexedTransferRail::Confidential,
         }
         .prepare_with_dummy_policy(&dummy_keypair, false),
-        Err(zolana_client::ClientError::NonSpendInputNotAllowed { index: 1 })
+        Err(spr_client::ClientError::NonSpendInputNotAllowed { index: 1 })
     ));
-    let assembled = zolana_client::assemble_with_dummy_policy(
+    let assembled = spr_client::assemble_with_dummy_policy(
         proof_inputs,
         &[spend],
         &dummy_nullifier_proofs,
@@ -1570,7 +1570,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let tree = env.tree;
     // The fixture ring program is the only real ring the deposit can bind; the
     // cross-ring negative uses an arbitrary second program id.
-    let ring_a = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
+    let ring_a = Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID);
     let ring_b = Pubkey::new_unique();
 
     let transact_ix_data = build_valid_ring_ix::<false>(&mut env, ring_a, 2, 4);
@@ -1630,7 +1630,7 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
-    let ring_a = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
+    let ring_a = Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID);
     let ring_b = Pubkey::new_unique();
 
     // The ring-authority verifying keys cover only square shapes; use (2,2).
@@ -1687,7 +1687,7 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
-    let ring = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
+    let ring = Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID);
     let transact_ix_data = build_valid_ring_ix::<true>(&mut env, ring, 4, 4);
     let mut ix = Transact {
         payer,
@@ -1796,7 +1796,7 @@ fn ring_transact_accepts_the_widest_input_shape() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
-    let ring = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
+    let ring = Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID);
     let shape = Shape::IN49_OUT2;
     let transact_ix_data =
         build_valid_ring_ix::<false>(&mut env, ring, shape.n_inputs(), shape.n_outputs());
@@ -2161,7 +2161,7 @@ fn build_two_tree_transact_ix(
     let change = real_output(
         owner_public_key,
         change_nullifier_pk,
-        zolana_transaction::Mint::SOL,
+        spr_transaction::Mint::SOL,
         output_amount,
         [1u8; 31],
     );

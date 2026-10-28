@@ -22,11 +22,11 @@ pub mod shape;
 pub mod transaction;
 
 use solana_address::Address;
-use zolana_instruction::instruction::{
+use spr_instruction::instruction::{
     TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplWithdrawalAccounts,
 };
-use zolana_interface::{pda, MAX_INPUT_TREES};
-use zolana_keypair::{shielded::ShieldedAddress, viewing_key::random_blinding};
+use spr_interface::{pda, MAX_INPUT_TREES};
+use spr_keypair::{shielded::ShieldedAddress, viewing_key::random_blinding};
 
 pub use crate::indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use crate::utxo::SppProofOutputUtxo;

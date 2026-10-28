@@ -1,13 +1,13 @@
 use serde::Serialize;
 use solana_address::Address;
-use tsify::Tsify;
-use zolana_interface::instruction::instruction_data::transact::OwnerTag as TransactOwnerTag;
-use zolana_keypair::{serde_helpers::bytes::ByteArray, ShieldedAddress};
-use zolana_transaction::{
+use spr_interface::instruction::instruction_data::transact::OwnerTag as TransactOwnerTag;
+use spr_keypair::{serde_helpers::bytes::ByteArray, ShieldedAddress};
+use spr_transaction::{
     instructions::transact::{self, SettlementTransfer},
     utxo::SppProofInputUtxo,
     SppProofOutputUtxo, WalletUtxo,
 };
+use tsify::Tsify;
 
 use wasm_bindgen::JsValue;
 
@@ -17,10 +17,10 @@ use crate::{ClientError, ClientErrorKind};
 #[serde(rename_all = "camelCase")]
 pub struct ProgramTransaction {
     pub finalized_tx: FinalizedTransaction,
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
+    #[serde(with = "spr_keypair::serde_helpers::bytes")]
     #[tsify(type = "Uint8Array")]
     pub proof_inputs: Vec<u8>,
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
+    #[serde(with = "spr_keypair::serde_helpers::bytes")]
     #[tsify(type = "Uint8Array")]
     pub public_hash: [u8; 32],
 }
@@ -46,20 +46,20 @@ pub struct FinalizedTransaction {
     pub output_hashes: Vec<ByteArray<32>>,
     pub owner_tags: Vec<ResolvedOwnerTag>,
     pub interface_transfers: Vec<SettlementTransfer>,
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
+    #[serde(with = "spr_keypair::serde_helpers::bytes")]
     #[tsify(type = "Uint8Array")]
     pub first_nullifier: [u8; 32],
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
+    #[serde(with = "spr_keypair::serde_helpers::bytes")]
     #[tsify(type = "Uint8Array")]
     pub blinding_seed: [u8; 32],
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
+    #[serde(with = "spr_keypair::serde_helpers::bytes")]
     #[tsify(type = "Uint8Array")]
     pub private_tx_blinding: [u8; 32],
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
+    #[serde(with = "spr_keypair::serde_helpers::bytes")]
     #[tsify(type = "Uint8Array")]
     pub padding_independent_private_tx_hash: [u8; 32],
     pub output_tree_id: u16,
-    #[serde(with = "zolana_keypair::serde_helpers::address")]
+    #[serde(with = "spr_keypair::serde_helpers::address")]
     #[tsify(type = "string")]
     pub payer: Address,
     pub sender: ShieldedAddress,
@@ -124,7 +124,7 @@ impl<T> From<crate::DataUtxo<T>> for DataUtxo<T> {
 #[derive(Serialize, Tsify)]
 pub struct ResolvedOwnerTag {
     pub tag: OwnerTag,
-    #[serde(with = "zolana_keypair::serde_helpers::bytes")]
+    #[serde(with = "spr_keypair::serde_helpers::bytes")]
     #[tsify(type = "Uint8Array")]
     pub resolved: [u8; 32],
 }
@@ -145,7 +145,7 @@ impl From<&transact::ResolvedOwnerTag> for ResolvedOwnerTag {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum OwnerTag {
     Inline {
-        #[serde(with = "zolana_keypair::serde_helpers::bytes")]
+        #[serde(with = "spr_keypair::serde_helpers::bytes")]
         #[tsify(type = "Uint8Array")]
         value: [u8; 32],
     },

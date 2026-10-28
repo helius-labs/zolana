@@ -1,6 +1,6 @@
-use zolana_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     circuit::{
         self, value, CheckedTransaction, Circuit, ConfidentialTransaction, Field, PublicInputs,
         TokenUtxos, Uint, UtxoTrait,
@@ -8,7 +8,7 @@ use zolana_program::{
     conversion::{Allocator, Dummy, ProofInput},
     CircuitError, CircuitErrorKind, ProgramTransaction, TxContext, ZkCircuit, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::shared::{keypair, token_input_in};
 

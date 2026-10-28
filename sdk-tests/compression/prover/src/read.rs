@@ -1,6 +1,6 @@
-use zolana_client::{MerkleProof, NonInclusionProof};
-use zolana_gnark_ffi_prover::{decimal, utxo_read_proof_inputs, ProofInputMap};
-use zolana_program::CompressedProof;
+use spr_client::{MerkleProof, NonInclusionProof};
+use spr_gnark_ffi_prover::{decimal, utxo_read_proof_inputs, ProofInputMap};
+use spr_program::CompressedProof;
 
 use crate::{CircuitId, PROVER};
 
@@ -33,7 +33,7 @@ impl ReadProofInputs {
             .collect()
     }
 
-    pub fn prove(&self) -> zolana_gnark_ffi_prover::Result<CompressedProof> {
+    pub fn prove(&self) -> spr_gnark_ffi_prover::Result<CompressedProof> {
         let proof = PROVER
             .prove(CircuitId::Read, &self.proof_inputs())?
             .compress()?;

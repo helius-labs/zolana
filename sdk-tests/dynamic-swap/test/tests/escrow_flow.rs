@@ -1,4 +1,4 @@
-use zolana_test_utils::utxo::{
+use spr_test_utils::utxo::{
     assign_output_blindings, encrypt_transaction_data, get_transaction_viewing_key,
 };
 mod shared;
@@ -21,14 +21,14 @@ use dynamic_swap_sdk::{
 };
 use shared::{escrow_authority_identity, get_slot_with_retry, send, setup_with_pair, wait_until};
 use solana_signer::Signer;
-use zolana_client::user_registry::resolve_registered_address;
-use zolana_client::{ComputeBudgetConfig, Rpc};
-use zolana_interface::instruction::instruction_data::transact::OwnerTag;
-use zolana_keypair::random_blinding;
-use zolana_program::instruction::Transact;
-use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
-use zolana_test_utils::wallet::{sync_wallet, Deposit, DepositParams, Filter, Wallet};
-use zolana_transaction::{
+use spr_client::user_registry::resolve_registered_address;
+use spr_client::{ComputeBudgetConfig, Rpc};
+use spr_interface::instruction::instruction_data::transact::OwnerTag;
+use spr_keypair::random_blinding;
+use spr_program::instruction::Transact;
+use spr_test_utils::test_validator_asserts::wait_for_indexed_utxo;
+use spr_test_utils::wallet::{sync_wallet, Deposit, DepositParams, Filter, Wallet};
+use spr_transaction::{
     instructions::transact::{
         asset_field, ConfidentialTransaction, ExternalData, Shape, SppProofInputs,
         SppProofOutputUtxo,
@@ -199,7 +199,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 asset: SOL_MINT,
                 amount: reserved,
                 spl_token_account: None,
-                spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+                spl_token_program: Some(spr_interface::pda::spl_token_program_id()),
                 memo: None,
             })
             .map_err(|e| anyhow!("maker funding deposit: {e:?}"))?;
@@ -226,7 +226,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .blinding;
             Utxo {
                 owner: escrow_address.signing_pubkey,
-                asset: zolana_transaction::Mint::SOL,
+                asset: spr_transaction::Mint::SOL,
                 amount: reserved,
                 blinding: funding_blinding,
                 ring_program_id: None,
@@ -251,7 +251,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             // derive the same shared viewing key from their registered viewing
             // pubkeys, so either can encrypt the order note and decrypt it on settle.
             let source_in = SppProofInputUtxo::from(source_utxo.clone());
-            let maker_funding_in = SppProofInputUtxo::from(zolana_test_utils::utxo::indexed(
+            let maker_funding_in = SppProofInputUtxo::from(spr_test_utils::utxo::indexed(
                 maker_funding.clone(),
                 escrow_owner.as_ref(),
                 env.localnet.client.indexer(),
@@ -295,7 +295,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 .checked_mul(max_price)
                 .ok_or_else(|| anyhow!("order_amount * max_price overflows"))?;
             let reservation = Reservation {
-                asset: zolana_transaction::Mint::SOL,
+                asset: spr_transaction::Mint::SOL,
                 amount: reserved,
                 blinding: reservation_blinding,
             };
@@ -308,7 +308,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 .checked_sub(reserved)
                 .ok_or_else(|| anyhow!("reservation exceeds the maker funding amount"))?;
             let mut maker_change = SppProofOutputUtxo::new(
-                zolana_transaction::Mint::SOL,
+                spr_transaction::Mint::SOL,
                 maker_change_amount,
                 escrow_owner.shielded_address()?,
             )
@@ -365,7 +365,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 .indexer()
                 .prove_transact(
                     spp_proof_inputs,
-                    &zolana_test_utils::utxo::ProofKeys(&[
+                    &spr_test_utils::utxo::ProofKeys(&[
                         &env.user.keypair.nullifier_key,
                         escrow_owner.as_ref(),
                     ]),
@@ -534,7 +534,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             order_amount,
             blinding: order_blinding,
         };
-        let order_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
+        let order_state = spr_test_utils::test_validator_asserts::wait_for_merkle_proof(
             env.localnet.client.indexer(),
             env.localnet.tree,
             order_utxo_hash,
@@ -546,14 +546,14 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .checked_mul(max_price)
             .ok_or_else(|| anyhow!("order_amount * max_price overflows"))?;
         let reservation = Reservation {
-            asset: zolana_transaction::Mint::SOL,
+            asset: spr_transaction::Mint::SOL,
             amount: reserved,
             blinding: reservation_blinding,
         };
         let reservation_hash = reservation
             .output_utxo(&escrow_owner, order_utxo_hash)?
             .hash(env.localnet.tree_id)?;
-        let reservation_state = zolana_test_utils::test_validator_asserts::wait_for_merkle_proof(
+        let reservation_state = spr_test_utils::test_validator_asserts::wait_for_merkle_proof(
             env.localnet.client.indexer(),
             env.localnet.tree,
             reservation_hash,
@@ -587,13 +587,13 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .checked_sub(owed)
             .ok_or_else(|| anyhow!("owed exceeds reserved"))?;
         let (recipient_asset, recipient_amount, maker_counter_amount, maker_source_amount) =
-            (zolana_transaction::Mint::SOL, owed, remainder, order_amount);
+            (spr_transaction::Mint::SOL, owed, remainder, order_amount);
 
         let recipient_out = SppProofOutputUtxo::new(recipient_asset, recipient_amount, recipient)
             .map_err(|e| anyhow!("recipient_out: {e:?}"))?;
         let authority_address = env.authority.address()?;
         let maker_counter = SppProofOutputUtxo::new(
-            zolana_transaction::Mint::SOL,
+            spr_transaction::Mint::SOL,
             maker_counter_amount,
             authority_address,
         )

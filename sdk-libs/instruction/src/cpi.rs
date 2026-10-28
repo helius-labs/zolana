@@ -10,7 +10,7 @@ use pinocchio::{
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::{instruction::tag::TRANSACT, PROGRAM_ID_PUBKEY};
+use spr_interface::{instruction::tag::TRANSACT, PROGRAM_ID_PUBKEY};
 
 /// The accounts a program forwards to the shielded pool's transact
 /// instruction, in its layout: payer, output tree, the shielded-pool program,

@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::{
+use spr_interface::{
     instruction::{tag, TransactIxData},
     pda, PROGRAM_ID_PUBKEY,
 };
@@ -129,7 +129,7 @@ impl RingTransact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_interface::instruction::instruction_data::transact::{
+    use spr_interface::instruction::instruction_data::transact::{
         CircuitId, TransactProof, TreeContext,
     };
 

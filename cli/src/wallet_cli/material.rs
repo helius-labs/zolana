@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::SolanaRpc;
-use zolana_keypair::ShieldedKeypair;
+use spr_client::SolanaRpc;
+use spr_keypair::ShieldedKeypair;
 
 use super::{resolve::ResolvedSyncOptions, util::parse_hex_array};
 use crate::{
@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn ed25519_wallet_round_trips_and_stores_no_scalars() {
-        let root = temp_root("zolana-cli-wallet-ed25519");
+        let root = temp_root("spr-cli-wallet-ed25519");
         let wallet = root.join("alice.pid.json");
         let funding = Keypair::new();
         let keypair = ShieldedKeypair::from_keypair(&funding).expect("keypair");
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn ed25519_wallet_rejects_foreign_funding_key() {
-        let root = temp_root("zolana-cli-wallet-ed25519-mismatch");
+        let root = temp_root("spr-cli-wallet-ed25519-mismatch");
         let wallet = root.join("mismatch.pid.json");
         let keypair = ShieldedKeypair::from_keypair(&Keypair::new()).unwrap();
 
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn wallet_file_creation_never_overwrites() {
-        let root = temp_root("zolana-cli-wallet-exclusive");
+        let root = temp_root("spr-cli-wallet-exclusive");
         let wallet = root.join("id.json");
         let first_funding = Keypair::new();
         let first = ShieldedKeypair::from_keypair(&first_funding).expect("first shielded keypair");
@@ -313,7 +313,7 @@ mod tests {
     fn wallet_file_is_private_when_created() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let wallet = temp_root("zolana-cli-wallet-mode").join("id.json");
+        let wallet = temp_root("spr-cli-wallet-mode").join("id.json");
         let funding = Keypair::new();
         save_wallet(
             &wallet,
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn load_solana_cli_keypair_reads_standard_and_bare_forms() {
-        let root = temp_root("zolana-cli-solana-key");
+        let root = temp_root("spr-cli-solana-key");
         fs::create_dir_all(&root).unwrap();
         let keypair = Keypair::new();
 

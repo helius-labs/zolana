@@ -3,17 +3,17 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_system_interface::error::SystemError;
-use zolana_account_checks::AccountError;
-use zolana_interface::{
+use spr_account_checks::AccountError;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{encode_instruction, tag, CreateRingConfigData},
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
 };
-use zolana_program::instruction::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner};
-use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
-use zolana_protocol_instructions::SetRingActivation;
-use zolana_test_utils::backend::LiteSvmPoolBackend;
+use spr_program::instruction::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner};
+use spr_program_test::{Rejection, RING_TEST_PROGRAM_ID};
+use spr_protocol_instructions::SetRingActivation;
+use spr_test_utils::backend::LiteSvmPoolBackend;
 
 /// Backend with the ring test program loaded: the `ring_auth` PDA can only
 /// sign its own creation through the ring program's `invoke_signed`.

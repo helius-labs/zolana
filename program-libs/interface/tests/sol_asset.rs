@@ -1,5 +1,5 @@
-use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
-use zolana_interface::SOL_ASSET_FIELD;
+use spr_hasher::{primitives::hash_bytes, Hasher, Poseidon};
+use spr_interface::SOL_ASSET_FIELD;
 
 #[test]
 fn sol_asset_field_is_pk_field_of_zero_address() {

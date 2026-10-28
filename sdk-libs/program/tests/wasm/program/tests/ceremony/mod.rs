@@ -5,7 +5,7 @@ use std::{
 };
 
 use sha2::{Digest, Sha256};
-use zolana_program::ZkProgramCircuit;
+use spr_program::ZkProgramCircuit;
 
 pub(crate) const PTAU_POWER: &str = "14";
 

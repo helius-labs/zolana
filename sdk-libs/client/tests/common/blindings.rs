@@ -1,4 +1,4 @@
-use zolana_transaction::{
+use spr_transaction::{
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     SppProofOutputUtxo,
 };

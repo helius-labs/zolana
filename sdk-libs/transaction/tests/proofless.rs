@@ -1,5 +1,5 @@
-use zolana_keypair::PublicKey;
-use zolana_transaction::{
+use spr_keypair::PublicKey;
+use spr_transaction::{
     serialization::proofless::*, AssetRegistry, Data, DataRecord, Mint, OwnerCx, Utxo,
     UtxoSerialization,
 };

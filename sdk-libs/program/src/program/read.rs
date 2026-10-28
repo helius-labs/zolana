@@ -1,11 +1,11 @@
 use pinocchio::{address::address_eq, AccountView, Address};
-use zolana_interface::{
+use spr_interface::{
     instruction::instruction_data::transact::TreeContext,
     pda::nullifier_pda,
     state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree::read_tree_id},
     PROGRAM_ID_PUBKEY,
 };
-use zolana_tree::TreeAccount;
+use spr_tree::TreeAccount;
 
 use crate::hasher::DataHasher;
 

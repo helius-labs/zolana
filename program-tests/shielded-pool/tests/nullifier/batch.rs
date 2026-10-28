@@ -3,11 +3,11 @@ use shielded_pool_tests::support::fixtures::Pool;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_account_checks::AccountError;
-use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
-use zolana_interface::error::ShieldedPoolError;
-use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_protocol_instructions::BatchUpdateNullifierTree;
+use spr_account_checks::AccountError;
+use spr_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+use spr_interface::error::ShieldedPoolError;
+use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_protocol_instructions::BatchUpdateNullifierTree;
 
 // On-chain negatives against the real SBF program: the forester-authority,
 // instruction-data, and protocol-config gates of `batch_update_nullifier_tree`

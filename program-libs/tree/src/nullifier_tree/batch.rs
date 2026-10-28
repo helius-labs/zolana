@@ -1,7 +1,7 @@
+use spr_hasher::{Hasher, Poseidon};
 #[cfg(feature = "test-only")]
 use zerocopy::FromZeros;
 use zerocopy::{FromBytes, Immutable, KnownLayout};
-use zolana_hasher::{Hasher, Poseidon};
 
 use crate::nullifier_tree::{constants::NUM_BATCHES, error::NullifierTreeError};
 

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use zolana_transaction::instructions::transact::{transact_message_hash, PrivateTxHash};
+use spr_transaction::instructions::transact::{transact_message_hash, PrivateTxHash};
 
 const PRIVATE_TX_HASH_VECTORS_JSON: &str =
     include_str!("../../../test-vectors/private_tx_hash.json");
@@ -160,7 +160,7 @@ fn compute_vectors() -> PrivateTxHashVectors {
                       and field_modulus_minus_one hold one entry per list. padded and \
                       address_nullifier reproduce the Go host protocol.PrivateTxHash values. \
                       Produced by sdk-libs/transaction/tests/private_tx_hash.rs \
-                      print_private_tx_hash_vectors: cargo test -p zolana-transaction --test \
+                      print_private_tx_hash_vectors: cargo test -p spr-transaction --test \
                       private_tx_hash print_private_tx_hash_vectors -- --ignored --nocapture"
             .to_string(),
         vectors,

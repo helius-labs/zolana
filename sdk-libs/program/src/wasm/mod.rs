@@ -1,7 +1,7 @@
 //! The ZK program bindings of a wasm build: the `<name>Transaction` and
 //! `<name>DataUtxo` functions the derives emit. The prover classes,
 //! `verifyProof` and the proof types are the zk DSL's
-//! (`zolana_zk_dsl::wasm`).
+//! (`spr_zk_dsl::wasm`).
 
 mod types;
 
@@ -9,16 +9,16 @@ use core::str::FromStr;
 
 use serde::{de::DeserializeOwned, Serialize};
 use solana_address::Address;
+use spr_keypair::{ShieldedAddress, SHIELDED_ADDRESS_LEN};
 use wasm_bindgen::prelude::*;
-use zolana_keypair::{ShieldedAddress, SHIELDED_ADDRESS_LEN};
 
-pub use types::{DataUtxo, FinalizedTransaction, OwnerTag, ProgramTransaction, ResolvedOwnerTag};
-pub use zolana_zk_dsl::wasm::{proof_inputs, CompressedGroth16Proof, Groth16Proof, Proof};
+pub use spr_zk_dsl::wasm::{proof_inputs, CompressedGroth16Proof, Groth16Proof, Proof};
 #[cfg(feature = "wasm-prover")]
-pub use zolana_zk_dsl::wasm::{prove, prover_from_key, prover_from_zkey};
+pub use spr_zk_dsl::wasm::{prove, prover_from_key, prover_from_zkey};
+pub use types::{DataUtxo, FinalizedTransaction, OwnerTag, ProgramTransaction, ResolvedOwnerTag};
 
-use zolana_transaction::WalletUtxo;
-use zolana_zk_dsl::js_error::js_error;
+use spr_transaction::WalletUtxo;
+use spr_zk_dsl::js_error::js_error;
 
 use crate::{hasher::DataHasher, ClientError, ClientErrorKind, EncryptionCodec, ZkProgramCircuit};
 

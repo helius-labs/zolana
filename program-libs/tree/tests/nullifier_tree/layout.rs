@@ -1,4 +1,4 @@
-use zolana_tree::nullifier_tree::{
+use spr_tree::nullifier_tree::{
     batch::{Batch, BatchState, CachedTreeUpdate},
     constants::NULLIFIER_TREE_INIT_ROOT_40,
     error::NullifierTreeError,

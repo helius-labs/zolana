@@ -1,6 +1,6 @@
-use zolana_keypair::ShieldedAddress;
-use zolana_program::ZkProgramCircuit;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::ZkProgramCircuit;
+use spr_program::{
     circuit::{
         CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxos,
         UtxoTrait,
@@ -8,7 +8,7 @@ use zolana_program::{
     conversion::ProofInput,
     CircuitError, TxContext,
 };
-use zolana_transaction::WalletUtxo;
+use spr_transaction::WalletUtxo;
 
 use super::EscrowTermsCircuit;
 

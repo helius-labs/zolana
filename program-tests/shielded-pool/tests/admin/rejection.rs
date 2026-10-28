@@ -4,8 +4,8 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use solana_system_interface::error::SystemError;
-use zolana_account_checks::AccountError;
-use zolana_interface::{
+use spr_account_checks::AccountError;
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::{CreateProtocolConfigData, UpdateProtocolConfigData},
     pda,
@@ -13,14 +13,14 @@ use zolana_interface::{
         default_tree_fees, nullifier_tree_params, ProtocolConfig, RingConfig, MAX_FEE_PER_NULLIFIER,
     },
 };
-use zolana_program::instruction::CreateRingConfig;
-use zolana_program_test::{next_tree_id, Rejection, RING_TEST_PROGRAM_ID};
-use zolana_protocol_instructions::{CreateAssetCounter, CreateProtocolConfig, CreateTree};
-use zolana_test_utils::mollusk::{
+use spr_program::instruction::CreateRingConfig;
+use spr_program_test::{next_tree_id, Rejection, RING_TEST_PROGRAM_ID};
+use spr_protocol_instructions::{CreateAssetCounter, CreateProtocolConfig, CreateTree};
+use spr_test_utils::mollusk::{
     empty_placeholder_account, expect_err_exact, mollusk_pubkey, sweep_account_matrix,
     AccountMutation, Expected,
 };
-use zolana_tree::NullifierTreeInitParams;
+use spr_tree::NullifierTreeInitParams;
 
 use shielded_pool_tests::support::{
     fixtures::Pool,
@@ -590,7 +590,7 @@ fn ring_owner_rotation_binds_the_new_owner_to_the_co_signing_account() {
     let impostor = pool.funded_signer(1_000_000_000);
     let next = Keypair::new();
 
-    let mut ix = zolana_program::instruction::UpdateRingConfigOwner {
+    let mut ix = spr_program::instruction::UpdateRingConfigOwner {
         authority: pool.authority.pubkey(),
         ring_config,
         new_authority: next.pubkey().to_bytes().into(),
@@ -621,7 +621,7 @@ fn ring_owner_rotation_rejects_an_unsigned_co_signer() {
         .expect("create ring config");
     let next = Keypair::new();
 
-    let mut ix = zolana_program::instruction::UpdateRingConfigOwner {
+    let mut ix = spr_program::instruction::UpdateRingConfigOwner {
         authority: pool.authority.pubkey(),
         ring_config,
         new_authority: next.pubkey().to_bytes().into(),
@@ -647,7 +647,7 @@ fn ring_update_rejects_a_cosplay_config_account() {
         .airdrop(&impostor_config, 1_000_000)
         .expect("fund impostor config");
 
-    let ix = zolana_program::instruction::UpdateRingConfig {
+    let ix = spr_program::instruction::UpdateRingConfig {
         authority: pool.authority.pubkey(),
         ring_config: impostor_config,
         paused: false,
@@ -740,5 +740,5 @@ fn tree_creation_steps_must_repeat_the_first_steps_payload() {
         )
         .expect("the first payer finishes the tree with the same payload");
     let tree = pool.rpc.account_data(&create.tree()).expect("tree");
-    assert_eq!(tree.get(1), Some(&zolana_tree::INITIALIZED));
+    assert_eq!(tree.get(1), Some(&spr_tree::INITIALIZED));
 }

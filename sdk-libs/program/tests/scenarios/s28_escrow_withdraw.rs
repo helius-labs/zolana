@@ -1,9 +1,9 @@
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_program::{
+use spr_hasher::primitives::solana_owner_identity;
+use spr_program::{
     conversion::{Allocator, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -30,7 +30,7 @@ pub(crate) struct WithdrawPublicInputs {
     pub(crate) owner_identity: [u8; 32],
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Withdraw {}
+impl spr_program::circuit::CircuitType for circuit::Withdraw {}
 
 impl ProofInput for Withdraw {
     type Circuit = circuit::Withdraw;
@@ -68,7 +68,7 @@ impl Placeholder for Withdraw {
 }
 
 mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, Assert, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataUtxo, PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoTrait,

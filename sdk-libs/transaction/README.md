@@ -1,11 +1,11 @@
-# zolana-transaction
+# spr-transaction
 
 UTXO serialization and private transaction construction: the encrypted and
 plaintext UTXO layouts, the builder that turns input and output UTXOs into a
 balanced transaction, and the hashes and proof inputs a prover consumes.
 
 The crate holds no state and performs no IO. Fetching transactions and proofs is
-`zolana-client`. A wallet syncs by fetching the transactions for its tags and
+`spr-client`. A wallet syncs by fetching the transactions for its tags and
 decrypting them (step 1); the SDK keeps no wallet state.
 
 Steps marked ***(tvc)*** need key material. The rest run on values. The flow

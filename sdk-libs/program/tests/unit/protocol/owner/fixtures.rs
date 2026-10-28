@@ -1,5 +1,5 @@
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     circuit::{Assert, Circuit, DataHash, Field, Select, SigningPubkey, UtxoOwner},
     conversion::ProofInput,
     CircuitError, UtxoOwner as ClientOwner,

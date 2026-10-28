@@ -1,5 +1,5 @@
 use borsh::to_vec;
-use zolana_user_registry_interface::{MergeEncryptionScheme, UserRecord};
+use spr_user_registry_interface::{MergeEncryptionScheme, UserRecord};
 
 #[test]
 fn size_covers_max_serialized_size() {

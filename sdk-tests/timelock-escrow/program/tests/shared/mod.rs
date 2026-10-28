@@ -1,6 +1,6 @@
 use solana_signature::Signature;
-use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
-use zolana_transaction::{utxo::Utxo, Data, Mint, WalletUtxo};
+use spr_keypair::{random_blinding, ShieldedKeypair, SigningKey};
+use spr_transaction::{utxo::Utxo, Data, Mint, WalletUtxo};
 
 pub const TREE_ID: u16 = 3;
 

@@ -7,7 +7,7 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use zolana_program_test::fixture::write_protocol_snapshot;
+use spr_program_test::fixture::write_protocol_snapshot;
 
 const DEFAULT_SURFPOOL_TAG: &str = "v1.6.0-light";
 const DEFAULT_SURFPOOL_VERSION: &str = "1.6.0";
@@ -15,7 +15,7 @@ const DEFAULT_SURFPOOL_VERSION: &str = "1.6.0";
 // Cross-compile photon for linux-x64 inside a matching-toolchain container
 // (see rust-toolchain.toml). linux/amd64 builds the x86_64-linux binary natively
 // in the container, avoiding a host cross-linker.
-const PHOTON_LINUX_BUILDER_IMAGE: &str = "rust:1.97-bookworm";
+const PHOTON_LINUX_BUILDER_IMAGE: &str = "rust:1.98-bookworm";
 
 pub struct Options {
     pub tag: String,
@@ -103,7 +103,7 @@ impl ReleaseSet for Localnet {
 
     fn cli_binaries(&self) -> &'static [CliBinary] {
         &[CliBinary {
-            package: "zolana-cli",
+            package: "spr-cli",
             bin: "zolana",
             asset_stem: "zolana",
         }]
@@ -134,8 +134,8 @@ const PROGRAM_SOURCES: [ProgramSource; 3] = [
     },
     ProgramSource {
         role: "user_registry",
-        file: "zolana_user_registry.so",
-        asset_stem: "zolana_user_registry",
+        file: "spr_user_registry.so",
+        asset_stem: "spr_user_registry",
     },
     ProgramSource {
         role: "smart_account",
@@ -382,8 +382,8 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
 
 /// Build a workspace binary (e.g. `photon`, `zolana`) for a target and stage it.
 /// The host build uses cargo directly; linux-x64 builds in a Docker container so
-/// no host cross-linker is needed. Both are cache-first via the shared
-/// `target`/`target-linux-x64` dirs, so building a second binary is incremental.
+/// no host cross-linker is needed. Host builds reuse `target`; Linux builds
+/// reuse Docker volumes and copy the binary into `target-linux-x64` for staging.
 pub fn build_rust_binary(
     repo: &Path,
     package: &str,
@@ -402,7 +402,15 @@ fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> 
     println!("building {bin} (host)");
     let status = Command::new("cargo")
         .current_dir(repo)
-        .args(["build", "--release", "-p", package, "--bin", bin])
+        .args([
+            "build",
+            "--locked",
+            "--release",
+            "-p",
+            package,
+            "--bin",
+            bin,
+        ])
         .status()
         .with_context(|| format!("failed to run cargo build for {bin}"))?;
     if !status.success() {
@@ -417,7 +425,7 @@ fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path
     println!("building {bin} linux-x64 (docker {PHOTON_LINUX_BUILDER_IMAGE})");
     let mount = format!("{}:/work", path_str(repo)?);
     let build = format!(
-        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin} --target-dir /work/target-linux-x64"
+        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --locked --release -p {package} --bin {bin} --target-dir /build-target; mkdir -p /work/target-linux-x64/release; cp /build-target/release/{bin} /work/target-linux-x64/release/{bin}"
     );
     let status = Command::new("docker")
         .args([
@@ -427,6 +435,12 @@ fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path
             "linux/amd64",
             "-v",
             &mount,
+            // Keep compiler metadata on the Linux filesystem, avoiding shared
+            // filesystem races while rustc pipelines dependency builds.
+            "-v",
+            "spr-release-linux-target:/build-target",
+            "-v",
+            "spr-release-linux-cargo:/usr/local/cargo",
             "-w",
             "/work",
         ])

@@ -1,6 +1,6 @@
 use crate::common::init_tree_account_data;
-use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
-use zolana_tree::nullifier_tree::{
+use spr_hasher::primitives::BN254_SCALAR_MODULUS_BE;
+use spr_tree::nullifier_tree::{
     access::get_merkle_tree_account_size, batch::CachedTreeUpdate, error::NullifierTreeError,
     merkle_tree_update::InstructionDataBatchNullifyInputs, proof::NullifierTreeProof,
 };

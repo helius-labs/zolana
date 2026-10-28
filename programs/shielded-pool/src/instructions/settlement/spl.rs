@@ -7,7 +7,7 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use spl_token_2022_interface::{extension::PodStateWithExtensions, pod::PodAccount};
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError, SHIELDED_POOL_CPI_AUTHORITY_BUMP,
     SHIELDED_POOL_CPI_AUTHORITY_PDA_SEED, SPL_TOKEN_TRANSFER_CHECKED_DISCRIMINATOR,
 };

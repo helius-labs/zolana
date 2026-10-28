@@ -7,19 +7,19 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
+use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
         CircuitId, InterfaceTransfer, TransactIxData, TransactProof,
     },
     pda, N_PUBLIC_SLOTS,
 };
-use zolana_program::instruction::{
+use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };
-use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};
+use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};
 
 /// Two-input/three-output transact data with a zeroed proof carrying the
 /// given interface transfers: the validation failures under test fire before
@@ -80,14 +80,14 @@ fn assert_rejected_without_sol_movement(
     // client-side, so these on-chain validation tests serialize directly
     // (wincode carries no validation) and lay out the accounts by hand.
     let data = ix_data(interface_transfers);
-    let mut instruction_data = vec![zolana_interface::instruction::tag::TRANSACT];
+    let mut instruction_data = vec![spr_interface::instruction::tag::TRANSACT];
     instruction_data.extend_from_slice(
         &wincode::serialize(&data).expect("wincode serialization is infallible"),
     );
     let mut accounts = vec![
         AccountMeta::new(payer, true),
         AccountMeta::new(pool.tree, false),
-        AccountMeta::new_readonly(zolana_interface::PROGRAM_ID_PUBKEY, false),
+        AccountMeta::new_readonly(spr_interface::PROGRAM_ID_PUBKEY, false),
         AccountMeta::new_readonly(Pubkey::default(), false),
         AccountMeta::new(pool.tree, false),
     ];
@@ -102,7 +102,7 @@ fn assert_rejected_without_sol_movement(
         accounts.push(AccountMeta::new(payer, true));
     }
     let ix = Instruction {
-        program_id: zolana_interface::PROGRAM_ID_PUBKEY,
+        program_id: spr_interface::PROGRAM_ID_PUBKEY,
         accounts,
         data: instruction_data,
     };

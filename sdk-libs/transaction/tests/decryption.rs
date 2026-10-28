@@ -7,11 +7,11 @@ use std::{
 
 use common::{keypair, wallet_utxo};
 use solana_signature::Signature;
-use zolana_event::{
+use spr_event::{
     encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
 };
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
-use zolana_transaction::{
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
+use spr_transaction::{
     decrypt, decrypt_spendable,
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
@@ -675,7 +675,7 @@ fn retired_viewing_keys_recover_anonymous_and_confidential_slots_with_exact_requ
             vec![request(
                 retired.pubkey(),
                 confidential_blob
-                    .get(1 + zolana_keypair::x25519::X25519_PUBKEY_LEN..)
+                    .get(1 + spr_keypair::x25519::X25519_PUBKEY_LEN..)
                     .unwrap(),
                 2
             )]
@@ -997,7 +997,7 @@ fn altered_encryption_context_and_ciphertext_cannot_create_spendable_notes() {
     };
     // Scheme + recipient key precede the ciphertext; its amount follows an LE u64 asset ID.
     // XORing the amount's low bit preserves a parsable payload while changing 67 to 66.
-    let amount_offset = 1 + zolana_keypair::x25519::X25519_PUBKEY_LEN + size_of::<u64>();
+    let amount_offset = 1 + spr_keypair::x25519::X25519_PUBKEY_LEN + size_of::<u64>();
     *blob.get_mut(amount_offset).unwrap() ^= 1;
     output.payload = borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap();
     let expected = SpendableDecryptionResult {

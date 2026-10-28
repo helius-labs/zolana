@@ -1,7 +1,7 @@
 //! The circuits, built on the host with the `circuits` feature.
 
 use solana_address::Address;
-use zolana_zk_dsl::{
+use spr_zk_dsl::{
     circuit::{
         constant, value, Assert, Circuit, CircuitType, CircuitVar, Field, Public, PublicHashOutput,
         PublicInputs,
@@ -9,7 +9,7 @@ use zolana_zk_dsl::{
     conversion::{field, ProofInput},
     CircuitError, ZkCircuit,
 };
-use zolana_zk_gadgets::poseidon;
+use spr_zk_gadgets::poseidon;
 
 pub const RULE: &str = "the commitment hashes the point";
 
@@ -90,7 +90,7 @@ impl Withdrawal {
         let destination = Address::new_from_array([7u8; 32]);
         let mut preimage = vec![constant(250u64), constant(99u64)];
         preimage.extend(
-            zolana_zk_dsl::verifier::pack_be::<32, 2>(destination.as_array())
+            spr_zk_dsl::verifier::pack_be::<32, 2>(destination.as_array())
                 .iter()
                 .map(|chunk| {
                     constant(field(chunk, "a destination chunk").expect("below the modulus"))

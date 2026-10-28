@@ -22,15 +22,15 @@ still trigger their respective suites.
 The protocol CLI and forester depend on protocol crates and `program-libs`, with
 no Rust dependency on `sdk-libs`. Wallet and application SDKs remain there.
 
-Protocol authority builders are imported from `zolana_protocol_instructions`
-instead of `zolana_program::instruction`. The SDK's `protocol-instructions`
+Protocol authority builders are imported from `spr_protocol_instructions`
+instead of `spr_program::instruction`. The SDK's `protocol-instructions`
 and `protocol` feature flags have been removed; the wallet and program
 instruction builders remain in the SDK.
 
 Run operator commands with:
 
 ```sh
-cargo run -p zolana-protocol-cli -- --help
+cargo run -p spr-protocol-cli -- --help
 just protocol init-protocol --help
 cargo run -p forester -- run --help
 ```
@@ -52,9 +52,9 @@ local proving when both variables are set. Build with `--no-default-features`
 for a remote-only forester without the Go archive.
 
 ```sh
-cargo test -p forester -p zolana-forester-prover -p zolana-protocol-cli \
-  -p zolana-protocol-instructions \
-  -p zolana-smart-account-client -p zolana-merkle-tree
+cargo test -p forester -p spr-forester-prover -p spr-protocol-cli \
+  -p spr-protocol-instructions \
+  -p spr-smart-account-client -p spr-merkle-tree
 ```
 
 The ignored `local_batch_proof` test additionally loads an existing pinned
@@ -66,6 +66,6 @@ client. The Redis test uses `FORESTER_TEST_PROVER_BIN`, `FORESTER_TEST_KEYS_DIR`
 and `FORESTER_TEST_REDIS_URL` with an isolated Redis database.
 
 ```sh
-FORESTER_TEST_KEYS_DIR=/path/to/keys cargo test -p zolana-forester-prover \
+FORESTER_TEST_KEYS_DIR=/path/to/keys cargo test -p spr-forester-prover \
   --test local_batch_proof -- --ignored
 ```

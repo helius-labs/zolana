@@ -1,7 +1,7 @@
 use ark_bn254::Fr;
 use proptest::prelude::*;
 use solana_address::Address;
-use zolana_transaction::Mint;
+use spr_transaction::Mint;
 
 use super::{
     fixtures::{UtxoHash, CLAIM_WIRE, HASH_BROKEN},

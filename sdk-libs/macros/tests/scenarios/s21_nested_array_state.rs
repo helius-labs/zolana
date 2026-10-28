@@ -1,6 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_keypair::ShieldedAddress;
-use zolana_program::{
+use spr_keypair::ShieldedAddress;
+use spr_program::{
     circuit::{
         CheckedTransaction, Circuit, ConfidentialTransaction, DataUtxo, PublicInputs, TokenUtxos,
         UtxoState,
@@ -8,7 +8,7 @@ use zolana_program::{
     conversion::ProofInput,
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,

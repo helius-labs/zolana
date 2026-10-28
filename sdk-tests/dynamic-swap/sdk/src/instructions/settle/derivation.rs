@@ -1,6 +1,6 @@
 use anyhow::Result;
-use zolana_keypair::hash::poseidon;
-use zolana_transaction::Blinding;
+use spr_keypair::hash::poseidon;
+use spr_transaction::Blinding;
 
 use crate::err;
 

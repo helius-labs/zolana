@@ -1,6 +1,6 @@
-use zolana_hasher::{Hasher, Poseidon};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program::{
+use spr_hasher::{Hasher, Poseidon};
+use spr_keypair::{ShieldedAddress, ShieldedKeypair};
+use spr_program::{
     circuit::{
         CheckedTransaction, Circuit, ConfidentialTransaction, Field, PublicInputs, TokenUtxos,
         UtxoTrait,
@@ -9,7 +9,7 @@ use zolana_program::{
     testing::{check_private_variables, FreeVariable},
     CircuitError, Groth16Prover, TxContext, ZkCircuit, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     gadgets::assert_isqrt,

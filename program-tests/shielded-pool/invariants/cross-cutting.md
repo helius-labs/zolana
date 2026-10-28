@@ -9,7 +9,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/dispatch/validation.rs` `rejects_the_wrong_program_before_dispatch`
   - Kind: precondition
   - Affects: all 18 instructions
-  - Statement: `process_instruction` returns Err whenever the invoked `program_id` differs from the declared program id `spp3CfN2Y7se74A27bBpnAkmjXyEb2YmmZafhFrC9xt`.
+  - Statement: `process_instruction` returns Err whenever the invoked `program_id` differs from the declared program id `ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW`.
   - Location: `programs/shielded-pool/src/lib.rs:38-40` (`fn process_instruction`)
   - Error: `ProgramError::IncorrectProgramId`
   - Severity: Medium
@@ -168,7 +168,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Statement: the `ExternalDataPreimage` covers exactly: the instruction discriminator byte, the serialized external-data prefix of the instruction data (`expiry_unix_ts`, `tx_viewing_pk`, `salt`, `interface_transfers`, `data_hash`, `ring_data_hash`, `outputs`, `messages`, hashed in place as one slice), then two addresses per interface transfer in leg order (SOL: `sol_interface`, recipient; SPL: mint, user token account), then one address per output whose owner tag is `Account`, in output order. The prefix includes `tx_viewing_pk` and `salt` (the F-05 fix), so a relayer cannot change the published decryption context. The prefix is self-delimiting (`u8` element counts, `u16` byte lengths, `Option` presence bytes, enum variant bytes), and the count and meaning of the appended addresses is fixed by the prefix alone, so the encoding is injective across output/message/owner-tag/data boundaries and across `(instruction data, accounts)` pairs.
   - Location: `sdk-libs/instruction/src/external_data.rs` (`struct TransactExternalData`), `program-libs/interface/src/instruction/instruction_data/transact.rs` (`fn TransactIxDataRef::parse_with_external_data_prefix`, `struct ExternalDataPreimage`: `push_settlement`, `push_owner_tag`, `finish`); program side `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn hash_external_data`), `settlement/mod.rs` (`fn Settlement::committed_accounts`)
   - Severity: High
-  - Suggested test: property (proptest over adjacent encodings; unit tests exist); harness: `cargo test -p zolana-interface`
+  - Suggested test: property (proptest over adjacent encodings; unit tests exist); harness: `cargo test -p spr-interface`
 
 - [ ] **INV-XC-17: the hash covers an `Account` owner tag's encoding and its resolved address**
   - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_output_owner_tag` (tamper -> 7008 with rollback; the account-reorder case for an `Account(i)` tag is untested on-chain), `sdk-libs/instruction/tests/external_data.rs` `external_data_hash_binds_account_owner_tags_through_the_resolved_address` (unit)
@@ -259,7 +259,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Statement: `ProtocolConfig::SIZE` is exactly 132 with discriminator 3, `RingConfig::SIZE` exactly 69 with discriminator 4, `SplAssetCounter::SIZE` exactly 16 with discriminator 6, `SplAssetRegistry::SIZE` exactly 48 with discriminator 5, and the tree discriminator is exactly 1; each created account's `data_len` equals exactly its struct's SIZE.
   - Location: `program-libs/interface/src/state/protocol_config.rs:66-67`, `ring_config.rs:37-38`, `spl_asset_counter.rs:58-59`, `spl_asset_registry.rs:64-65`, `discriminator.rs:1-5`
   - Severity: Medium (compile-time asserts exist; runtime pin catches layout drift)
-  - Suggested test: positive (const asserts exist; add explicit pin test mirroring `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
+  - Suggested test: positive (const asserts exist; add explicit pin test mirroring `error_codes_are_stable`); harness: `cargo test -p spr-interface`
 
 ## Ring Authorization Pattern
 
@@ -292,7 +292,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Statement: every `ShieldedPoolError` discriminant equals its documented code in the consecutive range 7000..7077 (78 variants), pinned one-by-one with a compiler-exhaustive variant match, a continuity assertion, and a shared Rust/TypeScript fixture.
   - Location: `program-libs/interface/src/error.rs`; pin test `error.rs` (`fn error_codes_are_stable`)
   - Severity: Medium (client ABI)
-  - Suggested test: positive (exists: `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
+  - Suggested test: positive (exists: `error_codes_are_stable`); harness: `cargo test -p spr-interface`
   - Covered by: `program-libs/interface/src/error.rs` `error_codes_are_stable`
 
 - [x] **INV-XC-29: InterfaceError and TreeError conversions are fixed**
@@ -329,7 +329,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Location: `program-libs/interface/tests/transact.rs`, `program-libs/interface/src/verifying_keys/circuit.rs` (`AnonymousRingEddsaProofData`, `FixedOptionOwnerTag`)
   - Error: decode error (`ProgramError::InvalidInstructionData` at dispatch)
   - Severity: Medium
-  - Suggested test: negative (exists); harness: `cargo test -p zolana-interface`
+  - Suggested test: negative (exists); harness: `cargo test -p spr-interface`
 
 - [x] **INV-XC-33: AnonymousRingEddsaProofData is canonical and bound**
   - Covered by: `program-tests/ring-test-program/tests/anonymous_ring_lifecycle.rs` (`anonymous_ring_transfer_updates_recipient_wallet` bad-commitment leg, `default_ring_hidden_input_exposes_and_binds_owner_tag` wrong-tag leg)

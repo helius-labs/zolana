@@ -1,10 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program::{
+use spr_keypair::{ShieldedAddress, ShieldedKeypair};
+use spr_program::{
     conversion::{Allocator, FromCircuit, Placeholder, ProofInput},
     CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
 };
-use zolana_transaction::{Mint, WalletUtxo};
+use spr_transaction::{Mint, WalletUtxo};
 
 use crate::{
     benchmark::prove,
@@ -24,7 +24,7 @@ pub struct Poll {
     pub tally: [u64; 3],
 }
 
-impl zolana_program::circuit::CircuitType for circuit::Poll {}
+impl spr_program::circuit::CircuitType for circuit::Poll {}
 
 impl ProofInput for Poll {
     type Circuit = circuit::Poll;
@@ -77,7 +77,7 @@ struct CreatePollPublicInputs {
     root: [u8; 32],
 }
 
-impl zolana_program::circuit::CircuitType for circuit::CreatePoll {}
+impl spr_program::circuit::CircuitType for circuit::CreatePoll {}
 
 impl ProofInput for CreatePoll {
     type Circuit = circuit::CreatePoll;
@@ -115,7 +115,7 @@ impl Placeholder for CreatePoll {
 }
 
 pub(crate) mod circuit {
-    use zolana_program::{
+    use spr_program::{
         circuit::{
             poseidon, zero, CheckedTransaction, Circuit, CircuitVar, ConfidentialTransaction,
             DataHash, DataUtxo, PublicInputs, TokenUtxos, TxContext, Uint, Utxo, UtxoData,

@@ -10,18 +10,18 @@ use solana_account::Account;
 
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_client::{
+use spr_client::{
     fetch_asset_id, fetch_spl_asset_registrations,
     rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, EncryptedUtxoMatch,
     GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
     OutputContext, OutputSlot, ProgramAccountsFilter, Rpc, ShieldedTransaction, UtxoScan,
 };
-use zolana_event::{
+use spr_event::{
     encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
 };
-use zolana_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
-use zolana_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
-use zolana_transaction::{
+use spr_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
+use spr_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
+use spr_transaction::{
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
         MERGE_DEFAULT_INPUT_COUNT,
@@ -124,7 +124,7 @@ impl Rpc for Indexer {
             filter.memcmp_filters().collect::<Vec<_>>(),
             vec![(
                 0,
-                &[zolana_interface::state::discriminator::SPL_ASSET_REGISTRY][..]
+                &[spr_interface::state::discriminator::SPL_ASSET_REGISTRY][..]
             )]
         );
         *self.registry_reads.borrow_mut() += 1;

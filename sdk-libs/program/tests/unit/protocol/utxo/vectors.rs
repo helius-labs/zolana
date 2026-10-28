@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_signature::Signature;
-use zolana_program::circuit::Field;
-use zolana_transaction::{
+use spr_program::circuit::Field;
+use spr_transaction::{
     utxo::{ProofInputUtxo, SppProofInputUtxo, Utxo},
     Data, Mint, WalletUtxo,
 };

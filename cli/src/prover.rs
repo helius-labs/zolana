@@ -1,7 +1,7 @@
 use std::{env, ffi::OsStr, fs, path::Path};
 
 use anyhow::{Context, Result};
-use zolana_client::{
+use spr_client::{
     prover::{redact_api_key, PROVER_INDEXER_URL_ENV},
     ProverClient,
 };

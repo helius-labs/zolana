@@ -1,12 +1,12 @@
 //! Verifies the precomputed nullifier-tree init-root constant (BN254 `p-1`
-//! sentinel) against the canonical `zolana-merkle-tree` implementation.
+//! sentinel) against the canonical `spr-merkle-tree` implementation.
 
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use num_bigint::BigUint;
-use zolana_hasher::Poseidon;
-use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
+use spr_hasher::Poseidon;
+use spr_merkle_tree::indexed::IndexedMerkleTree;
+use spr_tree::nullifier_tree::constants::NULLIFIER_TREE_INIT_ROOT_40;
 
 const HEIGHT: usize = 40;
 

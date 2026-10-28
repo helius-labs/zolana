@@ -1,12 +1,12 @@
 {
-  "name": "zolana-program-wasm-tests",
+  "name": "spr-program-wasm-tests",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "cargo run --release -q -p zolana-cli -- zk compile -p zolana-program-wasm-test-program --skip-r1cs --skip-keys --wasm-out web/pkg",
-    "build:test": "cargo run --release -q -p zolana-cli -- zk compile -p zolana-program-wasm-test-program --skip-r1cs --skip-keys --verifier --wasm-out web/pkg",
-    "build:single": "cargo run --release -q -p zolana-cli -- zk compile -p zolana-program-wasm-test-program --skip-r1cs --skip-keys --single-threaded --wasm-out web/pkg",
-    "build:inputs": "cargo run --release -q -p zolana-cli -- zk compile -p zolana-program-wasm-test-program --skip-r1cs --skip-keys --no-prover --wasm-out web/pkg-inputs",
+    "build": "cargo run --release -q -p spr-cli -- zk compile -p spr-program-wasm-test-program --skip-r1cs --skip-keys --wasm-out web/pkg",
+    "build:test": "cargo run --release -q -p spr-cli -- zk compile -p spr-program-wasm-test-program --skip-r1cs --skip-keys --verifier --wasm-out web/pkg",
+    "build:single": "cargo run --release -q -p spr-cli -- zk compile -p spr-program-wasm-test-program --skip-r1cs --skip-keys --single-threaded --wasm-out web/pkg",
+    "build:inputs": "cargo run --release -q -p spr-cli -- zk compile -p spr-program-wasm-test-program --skip-r1cs --skip-keys --no-prover --wasm-out web/pkg-inputs",
     "check:dts": "node tools/check-dts.mjs",
     "test": "playwright test --grep-invert @bench",
     "bench": "playwright test --grep @bench --reporter=list",

@@ -13,7 +13,7 @@
 //! Requires a reachable prover server (started via `spawn_prover`) with the
 //! `transfer_confidential_2_4.key` proving key available.
 //!
-//! Run with: `cargo test -p zolana-client --test transfer_dummy`
+//! Run with: `cargo test -p spr-client --test transfer_dummy`
 
 mod test_indexer;
 
@@ -25,15 +25,15 @@ mod input_fixture;
 mod output_blindings;
 
 use rand::RngCore;
-use zolana_client::prover::SERVER_ADDRESS;
-use zolana_client::{
+use spr_client::prover::SERVER_ADDRESS;
+use spr_client::{
     spawn_prover, verify_confidential_transfer_proof, ProverClient, ProverExt, PublicTransfers,
     Rpc, Shape, TransferInputUtxo, TransferProver,
 };
-use zolana_hasher::primitives::solana_owner_identity;
-use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
-use zolana_keypair::{NullifierKey, PublicKey};
-use zolana_transaction::{
+use spr_hasher::primitives::solana_owner_identity;
+use spr_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
+use spr_keypair::{NullifierKey, PublicKey};
+use spr_transaction::{
     utxo::SppProofInputUtxo, Data, ExternalData, Mint, SppProofOutputUtxo, Utxo,
 };
 
@@ -104,7 +104,7 @@ fn async_queue_result_count() -> Option<u64> {
 
 fn dummy_external_data(owner_tag: [u8; 32], n_outputs: usize) -> ExternalData {
     ExternalData {
-        instruction_discriminator: zolana_interface::instruction::tag::TRANSACT,
+        instruction_discriminator: spr_interface::instruction::tag::TRANSACT,
         expiry_unix_ts: 0,
         interface_transfers: Vec::new(),
         data_hash: None,

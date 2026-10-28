@@ -1,4 +1,4 @@
-use zolana_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
+use spr_hasher::{primitives::right_align, Hasher, HasherError, Poseidon};
 
 pub const DATA_HASH_DOMAIN: u32 = u32::from_be_bytes(*b"DATA");
 pub const UNIQUE_DATA_HASH_DOMAIN: u32 = u32::from_be_bytes(*b"UNIQ");

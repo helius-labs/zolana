@@ -1,8 +1,8 @@
-use zolana_interface::instruction::instruction_data::merge_transact::{
+use spr_interface::instruction::instruction_data::merge_transact::{
     merge_circuit_width, MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
     MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
 };
-use zolana_interface::instruction::instruction_data::MergeOutputEncryption;
+use spr_interface::instruction::instruction_data::MergeOutputEncryption;
 
 fn data_with(input_count: usize) -> MergeTransactIxData {
     MergeTransactIxData {
@@ -80,7 +80,7 @@ fn every_count_up_to_the_widest_shape_selects_the_narrowest_circuit() {
 
 #[test]
 fn cache_slot_round_trips_in_both_merge_rails() {
-    use zolana_interface::instruction::{
+    use spr_interface::instruction::{
         instruction_data::merge_ring::MergeRingIxDataRef, MergeRingIxData,
     };
     for (cache_slot, encoded_len) in [(None, 639), (Some(0), 640), (Some(35), 640)] {
@@ -111,7 +111,7 @@ fn cache_slot_round_trips_in_both_merge_rails() {
 
 #[test]
 fn cache_mode_address_and_slot_are_bound_by_both_merge_hashes() {
-    use zolana_interface::instruction::{tag, MergeExternalDataHash};
+    use spr_interface::instruction::{tag, MergeExternalDataHash};
     let address = [8; 32];
     let other_address = [9; 32];
     let mut hashes = Vec::new();
@@ -145,8 +145,8 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn merge_encoding(input_count: usize, cache: Option<(&[u8; 32], u8)>) -> ([u8; 32], [u8; 32]) {
-    use zolana_hasher::{sha256::Sha256, Hasher};
-    use zolana_interface::instruction::{tag, MergeExternalDataHash};
+    use spr_hasher::{sha256::Sha256, Hasher};
+    use spr_interface::instruction::{tag, MergeExternalDataHash};
     let mut data = data_with(input_count);
     data.cache_slot = cache.map(|(_, slot)| slot);
     let instruction_sha256 = Sha256::hash(&data.serialize().unwrap()).unwrap();

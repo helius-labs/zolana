@@ -12,22 +12,22 @@ use client_example::{
 };
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{
+use spr_client::{
     prover::MergeCacheTarget, ComputeBudgetConfig, MergeProver, ProofAuthority, ProofCompressed,
     ProverClient, ProverExt, Rpc, SolanaRpc, WitnessReader, ZolanaClient, ZolanaIndexer,
 };
-use zolana_interface::instruction::instruction_data::CreateCacheData;
-use zolana_program::instruction::{
+use spr_interface::instruction::instruction_data::CreateCacheData;
+use spr_program::instruction::{
     CacheWriteAccounts, CloseCache, CreateCache, MergeTransact, Transact,
 };
-use zolana_transaction::{
+use spr_transaction::{
     instructions::{
         merge::{MergeTransaction, MAX_MERGE_INPUTS},
         transact::{ConfidentialTransaction, Shape},
     },
     AssetRegistry, Data, Mint, Utxo, WalletUtxo,
 };
-use zolana_user_registry_interface::user_record_pda;
+use spr_user_registry_interface::user_record_pda;
 
 /// The most inputs one merge can spend while the cache creation rides in the
 /// same 4,096-byte transaction: each input adds its nullifier and its nullifier

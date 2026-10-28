@@ -22,6 +22,7 @@ var randomness sync.RWMutex
 
 // insecureTestKeysDomain seeds the insecure test setup together with the
 // circuit name. It is public on purpose: the keys it produces are forgeable.
+// Keep this domain stable across crate renames so checked-in test keys reproduce.
 const insecureTestKeysDomain = "zolana-gnark-ffi-prover insecure test keys v1 "
 
 func systemRandomSetup(cs constraint.ConstraintSystem) (groth16.ProvingKey, groth16.VerifyingKey, error) {

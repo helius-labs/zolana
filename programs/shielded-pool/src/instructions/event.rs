@@ -1,6 +1,6 @@
 use borsh::BorshSerialize;
 use pinocchio::{cpi::invoke, instruction::InstructionView, AccountView, ProgramResult};
-use zolana_interface::event::{encode_event_instruction, EventKind};
+use spr_interface::event::{encode_event_instruction, EventKind};
 
 /// Emit an event by self-CPI: the program re-invokes itself with
 /// `[EMIT_EVENT, kind, borsh(event)]` as instruction data and no accounts, so the

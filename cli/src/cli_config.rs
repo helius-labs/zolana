@@ -8,7 +8,7 @@ use std::{
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
-use zolana_transaction::{Address, AssetRegistry};
+use spr_transaction::{Address, AssetRegistry};
 
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
@@ -16,7 +16,7 @@ pub(crate) const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
 const CONFIG_VERSION: u8 = 1;
 
 pub(crate) fn default_tree() -> Pubkey {
-    zolana_interface::pda::tree(0)
+    spr_interface::pda::tree(0)
 }
 
 #[cfg(test)]
@@ -213,7 +213,7 @@ mod tests {
             .expect("time")
             .as_nanos();
         let path = env::temp_dir().join(format!(
-            "zolana-cli-config-{}-{stamp}.json",
+            "spr-cli-config-{}-{stamp}.json",
             std::process::id()
         ));
         (path.clone(), path.display().to_string())

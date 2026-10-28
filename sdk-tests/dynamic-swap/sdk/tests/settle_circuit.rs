@@ -7,8 +7,8 @@ use dynamic_swap_sdk::{
     instructions::settle::{settle_blinding_seed, SettleProofInputParams},
     state::EscrowTerms,
 };
-use zolana_keypair::ShieldedKeypair;
-use zolana_transaction::{
+use spr_keypair::ShieldedKeypair;
+use spr_transaction::{
     instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
@@ -40,7 +40,7 @@ fn sample_params(execution_price: u64) -> SettleProofInputParams {
         recipient_owner_hash: recipient.owner_hash().unwrap(),
         max_price,
     };
-    let order_in = zolana_test_utils::utxo::wallet(
+    let order_in = spr_test_utils::utxo::wallet(
         Utxo {
             owner: operator.signing_pubkey(),
             asset: source_asset,
@@ -56,9 +56,9 @@ fn sample_params(execution_price: u64) -> SettleProofInputParams {
         None,
     )
     .unwrap();
-    let order_in: zolana_transaction::utxo::SppProofInputUtxo = order_in.into();
+    let order_in: spr_transaction::utxo::SppProofInputUtxo = order_in.into();
     let escrow_utxo_hash = order_in.hash();
-    let reservation_in = zolana_test_utils::utxo::wallet(
+    let reservation_in = spr_test_utils::utxo::wallet(
         Utxo {
             owner: operator.signing_pubkey(),
             asset: Mint::SOL,
@@ -74,7 +74,7 @@ fn sample_params(execution_price: u64) -> SettleProofInputParams {
         None,
     )
     .unwrap();
-    let reservation_in: zolana_transaction::utxo::SppProofInputUtxo = reservation_in.into();
+    let reservation_in: spr_transaction::utxo::SppProofInputUtxo = reservation_in.into();
     let reservation_utxo_hash = reservation_in.hash();
     let is_settle = execution_price <= max_price;
     let owed = if is_settle {

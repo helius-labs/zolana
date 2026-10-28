@@ -1,7 +1,7 @@
 use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
-use zolana_interface::{
+use spr_interface::{
     instruction::{tag, CreateCacheData},
     pda, PROGRAM_ID_PUBKEY,
 };

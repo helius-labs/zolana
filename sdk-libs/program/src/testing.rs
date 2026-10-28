@@ -1,4 +1,4 @@
-pub use zolana_zk_dsl::testing::*;
+pub use spr_zk_dsl::testing::*;
 
 /// Inspect carried metadata in SDK tests. These values are not authorization
 /// inputs for an application circuit; the SPP proof validates the transaction.

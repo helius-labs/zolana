@@ -1,7 +1,7 @@
 use core::ops::{Deref, DerefMut};
 
-use zolana_instruction::ADDRESS_TREE_ID;
-use zolana_interface::ADDRESS_DOMAIN;
+use spr_instruction::ADDRESS_TREE_ID;
+use spr_interface::ADDRESS_DOMAIN;
 
 use super::{data::OutputState, Balance, DataUtxo, HasBalance, Utxo, UtxoData};
 use crate::{
@@ -48,7 +48,7 @@ impl<S: Default> UniqueDataUtxo<S> {
     /// program id and account identifier to separate applications and accounts.
     pub fn new_init(owner: &UtxoOwner, seed: &CircuitVar) -> Result<Self, CircuitError> {
         owner.key().tag().assert_equal(
-            &constant(u64::from(zolana_hasher::primitives::SOLANA_OWNER_TAG)),
+            &constant(u64::from(spr_hasher::primitives::SOLANA_OWNER_TAG)),
             "an address owner must be a Solana signer",
         )?;
         let address = derive_address(owner, seed)?;

@@ -1,13 +1,13 @@
 use anyhow::{bail, Result};
-use swap_program::instructions::take::TakePublicInput;
-use swap_prover::{OrderTermsProofInput, TakeProofInputs, TAKE_MODE_DERIVED};
-use zolana_client::ProofInputUtxo;
-use zolana_transaction::{
+use spr_client::ProofInputUtxo;
+use spr_transaction::{
     instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
 };
+use swap_program::instructions::take::TakePublicInput;
+use swap_prover::{OrderTermsProofInput, TakeProofInputs, TAKE_MODE_DERIVED};
 
 use super::take_blinding_seed;
 use crate::{err, shared::check_output_utxo, state::OrderUtxo};
@@ -62,7 +62,7 @@ impl TakeProofInputParams {
             .output_utxo(terms.destination.viewing_pubkey)?;
         let order_utxo =
             ProofInputUtxo::try_from((&order_output, self.input_tree_id)).map_err(err)?;
-        let first_nullifier = zolana_keypair::NullifierKey::from_secret([0; 31])
+        let first_nullifier = spr_keypair::NullifierKey::from_secret([0; 31])
             .nullifier(&order_utxo.hash().map_err(err)?, &self.order_utxo.blinding)
             .map_err(err)?;
         let blinding_seed = take_blinding_seed(&self.order_utxo.blinding)?;

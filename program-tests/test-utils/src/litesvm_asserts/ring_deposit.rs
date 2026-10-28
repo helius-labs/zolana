@@ -2,9 +2,9 @@
 
 use crate::wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use solana_pubkey::Pubkey;
-use zolana_interface::state::read_tree_id;
-use zolana_program::instruction::RingAssetDeposit;
-use zolana_program_test::{RingDepositOutput, ZolanaProgramTest};
+use spr_interface::state::read_tree_id;
+use spr_program::instruction::RingAssetDeposit;
+use spr_program_test::{RingDepositOutput, ZolanaProgramTest};
 
 /// Verify a settled `ring_deposit` against the integration-test
 /// expectations: the emitted owner-hidden event faithfully mirrors the
@@ -48,14 +48,14 @@ pub fn litesvm_assert_ring_deposit<A: SyncWalletAuthority + ?Sized>(
         utxo_hash: event.utxo_hash,
         output_tree: event.output_tree,
         leaf_index: event.leaf_index,
-        output: zolana_event::EncryptedRingDepositOutput {
+        output: spr_event::EncryptedRingDepositOutput {
             owner_utxo_hash: data.owner_utxo_hash,
             asset: expected_asset,
             amount: expected_amount,
             data_hash: None,
             ring_program_id: expected_ring_program_id,
             ring_data_hash: data.ring_data_hash,
-            encrypted: zolana_event::EncryptedRingDepositData {
+            encrypted: spr_event::EncryptedRingDepositData {
                 tx_viewing_pk: data.encrypted.tx_viewing_pk,
                 salt: data.encrypted.salt,
                 ciphertext: data.encrypted.ciphertext.clone(),

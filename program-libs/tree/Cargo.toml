@@ -1,10 +1,11 @@
 [package]
-name = "zolana-tree"
+name = "spr-tree"
 version = "0.1.0"
+description = "Merkle tree accounts and nullifier trees for the SPR protocol."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [features]
 default = []
@@ -21,8 +22,8 @@ log = ["dep:solana-msg"]
 profile-program = ["dep:light-program-profiler", "light-program-profiler/profile-program"]
 
 [dependencies]
-zolana-event = { workspace = true }
-zolana-hasher = { workspace = true }
+spr-event = { workspace = true }
+spr-hasher = { workspace = true }
 groth16-solana = { workspace = true, optional = true }
 pinocchio = { workspace = true, optional = true }
 solana-msg = { workspace = true, features = ["alloc"], optional = true }
@@ -36,8 +37,8 @@ light-program-profiler = { workspace = true, optional = true }
 [dev-dependencies]
 rand = { workspace = true }
 serde_json = { workspace = true }
-zolana-merkle-tree = { workspace = true }
-zolana-client = { workspace = true }
+spr-merkle-tree = { workspace = true }
+spr-client = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 ark-bn254 = { workspace = true }

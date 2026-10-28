@@ -15,20 +15,20 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::user_registry::ensure_registered;
-use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
-use zolana_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
-use zolana_program_test::{
+use spr_client::user_registry::ensure_registered;
+use spr_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
+use spr_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
+use spr_program_test::{
     fixture,
     localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},
     workspace_path,
 };
-use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
-use zolana_test_utils::wallet::{Deposit, DepositParams};
-use zolana_transaction::{
+use spr_test_utils::test_validator_asserts::wait_for_indexed_utxo;
+use spr_test_utils::wallet::{Deposit, DepositParams};
+use spr_transaction::{
     instructions::transact::asset_field, utxo::Blinding, AssetRegistry, SOL_MINT,
 };
-use zolana_user_registry_interface::user_registry_program_id;
+use spr_user_registry_interface::user_registry_program_id;
 
 // The whole per-transaction budget: an escrow settle verifies an SPP proof.
 const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
@@ -49,7 +49,7 @@ pub struct TestWallet {
 }
 
 impl TestWallet {
-    pub fn address(&self) -> Result<zolana_keypair::ShieldedAddress> {
+    pub fn address(&self) -> Result<spr_keypair::ShieldedAddress> {
         self.keypair
             .shielded_address()
             .map_err(|e| anyhow!("shielded address: {e:?}"))
@@ -90,7 +90,7 @@ pub fn setup(test: u16) -> Result<TestEnv> {
             ),
             (
                 user_registry_program_id(),
-                workspace_path("target/deploy/zolana_user_registry.so"),
+                workspace_path("target/deploy/spr_user_registry.so"),
             ),
         ],
         &LocalnetPaths::workspace(),
@@ -124,7 +124,7 @@ pub fn setup(test: u16) -> Result<TestEnv> {
         asset: spl_mint,
         amount: USER_SPL_SHIELD,
         spl_token_account: Some(spl_funding),
-        spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
+        spl_token_program: Some(spr_interface::pda::spl_token_program_id()),
         memo: None,
     })?;
     let user_view_tag = user_deposit.view_tag();

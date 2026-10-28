@@ -4,9 +4,9 @@ use anyhow::{anyhow, bail, Result};
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
-use zolana_client::{user_registry::resolve_registered_address, Rpc};
-use zolana_keypair::{ShieldedAddress, ShieldedKeypair, X25519Pubkey};
-use zolana_transaction::{
+use spr_client::{user_registry::resolve_registered_address, Rpc};
+use spr_keypair::{ShieldedAddress, ShieldedKeypair, X25519Pubkey};
+use spr_transaction::{
     serialization::confidential::Confidential, utxo::Blinding, AssetRegistry, DecodeCx,
     ShieldedTransaction, UtxoSerialization,
 };
@@ -30,7 +30,7 @@ pub struct TakerOrder {
 
 pub struct TakerOrderCandidate {
     pub source_amount: u64,
-    pub source_mint: zolana_transaction::Mint,
+    pub source_mint: spr_transaction::Mint,
     pub destination_mint: Address,
     pub order_utxo_blinding: Blinding,
     pub order_data: PlainTextData,

@@ -5,13 +5,13 @@ use crate::transaction::ComputeBudgetConfig;
 use anyhow::{anyhow, bail, Context, Result};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::{
+use spr_interface::{
     pda,
     state::{ProtocolConfig, TreeFeeSchedule},
 };
-use zolana_protocol_instructions::SetTreeFees;
-use zolana_smart_account_client::execute_sync_ix;
-use zolana_tree::TreeAccount;
+use spr_protocol_instructions::SetTreeFees;
+use spr_smart_account_client::execute_sync_ix;
+use spr_tree::TreeAccount;
 
 use crate::{
     init_protocol::{load_keypair, to_address, Cluster},

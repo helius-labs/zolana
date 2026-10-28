@@ -1,4 +1,4 @@
-use zolana_interface::event::{InputTreeSequence, MergeEvent};
+use spr_interface::event::{InputTreeSequence, MergeEvent};
 
 /// Values assigned while writing the tree. The event contains the first input's
 /// tree and queue sequence number plus the output leaf index; an indexer counts

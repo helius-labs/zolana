@@ -4,8 +4,8 @@ use pinocchio::{
     AccountView, ProgramResult, Resize,
 };
 use pinocchio_system::instructions::{Allocate, Assign, CreateAccount, Transfer};
-use zolana_interface::{error::ShieldedPoolError, state::TREE_ALLOCATION_STEP, TREE_PDA_SEED};
-use zolana_tree::UNINITIALIZED;
+use spr_interface::{error::ShieldedPoolError, state::TREE_ALLOCATION_STEP, TREE_PDA_SEED};
+use spr_tree::UNINITIALIZED;
 
 pub(super) fn is_unallocated(tree: &AccountView) -> bool {
     pinocchio_system::check_id(tree.owner()) && tree.data_len() == 0

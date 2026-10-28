@@ -4,7 +4,7 @@ use pinocchio::{
     error::ProgramError,
     AccountView,
 };
-use zolana_interface::{error::ShieldedPoolError, state::cache::CacheAccount};
+use spr_interface::{error::ShieldedPoolError, state::cache::CacheAccount};
 
 pub(crate) fn load_cache(account: &AccountView) -> Result<Ref<'_, CacheAccount>, ProgramError> {
     load_config(

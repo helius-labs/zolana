@@ -1,4 +1,4 @@
-use zolana_interface::{
+use spr_interface::{
     shape::{RING_AUTHORITY_WIDTHS, SPP_SUPPORTED_SHAPES},
     verifying_keys::{
         AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CircuitId, OutputOwnerMode,

@@ -1,9 +1,9 @@
-use zolana_program::{
+use spr_program::{
     circuit::{Assert, Circuit, DataHash, Field, HashBytes, Select, SolanaAddress},
     conversion::ProofInput,
     CircuitError,
 };
-use zolana_transaction::Mint;
+use spr_transaction::Mint;
 
 use crate::harness::fixture::{rule_broken, Refusal};
 
@@ -73,7 +73,7 @@ impl Circuit for SolHashCircuit {
     type Output = ();
 
     fn circuit(&self) -> Result<Self::Output, CircuitError> {
-        SolanaAddress::constant(&zolana_transaction::SOL_MINT)
+        SolanaAddress::constant(&spr_transaction::SOL_MINT)
             .hash_bytes()?
             .assert_equal(&self.hash, HASH_RULE)
     }
