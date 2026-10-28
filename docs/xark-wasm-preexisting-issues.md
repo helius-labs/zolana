@@ -168,8 +168,8 @@ output, even when deliberately using a local branch.
 
 **Impact:** A local implementation branch cannot use the normal build entrypoint.
 
-**Fix in this branch:** An explicit `XARK_SOURCE` selects a compatible local
-checkout. The default path retains the pinned revision check and required patches.
+**Fix in this branch:** Workspace path dependencies select the local checkout and
+compiler directly. The old Git revision fallback and patch bootstrap were removed.
 
 ## 13. Setup cache does not validate setup mode or verifying-key presence
 
@@ -233,10 +233,11 @@ build-owned `proving-keys.json` pins and the reusable SDK `checkProvingKey` expo
 ## Inherited Xark fixes already present before this implementation
 
 - Region removal invalidated parent indices during input renumbering. The
-  existing `input-region-indices.patch` retains indices and adds a regression test.
-- Browser deterministic proof seeds were unrestricted. The existing
-  `proof-randomness.patch` gates deterministic seeds behind `test-randomness` and
+  committed Xark fix retains indices and adds a regression test.
+- Browser deterministic proof seeds were unrestricted. The committed Xark fix
+  gates deterministic seeds behind `test-randomness` and
   rejects zero blinding values.
 
 Both fixes were carried to the local Xark branch in a separate baseline commit.
-They are not counted as new composition API changes.
+They are not counted as new composition API changes. Their obsolete Zolana patch
+files were removed after switching to the fixed Xark path dependency.

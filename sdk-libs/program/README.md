@@ -405,12 +405,9 @@ This development branch uses workspace path dependencies pointing at
 from Cargo metadata and selects its `target/release/xark` compiler automatically.
 Generated circuit entries use the same path dependency. To rebuild the local tool,
 run `tools/xark/build.sh /Users/jorrit/dev/experiments/xark-client-wasm`.
-`XARK` can select a separate compiler executable. An explicit `XARK_SOURCE` must
-match the workspace dependency checkout; change the workspace paths to select a
-different source. Git-backed workspaces still support the pinned checkout and
-source-override workflow.
-Combined prover builds check that the existing proof-randomness patch is applied to
-the selected source. A stock checkout must first be prepared with `tools/xark/build.sh`.
+`XARK` can select a separate compiler executable. Change the workspace dependency
+paths to select a different source. The build uses those paths directly, without
+Git bootstrapping, source overrides, or patch checks.
 
 Verifier generation uses `groth16-solana 0.3.1` to emit
 `VERIFYINGKEY_PROVING_KEY_SHA256`, `VERIFYINGKEY_INSECURE_TEST_SETUP`, and its standard
