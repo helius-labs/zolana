@@ -5,12 +5,18 @@ on:
     paths:
       - ".github/workflows/publish-*.yml"
       - ".github/workflows/release-checks.yml"
+      - ".github/workflows/release-client-policy.yml"
+      - ".github/workflows/async-prover.yml"
+      - "tools/native-policy-checks.py"
       - "tools/*release*"
   push:
     branches: [main]
     paths:
       - ".github/workflows/publish-*.yml"
       - ".github/workflows/release-checks.yml"
+      - ".github/workflows/release-client-policy.yml"
+      - ".github/workflows/async-prover.yml"
+      - "tools/native-policy-checks.py"
       - "tools/*release*"
 
 permissions:
@@ -25,4 +31,4 @@ jobs:
       # GitHub supports queue:max; actionlint has not added that field yet.
       - uses: docker://rhysd/actionlint:1.7.12
         with:
-          args: -ignore=unexpected.key.*queue.*concurrency.*section .github/workflows/publish-image.yml .github/workflows/publish-service-image.yml .github/workflows/publish-nitro.yml .github/workflows/release-checks.yml .github/workflows/publish-client-policy.yml
+          args: -ignore=unexpected.key.*queue.*concurrency.*section .github/workflows/publish-image.yml .github/workflows/publish-service-image.yml .github/workflows/publish-nitro.yml .github/workflows/release-checks.yml .github/workflows/publish-client-policy.yml .github/workflows/release-client-policy.yml .github/workflows/async-prover.yml

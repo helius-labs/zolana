@@ -1,6 +1,15 @@
 name: async prover
 
 on:
+  workflow_call:
+    inputs:
+      validated_ref:
+        description: Exact policy-only commit validated by the main release controller
+        type: string
+        required: true
+    secrets:
+      PRIVATE_LIBS_TOKEN:
+        required: false
   push:
     branches: [main]
     paths:
@@ -75,6 +84,8 @@ jobs:
       ZOLANA_PROVER_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.validated_ref || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version-file: prover/server/go.mod
@@ -92,5 +103,5 @@ jobs:
       - name: Dump prover log on failure
         if: failure()
         run: |
-          find . -name prover-server.log -exec sh -c 'echo "--- {} ---"; tail -200 "{}"' \; 2>/dev/null \
+          find . -name prover-server.log -exec sh -c 'for log do echo "--- $log ---"; tail -200 "$log"; done' sh {} + 2>/dev/null \
             || echo "(no prover log)"

@@ -350,3 +350,13 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     **Runs:**
 
     1. PR-only push policy: `bash`.
+
+Release automation uses each repository's built-in token and AWS OIDC. Infra
+pulls signed release manifests and their Sigstore bundles from S3; cross-repo
+GitHub dispatch is unnecessary. `release-client-policy.yml` discovers qualified
+Nitro identities and creates source-owned policy PRs. Its validator accepts only
+qualified overlapping policy data, runs the TypeScript package/policy checks and
+the real reusable async-prover suite, and reports required statuses on the exact
+PR commits. Client delivery is a separate gate; `publish-client-policy.yml`
+publishes policy evidence after delivery and answers fresh deployment-status
+requests when called in `check` mode by the client's scheduled workflow.

@@ -1,0 +1,118 @@
+name: Client policy rotation
+
+on:
+  schedule:
+    - cron: "4-59/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Generated PR number (empty discovers qualified candidates)
+        type: string
+        default: ""
+      expected_head:
+        description: Exact generated PR commit (controller only)
+        type: string
+      request_id:
+        description: Signed qualification request (controller only)
+        type: string
+
+concurrency:
+  group: client-policy-${{ inputs.pr || 'discover' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    if: github.ref == 'refs/heads/main' && inputs.pr == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: image-publish
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
+          aws-region: eu-north-1
+      - run: python3 tools/release-client-policy.py
+
+  candidate:
+    if: github.ref == 'refs/heads/main' && inputs.pr != ''
+    runs-on: ubuntu-24.04
+    environment: image-publish
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+      id-token: write
+    outputs:
+      head: ${{ steps.identity.outputs.head }}
+      base: ${{ steps.identity.outputs.base }}
+      merge: ${{ steps.identity.outputs.merge }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
+          aws-region: eu-north-1
+      - id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          CANDIDATE_HEAD: ${{ inputs.expected_head }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: python3 tools/native-policy-checks.py start --pr "$PR" --head "$CANDIDATE_HEAD" --request "$REQUEST_ID"
+
+  policy:
+    needs: candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.candidate.outputs.head }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run check:ts
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: client-policy
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: cargo test -p zolana-prover-tee --lib
+
+  async:
+    needs: candidate
+    uses: ./.github/workflows/async-prover.yml
+    secrets: inherit
+    with:
+      validated_ref: ${{ needs.candidate.outputs.head }}
+
+  report:
+    needs: [candidate, policy, async]
+    if: always() && needs.candidate.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          CANDIDATE_HEAD: ${{ needs.candidate.outputs.head }}
+          BASE: ${{ needs.candidate.outputs.base }}
+          MERGE: ${{ needs.candidate.outputs.merge }}
+          RESULT: ${{ needs.policy.result == 'success' && needs.async.result == 'success' && 'success' || 'failure' }}
+        run: python3 tools/native-policy-checks.py report --pr "$PR" --head "$CANDIDATE_HEAD" --base "$BASE" --merge "$MERGE" --result "$RESULT"

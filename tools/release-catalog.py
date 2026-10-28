@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Build one immutable release only after every artifact and source quality check is ready."""
 import argparse
-import base64
 import hashlib
 import importlib.util
 import json
@@ -10,6 +9,9 @@ from pathlib import Path
 import subprocess
 import tempfile
 import time
+import re
+
+from release_evidence import download, load_signed, publish_signed, put
 
 BUCKET = 'zolana-nitro-eif-558215002830'
 SERVICES = {'photon': 'photon', 'forester': 'forester', 'prover': 'forester_prover'}
@@ -27,9 +29,31 @@ def digest(value):
     return hashlib.sha256(canonical(value)).hexdigest()
 
 
+def release_context():
+    identifier = os.environ.get('RELEASE_CONTEXT_ID')
+    if not identifier:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'current.json'
+            download('release-context/current.json', path)
+            identifier = json.loads(path.read_text())['context_id']
+    if not re.fullmatch(r'[0-9a-f]{64}', identifier):
+        raise ValueError('Invalid release context ID')
+    context = load_signed(f'release-context/{identifier}.json', 'helius-labs/zolana-infra',
+                          'helius-labs/zolana-infra/.github/workflows/release.yml')
+    if context.get('version') != 1 or digest(context) != identifier:
+        raise ValueError('Release context contents changed')
+    os.environ['RELEASE_CONTEXT_ID'] = identifier
+    return context
+
+
 def infra_file(path):
-    result = json.loads(command('gh', 'api', 'repos/helius-labs/zolana-infra/contents/' + path + '?ref=main'))
-    return json.loads(base64.b64decode(result['content']))
+    context = release_context()
+    files = {'infra/releases/devnet-d.json': context['desired'],
+             'infra/releases/v0.5.0-alpha.json': context['configuration'],
+             'infra/releases/catalog/' + context['release']['id'] + '.json': context['release']}
+    if path not in files:
+        raise ValueError('Release context does not contain the requested base release')
+    return files[path]
 
 
 def output(**values):
@@ -74,7 +98,7 @@ def plan():
     profile = nitro_profile(configuration, base, os.environ['GITHUB_SHA'])
     candidate = digest(profile)
     verification_changed=any(p.startswith('tools/release-probe/') for p in paths)
-    output(services=selected['services'], nitro=selected['nitro'], any=bool(selected['services'] or selected['nitro'] or verification_changed),
+    output(release_context=os.environ['RELEASE_CONTEXT_ID'], services=selected['services'], nitro=selected['nitro'], any=bool(selected['services'] or selected['nitro'] or verification_changed),
            short_sha=os.environ['GITHUB_SHA'][:12], base_release=base['id'], profile=json.dumps(profile,separators=(',',':')), measured_source=profile['source_commit'], build_tools=profile['build_tools_commit'], candidate=candidate, generation='tee-' + candidate[:20])
 
 
@@ -164,7 +188,7 @@ def publish(path):
     record = json.loads(Path(path).read_text())
     if record['id'] != digest({k:v for k,v in record.items() if k != 'id'}):
         raise ValueError('Release ID mismatch')
-    put_immutable(f"releases/{record['id']}/release.json", path)
+    publish_signed(path, f"releases/{record['id']}/release.json", os.environ['ATTESTATION_BUNDLE'])
     # Ready is the final commit marker. Events only wake reconciliation.
     index = Path(os.environ['RUNNER_TEMP'])/'release-ready.json'
     index.write_text(json.dumps({'release_id':record['id'],'source_commit':record['source_commit']}))
@@ -181,29 +205,47 @@ def publish(path):
     print('Published complete immutable release '+record['id'])
 
 
-def prepare(profile_text, candidate):
-    profile=json.loads(profile_text)
+def prepare_request(profile_text, candidate, destination):
+    profile = json.loads(profile_text)
     if digest(profile) != candidate:
         raise ValueError('Candidate profile identity mismatch')
-    request={'event_type':'prepare-nitro-release','client_payload':{'profile':profile,'candidate_id':candidate,'run_id':os.environ['GITHUB_RUN_ID']}}
-    subprocess.run(['gh','api','repos/helius-labs/zolana-infra/dispatches','--input','-'],input=json.dumps(request),text=True,check=True)
-    deadline=time.monotonic()+900
-    while time.monotonic()<deadline:
+    request = {'version': 1, 'profile': profile, 'candidate_id': candidate,
+               'publisher_commit': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID']}
+    Path(destination).write_bytes(canonical(request) + b'\n')
+
+
+def prepare(profile_text, candidate):
+    profile = json.loads(profile_text)
+    if digest(profile) != candidate:
+        raise ValueError('Candidate profile identity mismatch')
+    path = Path(os.environ['RUNNER_TEMP']) / 'prepare-request.json'
+    request = json.loads(path.read_text())
+    identifier = digest(request)
+    publish_signed(path, f'prepare-requests/{identifier}.json', os.environ['ATTESTATION_BUNDLE'])
+    index = path.with_name('prepare-ready.json')
+    index.write_text(json.dumps({'request_id': identifier, 'candidate_id': candidate}) + '\n')
+    put(f'prepare-requests/ready/{identifier}.json', index)
+    deadline = time.monotonic() + 2100
+    while time.monotonic() < deadline:
         with tempfile.TemporaryDirectory() as directory:
-            path=Path(directory)/'candidate.json'
-            result=subprocess.run(['aws','s3api','get-object','--bucket',BUCKET,'--key',f'candidates/{candidate}/key.json',str(path)],capture_output=True,text=True)
-            if result.returncode==0:
-                subprocess.run(['gh','attestation','verify',str(path),'--repo','helius-labs/zolana-infra','--signer-workflow','helius-labs/zolana-infra/.github/workflows/prepare-nitro-release.yml','--source-ref','refs/heads/main','--deny-self-hosted-runners'],check=True)
-                key=json.loads(path.read_text())
+            path = Path(directory) / 'candidate.json'
+            result = subprocess.run(['aws', 's3api', 'head-object', '--bucket', BUCKET, '--key', f'candidates/{candidate}/key.json.sigstore.json'], capture_output=True, text=True)
+            if result.returncode == 0:
+                result = subprocess.run(['aws', 's3api', 'get-object', '--bucket', BUCKET, '--key', f'candidates/{candidate}/key.json', str(path)], capture_output=True, text=True)
+            if result.returncode == 0:
+                from release_evidence import verify_file
+                verify_file(path, f'candidates/{candidate}/key.json', 'helius-labs/zolana-infra',
+                            'helius-labs/zolana-infra/.github/workflows/prepare-nitro-release.yml')
+                key = json.loads(path.read_text())
                 if key.get('candidate_id') != candidate or key.get('profile') != profile:
                     raise ValueError('Candidate key belongs to another build profile')
-                output(kms_key=key['kms_key'],seed_context=key['seed_context'],generation=key['generation'],candidate=candidate,
-                       backend=profile['backend'],concurrency=str(profile['concurrency']),indexer_url=profile['indexer_url'])
+                output(kms_key=key['kms_key'], seed_context=key['seed_context'], generation=key['generation'], candidate=candidate,
+                       backend=profile['backend'], concurrency=str(profile['concurrency']), indexer_url=profile['indexer_url'])
                 return
             if 'NoSuchKey' not in result.stderr and '404' not in result.stderr:
                 raise ValueError('Cannot read candidate allocation result')
-        time.sleep(10)
-    raise ValueError('Nitro key preparation is still pending; retry reuses the stable candidate identity')
+        time.sleep(15)
+    raise ValueError('Nitro preparation is pending; retry reuses the same identity and durable request')
 
 
 def qualification_request(parts, quality_path, destination):
@@ -222,18 +264,21 @@ def qualification_request(parts, quality_path, destination):
 
 def qualify(request_path, part_path):
     request=json.loads(Path(request_path).read_text());identifier=digest(request);candidate=request['candidate_id']
-    put_immutable('qualification-requests/'+identifier+'.json',request_path)
-    payload={'event_type':'qualify-nitro-release','client_payload':{'candidate_id':candidate,'request_id':identifier}}
-    subprocess.run(['gh','api','repos/helius-labs/zolana-infra/dispatches','--input','-'],input=json.dumps(payload),text=True,check=True)
-    deadline=time.monotonic()+2700
+    publish_signed(request_path, 'qualification-requests/'+identifier+'.json', os.environ['ATTESTATION_BUNDLE'])
+    index = Path(request_path).with_name('qualification-ready.json')
+    index.write_text(json.dumps({'request_id':identifier, 'candidate_id':candidate})+'\n')
+    put(f'qualification-requests/ready/{identifier}.json', index)
+    deadline=time.monotonic()+3300
     while time.monotonic()<deadline:
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'qualification.json'
-            result=subprocess.run(['aws','s3api','get-object','--bucket',BUCKET,'--key',f'candidates/{candidate}/qualification.json',str(path)],capture_output=True,text=True)
+            result=subprocess.run(['aws','s3api','head-object','--bucket',BUCKET,'--key',f'candidates/{candidate}/qualification.json.sigstore.json'],capture_output=True,text=True)
             if result.returncode==0:
-                subprocess.run(['gh','attestation','verify',str(path),'--repo','helius-labs/zolana-infra',
-                    '--signer-workflow','helius-labs/zolana-infra/.github/workflows/prepare-nitro-release.yml',
-                    '--source-ref','refs/heads/main','--deny-self-hosted-runners'],check=True)
+                result=subprocess.run(['aws','s3api','get-object','--bucket',BUCKET,'--key',f'candidates/{candidate}/qualification.json',str(path)],capture_output=True,text=True)
+            if result.returncode==0:
+                from release_evidence import verify_file
+                verify_file(path, f'candidates/{candidate}/qualification.json', 'helius-labs/zolana-infra',
+                            'helius-labs/zolana-infra/.github/workflows/prepare-nitro-release.yml')
                 receipt=json.loads(path.read_text())
                 if (receipt.get('verified') is not True or receipt.get('candidate_id')!=candidate or
                     receipt.get('profile')!=request['profile'] or receipt.get('measurements_digest')!=digest(request['measurements'])):
@@ -258,6 +303,7 @@ def main():
     q=sub.add_parser('quality'); q.add_argument('path')
     a=sub.add_parser('assemble'); a.add_argument('parts');a.add_argument('base_id');a.add_argument('quality');a.add_argument('destination')
     u=sub.add_parser('publish');u.add_argument('path')
+    r=sub.add_parser('prepare-request');r.add_argument('profile');r.add_argument('candidate');r.add_argument('destination')
     r=sub.add_parser('prepare');r.add_argument('profile');r.add_argument('candidate')
     q=sub.add_parser('qualification-request');q.add_argument('parts');q.add_argument('quality');q.add_argument('destination')
     q=sub.add_parser('qualify');q.add_argument('request');q.add_argument('part')
@@ -269,6 +315,7 @@ def main():
     elif args.command=='publish':publish(args.path)
     elif args.command=='qualification-request':qualification_request(args.parts,args.quality,args.destination)
     elif args.command=='qualify':qualify(args.request,args.part)
+    elif args.command=='prepare-request':prepare_request(args.profile,args.candidate,args.destination)
     else:prepare(args.profile,args.candidate)
 
 

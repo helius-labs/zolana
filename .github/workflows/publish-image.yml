@@ -41,6 +41,10 @@ permissions:
 
 jobs:
   changes:
+    environment: image-publish
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-24.04
     outputs:
       services: ${{ steps.plan.outputs.services }}
@@ -53,13 +57,19 @@ jobs:
       build_tools: ${{ steps.plan.outputs.build_tools }}
       candidate: ${{ steps.plan.outputs.candidate }}
       generation: ${{ steps.plan.outputs.generation }}
+      release_context: ${{ steps.plan.outputs.release_context }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        if: inputs.channel != 'preview'
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
+          aws-region: eu-north-1
       - id: plan
         env:
-          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           SERVICE: ${{ inputs.service || 'changed' }}
           CHANNEL: ${{ inputs.channel || 'release' }}
         run: |
@@ -72,7 +82,6 @@ jobs:
               echo "short_sha=${GITHUB_SHA:0:12}"
             } >> "$GITHUB_OUTPUT"
           else
-            [[ -n "$GH_TOKEN" ]] || { echo '::error::Set CROSS_REPO_TOKEN with access to zolana and zolana-infra.'; exit 1; }
             python3 tools/release-catalog.py plan
           fi
 
@@ -98,7 +107,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.nitro == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     environment: image-publish
     outputs:
       kms_key: ${{ steps.key.outputs.kms_key }}
@@ -109,17 +118,28 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
           aws-region: eu-north-1
-      - id: key
+      - name: Describe preparation request
         env:
-          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
           PROFILE: ${{ needs.changes.outputs.profile }}
           CANDIDATE: ${{ needs.changes.outputs.candidate }}
+        run: python3 tools/release-catalog.py prepare-request "$PROFILE" "$CANDIDATE" "$RUNNER_TEMP/prepare-request.json"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        id: request-attestation
+        with:
+          subject-path: ${{ runner.temp }}/prepare-request.json
+      - id: key
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILE: ${{ needs.changes.outputs.profile }}
+          CANDIDATE: ${{ needs.changes.outputs.candidate }}
+          ATTESTATION_BUNDLE: ${{ steps.request-attestation.outputs.bundle-path }}
         run: python3 tools/release-catalog.py prepare "$PROFILE" "$CANDIDATE"
 
   nitro:
@@ -232,7 +252,7 @@ jobs:
     needs: [changes, nitro, probe, quality]
     if: needs.changes.outputs.nitro == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 50
+    timeout-minutes: 65
     environment: image-publish
     permissions:
       contents: read
@@ -252,6 +272,7 @@ jobs:
       - name: Describe CI-verified qualification request
         run: python3 tools/release-catalog.py qualification-request "$RUNNER_TEMP/parts" "$RUNNER_TEMP/quality.json" "$RUNNER_TEMP/request.json"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        id: qualification-attestation
         with:
           subject-path: ${{ runner.temp }}/request.json
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
@@ -260,7 +281,8 @@ jobs:
           aws-region: eu-north-1
       - name: Qualify sealed identity before cutover
         env:
-          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          ATTESTATION_BUNDLE: ${{ steps.qualification-attestation.outputs.bundle-path }}
         run: python3 tools/release-catalog.py qualify "$RUNNER_TEMP/request.json" "$RUNNER_TEMP/parts/nitro.json"
       - uses: actions/upload-artifact@v4
         with:
@@ -292,29 +314,26 @@ jobs:
           pattern: release-part-*
           merge-multiple: true
           path: ${{ runner.temp }}/release-parts
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
+          aws-region: eu-north-1
       - name: Assemble complete immutable release
         id: release
         env:
-          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_CONTEXT_ID: ${{ needs.changes.outputs.release_context }}
           BASE_RELEASE: ${{ needs.changes.outputs.base_release }}
           EXPECTED_SERVICES: ${{ needs.changes.outputs.services }}
           EXPECTED_NITRO: ${{ needs.changes.outputs.nitro }}
         run: python3 tools/release-catalog.py assemble "$RUNNER_TEMP/release-parts" "$BASE_RELEASE" "$RUNNER_TEMP/quality.json" "$RUNNER_TEMP/release.json"
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        id: release-attestation
         with:
           subject-path: ${{ runner.temp }}/release.json
-      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
-        with:
-          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
-          aws-region: eu-north-1
       - name: Commit release publication
-        run: python3 tools/release-catalog.py publish "$RUNNER_TEMP/release.json"
-      - name: Wake release reconciliation
         env:
-          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
-          RELEASE_ID: ${{ steps.release.outputs.release_id }}
-        run: |
-          if ! jq -n --arg release "$RELEASE_ID" '{event_type:"release-catalog-published",client_payload:{release_id:$release}}' | gh api repos/helius-labs/zolana-infra/dispatches --input -; then
-            echo '::warning::Release is safely published. Scheduled reconciliation will recover the notification.'
-          fi
-          echo '[Review deployment PR](https://github.com/helius-labs/zolana-infra/pulls?q=is%3Apr+is%3Aopen+head%3Arelease%2Fdevnet-d)' >> "$GITHUB_STEP_SUMMARY"
+          ATTESTATION_BUNDLE: ${{ steps.release-attestation.outputs.bundle-path }}
+        run: python3 tools/release-catalog.py publish "$RUNNER_TEMP/release.json"
+      - name: Link deployment review
+        run: echo '[Review deployment PR](https://github.com/helius-labs/zolana-infra/pulls?q=is%3Apr+is%3Aopen+head%3Arelease%2Fdevnet-d). Infra discovers this signed release automatically; no cross-repository token is needed.' >> "$GITHUB_STEP_SUMMARY"

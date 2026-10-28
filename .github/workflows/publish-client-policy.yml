@@ -3,6 +3,14 @@ name: Publish delivered client policy
 on:
   workflow_call:
     inputs:
+      mode:
+        description: publish records delivered policy; check answers fresh status requests
+        type: string
+        default: publish
+      target_environment:
+        description: Client deployment environment to check (check mode)
+        type: string
+        default: ""
       policy_artifact:
         description: Artifact produced by the successful client deployment containing its extracted policy
         required: true
@@ -26,6 +34,7 @@ permissions:
 
 jobs:
   receipt:
+    if: inputs.mode != 'check'
     runs-on: ubuntu-24.04
     environment: client-policy
     permissions:
@@ -45,10 +54,12 @@ jobs:
           POLICY_FILE: delivered-client/${{ inputs.policy_file }}
           DEPLOYMENT: ${{ inputs.deployment_id }}
           COHORT: ${{ inputs.cohort }}
+          MODE: ${{ inputs.mode }}
         run: |
           python3 - <<'PY'
           import hashlib,json,os,re,subprocess
           from pathlib import Path
+          assert os.environ['MODE']=='publish','Unsupported client policy mode'
           deployment=os.environ['DEPLOYMENT'];repo=os.environ['GITHUB_REPOSITORY']
           assert deployment.isdigit(),'Invalid deployment ID'
           def api(path):return json.loads(subprocess.check_output(['gh','api',path],text=True))
@@ -69,6 +80,7 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as output:output.write('CLIENT_RECEIPT_ID='+identifier+'\n')
           PY
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        id: receipt-attestation
         with:
           subject-path: ${{ runner.temp }}/client-policy.json
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
@@ -76,7 +88,12 @@ jobs:
           role-to-assume: ${{ vars.AWS_CLIENT_POLICY_ROLE_ARN }}
           aws-region: eu-north-1
       - name: Publish delivery evidence
+        env:
+          BUNDLE: ${{ steps.receipt-attestation.outputs.bundle-path }}
         run: |
+          if ! result="$(aws s3api put-object --bucket zolana-nitro-eif-558215002830 --key "client-policies/$CLIENT_RECEIPT_ID.json.sigstore.json" --body "$BUNDLE" --if-none-match '*' 2>&1)"; then
+            [[ "$result" == *PreconditionFailed* ]] || { echo "$result" >&2; exit 1; }
+          fi
           for file in client-policy client-policy-index; do
             key="client-policies/$CLIENT_RECEIPT_ID.json"
             [[ "$file" != client-policy-index ]] || key="client-policies/ready/$CLIENT_RECEIPT_ID.json"
@@ -85,4 +102,87 @@ jobs:
               aws s3api get-object --bucket zolana-nitro-eif-558215002830 --key "$key" "$RUNNER_TEMP/existing-$file.json" > /dev/null
               cmp -s "$RUNNER_TEMP/$file.json" "$RUNNER_TEMP/existing-$file.json"
             fi
+          done
+
+  current:
+    if: inputs.mode == 'check'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: client-policy
+    permissions:
+      contents: read
+      deployments: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_CLIENT_POLICY_ROLE_ARN }}
+          aws-region: eu-north-1
+      - name: Check current deployments with this repository's token
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COHORT: ${{ inputs.cohort }}
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib,json,os,re,subprocess,time
+          from pathlib import Path
+          from urllib.parse import quote
+          bucket='zolana-nitro-eif-558215002830';cohort=os.environ['COHORT'];environment=os.environ['TARGET_ENVIRONMENT']
+          assert re.fullmatch(r'[A-Za-z0-9_-]{1,80}',cohort) and environment,'Configure cohort and target_environment'
+          repo=os.environ['GITHUB_REPOSITORY'];repo_id=os.environ['GITHUB_REPOSITORY_ID']
+          prefix=f'client-policy-checks/{repo_id}/{cohort}'
+          def call(*args):return json.loads(subprocess.check_output(args,text=True))
+          def api(path):return call('gh','api',path)
+          entries=call('aws','s3api','list-objects-v2','--bucket',bucket,'--prefix',prefix+'/requests/','--output','json').get('Contents',[])
+          root=Path(os.environ['RUNNER_TEMP'])/'client-checks';root.mkdir()
+          count=0
+          for item in sorted(entries,key=lambda value:value['LastModified'],reverse=True):
+              nonce=item['Key'].rsplit('/',1)[1].removesuffix('.json')
+              assert re.fullmatch(r'[0-9a-f]{64}',nonce),'Invalid status request ID'
+              local=root/'request.tmp'
+              subprocess.run(['aws','s3api','get-object','--bucket',bucket,'--key',item['Key'],str(local)],check=True,stdout=subprocess.DEVNULL)
+              request=json.loads(local.read_text());now=int(time.time())
+              if request.get('expires_at',0)<now:continue
+              assert request.get('version')==1 and request.get('request_id')==nonce and request.get('cohort')==cohort,'Status request identity differs'
+              assert type(request['issued_at']) is int and type(request['expires_at']) is int and now-900<=request['issued_at']<=now+30 and 0<request['expires_at']-request['issued_at']<=900,'Invalid status request lifetime'
+              deployment=request['deployment']
+              assert deployment['repository']==repo and deployment['environment']==environment and type(deployment['id']) is int,'Status request targets another client'
+              assert re.fullmatch(r'[0-9a-f]{40}',deployment['sha']),'Invalid deployment commit'
+              existing=subprocess.run(['aws','s3api','head-object','--bucket',bucket,'--key',prefix+'/responses/'+nonce+'.json'],capture_output=True,text=True)
+              if existing.returncode==0:continue
+              assert '404' in existing.stderr or 'Not Found' in existing.stderr,'Cannot inspect status response'
+              actual=api(f"repos/{repo}/deployments/{deployment['id']}")
+              statuses=api(f"repos/{repo}/deployments/{deployment['id']}/statuses")
+              latest=api(f"repos/{repo}/deployments?environment={quote(environment,safe='')}&per_page=1")
+              current=actual['sha']==deployment['sha'] and actual['environment']==environment and bool(statuses) and statuses[0]['state']=='success' and bool(latest) and latest[0]['id']==deployment['id']
+              response={'version':1,'request_id':nonce,'request_digest':hashlib.sha256(json.dumps(request,sort_keys=True,separators=(',',':')).encode()).hexdigest(),'observed_at':int(time.time()),'current':current,'reason':'current successful deployment' if current else 'deployment changed or latest deployment is not successful'}
+              (root/(nonce+'.json')).write_text(json.dumps(response,sort_keys=True,separators=(',',':'))+'\n')
+              count+=1
+              if count>=50:break
+          with open(os.environ['GITHUB_OUTPUT'],'a') as stream:stream.write('any='+str(count>0).lower()+'\n')
+          PYCODE
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.current.outputs.any == 'true'
+        id: status-attestation
+        with:
+          subject-path: ${{ runner.temp }}/client-checks/*.json
+      - name: Publish fresh signed status responses
+        if: steps.current.outputs.any == 'true'
+        env:
+          COHORT: ${{ inputs.cohort }}
+          BUNDLE: ${{ steps.status-attestation.outputs.bundle-path }}
+        run: |
+          prefix="client-policy-checks/$GITHUB_REPOSITORY_ID/$COHORT/responses"
+          for file in "$RUNNER_TEMP"/client-checks/*.json; do
+            name="$(basename "$file")"
+            for suffix in .sigstore.json ''; do
+              body="$file"
+              [[ -z "$suffix" ]] || body="$BUNDLE"
+              if ! result="$(aws s3api put-object --bucket zolana-nitro-eif-558215002830 --key "$prefix/$name$suffix" --body "$body" --if-none-match '*' 2>&1)"; then
+                [[ "$result" == *PreconditionFailed* ]] || { echo "$result" >&2; exit 1; }
+              fi
+            done
           done
