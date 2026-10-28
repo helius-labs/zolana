@@ -184,7 +184,7 @@ def dispatch_validation(url, request_id):
         from datetime import datetime,timezone
         if (datetime.now(timezone.utc)-datetime.fromisoformat(latest['updated_at'].replace('Z','+00:00'))).total_seconds()<3600:
             return
-    subprocess.run(['gh','api',f'repos/{REPO}/dispatches','--input','-'],
+    subprocess.run(['gh','api','--method','POST',f'repos/{REPO}/dispatches','--input','-'],
                    input=json.dumps({'event_type':'validate-client-policy-pr','client_payload':{
                        'pr':number,'expected_head':pr['head']['sha'],'request_id':request_id}}),text=True,check=True)
 
