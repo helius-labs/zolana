@@ -53,6 +53,13 @@ on:
         required: false
         default: ""
         type: string
+      activate:
+        description: >
+          For devnet-d-tee-N publishes, open an infra pin PR that also sets this
+          generation active (nitro_active_generation + nitro_measurements)
+        required: false
+        default: true
+        type: boolean
   workflow_call:
     inputs:
       deployment:
@@ -76,6 +83,10 @@ on:
       indexer_url:
         type: string
         default: ""
+      activate:
+        description: Open infra pin PR that sets this generation active (devnet-d-tee-N only)
+        type: boolean
+        default: true
       zolana_path:
         description: Zolana tree in the checkout, empty for the repository root
         type: string
@@ -89,6 +100,8 @@ on:
         default: ""
     secrets:
       AEGLOS_DEPLOY_KEY:
+        required: false
+      ZOLANA_INFRA_DISPATCH_TOKEN:
         required: false
 
 concurrency:
@@ -299,3 +312,50 @@ jobs:
             jq '{pcr0: .PCR0, pcr1: .PCR1, pcr2: .PCR2}' eif/measurements.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Dispatch Open release pin PR (devnet-d)
+        if: startsWith(inputs.deployment, 'devnet-d-tee-')
+        env:
+          GH_TOKEN: ${{ secrets.ZOLANA_INFRA_DISPATCH_TOKEN }}
+          DEPLOYMENT: ${{ steps.plan.outputs.deployment }}
+          PREFIX: ${{ steps.plan.outputs.prefix }}
+          SOURCE_COMMIT: ${{ steps.plan.outputs.source_commit }}
+          ACTIVATE: ${{ inputs.activate }}
+          PUBLISH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        working-directory: source
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOYMENT" =~ ^devnet-d-(tee-[0-9]+)$ ]] || {
+            echo "deployment $DEPLOYMENT is not a devnet-d tee generation" >&2
+            exit 1
+          }
+          generation="${BASH_REMATCH[1]}"
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::warning::ZOLANA_INFRA_DISPATCH_TOKEN unset; open the pin PR manually on zolana-infra (Open release pin PR, kind=nitro, generation=$generation)"
+            {
+              echo
+              echo "### Devnet-d pin"
+              echo "Secret \`ZOLANA_INFRA_DISPATCH_TOKEN\` is unset."
+              echo "Manual: Actions → Open release pin PR (kind=nitro, generation=\`$generation\`, eif_prefix=\`$PREFIX\`)."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          jq -n \
+            --arg generation "$generation" \
+            --arg eif_prefix "$PREFIX" \
+            --arg source_commit "$SOURCE_COMMIT" \
+            --arg publish_run_url "$PUBLISH_RUN_URL" \
+            --argjson activate "${ACTIVATE:-true}" \
+            --slurpfile measurements eif/measurements.json \
+            '{
+              event_type: "release-pin-published",
+              client_payload: {
+                kind: "nitro",
+                generation: $generation,
+                eif_prefix: $eif_prefix,
+                measurements: $measurements[0],
+                activate: $activate,
+                source_commit: $source_commit,
+                publish_run_url: $publish_run_url
+              }
+            }' | gh api repos/helius-labs/zolana-infra/dispatches --input -
+          echo "Dispatched release-pin-published (nitro/$generation activate=$ACTIVATE)" >> "$GITHUB_STEP_SUMMARY"

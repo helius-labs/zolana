@@ -196,8 +196,9 @@ jobs:
             --arg source_commit "$SOURCE_COMMIT" \
             --arg publish_run_url "$PUBLISH_RUN_URL" \
             '{
-              event_type: "release-image-published",
+              event_type: "release-pin-published",
               client_payload: {
+                kind: "ecs",
                 image_key: $image_key,
                 digest: $digest,
                 image: $image,
@@ -205,4 +206,4 @@ jobs:
                 publish_run_url: $publish_run_url
               }
             }' | gh api repos/helius-labs/zolana-infra/dispatches --input -
-          echo "Dispatched release-image-published to zolana-infra (image_key=$image_key digest=$DIGEST)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Dispatched release-pin-published (ecs/$image_key digest=$DIGEST)" >> "$GITHUB_STEP_SUMMARY"
