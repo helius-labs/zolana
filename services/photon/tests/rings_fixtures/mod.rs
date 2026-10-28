@@ -251,6 +251,7 @@ pub async fn seed_tagged_transaction_history(
             tx_viewing_pk: Set(Some(vec![2u8; 33])),
             salt: Set(Some(vec![3u8; 16])),
             proofless: Set(false),
+            spl_transfers: Set(None),
         });
         output_rows.push(rings_outputs::ActiveModel {
             output_id: Set(rings_tx_id),

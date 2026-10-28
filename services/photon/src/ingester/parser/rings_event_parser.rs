@@ -145,6 +145,7 @@ pub fn parse_rings_events(
                 outputs,
                 messages,
                 nullifiers,
+                spl_transfers: event.spl_transfers,
             });
     }
 

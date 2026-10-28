@@ -66,6 +66,7 @@ impl EncryptedUtxoMatch {
             proofless: true,
             ring_config: None,
             ring_program_id: None,
+            spl_transfers: None,
         })
     }
 }

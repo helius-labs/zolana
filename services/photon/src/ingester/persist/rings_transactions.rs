@@ -41,6 +41,11 @@ pub(super) async fn persist_rings_transactions(
                 tx_viewing_pk: Set(update.tx_viewing_pk.clone()),
                 salt: Set(update.salt.clone()),
                 proofless: Set(update.proofless),
+                spl_transfers: Set(Some(
+                    crate::common::spl_transfers::encode(&update.spl_transfers).map_err(|err| {
+                        IngesterError::ParserError(format!("encode settlement legs: {err}"))
+                    })?,
+                )),
             })
         })
         .collect::<Result<Vec<_>, IngesterError>>()?;

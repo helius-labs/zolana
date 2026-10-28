@@ -102,6 +102,7 @@ fn published(owner: &ShieldedKeypair, note: &WalletUtxo) -> ShieldedTransaction 
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     }
 }
 

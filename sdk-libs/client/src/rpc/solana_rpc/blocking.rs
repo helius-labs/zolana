@@ -18,12 +18,14 @@ use solana_transaction_status_client_types::{
     EncodedConfirmedTransactionWithStatusMeta, TransactionStatus, UiTransactionEncoding,
 };
 
+use zolana_event::SplTransfer;
+
 use crate::{error::ClientError, rpc::Rpc};
 
 use super::{
     accounts::{filtered_program_accounts, pubkey_from_address, ProgramAccountsFilter},
     transaction::{
-        instruction_groups_from_confirmed_transaction,
+        instruction_groups_from_confirmed_transaction, public_transfers_from_instruction_groups,
         transact_output_view_tags_from_instruction_groups, ConfirmedInstructionGroups,
     },
     DEFAULT_POLL_INTERVAL,
@@ -136,6 +138,22 @@ impl SolanaRpc {
     ) -> Result<Vec<[u8; 32]>, ClientError> {
         let groups = self.fetch_confirmed_instruction_groups(signature)?;
         transact_output_view_tags_from_instruction_groups(&groups)
+    }
+
+    /// The public settlement legs of each shielded-pool event of
+    /// `signature`, at the event's `event_index`, as
+    /// [`public_transfers_from_instruction_groups`] rebuilds them from the
+    /// confirmed transaction. An indexer that has stored the legs returns
+    /// them on the event; this is how a caller fills an event whose
+    /// `spl_transfers` is absent, which
+    /// [`TransactionDetail::read`](zolana_transaction::TransactionDetail::read)
+    /// needs for a withdrawal the wallet sent.
+    pub fn public_transfers(
+        &self,
+        signature: &Signature,
+    ) -> Result<Vec<Vec<SplTransfer>>, ClientError> {
+        let groups = self.fetch_confirmed_instruction_groups(signature)?;
+        public_transfers_from_instruction_groups(&groups)
     }
 
     pub fn fetch_confirmed_transaction(

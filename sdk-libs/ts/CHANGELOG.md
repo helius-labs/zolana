@@ -21,6 +21,10 @@ Added
   prover refusal through a `ProverRefusal` of the caller, and
   `checkProvingKeys` checks key pins the caller passes, so another package
   proves and indexes over the same transports.
+- `IndexedShieldedTransaction.splTransfers` carries an event's public settlement
+  legs when the indexer stored them, is absent for an event indexed before
+  that, and is empty when the event settled nothing; a leg's `amount` is a
+  decimal string.
 
 ## 0.5.0-alpha — 2026-10-23
 

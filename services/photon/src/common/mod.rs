@@ -13,6 +13,7 @@ use sqlx::{
 pub mod bn254;
 pub mod indexer_context;
 pub mod rings_tree;
+pub mod spl_transfers;
 
 use crate::rpc::RpcClient;
 

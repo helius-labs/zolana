@@ -215,6 +215,7 @@ fn decrypted(
         proofless: false,
         ring_config: None,
         ring_program_id: None,
+        spl_transfers: None,
     };
     let slot_index = u32::try_from(slot).expect("slot index");
     let mut utxo = decrypt(keys, &[transaction], &assets)

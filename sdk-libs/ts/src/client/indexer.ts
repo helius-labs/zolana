@@ -477,6 +477,7 @@ export function convertShieldedTransaction(
     proofless: item.proofless,
     ...(item.ringConfig === undefined ? {} : { ringConfig: item.ringConfig }),
     ...(item.ringProgramId === undefined ? {} : { ringProgramId: item.ringProgramId }),
+    ...(item.splTransfers === undefined ? {} : { splTransfers: item.splTransfers }),
   });
 }
 

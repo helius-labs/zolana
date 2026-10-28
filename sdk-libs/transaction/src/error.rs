@@ -88,6 +88,12 @@ pub enum TransactionError {
     #[error("program/ring data on this output cannot be processed yet")]
     UnsupportedOutputData,
 
+    #[error("output {slot_index} of a sent transaction is in a format the sender does not read")]
+    SentOutputUnreadable { slot_index: u32 },
+
+    #[error("another owner shares this wallet's viewing key, so which of them sent the transaction is unknown")]
+    AmbiguousSender,
+
     #[error("poseidon hash failed: {0}")]
     Poseidon(String),
 

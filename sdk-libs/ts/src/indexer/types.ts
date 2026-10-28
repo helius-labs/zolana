@@ -63,6 +63,14 @@ export interface GetEncryptedUtxosByTagsResponse {
   readonly scannedThrough?: Base64String;
 }
 
+export interface SplTransfer {
+  readonly isDeposit: boolean;
+  /** Decimal string or a safe JSON integer. */
+  readonly amount: bigint;
+  /** Mint. Absent for native SOL. */
+  readonly asset?: Address;
+}
+
 export interface IndexedShieldedTransaction {
   readonly slot: bigint;
   readonly txSignature: Signature;
@@ -85,6 +93,11 @@ export interface IndexedShieldedTransaction {
    * program is unknown here".
    */
   readonly ringProgramId?: Address;
+  /**
+   * Public settlement legs of this event. Absent when the indexer recorded the
+   * event before it stored them. Empty when the event settled nothing.
+   */
+  readonly splTransfers?: readonly SplTransfer[];
 }
 
 export interface GetShieldedTransactionsByTagsResponse {
