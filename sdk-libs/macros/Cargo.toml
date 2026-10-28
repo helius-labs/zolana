@@ -5,7 +5,7 @@ description = "Derive macros for SPR zero-knowledge programs."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-publish = false
+publish = ["crates-io"]
 
 [lib]
 proc-macro = true
@@ -25,7 +25,7 @@ solana-signature = { workspace = true }
 trybuild = "1"
 spr-interface = { workspace = true }
 spr-keypair = { workspace = true }
-spr-program = { workspace = true, features = ["test-support", "setup", "parallel"] }
+spr-program = { path = "../program", features = ["test-support", "setup", "parallel"] }
 spr-transaction = { workspace = true }
 
 [lints.clippy]
