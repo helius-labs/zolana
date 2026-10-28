@@ -146,49 +146,63 @@ jobs:
       channel: ${{ (github.event_name == 'push' && 'release') || inputs.channel }}
       image_tag: ${{ inputs.image_tag || github.ref_name }}
 
-  # Ask zolana-infra to open a PR bumping images.photon. Merge of that PR
-  # triggers Apply devnet-d. Preview publishes are ignored. Requires repo secret
+  # Ask zolana-infra to open a PR bumping images.<key>. Merge of that PR
+  # triggers Apply release. Preview publishes are ignored. Requires repo secret
   # ZOLANA_INFRA_DISPATCH_TOKEN (PAT/App that can repository_dispatch infra).
   request-devnet-d-pin:
     needs: publish
     if: >-
       needs.publish.result == 'success' &&
-      needs.publish.outputs.service == 'photon' &&
-      needs.publish.outputs.channel == 'release'
+      needs.publish.outputs.channel == 'release' &&
+      (needs.publish.outputs.service == 'photon' ||
+       needs.publish.outputs.service == 'forester' ||
+       needs.publish.outputs.service == 'prover')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
-      - name: Dispatch Open Photon pin PR
+      - name: Dispatch Open release pin PR
         env:
           GH_TOKEN: ${{ secrets.ZOLANA_INFRA_DISPATCH_TOKEN }}
+          SERVICE: ${{ needs.publish.outputs.service }}
           DIGEST: ${{ needs.publish.outputs.digest }}
           IMAGE: ${{ needs.publish.outputs.image }}
           SOURCE_COMMIT: ${{ github.sha }}
           PUBLISH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          case "$SERVICE" in
+            photon) image_key=photon ;;
+            forester) image_key=forester ;;
+            prover) image_key=forester_prover ;;
+            *)
+              echo "no release pin mapping for service=$SERVICE" >&2
+              exit 1
+              ;;
+          esac
           if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::warning::ZOLANA_INFRA_DISPATCH_TOKEN unset; open the pin PR manually on zolana-infra (Open Photon pin PR) with digest=$DIGEST"
+            echo "::warning::ZOLANA_INFRA_DISPATCH_TOKEN unset; open the pin PR manually on zolana-infra (Open release pin PR) with image_key=$image_key digest=$DIGEST"
             {
               echo "### Devnet-d pin"
               echo "Secret \`ZOLANA_INFRA_DISPATCH_TOKEN\` is unset."
-              echo "Manual: Actions → Open Photon pin PR on helius-labs/zolana-infra with digest \`$DIGEST\`"
+              echo "Manual: Actions → Open release pin PR on helius-labs/zolana-infra with image_key \`$image_key\` digest \`$DIGEST\`"
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           jq -n \
+            --arg image_key "$image_key" \
             --arg digest "$DIGEST" \
             --arg image "$IMAGE" \
             --arg source_commit "$SOURCE_COMMIT" \
             --arg publish_run_url "$PUBLISH_RUN_URL" \
             '{
-              event_type: "photon-release-published",
+              event_type: "release-image-published",
               client_payload: {
+                image_key: $image_key,
                 digest: $digest,
                 image: $image,
                 source_commit: $source_commit,
                 publish_run_url: $publish_run_url
               }
             }' | gh api repos/helius-labs/zolana-infra/dispatches --input -
-          echo "Dispatched photon-release-published to zolana-infra (digest=$DIGEST)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Dispatched release-image-published to zolana-infra (image_key=$image_key digest=$DIGEST)" >> "$GITHUB_STEP_SUMMARY"
