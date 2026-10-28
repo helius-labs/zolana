@@ -92,8 +92,8 @@ pub(crate) enum CliCommand {
 
     #[command(
         name = "build-zk-program",
-        about = "Build a ZK program: its .r1cs files, keys, committed verifier modules, wasm module and SBF program",
-        long_about = "Build the circuits, verifier modules, wasm package and SBF program. Generate fresh single-party keys when missing or when the R1CS changes; otherwise reuse them. --test uses reproducible fixed-seed keys. Imported ceremony keys are preserved."
+        about = "Build Xark circuit artifacts, keys, verifier modules, wasm and the SBF program",
+        long_about = "Build the circuits, verifier modules, wasm package and SBF program. Reuse keys while the circuit and setup kind are unchanged. --test uses reproducible fixed-seed test keys. Production ceremony keys are preserved."
     )]
     BuildZkProgram(ZkBuildOptions),
 
@@ -111,25 +111,19 @@ pub(crate) enum CliCommand {
 pub(crate) enum ZkCommand {
     #[command(
         name = "compile",
-        about = "Build the circuits: .r1cs files, keys, committed verifier modules and the wasm module"
+        about = "Build Xark circuit artifacts, keys, verifier modules and the wasm package"
     )]
     Compile(ZkCompileOptions),
 
     #[command(
         name = "setup",
-        about = "Generate or reuse Groth16 keys for .r1cs files (random single-party setup by default)"
+        about = "Generate or reuse Groth16 keys for the compiled Xark circuits"
     )]
     Setup(ZkSetupOptions),
 
     #[command(
-        name = "import",
-        about = "Convert a ceremony zkey into a .pk proving key, checked against the circuit's .r1cs"
-    )]
-    Import(ZkImportOptions),
-
-    #[command(
         name = "export-verifier",
-        about = "Export the verifying key module of each .pk proving key into the committed verifier modules"
+        about = "Validate Xark verifying key checksums and export the committed verifier modules"
     )]
     ExportVerifier(ZkExportVerifierOptions),
 }
@@ -161,7 +155,7 @@ pub(crate) struct ZkCompileOptions {
     )]
     pub(crate) test: bool,
 
-    #[arg(long = "skip-r1cs", help = "Do not write the .r1cs files")]
+    #[arg(long = "skip-r1cs", help = "Reuse compiled Xark circuit artifacts when present")]
     pub(crate) skip_r1cs: bool,
 
     #[arg(
@@ -175,20 +169,20 @@ pub(crate) struct ZkCompileOptions {
 
     #[arg(
         long = "check",
-        help = "Regenerate the verifier modules in the build directory and compare them byte for byte with the committed ones: list every file that differs, is missing or is not generated, and fail without writing to the verifier directory. Skips the wasm and SBF builds"
+        help = "Compare expected verifier modules with the committed files using matching cached keys, without writing verifiers or generating keys. Skips WASM and SBF builds"
     )]
     pub(crate) check: bool,
 
     #[arg(
         long = "r1cs-features",
         default_value = "circuits",
-        help = "Cargo features that build the circuits; the export adds the package's r1cs-export feature, which enables the r1cs-export feature of zolana-program or zolana-zk-dsl"
+        help = "Cargo features that build the circuits; metadata discovery also enables the package's r1cs-export feature"
     )]
     pub(crate) r1cs_features: String,
 
     #[arg(
         long = "r1cs-out",
-        help = "Directory for the .r1cs files (default: <target>/zk/<package>)"
+        help = "Directory for the Xark circuit artifacts (default: <target>/zk/<package>)"
     )]
     pub(crate) r1cs_out: Option<PathBuf>,
 
@@ -212,13 +206,6 @@ pub(crate) struct ZkCompileOptions {
         help = "Disable the JavaScript worker pool in runtime-options.json. Pool workers use separate single-threaded WASM instances; --no-prover also disables the pool"
     )]
     pub(crate) single_threaded: bool,
-
-    #[arg(
-        long = "nightly",
-        default_value = "nightly-2026-05-18",
-        help = "Obsolete: JavaScript worker pools use the normal Rust toolchain. A nondefault value is rejected"
-    )]
-    pub(crate) nightly: String,
 
     #[arg(
         long = "no-prover",
@@ -276,37 +263,13 @@ pub(crate) struct ZkSetupOptions {
 
     #[arg(
         long = "test",
-        help = "Use reproducible fixed-seed test keys instead of a random single-party setup"
+        help = "Use reproducible fixed-seed test keys"
     )]
     pub(crate) test: bool,
 
-    #[arg(help = ".r1cs files (default: every .r1cs in <target>/zk/<package>)")]
-    pub(crate) r1cs: Vec<PathBuf>,
-
     #[arg(
         long = "out",
-        help = "Output directory (default: <target>/zk/<package>)"
-    )]
-    pub(crate) out: Option<PathBuf>,
-}
-
-#[derive(Args, Debug, Clone, PartialEq)]
-pub(crate) struct ZkImportOptions {
-    #[command(flatten)]
-    pub(crate) package: ZkPackageOptions,
-
-    #[arg(help = "zkey from a snarkjs phase-2 ceremony")]
-    pub(crate) zkey: PathBuf,
-
-    #[arg(
-        long = "r1cs",
-        help = "The circuit's .r1cs (default: <target>/zk/<package>/<zkey name>.r1cs)"
-    )]
-    pub(crate) r1cs: Option<PathBuf>,
-
-    #[arg(
-        long = "out",
-        help = "Output directory (default: <target>/zk/<package>)"
+        help = "Compiled circuit artifact directory (default: <target>/zk/<package>)"
     )]
     pub(crate) out: Option<PathBuf>,
 }
@@ -318,32 +281,15 @@ pub(crate) struct ZkExportVerifierOptions {
 
     #[arg(
         long,
-        help = "Trusted sha256sum manifest for the .pk files; paths are relative to the manifest"
+        help = "Trusted sha256sum manifest containing the Xark vk.bin digests"
     )]
     pub(crate) checksums: PathBuf,
 
     #[arg(
-        long = "setup",
-        value_enum,
-        help = "How the proving keys were made; embedded in the program binary for `zolana vks`"
-    )]
-    pub(crate) setup: ZkSetupKind,
-
-    #[arg(help = ".pk files (default: every .pk in <target>/zk/<package>)")]
-    pub(crate) pk: Vec<PathBuf>,
-
-    #[arg(
         long = "out",
-        help = "Directory the verifying key modules are exported to before they are copied into the verifier directory (default: <target>/zk/<package>)"
+        help = "Compiled circuit artifact directory (default: <target>/zk/<package>); setup kind is read from each circuit's metadata"
     )]
     pub(crate) out: Option<PathBuf>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-pub(crate) enum ZkSetupKind {
-    Production,
-    SingleParty,
-    Test,
 }
 
 #[derive(Debug, Subcommand)]

@@ -13,12 +13,13 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
-groth16-solana = { workspace = true, features = ["gnark-vk"] }
+groth16-solana = { workspace = true, features = ["gnark-vk", "circom-vk"] }
 hex = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+xark-cli = { workspace = true }
 solana-instruction = { workspace = true }
 solana-address = { workspace = true }
 solana-keypair = { workspace = true }
@@ -30,7 +31,14 @@ solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 zolana-client = { workspace = true, features = ["client"] }
 zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["protocol-instructions", "client", "setup", "parallel", "build"] }
+zolana-program = { workspace = true, features = ["protocol-instructions", "client", "build"] }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
+
+[dev-dependencies]
+ark-bn254 = "0.6"
+ark-serialize = "0.6"
+rand = { workspace = true }
+rand_chacha = "0.3"
+xark-groth16 = { workspace = true }

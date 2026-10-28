@@ -73,10 +73,11 @@ repository = "https://github.com/helius-labs/zolana"
 tools-version = "v1.54"
 
 [workspace.dependencies]
-# Local Xark feature branch, shared by circuits and the WASM runtime.
-xark = { path = "/Users/jorrit/dev/experiments/xark-client-wasm/crates/lang" }
-xark-groth16 = { path = "/Users/jorrit/dev/experiments/xark-client-wasm/crates/groth16" }
-xark-wasm = { path = "/Users/jorrit/dev/experiments/xark-client-wasm/crates/wasm" }
+# Pin the shared Xark toolchain, circuit language, and WASM runtime to our fork.
+xark-cli = { git = "https://github.com/ananas-block/xark", rev = "d93513f277b4d3c38367c46fc70db622dde40e4c" }
+xark = { git = "https://github.com/ananas-block/xark", rev = "d93513f277b4d3c38367c46fc70db622dde40e4c" }
+xark-groth16 = { git = "https://github.com/ananas-block/xark", rev = "d93513f277b4d3c38367c46fc70db622dde40e4c" }
+xark-wasm = { git = "https://github.com/ananas-block/xark", rev = "d93513f277b4d3c38367c46fc70db622dde40e4c" }
 form_urlencoded = "1.2.2"
 # Solana platform-tools Cargo 1.84 cannot build edition2024 crates pulled by
 # newer time-core releases.

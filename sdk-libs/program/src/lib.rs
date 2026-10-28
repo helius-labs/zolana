@@ -50,9 +50,6 @@ macro_rules! __zk_export { ($($item:item)*) => { $($item)* }; }
 #[macro_export]
 macro_rules! __zk_export { ($($item:item)*) => {}; }
 
-#[cfg(all(feature = "build", not(xark), not(xark_client)))]
-pub use build::SetupKind;
-
 #[cfg(feature = "circuit")]
 #[doc(hidden)]
 pub mod __private {

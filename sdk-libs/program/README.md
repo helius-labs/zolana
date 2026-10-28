@@ -36,10 +36,10 @@ No feature is on by default.
 | `cpi` | The SPP `transact` instruction as a signed CPI from a pinocchio program. |
 | `compression` | Compressed accounts for pinocchio programs (implies `cpi`). |
 | `protocol-instructions` | Builders for protocol operations: authority administration, tree creation, ring activation and nullifier tree maintenance. |
-| `circuit` | The DSL, `conversion`, `hasher`, the input and UTXO types, `ConfidentialTransaction` and R1CS synthesis. Needs `std`. |
+| `circuit` | Xark inputs, program derives, hashing, and checked transaction helpers. Needs `std`. |
 | `client` | The native run, the SPP transaction, loading proving keys, proving, verifying and transaction encryption. |
-| `setup` | Includes `client`; adds test setup, writing proving keys and exporting the verifying key. |
-| `r1cs-export` | `client` and `setup`, for exporting a circuit's `.r1cs` and its verifier module. |
+| `setup` | Native client support used by setup fixtures; key generation belongs to the CLI. |
+| `build`, `r1cs-export` | Metadata types and export hooks consumed by program derives and the CLI; no compiler or setup orchestration. |
 | `verifier` | `no_std`: `VerifyError`, `public_hash` and `verify_groth16`, which the generated verifier modules call with a `CompressedProof`. `client` includes it. |
 | `parallel` | Proving on a rayon thread pool. |
 | `serde`, `tsify` | Serde and TypeScript types for the client types. |
@@ -54,28 +54,30 @@ verifies ZK program proofs. Its client enables `client`, and a key setup needs `
 
 ## Building a ZK program
 
-1. Declare each instruction's inputs as a struct with exactly the fields `private` and
-   `public` and `#[derive(ZkProgramCircuit)]`, its private inputs with `#[derive(ProofInput)]`, a
-   program state with `#[derive(UtxoState)]`, and the public inputs with
-   `#[derive(PublicInputs)]`. `#[derive(CircuitType)]` declares a plain circuit type that is
-   not stored in a UTXO.
-2. Implement `Circuit` on the derived circuit type.
-3. `zolana build-zk-program -p <crate>` writes each circuit's `.r1cs` and test keys to
-   `<target>/zk/<crate>`, the verifier modules to `src/verifier/`, builds the wasm module and
-   runs `cargo build-sbf`. `zolana zk compile | setup | import | export-verifier` run the steps
-   one at a time.
-4. `src/verifier/` is committed. It holds `mod.rs` and, per program, `<program>.rs` with its
-   `PublicInputs`, their `hash`, and a `Verifier` with a `verify` method, and `<program>.vk.rs` with the verifying key. The
-   export build enables the crate's `r1cs-export` feature, declared as
-   `r1cs-export = ["zolana-program/r1cs-export"]`, and the crate gates `pub mod verifier;` and
-   the code that uses it with `#[cfg(not(feature = "r1cs-export"))]`, so the export compiles
-   without the generated files. A program in the same crate calls
-   `crate::verifier::<program>::Verifier { ... }.verify()`, another crate
-   `<circuits crate>::verifier::<program>::Verifier { ... }.verify()`.
-   `--check` regenerates the modules without writing them and fails when the committed files
-   differ, for CI.
-5. On the client, `create_program_transaction` builds the SPP transaction and the proof
-   inputs, and `Groth16Prover::prove` proves them.
+1. Declare each instruction's `private` and `public` inputs with Xark's `#[input]`
+   and derive `ZkProgram` on the program struct. Derive `PublicInputs` for its public
+   fields and `UtxoState` for persisted application state.
+2. Implement the program's `execute` method using the protocol helpers to return a
+   `CheckedTransaction`.
+3. `zolana zk compile -p <crate>` builds each circuit under
+   `<target>/zk/<crate>/<circuit>/`, including `circuit.xbc`, schema, and keys, then
+   builds one application WASM package. `zolana build-zk-program -p <crate>` also
+   runs `cargo build-sbf`. The CLI calls the locally linked Xark library directly.
+4. Commit `src/verifier/<circuit>.rs` and `<circuit>.vk.rs`, and declare their Rust
+   modules. The metadata export build enables the program's `r1cs-export` feature,
+   declared as `r1cs-export = ["zolana-program/r1cs-export"]`; gate the generated
+   verifier module with `#[cfg(not(feature = "r1cs-export"))]` so discovery does not
+   require generated files. `--check` compares the expected verifier files without
+   writing them or regenerating keys, and skips WASM and SBF builds.
+5. Native clients use `InputRecords` and the program's `execute` result to create a
+   `ProgramTransaction`. Xark consumes its proof inputs to prove the public hash.
+
+The native CLI owns package discovery, circuit compilation, setup, verifier
+exports, and packaging. The SDK's `build` module contains only the metadata hooks
+needed by derives. `zolana zk setup` generates or reuses a complete matching key
+pair; it never replaces an existing production setup automatically. `--test`
+selects seed-zero test setup, and production keys require a separate output if a
+caller requests test keys.
 
 ## Layout
 
@@ -406,14 +408,13 @@ dependencies using the same feature selection as the build. A dependency on
 compilation. Dev dependencies, build dependencies, host proc macros, native-only
 dependencies, and unrelated workspace packages do not trigger this check.
 
-This development branch uses workspace path dependencies pointing at
-`/Users/jorrit/dev/experiments/xark-client-wasm`. The build discovers that checkout
-from Cargo metadata and selects its `target/release/xark` compiler automatically.
-Generated circuit entries use the same path dependency. To rebuild the local tool,
-run `tools/xark/build.sh /Users/jorrit/dev/experiments/xark-client-wasm`.
-`XARK` can select a separate compiler executable. Change the workspace dependency
-paths to select a different source. The build uses those paths directly, without
-Git bootstrapping, source overrides, or patch checks.
+The workspace pins `ananas-block/xark` to commit
+`d93513f277b4d3c38367c46fc70db622dde40e4c`. The CLI links `xark-cli` as a library
+and calls its `build`, `setup`, and `client` APIs. Building the Zolana CLI
+builds those toolchain components too; no standalone `xark` executable, executable
+version probe, source override, or patch bootstrap is required. Generated circuit
+entry crates and the application runtime use the same Git revision. Cargo metadata
+locates the resolved source for packaging the public runtime scripts.
 
 Verifier generation uses `groth16-solana 0.3.1` to emit
 `VERIFYINGKEY_PROVING_KEY_SHA256`, `VERIFYINGKEY_INSECURE_TEST_SETUP`, and its standard
@@ -536,47 +537,30 @@ just test-zk-program-wasm           # the wasm module in Chromium
 
 ## Keys for a deployment
 
-`new_with_test_setup` and the keys `zolana build-zk-program` writes come from a single-party
-setup with a fixed seed, for tests only. A deployment needs a ceremony and its exported
-verifying key in the program. The ceremony runs on snarkjs over a published,
-phase-2-prepared ptau:
+`--test` uses a fixed public seed and marks the keys as insecure test setup.
+Production setup comes from Xark's supported setup/ceremony workflow and its
+metadata. Preserve the complete circuit artifact directory (`pk.bin`, `vk.bin`,
+`metadata.json`, `digest`, and circuit bytecode) rather than importing snarkjs
+zkeys into this build pipeline.
+
+Export the existing keys with a trusted manifest containing the SHA-256 of each
+`vk.bin`:
 
 ```bash
-zolana zk compile -p <crate> --skip-keys --skip-wasm --r1cs-out keys
-snarkjs groth16 setup keys/<circuit>.r1cs powersOfTau28_hez_final_14.ptau keys/<circuit>_0000.zkey
-snarkjs zkey contribute keys/<circuit>_0000.zkey keys/<circuit>_0001.zkey --name="contributor 1"
-snarkjs zkey beacon keys/<circuit>_0001.zkey keys/<circuit>_final.zkey <beacon hex> 10 -n="final beacon"
-snarkjs zkey verify keys/<circuit>.r1cs powersOfTau28_hez_final_14.ptau keys/<circuit>_final.zkey
+zolana zk export-verifier -p <crate> --checksums trusted-vks.sha256
 ```
 
-`zolana zk import keys/<circuit>_final.zkey --r1cs keys/<circuit>.r1cs -p <crate>` then checks
-the zkey against the r1cs and writes `target/zk/<crate>/<circuit>.pk`, and
-the following exports the checked key into `src/verifier/<circuit>.vk.rs`:
+`--out <artifact-root>` selects a different circuit artifact directory. Setup
+classification comes from the artifacts' metadata, not a CLI flag that can relabel
+an existing key. A mismatched or incomplete production cache fails without
+replacing its files; restore the matching artifacts or use a separate directory
+for a new ceremony.
 
-```bash
-zolana zk export-verifier --setup production -p <crate> \
-  --checksums target/zk/<crate>/<circuit>.pk.sha256 target/zk/<crate>/<circuit>.pk
-```
-
-This is the verifying key the program includes. `build-zk-program` keeps a production key instead of replacing it with a
-test key. The circuit is frozen from the `groth16 setup` on.
-
-Key generation and import also write `<circuit>.pk.sha256`, a sha256sum-style
-manifest. Export checks each selected `.pk` against `--checksums` before loading it;
-manifest paths are relative to the manifest directory. For several circuits,
-combine their manifests in that directory and select the keys to export.
-
-WASM `<Name>Prover.fromKey(provingKey, expectedSha256)` requires the expected SHA-256 as
-32 bytes. Pin that digest in trusted application metadata (for example, the
-release's key manifest). A missing, malformed, or mismatched digest rejects the
-load. Fetching a digest from the same untrusted source as the key does not
-establish authenticity. The local examples use manifests produced during their
-trusted test-key build.
-
-Keys use arkworks canonical uncompressed serialization: a ceremony-import flag
-followed by the proving key. Loading validates curve and subgroup membership.
-A trusted checksum covers the provenance flag along with the key; it does not
-prove that a ceremony's participants behaved honestly.
+Generated verifiers include the standard setup marker and proving-key SHA-256.
+`zolana vks` inspects those markers. The browser's `checkProvingKey` validates the
+exact downloaded `pk.bin` against a trusted expected digest before loading or
+transcoding it. Hashes supplied alongside an untrusted key are not a trust anchor,
+and checksums do not attest to ceremony provenance.
 
 `UniqueDataUtxo::new_init(owner, seed)` reserves an address. Include the program id
 and account identifier in the seed to separate applications and accounts. The

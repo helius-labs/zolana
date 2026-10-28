@@ -1,18 +1,16 @@
-//! `zolana zk` and `zolana build-zk-program` over the circuit crate build of
-//! the zk DSL (`zolana_program::build`).
+//! Circuit build and key management for the Zolana CLI.
+
+mod build;
 
 use anyhow::{anyhow, Result};
-use zolana_program::{
-    build::{
-        self, BuildError, BuildOptions, CompileOptions, ExportVerifierOptions, ImportOptions,
-        PackageSelection, SbfOptions, SetupOptions, WasmTarget,
-    },
-    SetupKind,
+use build::{
+    BuildError, BuildOptions, CompileOptions, ExportVerifierOptions, PackageSelection, SbfOptions,
+    SetupOptions, WasmTarget,
 };
 
 use crate::args::{
-    ZkBuildOptions, ZkCommand, ZkCompileOptions, ZkExportVerifierOptions, ZkImportOptions,
-    ZkPackageOptions, ZkSetupKind, ZkSetupOptions, ZkWasmTarget,
+    ZkBuildOptions, ZkCommand, ZkCompileOptions, ZkExportVerifierOptions, ZkPackageOptions,
+    ZkSetupOptions, ZkWasmTarget,
 };
 
 pub(crate) fn run_build_zk_program(opts: ZkBuildOptions) -> Result<()> {
@@ -31,7 +29,6 @@ pub(crate) fn run_zk(command: ZkCommand) -> Result<()> {
     match command {
         ZkCommand::Compile(opts) => build::compile(&compile_options(opts)),
         ZkCommand::Setup(opts) => build::setup(&setup_options(opts)),
-        ZkCommand::Import(opts) => build::import(&import_options(opts)),
         ZkCommand::ExportVerifier(opts) => build::export_verifier(&export_verifier_options(opts)),
     }
     .map_err(cli_error)
@@ -42,7 +39,7 @@ pub(crate) fn run_zk(command: ZkCommand) -> Result<()> {
 fn cli_error(error: BuildError) -> anyhow::Error {
     match error {
         BuildError::NoCircuits(manifest) => anyhow!(
-            "{} derives no ZK circuit: a circuit is a struct with exactly `private` and `public` fields deriving ZkCircuit or ZkProgramCircuit",
+            "{} derives no ZK program: declare `private` and `public` fields and derive ZkProgram",
             manifest.display()
         ),
         BuildError::NothingToCompile => {
@@ -75,7 +72,6 @@ fn compile_options(opts: ZkCompileOptions) -> CompileOptions {
             ZkWasmTarget::Nodejs => WasmTarget::Nodejs,
         },
         single_threaded: opts.single_threaded,
-        nightly: opts.nightly,
         no_prover: opts.no_prover,
         verifier: opts.verifier,
         wasm_opt: opts.wasm_opt,
@@ -87,16 +83,6 @@ fn setup_options(opts: ZkSetupOptions) -> SetupOptions {
     SetupOptions {
         package: package(opts.package),
         test: opts.test,
-        r1cs: opts.r1cs,
-        out: opts.out,
-    }
-}
-
-fn import_options(opts: ZkImportOptions) -> ImportOptions {
-    ImportOptions {
-        package: package(opts.package),
-        zkey: opts.zkey,
-        r1cs: opts.r1cs,
         out: opts.out,
     }
 }
@@ -105,12 +91,6 @@ fn export_verifier_options(opts: ZkExportVerifierOptions) -> ExportVerifierOptio
     ExportVerifierOptions {
         package: package(opts.package),
         checksums: opts.checksums,
-        setup: match opts.setup {
-            ZkSetupKind::Production => SetupKind::Production,
-            ZkSetupKind::SingleParty => SetupKind::SingleParty,
-            ZkSetupKind::Test => SetupKind::InsecureTest,
-        },
-        pk: opts.pk,
         out: opts.out,
     }
 }

@@ -42,6 +42,10 @@ impl Artifact {
             "verifying_key_sha256": format!("{:x}", Sha256::digest(&bytes)),
             "digest": "circuit-digest",
             "production_safe": production,
+            "protocol": "groth16",
+            "curve": "bn254",
+            "setup_mode": if production { "phase2-from-ptau" } else { "insecure-dev-mode" },
+            "deterministic_rng_seed": if production { None } else { Some(0u64) },
         }));
         artifact
     }
@@ -128,14 +132,12 @@ fn key_source_preserves_standard_setup_metadata_and_compatibility_hashes() {
         "pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [{digest}];"
     )));
     assert!(source.contains("#[unsafe(export_name = \"groth16_solana_vk_setup_"));
-    assert!(
-        source.contains(&format!(
+    assert!(source.contains(&format!(
             "pub const ZOLANA_VK_SHA256: &str = \"{}\";",
             artifact.metadata()["verifying_key_sha256"]
                 .as_str()
                 .unwrap()
-        ))
-    );
+        )));
     assert!(source.contains("pub const ZOLANA_CIRCUIT_DIGEST: &str = \"circuit-digest\";"));
 }
 
@@ -144,7 +146,7 @@ fn generated_curve_points_match_solana_verifying_key() {
     let artifact = Artifact::new(true);
     let source = key_source(&artifact.0).unwrap();
     let bytes = fs::read(artifact.0.join("vk.bin")).unwrap();
-    let key = crate::proof::SolanaVerifyingKey::from_xark(&bytes).unwrap();
+    let key = zolana_program::proof::SolanaVerifyingKey::from_xark(&bytes).unwrap();
     let key = key.as_key();
     let field_bytes = |field: &str| -> Vec<u8> {
         source
@@ -227,6 +229,8 @@ fn production_key_rejects_delta_equal_to_gamma() {
     let artifact = Artifact::new(false);
     let mut metadata = artifact.metadata();
     metadata["production_safe"] = json!(true);
+    metadata["setup_mode"] = json!("phase2-from-ptau");
+    metadata["deterministic_rng_seed"] = Value::Null;
     artifact.write_metadata(&metadata);
     for result in [
         key_source(&artifact.0).map(|_| ()),
@@ -239,6 +243,38 @@ fn production_key_rejects_delta_equal_to_gamma() {
                 .contains("vk_delta_2 equals vk_gamma_2")
         );
     }
+}
+
+#[test]
+fn production_flag_on_dev_setup_is_rejected() {
+    let artifact = Artifact::new(true);
+    let mut metadata = artifact.metadata();
+    metadata["setup_mode"] = json!("insecure-dev-mode");
+    artifact.write_metadata(&metadata);
+    assert_eq!(
+        (
+            key_source(&artifact.0).is_err(),
+            key_setup_metadata(&artifact.0).is_err()
+        ),
+        (true, true),
+        "a production flag must not override the recorded insecure setup mode"
+    );
+}
+
+#[test]
+fn production_metadata_with_deterministic_seed_is_rejected() {
+    let artifact = Artifact::new(true);
+    let mut metadata = artifact.metadata();
+    metadata["deterministic_rng_seed"] = json!(0);
+    artifact.write_metadata(&metadata);
+    assert_eq!(
+        (
+            key_source(&artifact.0).is_err(),
+            key_setup_metadata(&artifact.0).is_err()
+        ),
+        (true, true),
+        "a deterministic setup must not be exported or pinned as production"
+    );
 }
 
 #[test]

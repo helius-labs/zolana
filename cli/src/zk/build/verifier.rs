@@ -178,8 +178,8 @@ fn validated_key_source(artifact: &Path) -> Result<(String, KeySetupMetadata)> {
     if metadata["verifying_key_sha256"].as_str() != Some(&hash) { return Err(error("verifying key differs from its setup metadata")); }
     let circuit_digest = fs::read_to_string(artifact.join("digest"))?;
     if metadata["digest"].as_str() != Some(circuit_digest.trim()) { return Err(error("verifying key belongs to a different circuit")); }
-    let key = crate::proof::snarkjs_verifying_key(&key_bytes).map_err(error)?;
-    let insecure_test_setup = metadata["production_safe"].as_bool() != Some(true);
+    let key = zolana_program::proof::snarkjs_verifying_key(&key_bytes).map_err(error)?;
+    let insecure_test_setup = !super::key_cache::production_metadata(&metadata)?;
     let setup = if insecure_test_setup { SetupKind::InsecureTest } else { SetupKind::Production };
     let proving_key_sha256 = proving_key_sha256(artifact.join("pk.bin"))?;
     let mut source = parse_vk_json_to_rust_string(&key.to_string(), setup, &proving_key_sha256).map_err(error)?;
@@ -188,12 +188,12 @@ fn validated_key_source(artifact: &Path) -> Result<(String, KeySetupMetadata)> {
 }
 
 #[cfg(test)]
-#[path = "verifier_test.rs"]
+#[path = "../../../tests/unit/verifier.rs"]
 mod tests;
 
 pub(super) fn export_plain(package: &Package, artifact: &Path, name: &str, check: bool) -> Result<()> {
     let directory = package.manifest.parent().unwrap().join("src/verifier");
-    if !directory.is_dir() { return Ok(()); }
+    if !directory.is_dir() && !check { return Ok(()); }
     let source = key_source(artifact)?;
     let path = directory.join(format!("{name}.vk.rs"));
     if check {

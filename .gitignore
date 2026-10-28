@@ -33,6 +33,8 @@ docs/squads_policy_program.pdf
 build
 !sdk-libs/program/src/build/
 !sdk-libs/program/src/build/**
+!cli/src/zk/build/
+!cli/src/zk/build/**
 target-linux-x64/
 
 # `just coverage` / the CI coverage job write these at the repo root.

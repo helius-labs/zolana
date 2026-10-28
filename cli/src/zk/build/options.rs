@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use super::SetupKind;
-
 /// The crate that defines the circuits: a workspace package, or the package
 /// of a manifest (default: the one in the current directory or its parents).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -23,9 +21,9 @@ pub enum WasmTarget {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompileOptions {
     pub package: PackageSelection,
-    /// Do not write the .r1cs files.
+    /// Reuse the compiled Xark circuit artifacts when present.
     pub skip_r1cs: bool,
-    /// Use reproducible fixed-seed keys instead of a random single-party setup.
+    /// Use reproducible fixed-seed test keys.
     pub test: bool,
     /// Do not generate keys or write the verifying keys.
     pub skip_keys: bool,
@@ -42,9 +40,6 @@ pub struct CompileOptions {
     pub wasm_target: WasmTarget,
     /// Disable the JavaScript worker pool in the emitted runtime options.
     pub single_threaded: bool,
-    /// Obsolete: worker pools use the package's normal stable toolchain.
-    /// A nondefault value is rejected instead of selecting an unused toolchain.
-    pub nightly: String,
     /// Build the package without the provers.
     pub no_prover: bool,
     /// Also export the proof/key conversion helpers used by independent verifiers.
@@ -68,7 +63,6 @@ impl Default for CompileOptions {
             wasm_features: "wasm".into(),
             wasm_target: WasmTarget::Web,
             single_threaded: false,
-            nightly: "nightly-2026-05-18".into(),
             no_prover: false,
             verifier: false,
             wasm_opt: false,
@@ -103,31 +97,17 @@ pub struct BuildOptions {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SetupOptions {
     pub package: PackageSelection,
-    /// Use reproducible fixed-seed keys instead of a random single-party setup.
+    /// Use reproducible fixed-seed test keys.
     pub test: bool,
-    /// Circuit artifact directories (default: every compiled circuit).
-    pub r1cs: Vec<PathBuf>,
-    pub out: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ImportOptions {
-    pub package: PackageSelection,
-    /// A zkey from a snarkjs phase-2 ceremony.
-    pub zkey: PathBuf,
-    /// The circuit's .r1cs (default: `<build dir>/<zkey name>.r1cs`).
-    pub r1cs: Option<PathBuf>,
+    /// Directory containing the compiled circuits.
     pub out: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExportVerifierOptions {
     pub package: PackageSelection,
-    /// Trusted sha256sum manifest for the .pk files, paths relative to it.
+    /// Trusted sha256sum manifest for the serialized verifying keys.
     pub checksums: PathBuf,
-    /// How the proving keys were made, embedded in the program binary.
-    pub setup: SetupKind,
-    /// The .pk files (default: every .pk in the build directory).
-    pub pk: Vec<PathBuf>,
+    /// Directory containing the compiled circuits and their keys.
     pub out: Option<PathBuf>,
 }

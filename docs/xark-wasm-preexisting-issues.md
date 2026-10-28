@@ -168,8 +168,9 @@ output, even when deliberately using a local branch.
 
 **Impact:** A local implementation branch cannot use the normal build entrypoint.
 
-**Fix in this branch:** Workspace path dependencies select the local checkout and
-compiler directly. The old Git revision fallback and patch bootstrap were removed.
+**Fix in this branch:** The CLI links the local Xark build library through a path
+dependency. Executable discovery, version probing, Git fallbacks, and patch bootstrap
+were removed.
 
 ## 13. Setup cache does not validate setup mode or verifying-key presence
 
@@ -180,7 +181,11 @@ the circuit digest matches metadata and `pk.bin` exists. It does not require
 **Impact:** A missing verifying key is not repaired, and `--test` cannot reliably
 select a different setup mode for an already-cached circuit as help implies.
 
-**Status:** Open. Setup/key policy was not changed as part of WASM composition.
+**Fix in this branch:** Cache reuse now checks the requested setup mode, complete
+PK/VK pair, VK checksum, embedded PK verifying key, and circuit digest. Unknown
+provenance or inconsistent production metadata fails closed. Production keys are
+preserved on every mismatch; test/default development caches can be regenerated.
+Check mode only inspects existing keys and never runs setup.
 
 ## 14. Check mode can still launch an SBF build
 
@@ -190,7 +195,9 @@ then runs `cargo build-sbf` whenever `skip_sbf` is false, without checking
 
 **Impact:** A read/check operation can unexpectedly trigger a program build.
 
-**Status:** Open; no SBF build was needed to validate this composition.
+**Fix in this branch:** Check mode now gates SBF as well as WASM/setup, including
+when all skip flags are supplied. Actual CLI integration tests exercise that path;
+a normal CLI/SBF build was also validated.
 
 ## 15. Existing test dependencies produce three high-severity audit findings
 
