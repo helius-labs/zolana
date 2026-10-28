@@ -8,7 +8,20 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 )
 
+// ProofShape is the circuit and key the parameters prove with.
+func (p *TransferParameters) ProofShape() common.ProofShape {
+	return normalizedProofShape(common.ProofShape{
+		Circuit:     p.Variant.CircuitType(),
+		Inputs:      p.NInputs,
+		Outputs:     p.NOutputs,
+		SignerWidth: p.SignerWidth,
+	})
+}
+
 func (p *TransferParameters) ValidateShape() error {
+	if shape := p.ProofShape(); !shape.IsProtocol() && !shape.Supported() {
+		return fmt.Errorf("unsupported transfer shape %s", shape)
+	}
 	if len(p.Inputs) != int(p.NInputs) {
 		return fmt.Errorf("wrong number of inputs: %d, expected: %d", len(p.Inputs), p.NInputs)
 	}

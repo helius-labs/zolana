@@ -117,8 +117,12 @@ func TestParseStrictRequiresEveryField(t *testing.T) {
 	var inspect func(map[string]any, reflect.Type)
 	inspect = func(current map[string]any, schema reflect.Type) {
 		fields := make(map[string]reflect.Type)
-		jsonFields(schema, fields)
+		optional := make(map[string]bool)
+		jsonFields(schema, fields, optional)
 		for name, field := range fields {
+			if optional[name] {
+				continue
+			}
 			value, present := current[name]
 			if !present {
 				t.Fatalf("fixture lacks %q", name)
@@ -233,5 +237,27 @@ func TestProveReportsTheKeyAndVerifies(t *testing.T) {
 	}
 	if err := ring.Verify(system, proof); !errors.Is(err, ErrSystem) {
 		t.Fatalf("a transfer-confidential proof verified a transfer-ring request: %v", err)
+	}
+}
+
+// A signer width other than the protocol one names its own key, and a system
+// for the protocol key refuses the request.
+func TestParseNamesANonProtocolSignerWidthKey(t *testing.T) {
+	body := strings.Replace(fixture(t), `"nInputs":2`, `"nInputs":2,"signerWidth":1`, 1)
+	request, err := ParseStrict([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := common.ProofShape{Circuit: common.TransferConfidentialCircuitType, Inputs: 2, Outputs: 2, SignerWidth: 1}
+	if request.Shape != want || request.KeyFile != "transfer_confidential_2_2_s1.key" {
+		t.Fatalf("got %s %q", request.Shape, request.KeyFile)
+	}
+	protocol := &common.TransferProofSystem{CircuitType: common.TransferConfidentialCircuitType, NInputs: 2, NOutputs: 2}
+	if err := request.check(protocol); !errors.Is(err, ErrSystem) {
+		t.Fatalf("a protocol system accepted a width-1 request: %v", err)
+	}
+	protocol.SignerWidth = 1
+	if err := request.check(protocol); err != nil {
+		t.Fatal(err)
 	}
 }

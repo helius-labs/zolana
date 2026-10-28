@@ -88,7 +88,7 @@ func decodePrepared(request Request) (*Prepared, error) {
 		if int(value.NInputs) != len(value.Inputs) || int(value.NOutputs) != len(value.Outputs) {
 			return nil, fmt.Errorf("prepared counts mismatch")
 		}
-		shape.Inputs, shape.Outputs = value.NInputs, value.NOutputs
+		shape = value.ProofShape()
 		inputs, err := transferTargets(value.Inputs, value.Cache)
 		if err != nil {
 			return nil, err
@@ -102,7 +102,7 @@ func decodePrepared(request Request) (*Prepared, error) {
 		if int(value.NInputs) != len(value.Inputs) || int(value.NOutputs) != len(value.Outputs) {
 			return nil, fmt.Errorf("prepared counts mismatch")
 		}
-		shape.Inputs, shape.Outputs = value.NInputs, value.NOutputs
+		shape = value.ProofShape()
 		inputs, err := transferTargets(value.Inputs, value.Cache)
 		if err != nil {
 			return nil, err

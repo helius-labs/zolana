@@ -138,7 +138,7 @@ func buildRingAddressAssignment(t testing.TB) (*testAssignment, *big.Int, *big.I
 func TestAddressSlotRingSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment, _, _ := buildRingAddressAssignment(t)
 	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
@@ -147,7 +147,7 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	solAsset := protocol.SolAsset()
-	circuit := MustNewDefaultRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewDefaultRingConfidentialEddsaCircuit(txShape(shape))
 
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -172,7 +172,7 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 func TestAddressSlotRejectedWhenPolicyDisabled(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment, _, _ := buildRingAddressAssignment(t)
 
 	setAllowDummyInputs(t, assignment, false)
@@ -184,7 +184,7 @@ func TestAddressSlotRejectedWhenPolicyDisabled(t *testing.T) {
 func TestAddressSlotRejectsWrongOwner(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment, _, _ := buildRingAddressAssignment(t)
 
 	assignment.Inputs[0].Utxo.Owner = testSolanaPkFieldSeed(t, 0x77)
@@ -197,7 +197,7 @@ func TestAddressSlotRejectsWrongOwner(t *testing.T) {
 func TestAddressSlotRejectsWrongNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment, _, _ := buildRingAddressAssignment(t)
 
 	assignment.Inputs[0].Nullifier = spptest.Fe(0xDEAD)
@@ -222,7 +222,7 @@ func TestAddressSlotRejectsUnpinnedField(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assert := test.NewAssert(t)
 			shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-			circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+			circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 			assignment, _, _ := buildRingAddressAssignment(t)
 
 			tc.set(&assignment.Inputs[0])
@@ -238,7 +238,7 @@ func TestAddressSlotRejectsDuplicate(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	solAsset := protocol.SolAsset()
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 
 	assignment := buildCircuitAssignmentFromUtxos(
 		t,
@@ -261,7 +261,7 @@ func TestAddressSlotRejectsDuplicate(t *testing.T) {
 func TestPaddingDummyRejectsNonZeroOwner(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildDummyInputShield(t, 125)
 
 	assignment.Inputs[0].Utxo.Owner = testSolanaPkFieldSeed(t, 0x33)

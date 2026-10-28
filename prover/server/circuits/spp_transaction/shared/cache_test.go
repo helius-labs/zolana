@@ -130,7 +130,7 @@ type cachedCase struct {
 }
 
 func runCachedCases(t *testing.T, shape protocol.Shape, cases []cachedCase) {
-	ccs := compileCached(t, Shape(shape))
+	ccs := compileCached(t, txShape(shape))
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			a := buildDefaultRingConfidentialEddsaAssignment(t, shape)
@@ -234,7 +234,7 @@ func TestCachedInputsInterleaveWithTreeInputs(t *testing.T) {
 
 func TestUncachedSpendCannotSkipInclusion(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	ccs := compileCached(t, Shape(shape))
+	ccs := compileCached(t, txShape(shape))
 	for _, tc := range []struct {
 		name   string
 		mutate func(*testing.T, *testAssignment, *defaultring.DefaultRingConfidentialEddsaCircuit)
@@ -261,7 +261,7 @@ func TestUncachedSpendCannotSkipInclusion(t *testing.T) {
 
 func TestCachedInputMustBeOnTheCacheTree(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	ccs := compileCached(t, Shape(shape))
+	ccs := compileCached(t, txShape(shape))
 	a := buildDefaultRingConfidentialEddsaAssignment(t, shape)
 	moveInputToSlot(t, a, 1, 1)
 	makeDefaultRing(t, a)
@@ -280,7 +280,7 @@ func TestCachedInputMustBeOnTheCacheTree(t *testing.T) {
 
 func TestCachedDuplicateSpendsFail(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	ccs := compileCached(t, Shape(shape))
+	ccs := compileCached(t, txShape(shape))
 	for _, reads := range [][]int{{0}, {0, 1}} {
 		t.Run(fmt.Sprintf("reads_%v", reads), func(t *testing.T) {
 			inputs, outputs := defaultBalancedUtxos(t, shape)
@@ -312,7 +312,7 @@ func TestCachedDuplicateSpendsFail(t *testing.T) {
 
 func TestCachePublicHashBindsTheSelection(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	ccs := compileCached(t, Shape(shape))
+	ccs := compileCached(t, txShape(shape))
 	for _, field := range []string{"tree", "chain"} {
 		t.Run(field, func(t *testing.T) {
 			c := cachedAssignment(t, buildDefaultRingConfidentialEddsaAssignment(t, shape), []int{1, 0})
@@ -332,9 +332,9 @@ func TestCachePublicHashBindsTheSelection(t *testing.T) {
 }
 
 func TestCacheRejectsNonUtxos(t *testing.T) {
-	shape := Shape{NInputs: 1, NOutputs: 2}
+	shape := NewShape(1, 2)
 	ccs := compileCached(t, shape)
-	checkCachedWitness(t, ccs, cachedAssignment(t, buildDefaultRingConfidentialEddsaAssignment(t, protocol.Shape(shape)), []int{0}), true)
+	checkCachedWitness(t, ccs, cachedAssignment(t, buildDefaultRingConfidentialEddsaAssignment(t, hostShape(shape)), []int{0}), true)
 	for _, domain := range []string{"dummy", "address"} {
 		t.Run(domain, func(t *testing.T) {
 			a := buildDummyInputShield(t, 50)
@@ -382,7 +382,7 @@ func TestCacheLayout(t *testing.T) {
 	}
 	for _, field := range []string{"state path", "read hashes", "cached flags", "read indices"} {
 		t.Run(field, func(t *testing.T) {
-			c, err := defaultring.NewDefaultRingConfidentialEddsaCircuit(Shape{NInputs: 2, NOutputs: 2})
+			c, err := defaultring.NewDefaultRingConfidentialEddsaCircuit(NewShape(2, 2))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -419,14 +419,14 @@ func emptyCache(t testing.TB, nInputs int) CachedInputs {
 
 func TestUncachedSpendSolvesWithTheDefaultSelection(t *testing.T) {
 	shape := protocol.Shape{NInputs: 5, NOutputs: 3}
-	ccs := compileCached(t, Shape(shape))
+	ccs := compileCached(t, txShape(shape))
 	a := buildDefaultRingConfidentialEddsaAssignment(t, shape)
 	checkCachedWitness(t, ccs, asDefaultRingConfidentialEddsa(a), true)
 }
 
 func TestCacheChainRejectsTheLeftFold(t *testing.T) {
 	shape := protocol.Shape{NInputs: 5, NOutputs: 3}
-	ccs := compileCached(t, Shape(shape))
+	ccs := compileCached(t, txShape(shape))
 	reads := []int{0, 1, 2, 3, 4}
 	a := buildDefaultRingConfidentialEddsaAssignment(t, shape)
 	c := cachedAssignment(t, a, reads)
@@ -454,9 +454,9 @@ func TestCacheChainRejectsTheLeftFold(t *testing.T) {
 func TestCustomRingOptionalCache(t *testing.T) {
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	for _, anonymous := range []bool{false, true} {
-		var circuit frontend.Circuit = MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+		var circuit frontend.Circuit = MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 		if anonymous {
-			circuit = MustNewCustomRingAnonymousEddsaCircuit(Shape(shape))
+			circuit = MustNewCustomRingAnonymousEddsaCircuit(txShape(shape))
 		}
 		ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
 		if err != nil {

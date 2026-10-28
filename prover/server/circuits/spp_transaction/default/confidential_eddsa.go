@@ -77,7 +77,7 @@ func NewDefaultRingConfidentialEddsaCircuit(shape shared.Shape) (*DefaultRingCon
 			Nullifiers:          make([]frontend.Variable, shape.NInputs),
 			OutputHashes:        make([]frontend.Variable, shape.NOutputs),
 			TreeSlots:           shared.NewTreeSlots(),
-			SignerPkHashes:      make([]frontend.Variable, shape.SignerWidth()),
+			SignerPkHashes:      make([]frontend.Variable, shape.SignerWidth),
 			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
 		Private: DefaultRingConfidentialEddsaPrivate{
@@ -118,7 +118,7 @@ func (c *DefaultRingConfidentialEddsaCircuit) newTransaction(api frontend.API) s
 func (c *DefaultRingConfidentialEddsaCircuit) Define(api frontend.API) error {
 	tx := c.newTransaction(api)
 	if err := tx.ValidateLayout(
-		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
+		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Public.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
 		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},

@@ -63,7 +63,7 @@ func TestPrivateTxHashCircuitIgnoresPaddingAndBindsRealEntries(t *testing.T) {
 func TestCircuitRejectsExternalDataHashOutsideThePublicInputHash(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.ExternalDataHash = spptest.Fe(301)
 
@@ -73,7 +73,7 @@ func TestCircuitRejectsExternalDataHashOutsideThePublicInputHash(t *testing.T) {
 func TestPrivateTxHashDoesNotBindExternalData(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.ExternalDataHash = spptest.Fe(301)
 	refreshPublicInputHash(t, assignment)
@@ -86,7 +86,7 @@ func TestPrivateTxHashDoesNotBindExternalData(t *testing.T) {
 func TestCircuitRejectsWrongBlindingSeed(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.BlindingSeed = spptest.Fe(4243)
 
@@ -100,7 +100,7 @@ func TestCircuitRejectsWrongBlindingSeed(t *testing.T) {
 func TestCircuitRejectsForeignPrivateTxBlinding(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {

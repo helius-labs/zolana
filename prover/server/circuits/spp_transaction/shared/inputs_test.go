@@ -21,7 +21,7 @@ import (
 func TestCircuitRejectsBadStatePathElements(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].StatePathElements[0] = spptest.Fe(999)
 
@@ -31,7 +31,7 @@ func TestCircuitRejectsBadStatePathElements(t *testing.T) {
 func TestCircuitRejectsBadStatePathIndex(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].StatePathIndex = new(big.Int).Add(spptest.AsBigInt(assignment.Inputs[0].StatePathIndex), big.NewInt(1))
 
@@ -41,7 +41,7 @@ func TestCircuitRejectsBadStatePathIndex(t *testing.T) {
 func TestCircuitRejectsBadNullifierNonInclusionPath(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].NullifierLowPathElements[0] = spptest.Fe(999)
 
@@ -113,7 +113,7 @@ func TestCircuitBindsBothRootsToTreeSlot(t *testing.T) {
 		t.Run(fmt.Sprintf("slot_%d", slot), func(t *testing.T) {
 			assert := test.NewAssert(t)
 			shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-			circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+			circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 			assignment := buildCircuitAssignment(t, shape)
 			moveInputToSlot(t, assignment, 1, slot)
 			moved, base := assignment.TreeSlots[slot], assignment.TreeSlots[0]
@@ -137,7 +137,7 @@ func TestCircuitBindsBothRootsToTreeSlot(t *testing.T) {
 func TestCircuitRejectsInputClaimingWrongStateRoot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	moveInputToSlot(t, assignment, 1, 1)
 	assignment.TreeSlots[1].UtxoRoot = assignment.TreeSlots[0].UtxoRoot
@@ -152,7 +152,7 @@ func TestCircuitRejectsInputClaimingWrongStateRoot(t *testing.T) {
 func TestCircuitRejectsInputClaimingWrongNullifierRoot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	nullifierTree := spptest.MustNewNullifierTree(t)
 	// An unrelated insertion moves the root away from the empty tree the
@@ -169,7 +169,7 @@ func TestCircuitRejectsInputClaimingWrongNullifierRoot(t *testing.T) {
 func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	asset := spptest.Fe(7)
 	input := sampleUtxoWithAssetAndAmount(10, asset, spptest.Fe(100))
 	// A ring-owned input must be spent via ring_transact (ring PDA authorization),
@@ -191,7 +191,7 @@ func TestCircuitRejectsProgramOwnedInput(t *testing.T) {
 func TestCircuitRejectsSolanaOwnerKeyMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	assignment.Inputs[0].OwnerPkHash = spptest.Fe(12345)
 	refreshPublicInputHash(t, assignment)
@@ -204,7 +204,7 @@ func TestCircuitRejectsSolanaOwnerKeyMismatch(t *testing.T) {
 func TestCircuitAcceptsDistinctSolanaOwners(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	rewriteInputAsSolanaOwner(t, assignment, 1, 0x43, spptest.Fe(777))
 
@@ -217,7 +217,7 @@ func TestCircuitAcceptsDistinctSolanaOwners(t *testing.T) {
 func TestCircuitRejectsForeignSolanaOwnerEntry(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	rewriteInputAsSolanaOwner(t, assignment, 1, 0x43, spptest.Fe(777))
 	assignment.Inputs[1].OwnerPkHash = testSolanaPkField(t)
@@ -294,14 +294,14 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 func TestDummyInputSlotSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(buildDummyInputShield(t, 125)), test.WithCurves(ecc.BN254))
 }
 
 func TestDummyInputNeedsNoStateRoot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.TreeSlots[0].UtxoRoot = 0
 	refreshPublicInputHash(t, assignment)
@@ -311,7 +311,7 @@ func TestDummyInputNeedsNoStateRoot(t *testing.T) {
 func TestCustomRingConfidentialEddsaRejectsDummyInputThirdPartyTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].OwnerPkHash = spptest.Fe(424242)
 	refreshPublicInputHash(t, assignment)
@@ -321,7 +321,7 @@ func TestCustomRingConfidentialEddsaRejectsDummyInputThirdPartyTag(t *testing.T)
 func TestDummyInputRejectedWhenPolicyDisabled(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	setAllowDummyInputs(t, assignment, false)
 	refreshPublicInputHash(t, assignment)
@@ -334,7 +334,7 @@ func TestDummyInputRejectedWhenPolicyDisabled(t *testing.T) {
 func TestDummyInputRejectsMimickedPublicColumns(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(7)
 	assignment.TreeSlots[0].UtxoRoot = spptest.Fe(8)
@@ -351,7 +351,7 @@ func TestDummyInputRejectsMimickedPublicColumns(t *testing.T) {
 func TestDummyInputRejectsNonZeroAmount(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Utxo.Amount = spptest.Fe(1)
 	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))

@@ -28,7 +28,7 @@ func MustNewCustomRingConfidentialEddsaCircuit(shape Shape) *customring.CustomRi
 func TestCustomRingConfidentialEddsaSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	refreshPublicInputHash(t, assignment)
 
@@ -44,7 +44,7 @@ func TestCustomRingConfidentialEddsaSolves(t *testing.T) {
 
 func TestCustomRingConfidentialEddsaPublicInputHashBindsEveryField(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	refreshHash := func() { refreshPublicInputHash(t, assignment) }
 	refreshHash()
@@ -70,7 +70,7 @@ func TestCustomRingConfidentialEddsaPublicInputHashBindsEveryField(t *testing.T)
 func TestCustomRingConfidentialEddsaRejectsZeroOwnerTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 
 	nullifierSecret := spptest.AsBigInt(assignment.Inputs[0].NullifierSecret)
@@ -102,7 +102,7 @@ func TestCustomRingConfidentialEddsaAcceptsZeroDummyOutputTag(t *testing.T) {
 	tagDummyOutput(t, assignment, 0)
 	refreshPublicInputHash(t, assignment)
 
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
@@ -117,7 +117,7 @@ func TestCustomRingConfidentialEddsaRejectsDummyOutputPayerTag(t *testing.T) {
 	tagDummyOutput(t, assignment, testPayerPkHash())
 	refreshPublicInputHash(t, assignment)
 
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assert.SolvingFailed(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
@@ -131,7 +131,7 @@ func TestCustomRingConfidentialEddsaAcceptsDummyOutputOwnerSignerTag(t *testing.
 	tagDummyOutput(t, assignment, assignment.Inputs[0].OwnerPkHash)
 	refreshPublicInputHash(t, assignment)
 
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
@@ -146,7 +146,7 @@ func TestCustomRingConfidentialEddsaAcceptsDummyOutputPublishedRecipientTag(t *t
 	tagDummyOutput(t, assignment, recipient)
 	refreshPublicInputHash(t, assignment)
 
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 	assert.SolvingSucceeded(circuit, asCustomRingConfidentialEddsa(assignment), test.WithCurves(ecc.BN254))
 }
 
@@ -159,7 +159,7 @@ func TestCustomRingConfidentialEddsaRejectsDummyOutputPolicyRingRecipientTag(t *
 	assignment.Outputs[0].Utxo.RingProgramID = assignment.RingProgramID
 	recipient := outsideRecipient(t)
 	retagRealOutput(t, assignment, recipient)
-	circuit := MustNewCustomRingConfidentialEddsaCircuit(Shape(shape))
+	circuit := MustNewCustomRingConfidentialEddsaCircuit(txShape(shape))
 
 	// Control: the same ring payment solves with an anonymous dummy.
 	tagDummyOutput(t, assignment, 0)

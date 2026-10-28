@@ -44,7 +44,7 @@ func TestTransferSetupInputCount(t *testing.T) {
 			if err != nil || uint(got) != value {
 				t.Fatalf("input count changed or rejected: got %d, err %v", got, err)
 			}
-			if (txcircuit.Shape{NInputs: int(got), NOutputs: 1}).SignerWidth() < 1 {
+			if txcircuit.ProtocolSignerWidth(int(got)) < 1 {
 				t.Fatal("accepted count leaves no owner signer slot")
 			}
 		})
@@ -96,5 +96,41 @@ func TestExtensionWorkerStartsWhenTheServerServesAnExtensionKey(t *testing.T) {
 				t.Fatalf("extension worker started %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestTransferSetupShape(t *testing.T) {
+	ring := common.TransferRingCircuitType
+	eddsa := common.TransferAnonymousRingEddsaCircuitType
+	protocolWidth := uint(txcircuit.ProtocolSignerWidth(2))
+	for name, tc := range map[string]struct {
+		circuit       common.CircuitType
+		width, owners uint
+		want          common.ProofShape
+	}{
+		"protocol":                {ring, 0, 0, common.ProofShape{Circuit: ring, Inputs: 2, Outputs: 2}},
+		"explicit protocol width": {ring, protocolWidth, 0, common.ProofShape{Circuit: ring, Inputs: 2, Outputs: 2}},
+		"explicit single owner":   {eddsa, 0, 1, common.ProofShape{Circuit: eddsa, Inputs: 2, Outputs: 2}},
+		"narrow signer vector":    {ring, 1, 0, common.ProofShape{Circuit: ring, Inputs: 2, Outputs: 2, SignerWidth: 1}},
+		"two hidden owners":       {eddsa, 0, 2, common.ProofShape{Circuit: eddsa, Inputs: 2, Outputs: 2, HiddenOwners: 2}},
+		"both":                    {eddsa, 1, 2, common.ProofShape{Circuit: eddsa, Inputs: 2, Outputs: 2, SignerWidth: 1, HiddenOwners: 2}},
+	} {
+		got, err := transferSetupShape(tc.circuit, 2, 2, tc.width, tc.owners)
+		if err != nil || got != tc.want {
+			t.Errorf("%s: got %s, %v", name, got, err)
+		}
+	}
+	for name, tc := range map[string]struct {
+		circuit       common.CircuitType
+		width, owners uint
+	}{
+		"hidden owners off the anonymous rail": {ring, 0, 2},
+		"more hidden owners than inputs":       {eddsa, 0, 3},
+		"signer width on ring authority":       {common.TransferRingAuthorityCircuitType, 1, 0},
+		"signer width past the address limit":  {ring, common.MaxTransferSignerWidth + 1, 0},
+	} {
+		if _, err := transferSetupShape(tc.circuit, 2, 2, tc.width, tc.owners); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

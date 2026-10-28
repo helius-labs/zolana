@@ -31,7 +31,7 @@ func TestCustomRingAuthoritySolvesForSupportedShapes(t *testing.T) {
 		shape := shape
 		t.Run(shape.String(), func(t *testing.T) {
 			assert := test.NewAssert(t)
-			circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+			circuit := MustNewCustomRingAuthorityCircuit(txShape(shape))
 			assignment := buildRingAuthorityAssignment(t, shape)
 			assert.SolvingSucceeded(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
 		})
@@ -41,7 +41,7 @@ func TestCustomRingAuthoritySolvesForSupportedShapes(t *testing.T) {
 func TestCustomRingAuthorityProves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 3, NOutputs: 3}
-	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	circuit := MustNewCustomRingAuthorityCircuit(txShape(shape))
 	assignment := buildRingAuthorityAssignment(t, shape)
 	assert.ProverSucceeded(
 		circuit,
@@ -54,7 +54,7 @@ func TestCustomRingAuthorityProves(t *testing.T) {
 
 func TestCustomRingAuthorityPublicInputHashBindsEveryField(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	circuit := MustNewCustomRingAuthorityCircuit(txShape(shape))
 	assignment := buildRingAuthorityAssignment(t, shape)
 	refreshHash := func() { refreshRingAuthorityPublicInputHash(t, assignment) }
 
@@ -75,7 +75,7 @@ func TestCustomRingAuthorityPublicInputHashBindsEveryField(t *testing.T) {
 func TestCustomRingAuthorityRejectsWrongNullifierSecret(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	circuit := MustNewCustomRingAuthorityCircuit(txShape(shape))
 	assignment := buildRingAuthorityAssignment(t, shape)
 	assignment.Inputs[0].NullifierSecret = spptest.Fe(12345)
 	refreshRingAuthorityPublicInputHash(t, assignment)
@@ -86,7 +86,7 @@ func TestCustomRingAuthorityRejectsWrongNullifierSecret(t *testing.T) {
 func TestCustomRingAuthorityRejectsDefaultRingInput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	circuit := MustNewCustomRingAuthorityCircuit(txShape(shape))
 	assignment := buildRingAuthorityAssignmentWithRing(t, shape, ringAuthorityRing(), big.NewInt(0))
 
 	assert.SolvingFailed(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
@@ -95,7 +95,7 @@ func TestCustomRingAuthorityRejectsDefaultRingInput(t *testing.T) {
 func TestCustomRingAuthorityRejectsZeroRingProgramID(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	circuit := MustNewCustomRingAuthorityCircuit(txShape(shape))
 	assignment := buildRingAuthorityAssignmentWithRing(t, shape, big.NewInt(0), big.NewInt(0))
 
 	assert.SolvingFailed(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
@@ -104,7 +104,7 @@ func TestCustomRingAuthorityRejectsZeroRingProgramID(t *testing.T) {
 func TestCustomRingAuthorityRejectsDefaultRingOutput(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
-	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	circuit := MustNewCustomRingAuthorityCircuit(txShape(shape))
 	ring := ringAuthorityRing()
 	assignment := buildRingAuthorityAssignmentRings(t, shape, ring, ring, big.NewInt(0))
 
@@ -116,7 +116,7 @@ func TestCustomRingAuthorityRejectsAddressInputs(t *testing.T) {
 	for addressIndex := range shape.NInputs {
 		t.Run(fmt.Sprintf("input-%d", addressIndex), func(t *testing.T) {
 			assert := test.NewAssert(t)
-			circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+			circuit := MustNewCustomRingAuthorityCircuit(txShape(shape))
 			assignment := buildRingAuthorityAssignmentWithAddressInput(t, shape, addressIndex)
 
 			assert.SolvingFailed(circuit, asCustomRingAuthority(assignment), test.WithCurves(ecc.BN254))
@@ -131,7 +131,7 @@ func TestCustomRingAuthorityRejectsAddressInputs(t *testing.T) {
 func TestCustomRingAuthorityDummyInputRequiresStateRoot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingAuthorityCircuit(Shape(shape))
+	circuit := MustNewCustomRingAuthorityCircuit(txShape(shape))
 	ring := ringAuthorityRing()
 	asset := spptest.Fe(7)
 	inputs := []protocol.Utxo{

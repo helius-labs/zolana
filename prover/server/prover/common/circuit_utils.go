@@ -46,9 +46,14 @@ type ExtensionProofSystem struct {
 // HasCommitment preserves a legacy key-header bit, not the verifier configuration.
 // Confidential selects the owner-tag-binding variant.
 type TransferProofSystem struct {
-	CircuitType      CircuitType
-	NInputs          uint32
-	NOutputs         uint32
+	CircuitType CircuitType
+	NInputs     uint32
+	NOutputs    uint32
+	// SignerWidth and HiddenOwners are the non-protocol dimensions of the
+	// circuit, zero for a protocol key (see ProofShape). The key header does
+	// not carry them; ReadSystemFromFile reads them from the file name.
+	SignerWidth      uint32
+	HiddenOwners     uint32
 	HasCommitment    bool
 	Confidential     bool
 	ProvingKey       groth16.ProvingKey
@@ -57,4 +62,15 @@ type TransferProofSystem struct {
 	// ProvingKeySha256 is the sha256 of the key file this system was read
 	// from, computed while reading it (see ReadSystemFromFile).
 	ProvingKeySha256 [32]byte
+}
+
+// Shape is the proof shape the system proves.
+func (ps *TransferProofSystem) Shape() ProofShape {
+	return ProofShape{
+		Circuit:      ps.CircuitType,
+		Inputs:       ps.NInputs,
+		Outputs:      ps.NOutputs,
+		SignerWidth:  ps.SignerWidth,
+		HiddenOwners: ps.HiddenOwners,
+	}
 }
