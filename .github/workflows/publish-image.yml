@@ -57,17 +57,9 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        id: app
-        if: inputs.channel != 'preview'
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          owner: helius-labs
-          repositories: zolana-infra
       - id: plan
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
           SERVICE: ${{ inputs.service || 'changed' }}
           CHANNEL: ${{ inputs.channel || 'release' }}
         run: |
@@ -80,6 +72,7 @@ jobs:
               echo "short_sha=${GITHUB_SHA:0:12}"
             } >> "$GITHUB_OUTPUT"
           else
+            [[ -n "$GH_TOKEN" ]] || { echo '::error::Set CROSS_REPO_TOKEN with access to zolana and zolana-infra.'; exit 1; }
             python3 tools/release-catalog.py plan
           fi
 
@@ -118,20 +111,13 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        id: app
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          owner: helius-labs
-          repositories: zolana-infra
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
           aws-region: eu-north-1
       - id: key
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
           PROFILE: ${{ needs.changes.outputs.profile }}
           CANDIDATE: ${{ needs.changes.outputs.candidate }}
         run: python3 tools/release-catalog.py prepare "$PROFILE" "$CANDIDATE"
@@ -254,13 +240,6 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        id: app
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          owner: helius-labs
-          repositories: zolana-infra
       - uses: actions/download-artifact@v4
         with:
           pattern: release-part-*
@@ -281,7 +260,7 @@ jobs:
           aws-region: eu-north-1
       - name: Qualify sealed identity before cutover
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
         run: python3 tools/release-catalog.py qualify "$RUNNER_TEMP/request.json" "$RUNNER_TEMP/parts/nitro.json"
       - uses: actions/upload-artifact@v4
         with:
@@ -308,13 +287,6 @@ jobs:
         with:
           name: release-quality
           path: ${{ runner.temp }}
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        id: app
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          owner: helius-labs
-          repositories: zolana-infra
       - uses: actions/download-artifact@v4
         with:
           pattern: release-part-*
@@ -323,7 +295,7 @@ jobs:
       - name: Assemble complete immutable release
         id: release
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
           BASE_RELEASE: ${{ needs.changes.outputs.base_release }}
           EXPECTED_SERVICES: ${{ needs.changes.outputs.services }}
           EXPECTED_NITRO: ${{ needs.changes.outputs.nitro }}
@@ -339,7 +311,7 @@ jobs:
         run: python3 tools/release-catalog.py publish "$RUNNER_TEMP/release.json"
       - name: Wake release reconciliation
         env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
           RELEASE_ID: ${{ steps.release.outputs.release_id }}
         run: |
           if ! jq -n --arg release "$RELEASE_ID" '{event_type:"release-catalog-published",client_payload:{release_id:$release}}' | gh api repos/helius-labs/zolana-infra/dispatches --input -; then

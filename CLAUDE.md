@@ -645,7 +645,9 @@ in `zolana-infra`. A relevant source merge to `main` automatically builds the
 changed services, checks their containers, and publishes one signed complete
 release after source CI passes. Nitro changes are privately qualified and wait
 for delivery of a compatible client policy before cutover. The infrastructure
-PR preview and merge are the normal deployment gate.
+PR preview and merge are the normal deployment gate. Both repositories use the
+`CROSS_REPO_TOKEN` Actions secret for cross-repository access and bot PRs;
+publication and AWS authentication use workflow tokens and OIDC.
 
 For an explicit build, run `publish-image.yml` on `main` with service `changed`
 and channel `release`; optionally force a service rebuild. Tags and digests are

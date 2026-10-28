@@ -32,9 +32,6 @@ on:
       release_source_check:
         type: string
         default: tools/check-release-source.sh
-    secrets:
-      RELEASE_APP_PRIVATE_KEY:
-        required: false
     outputs:
       digest:
         description: Published image digest (sha256:…)
