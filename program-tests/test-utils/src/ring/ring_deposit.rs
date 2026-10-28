@@ -1,6 +1,5 @@
 //! SOL and SPL ring deposits and their assertions.
 
-use crate::wallet::{KeypairWalletAuthority, Wallet};
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -18,7 +17,7 @@ use spr_program::instruction::{
 use spr_program_test::{
     ring_deposit_output_from_event, test_blinding, Rejection, RING_TEST_PROGRAM_ID,
 };
-use spr_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext, Data, Utxo, SOL_MINT};
+use spr_transaction::{owner_utxo_hash, Data, Utxo, SOL_MINT};
 
 use super::{RingDepositRecord, RingHarness, SplRingDepositAccounts};
 use crate::{
@@ -71,11 +70,7 @@ impl RingHarness {
             .ok_or_else(|| anyhow!("no indexed deposit output for {signature}"))
     }
 
-    /// Build the owner-hidden, wallet-discoverable ring deposit data for `name`:
-    /// the public face carries only the `owner_utxo_hash` commitment and the
-    /// recipient bootstrap view tag; the blinding and preimages travel in the
-    /// encrypted envelope. Returns the blinding so the caller can record the
-    /// created UTXO as spendable.
+    /// Build a ring deposit with an opaque payload for settlement tests.
     fn ring_deposit_data(
         &self,
         name: &str,
@@ -91,13 +86,11 @@ impl RingHarness {
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount,
             ring_data_hash: [0u8; 32],
-            encrypted: RingDepositPlaintext {
-                blinding,
-                utxo_data: None,
-                memo: None,
-                ring_data: Vec::new(),
-            }
-            .encrypt(&keypair.viewing_pubkey())?,
+            encrypted: EncryptedRingDepositData {
+                tx_viewing_pk: *keypair.viewing_pubkey().as_bytes(),
+                salt: [0; 16],
+                ciphertext: Vec::new(),
+            },
         };
         Ok((data, blinding))
     }
@@ -280,15 +273,13 @@ impl RingHarness {
     }
 
     /// Assert the most recent ring deposit (SOL or SPL): the indexed event matches
-    /// the sent data, the leaf was appended, Photon's root tracks the tree, and a
-    /// fresh recipient wallet discovers the ring-owned UTXO.
+    /// the sent data, the leaf was appended, and Photon's root tracks the tree.
     pub fn assert_ring_deposited(&self, name: &str, amount: u64) -> Result<()> {
         let actor = self.actor(name);
         let record = actor
             .last_deposit
             .clone()
             .ok_or_else(|| anyhow!("{name} has no recorded ring deposit"))?;
-        let keypair = actor.keypair.clone();
 
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         let groups = self
@@ -301,8 +292,6 @@ impl RingHarness {
         let event = ring_deposit_output_from_event(indexed)
             .map_err(|e| anyhow!("encrypted ring deposit output decode failed: {e:?}"))?;
 
-        let mut wallet = Wallet::new(keypair.shielded_address()?, self.assets.clone())?;
-        let authority = KeypairWalletAuthority::new(Address::default(), &keypair);
         let expected_asset = match &record.spl {
             None => SOL_MINT,
             Some(spl) => Address::new_from_array(spl.mint.to_bytes()),
@@ -320,8 +309,6 @@ impl RingHarness {
                 signature: record.signature,
                 tree_before: &record.tree_before,
             },
-            &authority,
-            &mut wallet,
         )?;
         if let Some(spl) = record.spl {
             assert_eq!(

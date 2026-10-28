@@ -19,9 +19,9 @@ use spr_interface::{
 };
 use spr_keypair::{NullifierKey, ShieldedKeypair, SigningKey, ViewingKey};
 use spr_test_utils::wallet::{
-    create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
-    ApprovalRequest, EncryptedTransfer, KeypairWalletAuthority, SyncWalletAuthority,
-    TransferParams, Wallet, WalletAuthority, WithdrawalLeg, WithdrawalParams,
+    create_transfer, create_withdrawal, sign_shielded_transaction, ApprovalRequest,
+    EncryptedTransfer, KeypairWalletAuthority, SyncWalletAuthority, TransferParams, Wallet,
+    WalletAuthority, WithdrawalLeg, WithdrawalParams,
 };
 use spr_transaction::{
     instructions::transact::{
@@ -452,22 +452,6 @@ impl WalletAuthority for AsyncTestAuthority {
             &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
             first_nullifier,
             outputs,
-        )
-    }
-
-    async fn encrypt_anonymous_transfer(
-        &self,
-        first_nullifier: &[u8; 32],
-        sender_view_tag: [u8; 32],
-        sender: &spr_transaction::serialization::anonymous::AnonymousTransferSenderPlaintext,
-        recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError> {
-        SyncWalletAuthority::encrypt_anonymous_transfer(
-            &KeypairWalletAuthority::new(self.solana_pubkey(), &self.keypair),
-            first_nullifier,
-            sender_view_tag,
-            sender,
-            recipients,
         )
     }
 

@@ -3,7 +3,7 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 use solana_address::Address;
 use spr_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, X25519Pubkey};
 use spr_transaction::{
-    error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, DepositPayload, WalletUtxo,
+    error::TransactionError, utxo::Utxo, AssetBalance, AssetRegistry, WalletUtxo,
 };
 
 pub const DEFAULT_TAG_WINDOW: u64 = 64;
@@ -133,7 +133,6 @@ impl CursorStream {
 }
 
 pub struct Wallet {
-    pub(super) ring_deposit_payload: Option<(Address, DepositPayload)>,
     /// Public wallet identity. All secret key material is supplied by a
     /// `WalletAuthority` when cryptographic work is required.
     pub identity: ShieldedAddress,
@@ -170,7 +169,6 @@ impl Wallet {
     ) -> Result<Self, TransactionError> {
         let viewing_pubkey = identity.viewing_pubkey;
         Ok(Self {
-            ring_deposit_payload: None,
             identity,
             registry,
             viewing_key_history: vec![ViewingKeyEntry::new(viewing_pubkey, 0)],
@@ -180,16 +178,6 @@ impl Wallet {
             last_synced: 0,
             cursors: HashMap::new(),
         })
-    }
-
-    #[must_use]
-    pub fn with_ring_deposit_payload(
-        mut self,
-        ring_program_id: Address,
-        deposit_payload: DepositPayload,
-    ) -> Self {
-        self.ring_deposit_payload = Some((ring_program_id, deposit_payload));
-        self
     }
 
     pub(crate) fn ensure_viewing_key_entries(

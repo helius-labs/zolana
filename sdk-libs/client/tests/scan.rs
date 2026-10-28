@@ -16,9 +16,7 @@ use spr_client::{
     GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
     OutputContext, OutputSlot, ProgramAccountsFilter, Rpc, ShieldedTransaction, UtxoScan,
 };
-use spr_event::{
-    encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
-};
+use spr_event::{encode_merge_output_data, MergeOutputDataRef};
 use spr_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
 use spr_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use spr_transaction::{
@@ -26,14 +24,12 @@ use spr_transaction::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
         MERGE_DEFAULT_INPUT_COUNT,
     },
-    owner_utxo_hash,
     serialization::{
         confidential::{Confidential, ConfidentialEncode},
         proofless::{Proofless, ProoflessEncode},
     },
-    AssetRegistry, Data, EncryptedScheme, HistoryKind, Mint, OwnerCx, RingDepositPlaintext,
-    ShieldedKeys, TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization, SOL_ASSET_ID,
-    SOL_MINT,
+    AssetRegistry, Data, HistoryKind, Mint, OwnerCx, ShieldedKeys, TransactionKeyRequest, Utxo,
+    UtxoSerialization, SOL_ASSET_ID, SOL_MINT,
 };
 
 const TREE: u16 = 2;
@@ -679,99 +675,6 @@ fn a_merge_found_before_one_of_its_inputs_decrypts_from_its_own_transaction() {
             .amount,
         42
     );
-}
-
-/// A framing that marks framed ciphertexts with `frame`.
-fn unframe(ciphertext: &[u8]) -> Result<Option<&[u8]>, TransactionError> {
-    Ok(ciphertext.strip_prefix(b"frame"))
-}
-
-#[test]
-fn a_framed_ring_deposit_opens_only_with_its_own_rings_payload() {
-    let owner = keypair(9);
-    let address = owner.shielded_address().unwrap();
-    let ring = Address::new_from_array([4; 32]);
-    let plaintext = RingDepositPlaintext {
-        blinding: [3; 32],
-        utxo_data: None,
-        memo: None,
-        ring_data: Vec::new(),
-    };
-    let deposited = note(
-        &owner,
-        plaintext
-            .clone()
-            .into_utxo(address.signing_pubkey, Mint::SOL, 50, ring),
-        [0; 32],
-    );
-    let mut encrypted = plaintext.encrypt(&address.viewing_pubkey).unwrap();
-    encrypted.ciphertext = [&b"frame"[..], &encrypted.ciphertext].concat();
-    let output = EncryptedRingDepositOutput {
-        owner_utxo_hash: owner_utxo_hash(&address.owner_hash().unwrap(), &plaintext.blinding)
-            .unwrap(),
-        asset: *Mint::SOL.asset.as_array(),
-        amount: 50,
-        data_hash: None,
-        ring_program_id: *ring.as_array(),
-        ring_data_hash: [0; 32],
-        encrypted,
-    };
-    let blob = [
-        &[EncryptedScheme::RingDeposit.as_byte()][..],
-        &borsh::to_vec(&output).unwrap(),
-    ]
-    .concat();
-    let indexer = Indexer {
-        deposits: vec![EncryptedUtxoMatch {
-            slot: 1,
-            tx_signature: Signature::from([1; 64]),
-            output_slot: output_slot(
-                address.viewing_pubkey.u(),
-                deposited.hash,
-                1,
-                borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap(),
-            ),
-            tx_viewing_pk: None,
-            salt: None,
-        }],
-        ..Indexer::default()
-    };
-    let assets = AssetRegistry::default();
-
-    let framed = UtxoScan::new(&owner, &assets)
-        .fetch(&indexer)
-        .unwrap()
-        .spendable;
-    assert_eq!(framed.utxos().count(), 0);
-
-    // Another ring's framing never reads this ring's deposits.
-    let other_ring = UtxoScan::new(&owner, &assets)
-        .with_ring_deposit_payload(Address::new_from_array([5; 32]), unframe)
-        .fetch(&indexer)
-        .unwrap()
-        .spendable;
-    assert_eq!(other_ring.utxos().count(), 0);
-
-    let unframed = UtxoScan::new(&owner, &assets)
-        .with_ring_deposit_payload(ring, unframe)
-        .fetch(&indexer)
-        .unwrap()
-        .spendable;
-    let utxos: Vec<_> = unframed.utxos().collect();
-    assert_eq!(utxos.len(), 1);
-    assert_eq!(utxos[0].utxo_hash, deposited.hash);
-    assert_eq!(utxos[0].utxo.ring_program_id, Some(ring));
-
-    // Framing that does not parse fails the fetch instead of hiding the deposit.
-    let reject = |_: &[u8]| -> Result<Option<&[u8]>, TransactionError> {
-        Err(TransactionError::Deserialize("bad frame".into()))
-    };
-    assert!(matches!(
-        UtxoScan::new(&owner, &assets)
-            .with_ring_deposit_payload(ring, reject)
-            .fetch(&indexer),
-        Err(ClientError::Transaction(TransactionError::Deserialize(_)))
-    ));
 }
 
 const MINT: Address = Address::new_from_array([7; 32]);

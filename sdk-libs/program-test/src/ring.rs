@@ -14,7 +14,7 @@ use spr_interface::{
 };
 use spr_keypair::shielded::ShieldedAddress;
 use spr_protocol_instructions::SetRingActivation;
-use spr_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext, Blinding};
+use spr_transaction::{owner_utxo_hash, Blinding};
 
 use crate::{
     instructions::RING_TEST_PROGRAM_ID, paths::default_ring_test_program_path,
@@ -183,6 +183,7 @@ impl ZolanaProgramTest {
         }
     }
 
+    /// Build settlement data with an opaque payload; tests retain the blinding.
     pub fn wallet_ring_sol_shield_data(
         lamports: u64,
         recipient: &ShieldedAddress,
@@ -195,16 +196,15 @@ impl ZolanaProgramTest {
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount: lamports,
             ring_data_hash: [0u8; 32],
-            encrypted: RingDepositPlaintext {
-                blinding,
-                utxo_data: None,
-                memo: None,
-                ring_data: Vec::new(),
-            }
-            .encrypt(&recipient.viewing_pubkey)?,
+            encrypted: EncryptedRingDepositData {
+                tx_viewing_pk: *recipient.viewing_pubkey.as_bytes(),
+                salt: [0; 16],
+                ciphertext: Vec::new(),
+            },
         })
     }
 
+    /// Build settlement data with an opaque payload; tests retain the blinding.
     pub fn wallet_ring_spl_shield_data(
         amount: u64,
         mint: Pubkey,
@@ -223,13 +223,11 @@ impl ZolanaProgramTest {
             owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount,
             ring_data_hash: [0u8; 32],
-            encrypted: RingDepositPlaintext {
-                blinding,
-                utxo_data: None,
-                memo: None,
-                ring_data: Vec::new(),
-            }
-            .encrypt(&recipient.viewing_pubkey)?,
+            encrypted: EncryptedRingDepositData {
+                tx_viewing_pk: *recipient.viewing_pubkey.as_bytes(),
+                salt: [0; 16],
+                ciphertext: Vec::new(),
+            },
         })
     }
 

@@ -31,8 +31,8 @@ use spr_interface::{
 };
 use spr_keypair::X25519Pubkey;
 use spr_transaction::{
-    verify_owned, AssetRegistry, DecryptionResult, DepositPayload, History, Mint, OwnedUtxos,
-    ShieldedKeys, SpendableDecryptionResult, SOL_ASSET_ID, SOL_MINT,
+    verify_owned, AssetRegistry, DecryptionResult, History, Mint, OwnedUtxos, ShieldedKeys,
+    SpendableDecryptionResult, SOL_ASSET_ID, SOL_MINT,
 };
 
 use crate::{
@@ -63,7 +63,6 @@ pub struct UtxoScanResult {
 pub struct UtxoScan<'a, K: ?Sized> {
     keys: &'a K,
     assets: &'a AssetRegistry,
-    ring_deposit_payload: Option<(Address, DepositPayload)>,
     indexer_config: Option<IndexerRpcConfig>,
     discover_assets: bool,
 }
@@ -73,7 +72,6 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         Self {
             keys,
             assets,
-            ring_deposit_payload: None,
             indexer_config: None,
             discover_assets: false,
         }
@@ -112,22 +110,10 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         self
     }
 
-    /// For a ring program that frames the ciphertexts of its deposits. It
-    /// reads only that ring's deposits, and [`fetch`](Self::fetch) fails on
-    /// framing that does not parse.
-    pub fn with_ring_deposit_payload(
-        mut self,
-        ring_program_id: Address,
-        deposit_payload: DepositPayload,
-    ) -> Self {
-        self.ring_deposit_payload = Some((ring_program_id, deposit_payload));
-        self
-    }
-
     /// Reads the transactions tagged with the owner tag, which confidential
     /// outputs carry, and with each held viewing key's tag, which deposits
     /// carry, then the transactions that spent what they hold. Anonymous
-    /// transfers, tagged per counterparty, are not read.
+    /// transfer and ring deposit payloads are unsupported.
     pub fn fetch<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<UtxoScanResult, ClientError> {
         let fetched = self.fetch_rounds(indexer)?;
         Ok(UtxoScanResult {
@@ -156,7 +142,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         let mut batch = self.unseen(
             &mut seen,
             tagged_transactions(indexer, &tags, self.indexer_config, &mut output_tree_id)?,
-        )?;
+        );
         let mut transactions = Vec::new();
         let mut decrypted = DecryptionResult::default();
         let mut queried = HashSet::new();
@@ -198,7 +184,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                     self.indexer_config,
                     &mut output_tree_id,
                 )?,
-            )?;
+            );
             if batch.is_empty() {
                 return Ok(Fetched {
                     asset_registry: assets,
@@ -220,7 +206,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         &self,
         seen: &mut HashSet<(Signature, Option<u16>, Option<u64>)>,
         transactions: Vec<ShieldedTransaction>,
-    ) -> Result<Vec<ShieldedTransaction>, ClientError> {
+    ) -> Vec<ShieldedTransaction> {
         transactions
             .into_iter()
             .filter(|tx| {
@@ -231,20 +217,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                     .map(|slot| slot.output_context.leaf_index);
                 seen.insert((tx.tx_signature, tx.event_index, leaf))
             })
-            .map(|tx| self.unwrap_ring_deposits(tx))
             .collect()
-    }
-
-    fn unwrap_ring_deposits(
-        &self,
-        mut tx: ShieldedTransaction,
-    ) -> Result<ShieldedTransaction, ClientError> {
-        if let Some((ring_program_id, deposit_payload)) = &self.ring_deposit_payload {
-            for slot in &mut tx.output_slots {
-                slot.unwrap_ring_deposit(ring_program_id, *deposit_payload)?;
-            }
-        }
-        Ok(tx)
     }
 }
 

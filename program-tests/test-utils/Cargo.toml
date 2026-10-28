@@ -51,7 +51,6 @@ spr-tree = { workspace = true }
 spr-user-registry-interface = { workspace = true, features = ["solana"] }
 
 [dev-dependencies]
-proptest = { workspace = true }
 # smart_account::settings pins the Anchor discriminator scheme in its unit test.
 sha2 = { workspace = true }
 solana-rpc-client-api = { workspace = true }

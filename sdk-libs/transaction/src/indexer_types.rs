@@ -77,10 +77,9 @@ impl OutputSlot {
     }
 
     /// Replaces the framing `ring_program_id` puts around its ring deposit
-    /// ciphertexts with the recipient's ciphertext inside it, which is what
-    /// [`decrypt`](crate::decrypt::decrypt) opens. Other outputs, deposits of other
-    /// rings and unframed ciphertexts are left as published; framing that does
-    /// not parse is an error rather than a deposit that silently never opens.
+    /// ciphertexts with the recipient's ciphertext inside it. The ring client
+    /// interprets that payload. Other outputs, deposits of other rings and
+    /// unframed ciphertexts are left as published; malformed framing is an error.
     pub fn unwrap_ring_deposit(
         &mut self,
         ring_program_id: &Address,

@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use spr_event::OutputDataEncoding;
-
 /// Raw id of the tree these helpers hash UTXOs under. The SDK reads a single
 /// tree today; the id only has to match between the hash and the tree the
 /// commitment lands in.
@@ -10,15 +8,9 @@ const SENDER_SLOT_COUNT: usize = 2;
 
 use spr_keypair::{viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey};
 use spr_transaction::{
-    serialization::{
-        anonymous::{
-            AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
-            AnonymousSenderEncode, AnonymousTransferSenderPlaintext,
-        },
-        confidential::{Confidential, ConfidentialEncode},
-    },
-    AssetRegistry, Data, EncryptedScheme, OutputContext, OutputSlot, OwnerCx, ShieldedTransaction,
-    Utxo, UtxoSerialization,
+    serialization::confidential::{Confidential, ConfidentialEncode},
+    AssetRegistry, Data, OutputContext, OutputSlot, OwnerCx, ShieldedTransaction, Utxo,
+    UtxoSerialization,
 };
 
 pub fn keypair_from_index(index: u16) -> ShieldedKeypair {
@@ -49,26 +41,6 @@ pub fn unique_nullifier(counter: &mut u64) -> [u8; 32] {
     out
 }
 
-pub struct TransferSpec<'a> {
-    pub sender: &'a ShieldedKeypair,
-    pub recipient: &'a ShieldedKeypair,
-    pub amount: u64,
-    pub slot_tag: ViewTag,
-    pub sender_view_tag: ViewTag,
-    pub first_nullifier: [u8; 32],
-    pub change_amount: u64,
-    pub blinding: [u8; 32],
-    pub blinding_seed: [u8; 32],
-}
-
-fn encrypted_payload(scheme: EncryptedScheme, ciphertext: Vec<u8>) -> Vec<u8> {
-    let mut blob = Vec::with_capacity(1 + ciphertext.len());
-    blob.push(scheme.as_byte());
-    blob.extend_from_slice(&ciphertext);
-    borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
-        .expect("output data serialization is infallible")
-}
-
 fn empty_slot() -> OutputSlot {
     OutputSlot {
         view_tag: [0u8; 32],
@@ -91,128 +63,6 @@ fn slot(view_tag: ViewTag, hash: [u8; 32], payload: Vec<u8>) -> OutputSlot {
         },
         payload,
     }
-}
-
-pub fn build_transfer(
-    assets: &AssetRegistry,
-    spec: TransferSpec<'_>,
-) -> (ShieldedTransaction, Utxo, Vec<Utxo>) {
-    let tx_key = spec
-        .sender
-        .viewing_key
-        .get_transaction_viewing_key(&spec.first_nullifier)
-        .unwrap();
-    let tx_viewing_pk = tx_key.pubkey();
-    let mut salt = [0u8; 16];
-    salt.copy_from_slice(&spec.first_nullifier[..16]);
-
-    let recipient_utxo = Utxo {
-        owner: spec.recipient.signing_pubkey(),
-        asset: spr_transaction::Mint::SOL,
-        amount: spec.amount,
-        blinding: spec.blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-
-    let sender_plaintext = AnonymousTransferSenderPlaintext {
-        owner_pubkey: spec.sender.signing_pubkey(),
-        spl_asset_id: 0,
-        spl_amount: 0,
-        sol_amount: spec.change_amount,
-        blinding_seed: spec.blinding_seed,
-        recipient_viewing_pks: vec![spec.recipient.viewing_pubkey()],
-        spl_data: Data::default(),
-        sol_data: Data::default(),
-    };
-
-    let sender_owner_cx = OwnerCx {
-        owner: spec.sender.signing_pubkey(),
-        assets,
-        ring_program_id: None,
-        // The sender bundle publishes a seed; the change blindings derive from
-        // it and this nullifier.
-        first_nullifier: Some(spec.first_nullifier),
-    };
-    let change =
-        AnonymousSenderBundle::into_utxos(sender_plaintext.clone(), &sender_owner_cx).unwrap();
-
-    let sender_cx = AnonymousSenderEncode {
-        tx: tx_key.clone(),
-        self_pubkey: spec.sender.viewing_pubkey(),
-        salt,
-        slot_index: 0,
-        blinding_seed: spec.blinding_seed,
-        recipient_viewing_pks: vec![spec.recipient.viewing_pubkey()],
-    };
-    let sender_bytes = AnonymousSenderBundle::serialize(&sender_plaintext).unwrap();
-    let sender_ciphertext = AnonymousSenderBundle::encrypt(&sender_bytes, &sender_cx).unwrap();
-    let sender_payload = encrypted_payload(EncryptedScheme::AnonymousSender, sender_ciphertext);
-
-    let nullifier_pk = spec.sender.nullifier_key.pubkey().unwrap();
-    let sender_hash = change
-        .first()
-        .map(|utxo| {
-            utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
-                .unwrap()
-        })
-        .unwrap_or([0u8; 32]);
-
-    let recipient_owner_cx = OwnerCx {
-        owner: spec.recipient.signing_pubkey(),
-        assets,
-        ring_program_id: None,
-        // An anonymous recipient slot carries its blinding literally.
-        first_nullifier: None,
-    };
-    let recipient_cx = AnonymousRecipientEncode {
-        tx: tx_key,
-        recipient_pubkey: spec.recipient.viewing_pubkey(),
-        sender_pubkey: spec.sender.viewing_pubkey(),
-        salt,
-        slot_index: 1,
-    };
-    let recipient_ciphertext = AnonymousRecipient::encode(
-        std::slice::from_ref(&recipient_utxo),
-        &recipient_owner_cx,
-        spec.slot_tag,
-        &recipient_cx,
-    )
-    .unwrap();
-
-    let recipient_nullifier_pk = spec.recipient.nullifier_key.pubkey().unwrap();
-    let recipient_hash = recipient_utxo
-        .hash(
-            &recipient_nullifier_pk,
-            &[0u8; 32],
-            &[0u8; 32],
-            TEST_TREE_ID,
-        )
-        .unwrap();
-
-    let output_slots = vec![
-        slot(spec.sender_view_tag, sender_hash, sender_payload),
-        slot(
-            recipient_ciphertext.view_tag,
-            recipient_hash,
-            recipient_ciphertext.data,
-        ),
-    ];
-
-    let tx = ShieldedTransaction {
-        slot: 0,
-        tx_signature: solana_signature::Signature::default(),
-        event_index: None,
-        tx_viewing_pk: Some(tx_viewing_pk),
-        salt: Some(salt),
-        output_slots,
-        messages: Vec::new(),
-        nullifiers: vec![spec.first_nullifier],
-        proofless: false,
-        ring_config: None,
-        ring_program_id: None,
-    };
-    (tx, recipient_utxo, change)
 }
 
 pub struct UnifiedTransferSpec<'a> {

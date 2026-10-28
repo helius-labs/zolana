@@ -1,4 +1,3 @@
-use crate::wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use solana_account::Account;
 use solana_address::Address;
 use solana_pubkey::Pubkey;
@@ -25,12 +24,10 @@ pub struct RingDepositAssertArgs<'a> {
 }
 
 #[track_caller]
-pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
+pub fn assert_ring_deposit<R: Rpc, I: Rpc>(
     rpc: &R,
     indexer: &I,
     args: RingDepositAssertArgs,
-    authority: &A,
-    recipient: &mut Wallet,
 ) -> Result<(), ClientError> {
     let RingDepositAssertArgs {
         tree,
@@ -99,26 +96,5 @@ pub fn assert_ring_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
         "photon merkle root tracks the on-chain root"
     );
 
-    let before = recipient.utxos.len();
-    recipient
-        .sync(
-            authority,
-            &[event.to_shielded_transaction(signature, tree_id)],
-            0,
-            DEFAULT_TAG_WINDOW,
-        )
-        .expect("wallet discovery");
-    assert_eq!(
-        recipient.utxos.len(),
-        before + 1,
-        "recipient wallet must discover the ring deposit"
-    );
-    let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(utxo.utxo_hash, event.utxo_hash, "wallet UTXO hash");
-    assert_eq!(
-        utxo.utxo.ring_program_id.map(|id| id.to_bytes()),
-        Some(expected_ring_program_id),
-        "wallet UTXO is owned by the ring program"
-    );
     Ok(())
 }

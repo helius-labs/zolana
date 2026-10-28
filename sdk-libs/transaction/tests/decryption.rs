@@ -7,9 +7,7 @@ use std::{
 
 use common::{keypair, wallet_utxo};
 use solana_signature::Signature;
-use spr_event::{
-    encode_merge_output_data, EncryptedRingDepositOutput, MergeOutputDataRef, OutputDataEncoding,
-};
+use spr_event::{encode_merge_output_data, MergeOutputDataRef, OutputDataEncoding};
 use spr_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
 use spr_transaction::{
     decrypt, decrypt_spendable,
@@ -17,18 +15,16 @@ use spr_transaction::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
         MERGE_DEFAULT_INPUT_COUNT,
     },
-    owner_utxo_hash,
     serialization::{
-        anonymous::{AnonymousRecipient, AnonymousRecipientEncode},
         confidential::{Confidential, ConfidentialEncode},
         plaintext::{PlaintextTransfer, TransferPlaintextUtxos},
         proofless::{Proofless, ProoflessEncode},
     },
     verify_owned, verify_spendable, Address, AssetBalance, AssetRegistry, Balances, Data,
     DataRecord, DecryptLabel, DecryptRequest, DecryptionResult, DeriveRequest, EncryptedScheme,
-    LocalShieldedKeys, Mint, OutputContext, OutputSlot, OwnerCx, RingDepositPlaintext,
-    ShieldedKeys, ShieldedTransaction, SpendableDecryptionResult, TransactionError,
-    TransactionKeyRequest, Utxo, UtxoSerialization, WalletUtxo, TRANSFER_PLAINTEXT,
+    LocalShieldedKeys, Mint, OutputContext, OutputSlot, OwnerCx, ShieldedKeys, ShieldedTransaction,
+    SpendableDecryptionResult, TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization,
+    WalletUtxo, TRANSFER_PLAINTEXT,
 };
 
 fn owner_cx<'a>(owner: &ShieldedKeypair, assets: &'a AssetRegistry) -> OwnerCx<'a> {
@@ -602,7 +598,7 @@ fn nullifier_requests_preserve_candidate_order_before_metadata_sorting() {
 }
 
 #[test]
-fn retired_viewing_keys_recover_anonymous_and_confidential_slots_with_exact_requests() {
+fn retired_viewing_keys_recover_confidential_slots_with_exact_requests() {
     let owner = keypair(22);
     let retired = keypair(23).viewing_key;
     let tx_key = keypair(24).viewing_key;
@@ -613,41 +609,19 @@ fn retired_viewing_keys_recover_anonymous_and_confidential_slots_with_exact_requ
         owner.nullifier_key.clone(),
     )
     .unwrap();
-    let mut anonymous = wallet_utxo(&owner, Mint::SOL, 17, 6, 1);
-    anonymous.slot_index = 1;
     let mut confidential = wallet_utxo(&owner, Mint::SOL, 23, 6, 2);
     confidential.slot_index = 2;
-    confidential.slot = anonymous.slot;
-    confidential.tx_signature = anonymous.tx_signature;
-    let assets = AssetRegistry::default();
-    let message = AnonymousRecipient::encode(
-        &[anonymous.utxo.clone()],
-        &owner_cx(&owner, &assets),
-        [0; 32],
-        &AnonymousRecipientEncode {
-            tx: tx_key.clone(),
-            recipient_pubkey: retired.pubkey(),
-            sender_pubkey: tx_key.pubkey(),
-            salt: [7; 16],
-            slot_index: 1,
-        },
-    )
-    .unwrap();
-    let OutputDataEncoding::Encrypted(anonymous_blob) =
-        borsh::from_slice::<OutputDataEncoding>(&message.data).unwrap()
-    else {
-        panic!("encrypted envelope")
-    };
     let confidential_slot = confidential_slot(&confidential, retired.pubkey(), &tx_key, 2);
     let OutputDataEncoding::Encrypted(confidential_blob) = confidential_slot.output_data().unwrap()
     else {
         panic!("encrypted envelope")
     };
+    let assets = AssetRegistry::default();
     let mut tx = publication(
-        &anonymous,
+        &confidential,
         vec![
-            slot(&anonymous, vec![]),
-            slot(&anonymous, message.data),
+            slot(&confidential, vec![]),
+            slot(&confidential, vec![]),
             confidential_slot,
         ],
     );
@@ -655,7 +629,7 @@ fn retired_viewing_keys_recover_anonymous_and_confidential_slots_with_exact_requ
     tx.salt = Some([7; 16]);
     assert_eq!(
         decrypt(&keys, &[tx], &assets).unwrap().utxos,
-        vec![anonymous, confidential]
+        vec![confidential]
     );
     let request = |viewing_pubkey, ciphertext: &[u8], slot_index| RecordedDecrypt {
         ciphertext: ciphertext.to_vec(),
@@ -667,81 +641,50 @@ fn retired_viewing_keys_recover_anonymous_and_confidential_slots_with_exact_requ
     };
     assert_eq!(
         *keys.decrypt_calls.borrow(),
-        vec![
-            vec![
-                request(owner.viewing_pubkey(), anonymous_blob.get(1..).unwrap(), 1),
-                request(retired.pubkey(), anonymous_blob.get(1..).unwrap(), 1)
-            ],
-            vec![request(
-                retired.pubkey(),
-                confidential_blob
-                    .get(1 + spr_keypair::x25519::X25519_PUBKEY_LEN..)
-                    .unwrap(),
-                2
-            )]
-        ]
+        vec![vec![request(
+            retired.pubkey(),
+            confidential_blob
+                .get(1 + spr_keypair::x25519::X25519_PUBKEY_LEN..)
+                .unwrap(),
+            2
+        )]]
     );
 }
 
 #[test]
-fn anonymous_scanning_skips_noise_and_foreign_owners_then_accepts_first_eligible_plaintext() {
+fn reserved_encryption_schemes_do_not_request_decryption() {
     let owner = keypair(25);
-    let other = keypair(26);
-    let mut keys = RecordingKeys::new(&owner);
-    keys.local = LocalShieldedKeys::new(
-        owner.shielded_address().unwrap(),
-        vec![
-            owner.viewing_key.clone(),
-            other.viewing_key.clone(),
-            keypair(27).viewing_key,
-        ],
-        owner.nullifier_key.clone(),
-    )
-    .unwrap();
+    let keys = RecordingKeys::new(&owner);
     let note = wallet_utxo(&owner, Mint::SOL, 19, 0, 1);
-    let assets = AssetRegistry::default();
-    let cx = AnonymousRecipientEncode {
-        tx: other.viewing_key.clone(),
-        recipient_pubkey: owner.viewing_pubkey(),
-        sender_pubkey: other.viewing_pubkey(),
-        salt: [7; 16],
-        slot_index: 0,
+    let tx_key = keypair(26).viewing_key;
+    let confidential = confidential_slot(&note, owner.viewing_pubkey(), &tx_key, 0);
+    let OutputDataEncoding::Encrypted(body) = confidential.output_data().unwrap() else {
+        panic!("encrypted envelope")
     };
-    let own = AnonymousRecipient::from_utxos(
-        std::slice::from_ref(&note.utxo),
-        &owner_cx(&owner, &assets),
-        &cx,
-    )
-    .unwrap();
-    let mut foreign = own.clone();
-    foreign.owner_pubkey = other.signing_pubkey();
-    let mut later_eligible = own.clone();
-    later_eligible.amount = 999;
-    let output = slot(
-        &note,
-        borsh::to_vec(&OutputDataEncoding::Encrypted(vec![1, 42])).unwrap(),
-    );
-    let mut tx = publication(&note, vec![output]);
-    tx.tx_viewing_pk = Some(other.viewing_pubkey());
-    tx.salt = Some([7; 16]);
-    for answers in [
-        vec![
-            vec![255],
-            foreign.serialize().unwrap(),
-            own.serialize().unwrap(),
-        ],
-        vec![
-            own.serialize().unwrap(),
-            later_eligible.serialize().unwrap(),
-            vec![],
-        ],
+    for scheme in [
+        EncryptedScheme::AnonymousRecipient,
+        EncryptedScheme::AnonymousSender,
+        EncryptedScheme::RingDeposit,
     ] {
-        keys.plaintexts = Some(answers);
+        let mut blob = body.clone();
+        *blob.first_mut().unwrap() = scheme.as_byte();
+        let mut tx = publication(
+            &note,
+            vec![slot(
+                &note,
+                borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap(),
+            )],
+        );
+        tx.tx_viewing_pk = Some(tx_key.pubkey());
+        tx.salt = Some([7; 16]);
         assert_eq!(
-            decrypt(&keys, &[tx.clone()], &assets).unwrap().utxos,
-            vec![note.clone()]
+            decrypt(&keys, &[tx], &AssetRegistry::default()).unwrap(),
+            DecryptionResult::default(),
+            "reserved scheme {scheme:?}"
         );
     }
+    assert!(keys.decrypt_calls.borrow().is_empty());
+    assert!(keys.derive_calls.borrow().is_empty());
 }
 
 #[test]
@@ -762,6 +705,7 @@ fn malformed_unsupported_foreign_and_contextless_slots_do_not_hide_valid_notes()
         OutputDataEncoding::Encrypted(vec![]),
         OutputDataEncoding::Encrypted(vec![255]),
         OutputDataEncoding::Encrypted(vec![3]),
+        OutputDataEncoding::Encrypted(vec![1]),
         OutputDataEncoding::Encrypted(vec![2]),
         OutputDataEncoding::Encrypted(vec![8]),
         OutputDataEncoding::VerifiablyEncrypted(vec![6]),
@@ -1112,74 +1056,6 @@ fn merge_publication(
     (tx, output)
 }
 
-/// A proofless ring deposit of `amount` of `mint` to `owner`, encrypted to
-/// `recipient`. Returns the note the owner should read back.
-fn ring_deposit(
-    owner: &ShieldedKeypair,
-    recipient: X25519Pubkey,
-    ring: Address,
-    mint: Mint,
-    amount: u64,
-    nonce: u8,
-) -> (ShieldedTransaction, WalletUtxo) {
-    let address = owner.shielded_address().unwrap();
-    let plaintext = RingDepositPlaintext {
-        blinding: [nonce; 32],
-        utxo_data: None,
-        memo: Some(vec![nonce]),
-        ring_data: Vec::new(),
-    };
-    let ring_data_hash = [0; 32];
-    let tree_id = 5;
-    let utxo = plaintext
-        .clone()
-        .into_utxo(address.signing_pubkey, mint, amount, ring);
-    let utxo_hash = utxo
-        .hash(
-            &address.nullifier_pubkey,
-            &[0; 32],
-            &ring_data_hash,
-            tree_id,
-        )
-        .unwrap();
-    let output = EncryptedRingDepositOutput {
-        owner_utxo_hash: owner_utxo_hash(&address.owner_hash().unwrap(), &plaintext.blinding)
-            .unwrap(),
-        asset: *mint.asset.as_array(),
-        amount,
-        data_hash: None,
-        ring_program_id: *ring.as_array(),
-        ring_data_hash,
-        encrypted: plaintext.encrypt(&recipient).unwrap(),
-    };
-    let mut blob = vec![EncryptedScheme::RingDeposit.as_byte()];
-    blob.extend(borsh::to_vec(&output).unwrap());
-    let note = WalletUtxo {
-        nullifier: owner.nullifier(&utxo_hash, &utxo.blinding).unwrap(),
-        utxo,
-        nullifier_pubkey: address.nullifier_pubkey,
-        utxo_hash,
-        tx_viewing_key: None,
-        data_hash: None,
-        ring_data_hash: Some(ring_data_hash),
-        tree_id,
-        leaf_index: u64::from(nonce),
-        latest_tree_id: None,
-        slot: u64::from(nonce),
-        tx_signature: Signature::from([nonce; 64]),
-        slot_index: 0,
-    };
-    let mut tx = publication(
-        &note,
-        vec![slot(
-            &note,
-            borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap(),
-        )],
-    );
-    tx.proofless = true;
-    (tx, note)
-}
-
 #[test]
 fn merge_outputs_decrypt_from_the_batch_in_any_order() {
     let owner = keypair(41);
@@ -1415,23 +1291,13 @@ fn outputs_in_unregistered_assets_are_reported_without_failing_the_scan() {
     unknown_id.utxo.asset.asset_id = 99;
     let proofless_mint = Mint::new(Address::new_from_array([49; 32]), 99);
     let proofless = wallet_utxo(&owner, proofless_mint, 53, 1, 2);
-    let ring_mint = Mint::new(Address::new_from_array([50; 32]), 98);
-    let (ring_tx, _) = ring_deposit(
-        &owner,
-        owner.viewing_pubkey(),
-        Address::new_from_array([9; 32]),
-        ring_mint,
-        20,
-        3,
-    );
     let txs = [
         publication(&control, vec![proofless_slot(&control, &owner)]),
         publication(&proofless, vec![proofless_slot(&proofless, &owner)]),
-        ring_tx,
         received(&owner, &unknown_id),
     ];
     let unknown_asset_ids = BTreeSet::from([99]);
-    let unknown_mints = BTreeSet::from([proofless_mint.asset, ring_mint.asset]);
+    let unknown_mints = BTreeSet::from([proofless_mint.asset]);
 
     let decrypted = decrypt(&owner, &txs, &assets).unwrap();
     assert_eq!(decrypted.utxos, vec![control.clone()]);
@@ -1444,55 +1310,10 @@ fn outputs_in_unregistered_assets_are_reported_without_failing_the_scan() {
 }
 
 #[test]
-fn ring_deposits_open_for_their_owner_and_feed_a_ring_merge() {
-    let owner = keypair(45);
-    let other = keypair(46);
-    let assets = AssetRegistry::default();
-    let ring = Address::new_from_array([9; 32]);
-    let (first_deposit, first) =
-        ring_deposit(&owner, owner.viewing_pubkey(), ring, Mint::SOL, 20, 1);
-    let (second_deposit, second) =
-        ring_deposit(&owner, owner.viewing_pubkey(), ring, Mint::SOL, 22, 2);
-    assert_eq!(first.utxo.ring_program_id, Some(ring));
-    assert_eq!(first.utxo.data.memo(), Some(&[1u8][..]));
-
-    let candidates = decrypt(
-        &owner,
-        &[first_deposit.clone(), second_deposit.clone()],
-        &assets,
-    )
-    .unwrap();
-    assert_eq!(candidates.utxos, vec![first.clone(), second.clone()]);
-
-    // Ring notes are reported apart from the default-ring balances.
-    let (merge, merged) = merge_publication(&owner, &[&first, &second], 10, Some([0; 32]));
-    assert_eq!(merged.utxo.ring_program_id, Some(ring));
-    assert_eq!(
-        decrypt_spendable(&owner, &[first_deposit, second_deposit, merge], &assets).unwrap(),
-        SpendableDecryptionResult {
-            balances: Balances::default(),
-            utxos_with_data: vec![merged],
-            ..Default::default()
-        }
-    );
-
-    // Encrypted to someone else, or opened by a key whose owner hash the deposit
-    // does not name: the unauthenticated cipher yields noise, never a note.
-    let (to_other, _) = ring_deposit(&owner, other.viewing_pubkey(), ring, Mint::SOL, 20, 3);
-    let (for_other, _) = ring_deposit(&other, owner.viewing_pubkey(), ring, Mint::SOL, 20, 4);
-    assert_eq!(
-        decrypt(&owner, &[to_other, for_other], &assets).unwrap(),
-        DecryptionResult::default()
-    );
-}
-
-#[test]
 fn low_order_transaction_keys_leave_the_scan_intact() {
     let owner = keypair(47);
     let assets = AssetRegistry::default();
     let note = wallet_utxo(&owner, Mint::SOL, 33, 7, 5);
-    let ring = Address::new_from_array([9; 32]);
-    let (deposit, deposited) = ring_deposit(&owner, owner.viewing_pubkey(), ring, Mint::SOL, 20, 6);
     let mut batch = Vec::new();
     for u in [0, 1] {
         let mut low_order = [0; 32];
@@ -1502,24 +1323,9 @@ fn low_order_transaction_keys_leave_the_scan_intact() {
         let mut confidential = received(&owner, &note);
         confidential.tx_viewing_pk = Some(low_order);
         batch.push(confidential);
-
-        let mut ring_deposit = deposit.clone();
-        let OutputDataEncoding::Encrypted(blob) =
-            borsh::from_slice(&ring_deposit.output_slots[0].payload).unwrap()
-        else {
-            panic!("ring deposit slot is encrypted");
-        };
-        let mut output = borsh::from_slice::<EncryptedRingDepositOutput>(&blob[1..]).unwrap();
-        output.encrypted.tx_viewing_pk = *low_order.as_bytes();
-        let mut blob = vec![EncryptedScheme::RingDeposit.as_byte()];
-        blob.extend(borsh::to_vec(&output).unwrap());
-        ring_deposit.output_slots[0].payload =
-            borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap();
-        batch.push(ring_deposit);
     }
     batch.push(received(&owner, &note));
-    batch.push(deposit);
 
     let candidates = decrypt(&owner, &batch, &assets).unwrap();
-    assert_eq!(candidates.utxos, vec![note, deposited]);
+    assert_eq!(candidates.utxos, vec![note]);
 }

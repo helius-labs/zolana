@@ -6,7 +6,7 @@ use solana_signer::Signer;
 use spr_event::SplTransfer;
 use spr_event_parser::general_event_from_indexed;
 use spr_interface::{instruction::deposit_blinding, pda, state::STATE_ROOT_HISTORY_CAPACITY};
-use spr_keypair::{ShieldedKeypair, ViewingKey};
+use spr_keypair::ShieldedKeypair;
 use spr_program::instruction::{AssetDeposit, Deposit};
 use spr_program_test::{DepositOutput, RingDepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 use spr_test_utils::litesvm_asserts::{
@@ -15,8 +15,8 @@ use spr_test_utils::litesvm_asserts::{
 };
 use spr_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use spr_transaction::{
-    derive_output_blinding_seed, owner_utxo_hash, serialization::RingDepositPlaintext,
-    utxo::derive_transact_output_blinding, AssetRegistry, Data, Utxo,
+    derive_output_blinding_seed, owner_utxo_hash, utxo::derive_transact_output_blinding,
+    AssetRegistry, Data, Utxo,
 };
 use spr_tree::TreeAccount;
 
@@ -443,18 +443,14 @@ fn ring_sol_deposit_settles_and_indexes_the_exact_output() {
     let tree = pool.tree;
     let depositor = pool.funded_signer(5_000_000_000);
     let recipient_key = ShieldedKeypair::new_ed25519().expect("recipient keypair");
-    let mut recipient = Wallet::new(
-        recipient_key.shielded_address().expect("shielded address"),
-        AssetRegistry::default(),
-    )
-    .expect("recipient wallet");
+    let recipient = recipient_key.shielded_address().expect("shielded address");
     let output_blinding_seed = derive_output_blinding_seed(&FIXTURE_FIRST_NULLIFIER, &[5u8; 32])
         .expect("output blinding seed");
     let blinding =
         derive_transact_output_blinding(&FIXTURE_FIRST_NULLIFIER, &output_blinding_seed, 0)
             .expect("output blinding");
     let mut data =
-        ZolanaProgramTest::wallet_ring_sol_shield_data(600_000_000, &recipient.identity, blinding)
+        ZolanaProgramTest::wallet_ring_sol_shield_data(600_000_000, &recipient, blinding)
             .expect("ring SOL deposit data");
     data.ring_data_hash = [5u8; 32];
     let root_before = pool.rpc.state_root(&tree).expect("root");
@@ -492,7 +488,6 @@ fn ring_sol_deposit_settles_and_indexes_the_exact_output() {
     );
     litesvm_assert_ring_deposit(
         &mut pool.rpc,
-        &mut recipient,
         RingDepositAssertArgs {
             tree: &tree,
             event: &event,
@@ -501,14 +496,12 @@ fn ring_sol_deposit_settles_and_indexes_the_exact_output() {
             expected_asset: [0u8; 32],
             expected_ring_program_id: RING_TEST_PROGRAM_ID,
             root_before,
-            authority: &KeypairWalletAuthority::new(Address::default(), &recipient_key),
         },
     );
-    assert_eq!(recipient.utxos.len(), 1);
 }
 
 #[test]
-fn ring_deposit_event_carries_the_ring_data_preimage_verbatim() {
+fn ring_deposit_event_carries_the_opaque_ciphertext_verbatim() {
     let mut pool = Pool::initialized();
     pool.rpc
         .load_ring_test_program()
@@ -528,19 +521,7 @@ fn ring_deposit_event_carries_the_ring_data_preimage_verbatim() {
         .rpc
         .ring_sol_shield_data(1_000_000, [4u8; 32], [4u8; 32]);
     data.ring_data_hash = [6u8; 32];
-    // The ring_data preimage travels inside the owner-hidden encrypted
-    // envelope, so the event must carry the ciphertext verbatim and the
-    // plaintext must round-trip back to the exact ring_data bytes.
-    let viewing_key = ViewingKey::new();
-    let ring_data = vec![11, 22, 33, 44, 55];
-    data.encrypted = RingDepositPlaintext {
-        blinding: [4u8; 32],
-        utxo_data: None,
-        memo: None,
-        ring_data: ring_data.clone(),
-    }
-    .encrypt(&viewing_key.pubkey())
-    .expect("encrypt ring deposit plaintext");
+    data.encrypted.ciphertext = vec![11, 22, 33, 44, 55];
 
     let event = pool
         .rpc
@@ -549,12 +530,6 @@ fn ring_deposit_event_carries_the_ring_data_preimage_verbatim() {
     assert_eq!(
         event.output.encrypted.ciphertext, data.encrypted.ciphertext,
         "emitted output carries the encrypted envelope verbatim"
-    );
-    let plaintext = RingDepositPlaintext::decrypt(&event.output.encrypted, &viewing_key)
-        .expect("decrypt ring deposit plaintext");
-    assert_eq!(
-        plaintext.ring_data, ring_data,
-        "ring_data preimage round-trips verbatim"
     );
     assert_eq!(
         event.output.ring_data_hash, data.ring_data_hash,
@@ -611,19 +586,10 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
         )
         .expect("output blinding");
         let ring_data_hash = [position.checked_add(1).expect("ring-data seed"); 32];
-        let ring_data = vec![position, position.checked_add(10).expect("ring-data byte")];
         let mut data = ZolanaProgramTest::wallet_ring_sol_shield_data(amount, &recipient, blinding)
             .expect("ring deposit data");
         data.ring_data_hash = ring_data_hash;
-        data.encrypted = RingDepositPlaintext {
-            blinding,
-            utxo_data: None,
-            memo: None,
-            ring_data,
-        }
-        .encrypt(&recipient.viewing_pubkey)
-        .expect("encrypt ring deposit data");
-
+        data.encrypted.ciphertext = vec![position, position.checked_add(10).expect("payload byte")];
         let expected_utxo = Utxo {
             owner: recipient.signing_pubkey,
             asset: spr_transaction::Mint::SOL,
@@ -704,31 +670,17 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
             true,
         )
         .expect("create ring config");
-    let (mint, registry_address, vault) = register_mint(&mut pool);
-    let registry_data = pool
-        .rpc
-        .account_data(&registry_address)
-        .expect("asset registry");
-    let asset = spr_interface::state::SplAssetRegistry::from_account_bytes(&registry_data)
-        .expect("asset registry");
+    let (mint, _, vault) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);
     let recipient_key = ShieldedKeypair::new_ed25519().expect("recipient keypair");
-    let mut recipient = Wallet::new(
-        recipient_key.shielded_address().expect("shielded address"),
-        AssetRegistry::new([(asset.asset_id, mint)]).expect("registered asset"),
-    )
-    .expect("recipient wallet");
+    let recipient = recipient_key.shielded_address().expect("shielded address");
     let output_blinding_seed = derive_output_blinding_seed(&FIXTURE_FIRST_NULLIFIER, &[9u8; 32])
         .expect("output blinding seed");
     let blinding =
         derive_transact_output_blinding(&FIXTURE_FIRST_NULLIFIER, &output_blinding_seed, 0)
             .expect("output blinding");
     let mut data = ZolanaProgramTest::wallet_ring_spl_shield_data(
-        350_000,
-        mint,
-        user_token,
-        &recipient.identity,
-        blinding,
+        350_000, mint, user_token, &recipient, blinding,
     )
     .expect("ring SPL deposit data");
     data.ring_data_hash = [9u8; 32];
@@ -751,7 +703,6 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
     );
     litesvm_assert_ring_deposit(
         &mut pool.rpc,
-        &mut recipient,
         RingDepositAssertArgs {
             tree: &tree,
             event: &event,
@@ -760,10 +711,8 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
             expected_asset: mint.to_bytes(),
             expected_ring_program_id: RING_TEST_PROGRAM_ID,
             root_before,
-            authority: &KeypairWalletAuthority::new(Address::default(), &recipient_key),
         },
     );
-    assert_eq!(recipient.utxos.len(), 1);
 }
 
 /// The batch append writes one root for the whole batch; the indexer replays
