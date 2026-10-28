@@ -1,14 +1,14 @@
 //! Litesvm program-test for the `ConfidentialEddsa` rail: the owner signs the
 //! transaction message digest inside the proof and never signs the Solana
-//! transaction, which another account pays for. Covers the relayed spend, a
-//! selector naming another owner key, and a spend mixing an in-circuit owner
-//! with a Solana co-signer.
+//! transaction, which another account pays for. Covers every supported shape
+//! with nonzero transfers, a selector naming another owner key, and a spend
+//! mixing an in-circuit owner with a Solana co-signer.
 //!
 //! Requires the `proofs` feature and `just build-programs build-prover-server build-cli`.
 
 use num_bigint::BigUint;
 use shielded_pool_tests::support::{
-    merge::{RealDeposit, ZeroDeposits},
+    merge::RealDeposit,
     transact::{current_tree_roots, proof_env, tree_progress, Pool},
 };
 use solana_address::Address;
@@ -19,7 +19,10 @@ use spr_client::{
 };
 use spr_hasher::Poseidon;
 use spr_interface::{
-    error::ShieldedPoolError, instruction::instruction_data::transact::CircuitId, shape::Shape,
+    error::ShieldedPoolError,
+    instruction::instruction_data::transact::CircuitId,
+    shape::{Shape, CONFIDENTIAL_EDDSA_SHAPES},
+    N_PUBLIC_SLOTS,
 };
 use spr_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use spr_merkle_tree::{indexed::NonInclusionProof as IndexedNonInclusionProof, MerkleTree};
@@ -31,10 +34,10 @@ use spr_test_utils::{
 };
 use spr_transaction::{
     instructions::transact::{ConfidentialTransaction, SppProofInputs},
-    WalletUtxo,
+    Mint, SppProofOutputUtxo, WalletUtxo,
 };
 
-/// Zero-value deposits with one owner each, in one empty tree, with the
+/// Deposits with one owner each, in one empty tree, with the
 /// inclusion and non-inclusion witnesses a spend of every one needs.
 struct OwnedDeposits {
     utxo_root: [u8; 32],
@@ -44,28 +47,13 @@ struct OwnedDeposits {
     deposits: Vec<RealDeposit>,
 }
 
-fn owned_deposits(env: &mut Pool, owners: &[(PublicKey, &NullifierKey)]) -> OwnedDeposits {
+fn owned_deposits(
+    env: &mut Pool,
+    owners: &[(PublicKey, &NullifierKey)],
+    amount: u64,
+) -> OwnedDeposits {
     let payer = env.rpc.payer.insecure_clone();
     let (tree, tree_id) = (env.tree, env.tree_id);
-    if let [(owner, nullifier_key)] = owners {
-        let deposits = ZeroDeposits {
-            rpc: &mut env.rpc,
-            tree,
-            depositor: &payer,
-            owner: *owner,
-            nullifier_key,
-            tree_id,
-            count: 1,
-        }
-        .deposit();
-        return OwnedDeposits {
-            utxo_root: deposits.utxo_root,
-            utxo_root_index: deposits.utxo_root_index,
-            nullifier_root: deposits.nullifier_root,
-            nullifier_tree: deposits.nullifier_tree,
-            deposits: deposits.deposits,
-        };
-    }
     let zero = [0u8; 32];
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     let mut leaves = Vec::with_capacity(owners.len());
@@ -74,8 +62,8 @@ fn owned_deposits(env: &mut Pool, owners: &[(PublicKey, &NullifierKey)]) -> Owne
         let owner_field = owner_hash(owner, &nullifier_pk).expect("owner field");
         let event = env
             .rpc
-            .deposit_sol(&tree, &payer, 0, owner_field)
-            .expect("proofless zero deposit");
+            .deposit_sol(&tree, &payer, amount, owner_field)
+            .expect("proofless deposit");
         let utxo = env
             .rpc
             .indexed_deposit_utxo(&event, *owner)
@@ -257,7 +245,11 @@ fn send(
 fn a_relayer_pays_and_the_owner_signs_only_in_circuit() {
     let mut env = proof_env();
     let owner = ShieldedKeypair::new_ed25519().expect("owner keypair");
-    let deposits = owned_deposits(&mut env, &[(owner.signing_pubkey(), &owner.nullifier_key)]);
+    let deposits = owned_deposits(
+        &mut env,
+        &[(owner.signing_pubkey(), &owner.nullifier_key)],
+        0,
+    );
     let note = deposits.note(0, &owner.nullifier_key, env.tree_id);
     let mut assembled = assemble_relayed(&env, &deposits, vec![note], &owner);
     let proof = assembled
@@ -293,6 +285,97 @@ fn a_relayer_pays_and_the_owner_signs_only_in_circuit() {
         .expect("nullifier PDA for the relayed input");
 }
 
+/// Every supported key proves a nonzero transfer that SPP executes. Exercise
+/// each input and output slot in separate transactions so the widest shapes
+/// fit the transaction size limit; unused slots are compact padding.
+#[test]
+fn every_confidential_eddsa_shape_proves_and_executes_at_its_input_and_output_capacity() {
+    const LAMPORTS_PER_NOTE: u64 = 1_000_000;
+
+    for shape in CONFIDENTIAL_EDDSA_SHAPES {
+        for (input_count, output_count) in [(shape.n_inputs(), 1), (1, shape.n_outputs())] {
+            let mut env = proof_env();
+            let owner = ShieldedKeypair::new_ed25519().expect("owner keypair");
+            let recipient = ShieldedKeypair::new_ed25519().expect("recipient keypair");
+            let owners = vec![(owner.signing_pubkey(), &owner.nullifier_key); input_count];
+            let deposits =
+                owned_deposits(&mut env, &owners, output_count as u64 * LAMPORTS_PER_NOTE);
+            let notes = (0..input_count)
+                .map(|index| deposits.note(index, &owner.nullifier_key, env.tree_id))
+                .collect();
+            let mut transfer = ConfidentialTransaction::new_compact(notes, env.rpc.payer.pubkey())
+                .expect("compact transfer")
+                .with_transaction_signers(&[env.rpc.payer.pubkey()])
+                .with_output_tree_id(env.tree_id)
+                .expect("output tree");
+            for _ in 0..output_count {
+                transfer
+                    .add_output_utxo(SppProofOutputUtxo {
+                        owner_address: Some(recipient.shielded_address().expect("recipient")),
+                        asset: Mint::SOL,
+                        amount: input_count as u64 * LAMPORTS_PER_NOTE,
+                        ..Default::default()
+                    })
+                    .expect("recipient output");
+            }
+            transfer
+                .pad_utxos(shape, &owner.shielded_address().expect("owner"))
+                .expect("pad to the selected shape");
+            let proof_inputs = transfer.encrypt(&owner).expect("encrypt");
+            let (spends, padding) = deposits.witnesses(env.tree, &proof_inputs);
+            let mut assembled =
+                assemble_confidential_eddsa(proof_inputs, &spends, &padding, &owner.signing_key)
+                    .expect("assemble the selected shape");
+            let proof = assembled
+                .prove(&ProverClient::local(), &owner)
+                .unwrap_or_else(|error| {
+                    panic!("prove {shape:?} ({input_count}x{output_count}): {error}")
+                });
+            let data = assembled.with_proof(proof);
+            let CircuitId::ConfidentialEddsa(n_inputs, n_outputs, n_public_slots, proof_data) =
+                data.circuit
+            else {
+                panic!("unexpected selector {:?}", data.circuit);
+            };
+            assert_eq!(
+                (
+                    (usize::from(n_inputs), usize::from(n_outputs)),
+                    usize::from(n_public_slots),
+                    proof_data.owner_pk,
+                    (data.inputs.len(), data.outputs.len()),
+                ),
+                (
+                    (shape.n_inputs(), shape.n_outputs()),
+                    N_PUBLIC_SLOTS,
+                    owner.signing_pubkey().as_ed25519().expect("ed25519 owner"),
+                    (input_count, output_count),
+                ),
+                "selector and published slots for {shape:?}"
+            );
+            let nullifiers: Vec<_> = data
+                .inputs
+                .iter()
+                .map(|input| input.nullifier_hash)
+                .collect();
+            let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &env.tree);
+            let ix = transact_ix(&env, Vec::new(), data);
+            send(&mut env, ix).unwrap_or_else(|error| {
+                panic!("execute {shape:?} ({input_count}x{output_count}): {error}")
+            });
+            assert_eq!(
+                tree_progress(&env.rpc, &env.tree),
+                (
+                    utxo_next_before + output_count as u64,
+                    nullifier_next_before + input_count as u64,
+                ),
+                "published outputs appended and inputs nullified for {shape:?}"
+            );
+            spr_test_utils::nullifier_pda::assert_nullifier_pdas(&env.rpc, &env.tree, &nullifiers)
+                .expect("nullifier PDAs for every input");
+        }
+    }
+}
+
 /// The selector's owner key is a public input: a proof for one owner does not
 /// verify under another owner's key, with or without that owner signing.
 #[test]
@@ -300,7 +383,11 @@ fn a_selector_naming_another_owner_key_fails_verification() {
     let mut env = proof_env();
     let owner = ShieldedKeypair::new_ed25519().expect("owner keypair");
     let other = ShieldedKeypair::new_ed25519().expect("other keypair");
-    let deposits = owned_deposits(&mut env, &[(owner.signing_pubkey(), &owner.nullifier_key)]);
+    let deposits = owned_deposits(
+        &mut env,
+        &[(owner.signing_pubkey(), &owner.nullifier_key)],
+        0,
+    );
     let note = deposits.note(0, &owner.nullifier_key, env.tree_id);
     let mut assembled = assemble_relayed(&env, &deposits, vec![note], &owner);
     let proof = assembled
@@ -340,6 +427,7 @@ fn a_mixed_spend_authorizes_one_input_in_circuit_and_one_by_a_co_signer() {
             (owner.signing_pubkey(), &owner.nullifier_key),
             (co_signer.signing_pubkey(), &co_signer.nullifier_key),
         ],
+        0,
     );
     let notes = vec![
         deposits.note(0, &owner.nullifier_key, env.tree_id),
@@ -388,6 +476,7 @@ fn a_co_signers_note_still_needs_the_co_signer_to_sign() {
             (owner.signing_pubkey(), &owner.nullifier_key),
             (co_signer.signing_pubkey(), &co_signer.nullifier_key),
         ],
+        0,
     );
     let notes = vec![
         deposits.note(0, &owner.nullifier_key, env.tree_id),
