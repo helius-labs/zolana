@@ -1,6 +1,6 @@
 module github.com/helius-labs/zolana/prover/server
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/NVIDIA/go-nvml v0.13.4-0
@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/service/kms v1.61.2
 	github.com/consensys/gnark v0.16.4
-	github.com/consensys/gnark-crypto v0.21.1-0.20260913224755-1409fe592052
+	github.com/consensys/gnark-crypto v0.22.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/handlers v1.5.2
 	github.com/hf/nsm v0.0.0-20220930140112-cd181bd646b9
