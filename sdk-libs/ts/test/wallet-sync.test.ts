@@ -1938,6 +1938,57 @@ describe("wallet sync", () => {
     );
   });
 
+  it("records no outbound row for an authored anonymous transfer", async () => {
+    const sender = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: sender.shieldedAddress() });
+    const inputBlinding = bytes(31);
+    const input = new Utxo({
+      owner: sender.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 100n,
+      blinding: inputBlinding,
+    });
+    const inputHash = input.hash(sender.nullifierPublicKey(), DEFAULT_TREE_ID);
+    const nullifier = sender.nullifier(inputHash, inputBlinding);
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        {
+          utxo: input,
+          outputContext: { hash: inputHash, tree: TREE, leafIndex: 0n },
+          nullifier,
+          spent: false,
+        },
+      ],
+    });
+    const txKey = sender.transactionViewingKey(nullifier);
+    const outputSlots = [EncryptedScheme.anonymousSender, EncryptedScheme.anonymousRecipient].map(
+      (scheme, index) => ({
+        viewTag: sender.viewingPublicKey().x(),
+        outputContext: { hash: bytes(60 + index), tree: TREE, leafIndex: BigInt(index + 1) },
+        payload: encodeOutputData(scheme, bytes(70 + index), "encrypted"),
+      }),
+    );
+
+    await decryptWithKeys(LocalShieldedKeys.fromKeypair(sender), {
+      wallet,
+      transactions: [
+        {
+          slot: 3n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: txKey.publicKey(),
+          salt: new Uint8Array(16).fill(5) as Bytes16,
+          outputSlots,
+          messages: [],
+          nullifiers: [nullifier],
+          proofless: false,
+        },
+      ],
+    });
+
+    expect(wallet.privateTransactions()).toEqual([]);
+  });
+
   it("recovers ring merges indexed by the first input nullifier", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });

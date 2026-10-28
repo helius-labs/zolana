@@ -153,6 +153,22 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
   return { senderSites, recipientSites, mergeSites, unparsedTransactions };
 }
 
+/** A custom ring records the history of its anonymous and deposit transactions. */
+function carriesReservedScheme(tx: IndexedShieldedTransaction): boolean {
+  return tx.outputSlots.some((slot) => {
+    try {
+      const { scheme } = readOutputData(slot.payload);
+      return (
+        scheme === EncryptedScheme.anonymousRecipient ||
+        scheme === EncryptedScheme.anonymousSender ||
+        scheme === EncryptedScheme.ringDeposit
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
 function compareBigints(left: bigint, right: bigint): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -583,6 +599,7 @@ class SyncPass {
     if (tx.txViewingPublicKey === undefined || firstNullifier === undefined || salt === undefined) {
       return;
     }
+    if (carriesReservedScheme(tx)) return;
     const txKey = this.#keys.transactionKey({ viewingPublicKey, firstNullifier });
     if (txKey === undefined) return;
     if (!equalBytes(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
