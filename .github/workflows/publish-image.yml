@@ -3,7 +3,6 @@ name: publish-image
 on:
   push:
     branches: [main]
-    tags: ["photon-zolana-*"]
     paths:
       - "services/photon/**"
       - "forester/**"
@@ -15,25 +14,26 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
+      - "tools/*release*"
+      - "tools/release-probe/**"
       - "tools/images.json"
       - "tools/check-photon-image.sh"
-      - "tools/release-changes.py"
       - ".github/workflows/publish-*.yml"
   workflow_dispatch:
     inputs:
       service:
-        description: Service to publish
+        description: Rebuild changed services, optionally forcing one service
         type: choice
-        options: [photon, forester, prover]
-        default: photon
+        options: [changed, photon, forester, prover]
+        default: changed
       channel:
-        description: Release opens the devnet-d deployment PR
+        description: Release creates a complete deployment candidate
         type: choice
         options: [release, preview]
         default: release
 
 concurrency:
-  group: publish-image-${{ github.ref }}-${{ inputs.service || 'auto' }}
+  group: source-release-${{ github.ref }}
   queue: max
 
 permissions:
@@ -43,38 +43,45 @@ jobs:
   changes:
     runs-on: ubuntu-24.04
     outputs:
-      short_sha: ${{ steps.changes.outputs.short_sha }}
-      services: ${{ steps.changes.outputs.services }}
-      nitro: ${{ steps.changes.outputs.nitro }}
+      services: ${{ steps.plan.outputs.services }}
+      nitro: ${{ steps.plan.outputs.nitro }}
+      any: ${{ steps.plan.outputs.any }}
+      short_sha: ${{ steps.plan.outputs.short_sha }}
+      base_release: ${{ steps.plan.outputs.base_release }}
+      profile: ${{ steps.plan.outputs.profile }}
+      measured_source: ${{ steps.plan.outputs.measured_source }}
+      build_tools: ${{ steps.plan.outputs.build_tools }}
+      candidate: ${{ steps.plan.outputs.candidate }}
+      generation: ${{ steps.plan.outputs.generation }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - id: changes
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: app
+        if: inputs.channel != 'preview'
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: helius-labs
+          repositories: zolana-infra
+      - id: plan
         env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-          SERVICE: ${{ inputs.service }}
-          CHANNEL: ${{ inputs.channel }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SERVICE: ${{ inputs.service || 'changed' }}
+          CHANNEL: ${{ inputs.channel || 'release' }}
         run: |
-          set -euo pipefail
-          if [[ "$EVENT" == workflow_dispatch ]]; then
-            services="$(jq -nc --arg s "$SERVICE" '[$s]')"
-            nitro=false
-            if [[ "$SERVICE" == prover && "$CHANNEL" == release ]]; then nitro=true; fi
-          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            services='["photon"]'
-            nitro=false
+          if [[ "$CHANNEL" == preview ]]; then
+            [[ "$SERVICE" != changed ]] || { echo 'Choose a service for preview'; exit 1; }
+            {
+              echo "services=$(jq -nc --arg s "$SERVICE" '[$s]')"
+              echo 'nitro=false'
+              echo 'any=false'
+              echo "short_sha=${GITHUB_SHA:0:12}"
+            } >> "$GITHUB_OUTPUT"
           else
-            changes="$(python3 tools/release-changes.py "$BEFORE" "$GITHUB_SHA")"
-            services="$(jq -c .services <<< "$changes")"
-            nitro="$(jq -r .nitro <<< "$changes")"
+            python3 tools/release-catalog.py plan
           fi
-          {
-            echo "short_sha=${GITHUB_SHA:0:12}"
-            echo "services=$services"
-            echo "nitro=$nitro"
-          } >> "$GITHUB_OUTPUT"
 
   publish:
     needs: changes
@@ -94,11 +101,23 @@ jobs:
       channel: ${{ inputs.channel || 'release' }}
       image_tag: ${{ format('{0}-{1}-{2}', matrix.service, inputs.channel == 'preview' && 'preview' || 'zolana', needs.changes.outputs.short_sha) }}
 
-  nitro:
-    needs: [changes, publish]
+  prepare:
+    needs: changes
     if: needs.changes.outputs.nitro == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: image-publish
+    outputs:
+      kms_key: ${{ steps.key.outputs.kms_key }}
+      seed_context: ${{ steps.key.outputs.seed_context }}
+      backend: ${{ steps.key.outputs.backend }}
+      concurrency: ${{ steps.key.outputs.concurrency }}
+      indexer_url: ${{ steps.key.outputs.indexer_url }}
+    permissions:
+      contents: read
+      id-token: write
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         id: app
         with:
@@ -106,12 +125,224 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           owner: helius-labs
           repositories: zolana-infra
-      - name: Prepare Nitro release
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
+          aws-region: eu-north-1
+      - id: key
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
-          SOURCE_COMMIT: ${{ github.sha }}
-          RUN_ID: ${{ github.run_id }}
+          PROFILE: ${{ needs.changes.outputs.profile }}
+          CANDIDATE: ${{ needs.changes.outputs.candidate }}
+        run: python3 tools/release-catalog.py prepare "$PROFILE" "$CANDIDATE"
+
+  nitro:
+    needs: [changes, prepare]
+    if: needs.changes.outputs.nitro == 'true'
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/publish-nitro.yml
+    secrets: inherit
+    with:
+      deployment: devnet-d-${{ needs.changes.outputs.generation }}
+      kms_key_arn: ${{ needs.prepare.outputs.kms_key }}
+      source_commit: ${{ needs.changes.outputs.measured_source }}
+      build_tools_commit: ${{ needs.changes.outputs.build_tools }}
+      backend: ${{ needs.prepare.outputs.backend }}
+      concurrency: ${{ needs.prepare.outputs.concurrency }}
+      indexer_url: ${{ needs.prepare.outputs.indexer_url }}
+      candidate_id: ${{ needs.changes.outputs.candidate }}
+      seed_context: ${{ needs.prepare.outputs.seed_context }}
+      profile_json: ${{ needs.changes.outputs.profile }}
+
+  probe:
+    needs: changes
+    if: needs.changes.outputs.any == 'true' && inputs.channel != 'preview'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: image-publish
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      TAG: probe-zolana-${{ needs.changes.outputs.short_sha }}
+      REPOSITORY: zolana-release-probe
+      COMMIT_ALIAS: sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
+          aws-region: eu-north-1
+      - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
+      - id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/release-image.sh resolve probe "$REPOSITORY" "$TAG" publish-image.yml
+      - uses: ./.github/actions/setup-rust
+        if: steps.existing.outputs.digest == ''
+        with:
+          install-just: "false"
+          shared-key: release-probe
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Build verification executable once
+        if: steps.existing.outputs.digest == ''
         run: |
-          jq -n --arg source_commit "$SOURCE_COMMIT" --arg run_id "$RUN_ID" \
-            '{event_type:"prepare-nitro-release", client_payload:{source_commit:$source_commit, run_id:$run_id}}' \
-            | gh api repos/helius-labs/zolana-infra/dispatches --input -
+          sudo apt-get update -qq
+          sudo apt-get install -y libudev-dev libclang-dev protobuf-compiler
+          cargo build --locked --release -p spr-release-probe
+          docker build -f tools/release-probe/Dockerfile -t "558215002830.dkr.ecr.eu-north-1.amazonaws.com/$REPOSITORY:$TAG" .
+          bash tools/release-image.sh intent probe "$REPOSITORY" "$TAG" publish-image.yml
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.existing.outputs.digest == ''
+        with:
+          subject-path: ${{ runner.temp }}/build-intent.json
+      - name: Retain build intent
+        if: steps.existing.outputs.digest == ''
+        run: bash tools/release-image.sh retain-intent probe "$REPOSITORY" "$TAG" publish-image.yml
+      - id: publish
+        env:
+          EXISTING_DIGEST: ${{ steps.existing.outputs.digest }}
+        run: bash tools/release-image.sh push probe "$REPOSITORY" "$TAG" publish-image.yml
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: 558215002830.dkr.ecr.eu-north-1.amazonaws.com/zolana-release-probe
+          subject-digest: ${{ steps.publish.outputs.digest }}
+      - name: Describe probe artifact
+        env:
+          IMAGE: ${{ steps.publish.outputs.image }}
+        run: jq -n --arg image "$IMAGE" --arg source "$GITHUB_SHA" '{kind:"probe",image:$image,source_commit:$source}' > "$RUNNER_TEMP/probe.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-part-probe
+          path: ${{ runner.temp }}/probe.json
+          if-no-files-found: error
+          overwrite: true
+
+  quality:
+    permissions:
+      contents: read
+      actions: read
+    needs: changes
+    if: needs.changes.outputs.any == 'true' && inputs.channel != 'preview'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Wait for source CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/release-catalog.py quality "$RUNNER_TEMP/quality.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-quality
+          path: ${{ runner.temp }}/quality.json
+          overwrite: true
+
+  qualify:
+    needs: [changes, nitro, probe, quality]
+    if: needs.changes.outputs.nitro == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    environment: image-publish
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: helius-labs
+          repositories: zolana-infra
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-part-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/parts
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-quality
+          path: ${{ runner.temp }}
+      - name: Describe CI-verified qualification request
+        run: python3 tools/release-catalog.py qualification-request "$RUNNER_TEMP/parts" "$RUNNER_TEMP/quality.json" "$RUNNER_TEMP/request.json"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/request.json
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
+          aws-region: eu-north-1
+      - name: Qualify sealed identity before cutover
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: python3 tools/release-catalog.py qualify "$RUNNER_TEMP/request.json" "$RUNNER_TEMP/parts/nitro.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-part-nitro
+          path: ${{ runner.temp }}/parts/nitro.json
+          overwrite: true
+
+  finalize:
+    needs: [changes, publish, nitro, probe, quality, qualify]
+    if: >-
+      always() && needs.changes.outputs.any == 'true' && inputs.channel != 'preview' &&
+      (needs.publish.result == 'success' || needs.changes.outputs.services == '[]') && needs.probe.result == 'success' && needs.quality.result == 'success' &&
+      (needs.changes.outputs.nitro != 'true' || (needs.nitro.result == 'success' && needs.qualify.result == 'success'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 95
+    environment: image-publish
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-quality
+          path: ${{ runner.temp }}
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: helius-labs
+          repositories: zolana-infra
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-part-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-parts
+      - name: Assemble complete immutable release
+        id: release
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          BASE_RELEASE: ${{ needs.changes.outputs.base_release }}
+          EXPECTED_SERVICES: ${{ needs.changes.outputs.services }}
+          EXPECTED_NITRO: ${{ needs.changes.outputs.nitro }}
+        run: python3 tools/release-catalog.py assemble "$RUNNER_TEMP/release-parts" "$BASE_RELEASE" "$RUNNER_TEMP/quality.json" "$RUNNER_TEMP/release.json"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/release.json
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_IMAGE_PUBLISHER_ROLE_ARN }}
+          aws-region: eu-north-1
+      - name: Commit release publication
+        run: python3 tools/release-catalog.py publish "$RUNNER_TEMP/release.json"
+      - name: Wake release reconciliation
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          if ! jq -n --arg release "$RELEASE_ID" '{event_type:"release-catalog-published",client_payload:{release_id:$release}}' | gh api repos/helius-labs/zolana-infra/dispatches --input -; then
+            echo '::warning::Release is safely published. Scheduled reconciliation will recover the notification.'
+          fi
+          echo '[Review deployment PR](https://github.com/helius-labs/zolana-infra/pulls?q=is%3Apr+is%3Aopen+head%3Arelease%2Fdevnet-d)' >> "$GITHUB_STEP_SUMMARY"

@@ -1272,3 +1272,30 @@ describe("a live AWS Nitro attestation", () => {
     );
   });
 });
+
+describe("Nitro rotation preserves image and key pairs across languages", () => {
+  const live = decode.record(
+    json("../../../prover/tee/testdata/nitro_live_attestation.json"),
+    "live",
+  );
+  const cases = decode.list(
+    json("../../../prover/tee/testdata/nitro_rotation_cases.json"),
+    "cases",
+  );
+  for (const entry of cases) {
+    const vector = decode.record(entry, "case");
+    it(decode.string(vector["name"], "name"), () => {
+      const policy = teePolicyFromJson(vector["policy"]);
+      const verdict = check(() =>
+        verifyAttestation(
+          live["attestation"],
+          policy,
+          hexToBytes(decode.string(live["nonce"], "nonce")),
+          Number(decode.integer(live["captured_at"], "captured_at")),
+        ),
+      );
+      expect(verdict === undefined).toBe(vector["accept"]);
+      expect(checkedTeePolicy(policy)).toEqual(policy);
+    });
+  }
+});

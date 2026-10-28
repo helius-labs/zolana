@@ -57,6 +57,8 @@ export type NitroMeasurement = Readonly<{
   pcr0: string;
   pcr1: string;
   pcr2: string;
+  /** Optional key bound to this measured image during a rotation. */
+  hpkePublicKey?: string;
 }>;
 
 export type AwsNitroPolicy = Readonly<{
@@ -121,19 +123,26 @@ export const AWS_NITRO: PlatformModule<AwsNitroPolicy> = Object.freeze({
     const hpkePublicKey = fields.optionalHex("hpke_public_key", 32);
     return Object.freeze({
       platform: "aws-nitro",
-      measurements: fields.records("measurements", (m) =>
-        Object.freeze({
+      measurements: fields.records("measurements", (m) => {
+        const hpkePublicKey = m.optionalHex("hpke_public_key", 32);
+        return Object.freeze({
           pcr0: m.hex("pcr0", PCR_SIZE),
           pcr1: m.hex("pcr1", PCR_SIZE),
           pcr2: m.hex("pcr2", PCR_SIZE),
-        }),
-      ),
+          ...(hpkePublicKey === undefined ? {} : { hpkePublicKey }),
+        });
+      }),
       ...(hpkePublicKey === undefined ? {} : { hpkePublicKey }),
       ...common,
     });
   },
   pinsJson: (policy) => ({
-    measurements: policy.measurements,
+    measurements: policy.measurements.map((m) => ({
+      pcr0: m.pcr0,
+      pcr1: m.pcr1,
+      pcr2: m.pcr2,
+      ...(m.hpkePublicKey === undefined ? {} : { hpke_public_key: m.hpkePublicKey }),
+    })),
     ...(policy.hpkePublicKey === undefined ? {} : { hpke_public_key: policy.hpkePublicKey }),
   }),
   verify: verifyAwsNitro,
@@ -159,7 +168,10 @@ function verifyAwsNitro(
   const pcr0 = pcr(document, 0);
   if (pcr0.every((byte) => byte === 0)) throw refused("debug_enclave");
   const pcrs = [pcr0, pcr(document, 1), pcr(document, 2)].map(bytesToHex);
-  if (!policy.measurements.some((m) => [m.pcr0, m.pcr1, m.pcr2].every((v, i) => v === pcrs[i]))) {
+  const matching = policy.measurements.filter((m) =>
+    [m.pcr0, m.pcr1, m.pcr2].every((v, i) => v === pcrs[i]),
+  );
+  if (matching.length === 0) {
     throw refused("measurement");
   }
 
@@ -168,6 +180,13 @@ function verifyAwsNitro(
   }
   if (document.publicKey === undefined || !equalBytes(document.publicKey, claims.hpkePublicKey)) {
     throw refused("public_key");
+  }
+  if (
+    !matching.some(
+      (m) => m.hpkePublicKey === undefined || m.hpkePublicKey === bytesToHex(claims.hpkePublicKey),
+    )
+  ) {
+    throw refused("hpke_key");
   }
   if (
     policy.hpkePublicKey !== undefined &&

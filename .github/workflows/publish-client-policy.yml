@@ -1,0 +1,88 @@
+name: Publish delivered client policy
+
+on:
+  workflow_call:
+    inputs:
+      policy_artifact:
+        description: Artifact produced by the successful client deployment containing its extracted policy
+        required: true
+        type: string
+      policy_file:
+        description: Policy JSON from the successfully deployed client bundle
+        required: true
+        type: string
+      deployment_id:
+        description: Successful GitHub deployment ID for this commit
+        required: true
+        type: string
+      cohort:
+        description: Supported client cohort configured by the platform
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  deployments: read
+
+jobs:
+  receipt:
+    runs-on: ubuntu-24.04
+    environment: client-policy
+    permissions:
+      contents: read
+      deployments: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.policy_artifact }}
+          path: delivered-client
+      - name: Create delivery receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          POLICY_FILE: delivered-client/${{ inputs.policy_file }}
+          DEPLOYMENT: ${{ inputs.deployment_id }}
+          COHORT: ${{ inputs.cohort }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,re,subprocess
+          from pathlib import Path
+          deployment=os.environ['DEPLOYMENT'];repo=os.environ['GITHUB_REPOSITORY']
+          assert deployment.isdigit(),'Invalid deployment ID'
+          def api(path):return json.loads(subprocess.check_output(['gh','api',path],text=True))
+          actual=api(f'repos/{repo}/deployments/{deployment}')
+          statuses=api(f'repos/{repo}/deployments/{deployment}/statuses')
+          assert actual['sha']==os.environ['GITHUB_SHA'],'Receipt must describe the deployed source commit'
+          assert statuses and statuses[0]['state']=='success','Client must be successfully deployed before delivery is recorded'
+          policy=json.loads(Path(os.environ['POLICY_FILE']).read_text())
+          policy=policy.get('deployment',policy)
+          assert policy.get('platform')=='aws-nitro' and policy.get('measurements'),'Missing client Nitro policy'
+          for m in policy['measurements']:
+              assert all(re.fullmatch('[0-9a-f]{96}',m.get(p,'')) for p in ('pcr0','pcr1','pcr2')),'Invalid client PCR'
+          receipt={'version':1,'cohort':os.environ['COHORT'],'policy':policy,'deployment':{'repository':repo,'id':int(deployment),'sha':actual['sha'],'environment':actual['environment']}}
+          data=json.dumps(receipt,sort_keys=True,separators=(',',':'))
+          identifier=hashlib.sha256(data.encode()).hexdigest()
+          Path(os.environ['RUNNER_TEMP'],'client-policy.json').write_text(data+'\n')
+          Path(os.environ['RUNNER_TEMP'],'client-policy-index.json').write_text(json.dumps({'receipt_id':identifier,'cohort':os.environ['COHORT']}))
+          with open(os.environ['GITHUB_ENV'],'a') as output:output.write('CLIENT_RECEIPT_ID='+identifier+'\n')
+          PY
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/client-policy.json
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ vars.AWS_CLIENT_POLICY_ROLE_ARN }}
+          aws-region: eu-north-1
+      - name: Publish delivery evidence
+        run: |
+          for file in client-policy client-policy-index; do
+            key="client-policies/$CLIENT_RECEIPT_ID.json"
+            [[ "$file" != client-policy-index ]] || key="client-policies/ready/$CLIENT_RECEIPT_ID.json"
+            if ! result="$(aws s3api put-object --bucket zolana-nitro-eif-558215002830 --key "$key" --body "$RUNNER_TEMP/$file.json" --content-type application/json --if-none-match '*' 2>&1)"; then
+              [[ "$result" == *PreconditionFailed* ]] || { echo "$result" >&2; exit 1; }
+              aws s3api get-object --bucket zolana-nitro-eif-558215002830 --key "$key" "$RUNNER_TEMP/existing-$file.json" > /dev/null
+              cmp -s "$RUNNER_TEMP/$file.json" "$RUNNER_TEMP/existing-$file.json"
+            fi
+          done

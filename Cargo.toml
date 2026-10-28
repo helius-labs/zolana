@@ -56,6 +56,7 @@ members = [
     "sdk-tests/zk-tests",
     "sdk-tests/zk-standalone",
     "xtask",
+    "tools/release-probe",
 ]
 default-members = [
     "protocol-ops/forester",

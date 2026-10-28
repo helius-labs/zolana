@@ -1,0 +1,13 @@
+**
+!target
+!target/release
+!target/release/spr-release-probe
+!prover
+!prover/server
+!prover/server/prover
+!prover/server/prover/request
+!prover/server/prover/request/testdata
+!prover/server/prover/request/testdata/transfer-2x2.json
+!prover/server/prover/transfer_eddsa
+!prover/server/prover/transfer_eddsa/testdata
+!prover/server/prover/transfer_eddsa/testdata/eddsa-ring-2x2.json

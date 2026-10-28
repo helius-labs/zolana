@@ -12,7 +12,9 @@ def changed_services(paths):
     photon = shared or workflow or any(p == "tools/check-photon-image.sh" or p.startswith(("services/photon/", "sdk-libs/event/", "sdk-libs/indexer-api/")) for p in paths)
     forester = shared or workflow or any(p.startswith("forester/") for p in paths)
     prover = workflow or any(p.startswith("prover/server/") for p in paths)
-    return {"services": [s for s, changed in (("photon", photon), ("forester", forester), ("prover", prover)) if changed], "nitro": prover}
+    measured = any(p.startswith('prover/server/') and not p.endswith(('.md','_test.go')) and '/testdata/' not in p and '/scripts/' not in p for p in paths)
+    nitro = measured or '.github/workflows/publish-nitro.yml' in paths
+    return {"services": [s for s, changed in (("photon", photon), ("forester", forester), ("prover", prover)) if changed], "nitro": nitro}
 
 
 if __name__ == "__main__":

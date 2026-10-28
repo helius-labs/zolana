@@ -80,16 +80,6 @@ jobs:
         with:
           fetch-depth: 0
           submodules: ${{ inputs.submodules }}
-      - name: Check release automation configuration
-        if: github.repository == 'helius-labs/zolana' && inputs.channel == 'release'
-        env:
-          APP_ID: ${{ vars.RELEASE_APP_ID }}
-          APP_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-        run: |
-          [[ -n "$APP_ID" && -n "$APP_KEY" ]] || {
-            echo "::error::Configure RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY before publishing a devnet-d release."
-            exit 1
-          }
       - name: Resolve the build
         id: plan
         env:
@@ -171,27 +161,15 @@ jobs:
             org.opencontainers.image.title=${{ steps.plan.outputs.title }}
             org.opencontainers.image.description=${{ steps.plan.outputs.description }}
             org.opencontainers.image.licenses=Apache-2.0
-      - name: Resolve published release
+      - name: Resolve published image or resume its signed build intent
         id: existing
         env:
           GH_TOKEN: ${{ github.token }}
           ECR_REPOSITORY: ${{ steps.plan.outputs.repository }}
           IMAGE_TAG: ${{ inputs.image_tag }}
-        run: |
-          set -euo pipefail
-          if result="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$IMAGE_TAG" 2>&1)"; then
-            digest="$(jq -r '.imageDetails[0].imageDigest' <<< "$result")"
-            image="$REGISTRY/$ECR_REPOSITORY@$digest"
-            gh attestation verify "oci://$image" --repo "$GITHUB_REPOSITORY" \
-              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/publish-service-image.yml" \
-              --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
-            docker pull "$image"
-            docker tag "$image" "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-            echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          elif [[ "$result" != *ImageNotFoundException* ]]; then
-            echo "$result" >&2
-            exit 1
-          fi
+          SERVICE: ${{ inputs.service }}
+          COMMIT_ALIAS: sha-${{ github.sha }}
+        run: bash tools/release-image.sh resolve "$SERVICE" "$ECR_REPOSITORY" "$IMAGE_TAG" publish-service-image.yml
       # Settings come from the build context, not the service name.
       - name: Read prover build settings
         id: prover-build
@@ -233,107 +211,33 @@ jobs:
           test -n "$image"
           smoke="$(jq -r --arg service "$SERVICE" '.services[$service].smoke' tools/images.json)"
           image="$image" bash -c "$smoke"
+      - name: Record build intent before publication
+        if: steps.existing.outputs.digest == ''
+        env:
+          SERVICE: ${{ inputs.service }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          REPOSITORY: ${{ steps.plan.outputs.repository }}
+        run: bash tools/release-image.sh intent "$SERVICE" "$REPOSITORY" "$IMAGE_TAG" publish-service-image.yml
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.existing.outputs.digest == ''
+        with:
+          subject-path: ${{ runner.temp }}/build-intent.json
+      - name: Retain signed build intent
+        if: steps.existing.outputs.digest == ''
+        env:
+          SERVICE: ${{ inputs.service }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          REPOSITORY: ${{ steps.plan.outputs.repository }}
+        run: bash tools/release-image.sh retain-intent "$SERVICE" "$REPOSITORY" "$IMAGE_TAG" publish-service-image.yml
       - name: Publish immutable tags
         id: publish
         env:
-          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
-          ECR_REPOSITORY: ${{ steps.plan.outputs.repository }}
-          SERVICE: ${{ steps.plan.outputs.service }}
+          SERVICE: ${{ inputs.service }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          REPOSITORY: ${{ steps.plan.outputs.repository }}
           EXISTING_DIGEST: ${{ steps.existing.outputs.digest }}
-          REGISTRY_REPOSITORY: ${{ env.REGISTRY }}/${{ steps.plan.outputs.repository }}
-        run: |
-          if [[ -n "$EXISTING_DIGEST" ]]; then
-            {
-              echo "digest=$EXISTING_DIGEST"
-              echo "image=$REGISTRY_REPOSITORY@$EXISTING_DIGEST"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          sha_image=""
-          release_image=""
-          while IFS= read -r image; do
-            [[ -n "$image" ]] || continue
-            tag="${image##*:}"
-            if [[ "$tag" == sha-* ]]; then
-              sha_image="$image"
-            else
-              release_image="$image"
-            fi
-          done <<< "$IMAGE_TAGS"
-          test -n "$sha_image"
-          test -n "$release_image"
-
-          # Our ECR repositories are created with IMMUTABLE tags, so the registry
-          # itself refuses to move a published tag -- the checks here are kept as
-          # a clearer error than a push rejection, not as the only guard.
-          # Publish the commit alias first and reuse that exact remote image for
-          # the requested tag, so both can be compared after publication.
-          sha_tag="${sha_image##*:}"
-          set +e
-          error="$(aws ecr describe-images \
-            --region "$AWS_REGION" \
-            --repository-name "$ECR_REPOSITORY" \
-            --image-ids "imageTag=$sha_tag" 2>&1)"
-          status=$?
-          set -e
-          if [[ $status -eq 0 ]]; then
-            echo "Reusing existing $SERVICE commit tag: $sha_tag"
-            docker pull "$sha_image"
-          elif [[ "$error" == *ImageNotFoundException* ]]; then
-            docker push "$sha_image"
-          else
-            echo "$error" >&2
-            exit "$status"
-          fi
-
-          remote_digest() {
-            local tag="$1"
-            local digest
-            for _ in {1..10}; do
-              if digest="$(aws ecr describe-images \
-                --region "$AWS_REGION" \
-                --repository-name "$ECR_REPOSITORY" \
-                --image-ids "imageTag=$tag" \
-                --query 'imageDetails[0].imageDigest' \
-                --output text 2>/dev/null)" && [[ "$digest" != None ]]; then
-                printf '%s\n' "$digest"
-                return 0
-              fi
-              sleep 2
-            done
-            echo "Could not resolve remote digest for $SERVICE tag: $tag" >&2
-            return 1
-          }
-
-          sha_digest="$(remote_digest "$sha_tag")"
-
-          release_tag="${release_image##*:}"
-          set +e
-          error="$(aws ecr describe-images \
-            --region "$AWS_REGION" \
-            --repository-name "$ECR_REPOSITORY" \
-            --image-ids "imageTag=$release_tag" 2>&1)"
-          status=$?
-          set -e
-          if [[ $status -eq 0 ]]; then
-            echo "Refusing to overwrite published $SERVICE tag: $release_tag" >&2
-            exit 1
-          fi
-          if [[ "$error" != *ImageNotFoundException* ]]; then
-            echo "$error" >&2
-            exit "$status"
-          fi
-          docker tag "$sha_image" "$release_image"
-          docker push "$release_image"
-
-          release_digest="$(remote_digest "$release_tag")"
-          if [[ "$release_digest" != "$sha_digest" ]]; then
-            echo "$SERVICE release tag digest $release_digest does not match commit tag $sha_digest" >&2
-            exit 1
-          fi
-
-          echo "digest=$release_digest" >> "$GITHUB_OUTPUT"
-          echo "image=${release_image%:*}@$release_digest" >> "$GITHUB_OUTPUT"
+          COMMIT_ALIAS: sha-${{ github.sha }}
+        run: bash tools/release-image.sh push "$SERVICE" "$REPOSITORY" "$IMAGE_TAG" publish-service-image.yml
 
       # Binds the published digest to the commit, workflow and runner that
       # produced it, so "this image is what CI built from that source" becomes
@@ -346,35 +250,22 @@ jobs:
       # attestation push after a successful image push would leave a published
       # image behind a red job.
       - name: Attest build provenance
-        if: steps.existing.outputs.digest == ''
+        if: steps.existing.outputs.digest == '' || steps.existing.outputs.needs_attestation == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.REGISTRY }}/${{ steps.plan.outputs.repository }}
           subject-digest: ${{ steps.publish.outputs.digest }}
 
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        id: release-app
-        if: inputs.channel == 'release' && github.repository == 'helius-labs/zolana'
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          owner: helius-labs
-          repositories: zolana-infra
-      - name: Update deployment PR
-        if: inputs.channel == 'release' && github.repository == 'helius-labs/zolana'
+      - name: Describe completed service artifact
+        if: inputs.channel == 'release'
         env:
-          GH_TOKEN: ${{ steps.release-app.outputs.token }}
           SERVICE: ${{ inputs.service }}
-          DIGEST: ${{ steps.publish.outputs.digest }}
           IMAGE: ${{ steps.publish.outputs.image }}
-          SOURCE_COMMIT: ${{ github.sha }}
-          PUBLISH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          key="$SERVICE"
-          [[ "$key" != prover ]] || key=forester_prover
-          jq -n --arg key "$key" --arg digest "$DIGEST" --arg image "$IMAGE" \
-            --arg commit "$SOURCE_COMMIT" --arg run "$PUBLISH_RUN_URL" \
-            '{event_type:"release-pin-published", client_payload:{kind:"ecs", image_key:$key, digest:$digest, image:$image, source_commit:$commit, publish_run_url:$run}}' \
-            | gh api repos/helius-labs/zolana-infra/dispatches --input -
-          echo "[Review and deploy devnet-d](https://github.com/helius-labs/zolana-infra/pulls?q=is%3Apr+is%3Aopen+head%3Arelease%2Fdevnet-d)" >> "$GITHUB_STEP_SUMMARY"
+        run: python3 tools/release-catalog.py component "$SERVICE" "$IMAGE" "$RUNNER_TEMP/$SERVICE.json"
+      - uses: actions/upload-artifact@v4
+        if: inputs.channel == 'release'
+        with:
+          name: release-part-${{ inputs.service }}
+          path: ${{ runner.temp }}/${{ inputs.service }}.json
+          if-no-files-found: error
+          overwrite: true

@@ -16,6 +16,8 @@ Breaking
 
 Added
 
+- `NitroMeasurement.hpkePublicKey` binds each allowed enclave image to its own key so a policy can accept the old and new identities during a rotation.
+
 - `@heliuslabs/zolana/internal` exposes the building blocks an extension
   package composes, and the `.d.ts` files keep `@internal` declarations such
   as `Wallet._replace`, both outside semver.

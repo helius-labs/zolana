@@ -21,8 +21,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - run: python3 -B -m unittest discover -s tools -p 'test_release_changes.py'
+      - run: python3 -B -m unittest discover -s tools -p 'test_release_*.py'
       # GitHub supports queue:max; actionlint has not added that field yet.
       - uses: docker://rhysd/actionlint:1.7.12
         with:
-          args: -ignore=unexpected.key.*queue.*concurrency.*section .github/workflows/publish-image.yml .github/workflows/publish-service-image.yml .github/workflows/publish-nitro.yml .github/workflows/release-checks.yml
+          args: -ignore=unexpected.key.*queue.*concurrency.*section .github/workflows/publish-image.yml .github/workflows/publish-service-image.yml .github/workflows/publish-nitro.yml .github/workflows/release-checks.yml .github/workflows/publish-client-policy.yml
