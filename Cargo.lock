@@ -3010,7 +3010,6 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "bytemuck",
- "groth16-solana",
  "light-program-profiler",
  "pinocchio 0.11.2",
  "pinocchio-system",
@@ -3021,15 +3020,7 @@ dependencies = [
  "zolana-hasher",
  "zolana-interface",
  "zolana-program",
-]
-
-[[package]]
-name = "dynamic-swap-prover"
-version = "0.1.0"
-dependencies = [
- "zolana-client",
- "zolana-gnark-ffi-prover",
- "zolana-gnark-ffi-prover-build",
+ "zolana-transaction",
 ]
 
 [[package]]
@@ -3039,11 +3030,12 @@ dependencies = [
  "anyhow",
  "borsh",
  "dynamic-swap-program",
- "dynamic-swap-prover",
+ "once_cell",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-pubkey 4.2.1",
  "solana-system-interface 3.2.0",
+ "tempfile",
  "wincode",
  "zolana-client",
  "zolana-interface",
@@ -3061,7 +3053,6 @@ dependencies = [
  "bincode 1.3.3",
  "bytemuck",
  "dynamic-swap-program",
- "dynamic-swap-prover",
  "dynamic-swap-sdk",
  "light-program-profiler",
  "mollusk-svm",
@@ -3070,10 +3061,12 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
+ "solana-program-error",
  "solana-pubkey 4.2.1",
  "solana-rpc-client",
  "solana-signature",
  "solana-signer",
+ "wincode",
  "zolana-client",
  "zolana-hasher",
  "zolana-interface",

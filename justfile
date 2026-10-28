@@ -203,7 +203,7 @@ test-sdk-libs:
 # The gnark SDK's Go tests and the example provers' tests. Needs Go.
 test-example-provers:
     cd sdk-libs/gnark-sdk && GOWORK=off go test ./... -count=1
-    cargo nextest run -p zolana-gnark-ffi-prover -p swap-prover -p dynamic-swap-prover
+    cargo nextest run -p zolana-gnark-ffi-prover -p swap-prover
 
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:
@@ -425,7 +425,7 @@ bench-shielded-pool: build-programs
         solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
     cargo test -p shielded-pool-tests --features proofs --test bench_cu -- --ignored --nocapture
 
-# The example programs (swap, timelock escrow, dynamic swap, compression)
+# The gnark example programs (swap and compression)
 # verify against INSECURE TEST KEYS -- UNSAFE FOR PRODUCTION. They come from the
 # setup CLI's `--insecure-test-keys`, whose Groth16 randomness is a fixed public
 # seed, so anyone can forge proofs against them. That seed makes them deterministic: the
@@ -495,9 +495,26 @@ _escrow-zk-keys:
     cargo run --release -p zolana-cli -- build-zk-program --test -p timelock-escrow-program --skip-wasm --skip-sbf
 
 
-ensure-dynamic-swap-keys: (_ensure-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "regen-dynamic-swap-keys" "escrow_open escrow_settle")
+# Build the six Rust circuits, deterministic insecure test keys, committed
+# verifier modules and SBF program through the same CLI as timelock escrow.
+build-dynamic-swap-program:
+    cargo run --release -p zolana-cli -- build-zk-program --test -p dynamic-swap-program --skip-wasm --sbf-features bpf-entrypoint
 
-regen-dynamic-swap-keys: (_regen-example-keys "sdk-tests/dynamic-swap" "dynamic-swap-prover" "dynamic-swap-keys.CHECKSUM" "escrow_open escrow_settle")
+# Localnet archives load these keys from target/zk at run time. CI downloads
+# them with the prebuilt tools; ordinary runs compile and reuse them locally.
+ensure-dynamic-swap-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -n "${ZOLANA_PREBUILT:-}" ]]; then
+        for circuit in escrow_open pool_settle escrow_cancel pool_deposit pool_withdraw pool_rebalance; do
+            test -s "target/zk/dynamic-swap-program/$circuit.pk"
+        done
+        exit 0
+    fi
+    cargo run --release -p zolana-cli -- build-zk-program --test -p dynamic-swap-program --skip-wasm --skip-sbf
+
+regen-dynamic-swap-keys:
+    cargo run --release -p zolana-cli -- build-zk-program --test -p dynamic-swap-program --skip-wasm --skip-sbf
 
 ensure-compression-keys: (_ensure-example-keys "sdk-tests/compression" "compression-example-prover" "compression-keys.CHECKSUM" "regen-compression-keys" "read")
 
@@ -556,17 +573,18 @@ test-zolana-program:
     cargo check --tests --all-features -p zolana-program -p zolana-macros
     just test-zk-standalone
     cargo check --tests -p timelock-escrow-program --features localnet,wasm,bpf-entrypoint,cpi,test-sbf,profile-program
-    cargo check --lib -p timelock-escrow-program --features circuits,r1cs-export
+    cargo check --lib -p timelock-escrow-program -p dynamic-swap-program --features circuits,r1cs-export
     just test-zolana-program-unit
     just test-zolana-program-external
     just test-zolana-program-release
 
-# The ZK program SDK scenarios, the macro tests and the escrow circuit tests,
-# in release, after writing the escrow's keys. Fails when the regenerated
-# escrow verifier modules differ from the committed ones.
-test-zolana-program-release: _escrow-zk-keys
-    git diff --exit-code -- sdk-tests/timelock-escrow/program/src/verifier
-    cargo test --release -p zolana-program -p zolana-macros -p timelock-escrow-program --features timelock-escrow-program/circuits,zolana-program/compression,zolana-program/test-support -- --test-threads=4
+# The ZK program SDK scenarios, macro tests, and escrow and dynamic-swap
+# circuit tests in release. Regenerates their keys and fails when the verifier
+# modules differ from the committed ones.
+test-zolana-program-release: _escrow-zk-keys ensure-dynamic-swap-keys
+    git diff --exit-code -- sdk-tests/timelock-escrow/program/src/verifier sdk-tests/dynamic-swap/program/src/verifier
+    cargo test --release -p zolana-program -p zolana-macros -p timelock-escrow-program -p dynamic-swap-program -p dynamic-swap-sdk --features timelock-escrow-program/circuits,dynamic-swap-program/circuits,zolana-program/compression,zolana-program/test-support -- --test-threads=4
+    cargo test --release -p dynamic-swap-sdk --test native_circuits native_client_loads_checked_keys -- --ignored
 
 # The ZK program SDK unit suite without the circom, snarkjs and Picus checks.
 test-zolana-program-unit filter="":
@@ -679,8 +697,11 @@ bench-zk-program-wasm: _zk-program-wasm-keys
 # The profiling dynamic-swap build calls the same profiler syscall
 # solana-test-validator does not register, so it must never land in
 # target/deploy either -- build the bench programs into their own dedicated
-# dir, matching PROFILING_SBF_DIR in dynamic-swap's bench_cu.rs.
+# dir, matching PROFILING_SBF_DIR in dynamic-swap's bench_cu.rs. The pair's
+# destination asset is an SPL mint, so mollusk also needs the SPL Token program.
 bench-dynamic-swap: ensure-dynamic-swap-keys
+    test -f target/deploy/spl_token.so || \
+        solana program dump TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA target/deploy/spl_token.so --url mainnet-beta
     cargo build-sbf --tools-version {{sbf-tools-version}} \
         --sbf-out-dir target/dynamic-swap-bench \
         --manifest-path programs/shielded-pool/Cargo.toml \
@@ -1160,10 +1181,11 @@ test-client-example-optimized-merge-transfer: build-programs build-prover-server
       cargo run -p client-example --example optimized_merge_transfer
 
 # Dynamic-swap example lifecycle tests
-# (sdk-tests/dynamic-swap/test/tests/{pair,negative,escrow_flow,escrow_refund}.rs),
+# (sdk-tests/dynamic-swap/test/tests/{pair,negative,escrow_flow,escrow_cancel,liquidity}.rs),
 # booted through FixtureLocalnet like test-swap-validator; dynamic-swap's own
-# circuits (escrow_open/escrow_settle) prove in-process through the embedded
-# gnark prover. Pass extra nextest args to select a single test binary, e.g.
+# circuits (escrow_open/pool_settle/escrow_cancel/pool_deposit/pool_withdraw/
+# pool_rebalance) prove in-process through the native Rust prover. Pass extra
+# nextest args to select a single test binary, e.g.
 # `just test-dynamic-swap --test pair`.
 test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-server build-cli ensure-photon
     ZOLANA_PHOTON_BIN="{{photon-bin}}" tools/ci/nextest-suite.sh -p dynamic-swap-test {{args}}
