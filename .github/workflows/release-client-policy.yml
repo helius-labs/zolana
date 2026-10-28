@@ -89,7 +89,7 @@ jobs:
         with:
           shared-key: client-policy
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
-      - run: cargo test -p zolana-prover-tee --lib
+      - run: cargo test -p spr-prover-tee --lib
 
   async:
     needs: candidate

@@ -80,10 +80,18 @@ def nitro_profile(configuration, base, head):
             'indexer_url':base['nitro']['measurements']['indexer_url']}
 
 
+def verify_protocol(configuration, head):
+    deployed = configuration['source_commit']
+    approved = [deployed] + [entry['source_commit'] for entry in configuration.get('compatible_protocol_builds', []) if entry.get('protocol_source') == deployed]
+    if not any(not command('git', 'diff', '--name-only', revision, head, '--', 'programs', 'program-libs') for revision in approved):
+        raise ValueError('Source protocol differs from the deployed programs or libraries. Approve and deploy the protocol migration before publishing this environment; compatibility cannot be inferred from a successful build.')
+
+
 def plan():
     desired = infra_file('infra/releases/devnet-d.json')
     base = infra_file('infra/releases/catalog/' + desired['release'] + '.json')
     configuration = infra_file('infra/releases/v0.5.0-alpha.json')
+    verify_protocol(configuration, os.environ['GITHUB_SHA'])
     Path(os.environ['RUNNER_TEMP'], 'base-release.json').write_text(json.dumps(base))
     spec = importlib.util.spec_from_file_location('changes', 'tools/release-changes.py')
     changes = importlib.util.module_from_spec(spec)

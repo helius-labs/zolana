@@ -46,3 +46,15 @@ class ReleaseCatalog(unittest.TestCase):
             (parts/'duplicate.json').write_text((parts/'photon.json').read_text())
             with patch.dict(os.environ,environment),patch.object(catalog,'infra_file',return_value=copy.deepcopy(base)),self.assertRaisesRegex(ValueError,'Duplicate'):catalog.assemble(parts,'base',quality,root/'release.json')
             self.assertFalse((root/'release.json').exists())
+
+
+class ProtocolPublicationGate(unittest.TestCase):
+    def test_program_migration_blocks_publication_before_building(self):
+        configuration={'source_commit':'a'*40,'compatible_protocol_builds':[{'protocol_source':'a'*40,'source_commit':'b'*40}]}
+        with patch.object(catalog,'command',side_effect=['programs/shielded-pool/src/lib.rs','program-libs/interface/src/lib.rs']),self.assertRaisesRegex(ValueError,'protocol migration'):
+            catalog.verify_protocol(configuration,'c'*40)
+        with patch.object(catalog,'command',side_effect=['program-libs/tree/src/lib.rs','']):
+            catalog.verify_protocol(configuration,'c'*40)
+        unrelated={'source_commit':'a'*40,'compatible_protocol_builds':[{'protocol_source':'f'*40,'source_commit':'b'*40}]}
+        with patch.object(catalog,'command',return_value='programs/shielded-pool/src/lib.rs') as command,self.assertRaises(ValueError):catalog.verify_protocol(unrelated,'c'*40)
+        self.assertEqual(command.call_count,1)
