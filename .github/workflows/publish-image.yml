@@ -1,15 +1,3 @@
-# Publishes the service images to our own ECR: photon, the prover, the forester.
-#
-# These live here, not in the infra repository, because this is the repo that
-# owns the code. Building them from infra meant infra CI checked out this
-# source, so a change here could break a build there, and a protocol change
-# could not publish an image without driving the other repository.
-#
-# publish-service-image.yml holds the release and preview channel rules.
-#
-# The aggregator is NOT here. It is built from the infra repository's dashboard/
-# directory and is not a protocol service.
-
 name: publish-image
 
 on:
@@ -17,8 +5,9 @@ on:
     branches: [main]
     tags: ["photon-zolana-*"]
     paths:
-      - "programs/**"
       - "services/photon/**"
+      - "forester/**"
+      - "prover/server/**"
       - "program-libs/**"
       - "sdk-libs/event/**"
       - "sdk-libs/indexer-api/**"
@@ -26,184 +15,103 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
-      - "LICENSE"
-      - "THIRD_PARTY_NOTICES"
-      - "tools/check-photon-image.sh"
-      - "tools/check-release-source.sh"
       - "tools/images.json"
-      - ".github/workflows/publish-service-image.yml"
-      - ".github/workflows/publish-image.yml"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "programs/**"
-      - "services/photon/**"
-      - "program-libs/**"
-      - "sdk-libs/event/**"
-      - "sdk-libs/indexer-api/**"
-      - ".cargo/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "LICENSE"
-      - "THIRD_PARTY_NOTICES"
       - "tools/check-photon-image.sh"
-      - "tools/check-release-source.sh"
-      - "tools/images.json"
-      - ".github/workflows/publish-service-image.yml"
-      - ".github/workflows/publish-image.yml"
+      - "tools/release-changes.py"
+      - ".github/workflows/publish-*.yml"
   workflow_dispatch:
     inputs:
       service:
-        description: Which image to publish
-        required: true
+        description: Service to publish
+        type: choice
+        options: [photon, forester, prover]
         default: photon
-        type: choice
-        options: [photon, prover, forester]
       channel:
-        description: >-
-          release enforces the commit-naming tag and requires the commit to be
-          on main; preview allows a branch build under any tag
-        required: true
-        default: preview
+        description: Release opens the devnet-d deployment PR
         type: choice
-        options: [preview, release]
-      image_tag:
-        description: Tag to publish. For release, <service>-zolana-<12-char commit>
-        required: true
-        type: string
+        options: [release, preview]
+        default: release
 
-# Publishing is serialized per service, not globally: GitHub holds at most one
-# pending run per group, so a single 'production' group meant dispatching the
-# prover and then the forester during a photon publish quietly cancelled one of
-# them. Three services can publish at once because ECR tags are immutable -- the
-# registry, not this group, is what prevents two runs claiming one tag.
 concurrency:
-  group: ${{ github.workflow }}-${{ (startsWith(github.ref, 'refs/tags/photon-zolana-') || github.event_name == 'workflow_dispatch') && format('production-{0}', inputs.service || 'photon') || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: publish-image-${{ github.ref }}-${{ inputs.service || 'auto' }}
+  queue: max
 
 permissions:
   contents: read
 
 jobs:
-  validate:
-    name: container / photon
+  changes:
     runs-on: ubuntu-24.04
-    # Photon's own image check. The prover and forester are built and tested by
-    # prover-server.yml and protocol-ops.yml, so this does not gate them.
-    if: >-
-      (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
-      (github.event_name != 'workflow_dispatch' || inputs.service == 'photon')
+    outputs:
+      short_sha: ${{ steps.changes.outputs.short_sha }}
+      services: ${{ steps.changes.outputs.services }}
+      nitro: ${{ steps.changes.outputs.nitro }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - name: Validate release source
-        if: startsWith(github.ref, 'refs/tags/photon-zolana-')
+      - id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SERVICE: ${{ inputs.service }}
+          CHANNEL: ${{ inputs.channel }}
         run: |
-          tools/check-release-source.sh "$GITHUB_SHA"
-
-          if [[ "$GITHUB_REF" == refs/tags/photon-zolana-* ]]; then
-            expected_ref="refs/tags/photon-zolana-${GITHUB_SHA:0:12}"
-            if [[ "$GITHUB_REF" != "$expected_ref" ]]; then
-              echo "Fork release tag $GITHUB_REF must identify Zolana commit ${GITHUB_SHA:0:12}" >&2
-              exit 1
-            fi
+          set -euo pipefail
+          if [[ "$EVENT" == workflow_dispatch ]]; then
+            services="$(jq -nc --arg s "$SERVICE" '[$s]')"
+            nitro=false
+            if [[ "$SERVICE" == prover && "$CHANNEL" == release ]]; then nitro=true; fi
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            services='["photon"]'
+            nitro=false
+          else
+            changes="$(python3 tools/release-changes.py "$BEFORE" "$GITHUB_SHA")"
+            services="$(jq -c .services <<< "$changes")"
+            nitro="$(jq -r .nitro <<< "$changes")"
           fi
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: services/photon/Dockerfile
-          load: true
-          push: false
-          tags: zolana-photon:ci
-          cache-from: type=gha,scope=photon-image-validation
-          cache-to: type=gha,mode=max,scope=photon-image-validation
-      - name: Smoke-test packaged binaries
-        run: tools/check-photon-image.sh zolana-photon:ci
+          {
+            echo "short_sha=${GITHUB_SHA:0:12}"
+            echo "services=$services"
+            echo "nitro=$nitro"
+          } >> "$GITHUB_OUTPUT"
 
   publish:
-    needs: validate
-    # The positive form matters: `!= 'failure'` is also true when validate was
-    # cancelled, which would let a tag push publish an image whose smoke test
-    # never finished. 'skipped' is the prover/forester dispatch path, where
-    # validate does not apply.
-    if: >-
-      always() &&
-      (needs.validate.result == 'success' || needs.validate.result == 'skipped') && (
-        startsWith(github.ref, 'refs/tags/photon-zolana-') ||
-        github.event_name == 'workflow_dispatch'
-      )
+    needs: changes
+    if: needs.changes.outputs.services != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
     permissions:
       contents: read
       id-token: write
       attestations: write
     uses: ./.github/workflows/publish-service-image.yml
+    secrets: inherit
     with:
-      # A tag push is always photon on the release channel.
-      service: ${{ inputs.service || 'photon' }}
-      channel: ${{ (github.event_name == 'push' && 'release') || inputs.channel }}
-      image_tag: ${{ inputs.image_tag || github.ref_name }}
+      service: ${{ matrix.service }}
+      channel: ${{ inputs.channel || 'release' }}
+      image_tag: ${{ format('{0}-{1}-{2}', matrix.service, inputs.channel == 'preview' && 'preview' || 'zolana', needs.changes.outputs.short_sha) }}
 
-  # Ask zolana-infra to open a PR bumping images.<key>. Merge of that PR
-  # triggers Apply release. Preview publishes are ignored. Requires repo secret
-  # ZOLANA_INFRA_DISPATCH_TOKEN (PAT/App that can repository_dispatch infra).
-  request-devnet-d-pin:
-    needs: publish
-    if: >-
-      needs.publish.result == 'success' &&
-      needs.publish.outputs.channel == 'release' &&
-      (needs.publish.outputs.service == 'photon' ||
-       needs.publish.outputs.service == 'forester' ||
-       needs.publish.outputs.service == 'prover')
+  nitro:
+    needs: [changes, publish]
+    if: needs.changes.outputs.nitro == 'true'
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
     steps:
-      - name: Dispatch Open release pin PR
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: helius-labs
+          repositories: zolana-infra
+      - name: Prepare Nitro release
         env:
-          GH_TOKEN: ${{ secrets.ZOLANA_INFRA_DISPATCH_TOKEN }}
-          SERVICE: ${{ needs.publish.outputs.service }}
-          DIGEST: ${{ needs.publish.outputs.digest }}
-          IMAGE: ${{ needs.publish.outputs.image }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
           SOURCE_COMMIT: ${{ github.sha }}
-          PUBLISH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          set -euo pipefail
-          case "$SERVICE" in
-            photon) image_key=photon ;;
-            forester) image_key=forester ;;
-            prover) image_key=forester_prover ;;
-            *)
-              echo "no release pin mapping for service=$SERVICE" >&2
-              exit 1
-              ;;
-          esac
-          if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::warning::ZOLANA_INFRA_DISPATCH_TOKEN unset; open the pin PR manually on zolana-infra (Open release pin PR) with image_key=$image_key digest=$DIGEST"
-            {
-              echo "### Devnet-d pin"
-              echo "Secret \`ZOLANA_INFRA_DISPATCH_TOKEN\` is unset."
-              echo "Manual: Actions → Open release pin PR on helius-labs/zolana-infra with image_key \`$image_key\` digest \`$DIGEST\`"
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          jq -n \
-            --arg image_key "$image_key" \
-            --arg digest "$DIGEST" \
-            --arg image "$IMAGE" \
-            --arg source_commit "$SOURCE_COMMIT" \
-            --arg publish_run_url "$PUBLISH_RUN_URL" \
-            '{
-              event_type: "release-pin-published",
-              client_payload: {
-                kind: "ecs",
-                image_key: $image_key,
-                digest: $digest,
-                image: $image,
-                source_commit: $source_commit,
-                publish_run_url: $publish_run_url
-              }
-            }' | gh api repos/helius-labs/zolana-infra/dispatches --input -
-          echo "Dispatched release-pin-published (ecs/$image_key digest=$DIGEST)" >> "$GITHUB_STEP_SUMMARY"
+          jq -n --arg source_commit "$SOURCE_COMMIT" --arg run_id "$RUN_ID" \
+            '{event_type:"prepare-nitro-release", client_payload:{source_commit:$source_commit, run_id:$run_id}}' \
+            | gh api repos/helius-labs/zolana-infra/dispatches --input -

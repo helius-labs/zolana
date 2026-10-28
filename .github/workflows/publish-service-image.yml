@@ -32,6 +32,9 @@ on:
       release_source_check:
         type: string
         default: tools/check-release-source.sh
+    secrets:
+      RELEASE_APP_PRIVATE_KEY:
+        required: false
     outputs:
       digest:
         description: Published image digest (sha256:…)
@@ -77,6 +80,16 @@ jobs:
         with:
           fetch-depth: 0
           submodules: ${{ inputs.submodules }}
+      - name: Check release automation configuration
+        if: github.repository == 'helius-labs/zolana' && inputs.channel == 'release'
+        env:
+          APP_ID: ${{ vars.RELEASE_APP_ID }}
+          APP_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          [[ -n "$APP_ID" && -n "$APP_KEY" ]] || {
+            echo "::error::Configure RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY before publishing a devnet-d release."
+            exit 1
+          }
       - name: Resolve the build
         id: plan
         env:
@@ -158,32 +171,27 @@ jobs:
             org.opencontainers.image.title=${{ steps.plan.outputs.title }}
             org.opencontainers.image.description=${{ steps.plan.outputs.description }}
             org.opencontainers.image.licenses=Apache-2.0
-      - name: Refuse to overwrite published tags
+      - name: Resolve published release
+        id: existing
         env:
-          IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
+          GH_TOKEN: ${{ github.token }}
           ECR_REPOSITORY: ${{ steps.plan.outputs.repository }}
-          SERVICE: ${{ steps.plan.outputs.service }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
-          while IFS= read -r image; do
-            [[ -n "$image" ]] || continue
-            tag="${image##*:}"
-            [[ "$tag" != sha-* ]] || continue
-            set +e
-            error="$(aws ecr describe-images \
-              --region "$AWS_REGION" \
-              --repository-name "$ECR_REPOSITORY" \
-              --image-ids "imageTag=$tag" 2>&1)"
-            status=$?
-            set -e
-            if [[ $status -eq 0 ]]; then
-              echo "Refusing to overwrite published $SERVICE tag: $tag" >&2
-              exit 1
-            fi
-            if [[ "$error" != *ImageNotFoundException* ]]; then
-              echo "$error" >&2
-              exit "$status"
-            fi
-          done <<< "$IMAGE_TAGS"
+          set -euo pipefail
+          if result="$(aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids "imageTag=$IMAGE_TAG" 2>&1)"; then
+            digest="$(jq -r '.imageDetails[0].imageDigest' <<< "$result")"
+            image="$REGISTRY/$ECR_REPOSITORY@$digest"
+            gh attestation verify "oci://$image" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/publish-service-image.yml" \
+              --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+            docker pull "$image"
+            docker tag "$image" "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          elif [[ "$result" != *ImageNotFoundException* ]]; then
+            echo "$result" >&2
+            exit 1
+          fi
       # Settings come from the build context, not the service name.
       - name: Read prover build settings
         id: prover-build
@@ -194,6 +202,7 @@ jobs:
             sh "$CONTEXT/release-settings.sh" >> "$GITHUB_OUTPUT"
           fi
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        if: steps.existing.outputs.digest == ''
         with:
           context: ${{ steps.plan.outputs.context }}
           file: ${{ steps.plan.outputs.file }}
@@ -230,7 +239,16 @@ jobs:
           IMAGE_TAGS: ${{ steps.metadata.outputs.tags }}
           ECR_REPOSITORY: ${{ steps.plan.outputs.repository }}
           SERVICE: ${{ steps.plan.outputs.service }}
+          EXISTING_DIGEST: ${{ steps.existing.outputs.digest }}
+          REGISTRY_REPOSITORY: ${{ env.REGISTRY }}/${{ steps.plan.outputs.repository }}
         run: |
+          if [[ -n "$EXISTING_DIGEST" ]]; then
+            {
+              echo "digest=$EXISTING_DIGEST"
+              echo "image=$REGISTRY_REPOSITORY@$EXISTING_DIGEST"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           sha_image=""
           release_image=""
           while IFS= read -r image; do
@@ -315,7 +333,7 @@ jobs:
           fi
 
           echo "digest=$release_digest" >> "$GITHUB_OUTPUT"
-          echo "image=$release_image" >> "$GITHUB_OUTPUT"
+          echo "image=${release_image%:*}@$release_digest" >> "$GITHUB_OUTPUT"
 
       # Binds the published digest to the commit, workflow and runner that
       # produced it, so "this image is what CI built from that source" becomes
@@ -328,7 +346,35 @@ jobs:
       # attestation push after a successful image push would leave a published
       # image behind a red job.
       - name: Attest build provenance
+        if: steps.existing.outputs.digest == ''
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ env.REGISTRY }}/${{ steps.plan.outputs.repository }}
           subject-digest: ${{ steps.publish.outputs.digest }}
+
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: release-app
+        if: inputs.channel == 'release' && github.repository == 'helius-labs/zolana'
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: helius-labs
+          repositories: zolana-infra
+      - name: Update deployment PR
+        if: inputs.channel == 'release' && github.repository == 'helius-labs/zolana'
+        env:
+          GH_TOKEN: ${{ steps.release-app.outputs.token }}
+          SERVICE: ${{ inputs.service }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          IMAGE: ${{ steps.publish.outputs.image }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          PUBLISH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          key="$SERVICE"
+          [[ "$key" != prover ]] || key=forester_prover
+          jq -n --arg key "$key" --arg digest "$DIGEST" --arg image "$IMAGE" \
+            --arg commit "$SOURCE_COMMIT" --arg run "$PUBLISH_RUN_URL" \
+            '{event_type:"release-pin-published", client_payload:{kind:"ecs", image_key:$key, digest:$digest, image:$image, source_commit:$commit, publish_run_url:$run}}' \
+            | gh api repos/helius-labs/zolana-infra/dispatches --input -
+          echo "[Review and deploy devnet-d](https://github.com/helius-labs/zolana-infra/pulls?q=is%3Apr+is%3Aopen+head%3Arelease%2Fdevnet-d)" >> "$GITHUB_STEP_SUMMARY"

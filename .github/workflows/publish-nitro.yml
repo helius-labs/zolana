@@ -101,12 +101,12 @@ on:
     secrets:
       AEGLOS_DEPLOY_KEY:
         required: false
-      ZOLANA_INFRA_DISPATCH_TOKEN:
+      RELEASE_APP_PRIVATE_KEY:
         required: false
 
 concurrency:
   group: publish-nitro-${{ inputs.deployment }}
-  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -142,6 +142,16 @@ jobs:
           ref: ${{ inputs.source_commit || github.sha }}
           path: source
           submodules: ${{ inputs.submodules == true }}
+      - name: Check release automation configuration
+        if: github.repository == 'helius-labs/zolana' && startsWith(inputs.deployment, 'devnet-d-tee-')
+        env:
+          APP_ID: ${{ vars.RELEASE_APP_ID }}
+          APP_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          [[ -n "$APP_ID" && -n "$APP_KEY" ]] || {
+            echo "::error::Configure RELEASE_APP_ID and RELEASE_APP_PRIVATE_KEY before publishing a devnet-d release."
+            exit 1
+          }
       - name: Resolve the build
         id: plan
         env:
@@ -207,13 +217,40 @@ jobs:
           role-session-name: ${{ env.REPOSITORY }}-publish
           aws-region: ${{ env.AWS_REGION }}
       - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
-      # The EIF upload below refuses an existing object by itself.
-      - name: Refuse to overwrite a published image
+      - name: Resolve published Nitro artifact
+        id: existing
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.plan.outputs.tag }}
+          PREFIX: ${{ steps.plan.outputs.prefix }}
+          SOURCE_COMMIT: ${{ steps.plan.outputs.source_commit }}
+          KMS_KEY_ARN: ${{ steps.plan.outputs.kms_key_arn }}
+          BACKEND: ${{ inputs.backend }}
+          CONCURRENCY: ${{ inputs.concurrency }}
+          INDEXER_URL: ${{ inputs.indexer_url }}
         run: |
-          if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids "imageTag=$TAG" > /dev/null 2>&1; then
-            echo "::error::$REPOSITORY:$TAG is already published" >&2
+          set -euo pipefail
+          if result="$(aws ecr describe-images --repository-name "$REPOSITORY" --image-ids "imageTag=$TAG" 2>&1)"; then
+            digest="$(jq -r '.imageDetails[0].imageDigest' <<< "$result")"
+            gh attestation verify "oci://$REGISTRY/$REPOSITORY@$digest" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/publish-nitro.yml" --deny-self-hosted-runners
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          elif [[ "$result" != *ImageNotFoundException* ]]; then
+            echo "$result" >&2
+            exit 1
+          fi
+          mkdir -p eif
+          if result="$(aws s3 cp "$PREFIX/measurements.json" eif/measurements.json 2>&1)"; then
+            jq -e --arg source "$SOURCE_COMMIT" --arg key "$KMS_KEY_ARN" --arg backend "$BACKEND" \
+              --arg indexer "$INDEXER_URL" --argjson concurrency "$CONCURRENCY" \
+              '.source_commit == $source and .kms_key == $key and .backend == $backend and .indexer_url == $indexer and .concurrency == $concurrency' eif/measurements.json
+            builder="$(jq -r .build_tools_commit eif/measurements.json)"
+            gh attestation verify eif/measurements.json --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/publish-nitro.yml" \
+              --source-digest "$builder" --deny-self-hosted-runners
+            echo "measured=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$result" != *404* && "$result" != *NoSuchKey* ]]; then
+            echo "$result" >&2
             exit 1
           fi
       - name: Read prover build settings
@@ -232,6 +269,7 @@ jobs:
         run: cp "../build-tools/$ZOLANA/prover/server/build-aeglos.sh" "$ZOLANA/prover/server/build-aeglos.sh"
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         id: build
+        if: steps.existing.outputs.digest == ''
         with:
           context: source/${{ env.ZOLANA }}
           file: build-tools/${{ env.ZOLANA }}/prover/server/Dockerfile.nitro
@@ -261,12 +299,14 @@ jobs:
       # Kept in GitHub's attestation store, as publish-image does: ECR's support
       # for OCI referrers is uneven.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.existing.outputs.digest == ''
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.existing.outputs.digest || steps.build.outputs.digest }}
       - name: Build and measure the EIF
+        if: steps.existing.outputs.measured != 'true'
         env:
-          IMAGE: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}@${{ steps.build.outputs.digest }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}@${{ steps.existing.outputs.digest || steps.build.outputs.digest }}
           KMS_KEY_ARN: ${{ steps.plan.outputs.kms_key_arn }}
           SOURCE_COMMIT: ${{ steps.plan.outputs.source_commit }}
           BACKEND: ${{ inputs.backend }}
@@ -281,11 +321,13 @@ jobs:
             '.backend == $backend and .source_commit == $source and .concurrency == $concurrency and .indexer_url == $indexer' eif/measurements.json \
             || { echo "::error::measured build profile differs from requested profile" >&2; exit 1; }
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.existing.outputs.measured != 'true'
         with:
           subject-path: |
             source/eif/prover.eif
             source/eif/measurements.json
       - name: Upload the EIF
+        if: steps.existing.outputs.measured != 'true'
         env:
           PREFIX: ${{ steps.plan.outputs.prefix }}
           DEPLOYMENT: ${{ steps.plan.outputs.deployment }}
@@ -312,50 +354,31 @@ jobs:
             jq '{pcr0: .PCR0, pcr1: .PCR1, pcr2: .PCR2}' eif/measurements.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Dispatch Open release pin PR (devnet-d)
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: release-app
+        if: startsWith(inputs.deployment, 'devnet-d-tee-')
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: helius-labs
+          repositories: zolana-infra
+      - name: Update deployment PR
         if: startsWith(inputs.deployment, 'devnet-d-tee-')
         env:
-          GH_TOKEN: ${{ secrets.ZOLANA_INFRA_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ steps.release-app.outputs.token }}
           DEPLOYMENT: ${{ steps.plan.outputs.deployment }}
           PREFIX: ${{ steps.plan.outputs.prefix }}
           SOURCE_COMMIT: ${{ steps.plan.outputs.source_commit }}
           ACTIVATE: ${{ inputs.activate }}
           PUBLISH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        working-directory: source
         run: |
           set -euo pipefail
-          [[ "$DEPLOYMENT" =~ ^devnet-d-(tee-[0-9]+)$ ]] || {
-            echo "deployment $DEPLOYMENT is not a devnet-d tee generation" >&2
-            exit 1
-          }
+          [[ "$DEPLOYMENT" =~ ^devnet-d-(tee-[0-9]+)$ ]]
           generation="${BASH_REMATCH[1]}"
-          if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::warning::ZOLANA_INFRA_DISPATCH_TOKEN unset; open the pin PR manually on zolana-infra (Open release pin PR, kind=nitro, generation=$generation)"
-            {
-              echo
-              echo "### Devnet-d pin"
-              echo "Secret \`ZOLANA_INFRA_DISPATCH_TOKEN\` is unset."
-              echo "Manual: Actions → Open release pin PR (kind=nitro, generation=\`$generation\`, eif_prefix=\`$PREFIX\`)."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          jq -n \
-            --arg generation "$generation" \
-            --arg eif_prefix "$PREFIX" \
-            --arg source_commit "$SOURCE_COMMIT" \
-            --arg publish_run_url "$PUBLISH_RUN_URL" \
-            --argjson activate "${ACTIVATE:-true}" \
+          jq -n --arg generation "$generation" --arg eif_prefix "$PREFIX" \
+            --arg source_commit "$SOURCE_COMMIT" --arg publish_run_url "$PUBLISH_RUN_URL" \
+            --argjson activate "$ACTIVATE" \
             --slurpfile measurements eif/measurements.json \
-            '{
-              event_type: "release-pin-published",
-              client_payload: {
-                kind: "nitro",
-                generation: $generation,
-                eif_prefix: $eif_prefix,
-                measurements: $measurements[0],
-                activate: $activate,
-                source_commit: $source_commit,
-                publish_run_url: $publish_run_url
-              }
-            }' | gh api repos/helius-labs/zolana-infra/dispatches --input -
-          echo "Dispatched release-pin-published (nitro/$generation activate=$ACTIVATE)" >> "$GITHUB_STEP_SUMMARY"
+            '{event_type:"release-pin-published", client_payload:{kind:"nitro", generation:$generation, eif_prefix:$eif_prefix, measurements:$measurements[0], activate:$activate, prepared:true, source_commit:$source_commit, publish_run_url:$publish_run_url}}' \
+            | gh api repos/helius-labs/zolana-infra/dispatches --input -
+          echo "[Review and deploy devnet-d](https://github.com/helius-labs/zolana-infra/pulls?q=is%3Apr+is%3Aopen+head%3Arelease%2Fdevnet-d)" >> "$GITHUB_STEP_SUMMARY"
