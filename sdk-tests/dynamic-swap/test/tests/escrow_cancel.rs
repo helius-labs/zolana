@@ -13,7 +13,7 @@ use dynamic_swap_sdk::{
     prover::DynamicSwapProverClient,
     shared::{pad_spp_outputs, transaction_blindings},
     state::{escrow_authority_address, escrow_nullifier_key, EscrowUtxo},
-    Groth16ProofBytes,
+    CancelIxData, Groth16ProofBytes,
 };
 use shared::{
     assert_liquidity, deposit_pool_liquidity, get_slot_with_retry, read_pair, send,
@@ -23,7 +23,10 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::Rpc;
-use zolana_interface::instruction::instruction_data::transact::TransactIxData;
+use zolana_interface::{
+    error::ShieldedPoolError,
+    instruction::instruction_data::transact::{TransactIxData, TransactProof},
+};
 use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_test_utils::utxo::{
     encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
@@ -37,15 +40,16 @@ use zolana_transaction::{
 const PRICE: u64 = 5;
 const ORDER_AMOUNT: u64 = 100_000_000;
 const MAX_ORDER_SIZE: u64 = 600_000_000;
-/// Covers both orders' reservations.
-const POOL_DEPOSIT: u64 = 2 * MAX_ORDER_SIZE;
+/// Covers all three orders' reservations.
+const POOL_DEPOSIT: u64 = 3 * MAX_ORDER_SIZE;
 /// Small enough that the test crosses expiry quickly, wide enough that the
-/// second order and both cancel proofs (in-process proving) are built before
+/// later orders and all cancel proofs (in-process proving) are built before
 /// the first order expires -- the pre-expiry probes need a live queue head.
 const EXPIRY_SLOTS: u64 = 500;
 
 const EXPIRED: u32 = 9000;
 const NOT_YET_EXPIRED: u32 = 9001;
+const INVALID_PDA: u32 = 9008;
 const NOT_QUEUE_HEAD: u32 = 9032;
 const ESCROW_CANCELLED: u32 = 9033;
 
@@ -87,15 +91,6 @@ struct Order {
     funding_hash: [u8; 32],
 }
 
-impl Order {
-    fn expires_at(&self) -> Result<u64> {
-        self.state
-            .created_at
-            .checked_add(EXPIRY_SLOTS)
-            .ok_or_else(|| anyhow!("expiry overflows"))
-    }
-}
-
 /// A cancel built while the order is live. The SPP transact carries no expiry
 /// of its own and the program-side gates precede proof verification, so the
 /// same payload is probed pre-expiry and replayed post-expiry.
@@ -106,8 +101,8 @@ struct CancelPayload {
 }
 
 /// create_escrow (taker-only) at queue position `order_id`, funded by any
-/// taker note other than `spent`.
-fn create_order(cx: &QueueCx, order_id: u64, spent: Option<[u8; 32]>) -> Result<Order> {
+/// taker note not in `spent`.
+fn create_order(cx: &QueueCx, order_id: u64, spent: &[[u8; 32]]) -> Result<Order> {
     let env = cx.env;
     let tree_id = env.localnet.tree_id;
     let user_solana = &env.user.keypair;
@@ -133,7 +128,7 @@ fn create_order(cx: &QueueCx, order_id: u64, spent: Option<[u8; 32]>) -> Result<
             .map_err(|e| anyhow!("user balance: {e:?}"))?
             .utxos
             .into_iter()
-            .find(|note| Some(note.utxo_hash) != spent))
+            .find(|note| !spent.contains(&note.utxo_hash)))
     })?;
 
     let source_in = SppProofInputUtxo::from(funding_utxo.clone());
@@ -238,10 +233,50 @@ fn create_order(cx: &QueueCx, order_id: u64, spent: Option<[u8; 32]>) -> Result<
     }
     .instruction()
     .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
+
+    if order_id == 1 {
+        // A competing opening has already consumed id 0. Reject its stale
+        // address without changing state, then submit the same proofs at id 1.
+        let previous_escrow = escrow_pda(&cx.pair, 0);
+        let pair_before_stale = read_pair(env, cx.pair)?;
+        let previous_before_stale = read_escrow(env, previous_escrow)?;
+        let mut stale_ix = ix.clone();
+        stale_ix
+            .accounts
+            .iter_mut()
+            .find(|meta| meta.pubkey == escrow)
+            .ok_or_else(|| anyhow!("create_escrow omitted its escrow account"))?
+            .pubkey = previous_escrow;
+        let err = send(env.localnet.client.rpc(), user_solana, &[], stale_ix)
+            .expect_err("a stale order counter must reject before locking funds");
+        assert_custom_error(
+            "create with stale counter",
+            &anyhow!("{err:?}"),
+            INVALID_PDA,
+        );
+        assert_eq!(
+            read_pair(env, cx.pair)?,
+            pair_before_stale,
+            "a stale opening must not consume an id or reserve liquidity"
+        );
+        assert_eq!(
+            read_escrow(env, previous_escrow)?,
+            previous_before_stale,
+            "a stale opening must not alter the existing order"
+        );
+    }
+
+    let slot_before_create = get_slot_with_retry(env.localnet.client.rpc().client())?;
     send(env.localnet.client.rpc(), user_solana, &[], ix)
         .map_err(|e| anyhow!("send create_escrow: {e:?}"))?;
 
     let state = read_escrow(env, escrow)?.ok_or_else(|| anyhow!("escrow account not found"))?;
+    let slot_after_create = get_slot_with_retry(env.localnet.client.rpc().client())?;
+    assert!(
+        (slot_before_create + EXPIRY_SLOTS..=slot_after_create + EXPIRY_SLOTS)
+            .contains(&state.expires_at),
+        "the stored deadline must be the execution slot plus the immutable window"
+    );
     let escrow_bump = Pubkey::find_program_address(
         &[
             Escrow::SEED_PREFIX,
@@ -259,7 +294,7 @@ fn create_order(cx: &QueueCx, order_id: u64, spent: Option<[u8; 32]>) -> Result<
         pair: cx.pair,
         order_utxo_hash,
         owner: user_solana.pubkey(),
-        created_at: state.created_at,
+        expires_at: state.expires_at,
         execution_price: PRICE,
         order_id,
     };
@@ -430,14 +465,14 @@ fn assert_queue(env: &TestEnv, pair: Pubkey, next: u64, head: u64, context: &str
     Ok(())
 }
 
-// FIFO queue, cancel, and skip flow over two orders A (id 0) and B (id 1). The
+// FIFO queue, cancel, and skip flow over orders A (id 0), B (id 1), C (id 2). The
 // gates are program-side and precede proof verification, so the probes reuse
 // real or garbage payloads:
-//   1. create A then B at a small expiry window (taker-only, IN1_OUT2).
-//   2. Build both real cancel payloads while the orders are live.
+//   1. create A, B, C at a small expiry window (taker-only, IN1_OUT2).
+//   2. Build all real cancel payloads while the orders are live.
 //   3. Pre-expiry: settle B -> NotQueueHead (A is the head), skip A ->
 //      NotYetExpired, cancel A -> NotYetExpired.
-//   4. Wait past B's expiry (B expires after A).
+//   4. Wait past C's expiry (deadlines are monotonic).
 //   5. Settle A post-expiry -> Expired.
 //   6. Cancel B ahead of the head: B is refunded and its reservation released,
 //      but its account stays as a cancellation marker. A second cancel ->
@@ -445,15 +480,16 @@ fn assert_queue(env: &TestEnv, pair: Pubkey, next: u64, head: u64, context: &str
 //   7. Skip B -> NotQueueHead. Skip A (open, expired) -> the head moves to B
 //      and A stays open for its refund. Skip B (marker) -> the marker closes
 //      and the head moves past it.
-//   8. Cancel A behind the head -> A is refunded and closes. Both refunds are
-//      wallet-discoverable by the taker and the pool returns to its deposit.
+//   8. Cancel C at the head -> C closes and advances the head immediately.
+//   9. Cancel A behind the head -> A closes. All refunds are wallet-discoverable
+//      by the taker and the pool returns to its deposit.
 #[test]
 fn queue_cancel_and_skip_after_expiry() -> Result<()> {
     let (env, pair) = setup_with_pair(6, PRICE, EXPIRY_SLOTS, MAX_ORDER_SIZE)?;
     let authority_solana = &env.authority.keypair;
     let user_solana = &env.user.keypair;
 
-    // Both escrows' reservations must be covered by committed liquidity.
+    // All escrows' reservations must be covered by committed liquidity.
     deposit_pool_liquidity(&env, pair, POOL_DEPOSIT)?;
 
     let maker_encryption_pubkey = read_pair(&env, pair)?.maker_encryption_pubkey;
@@ -469,30 +505,33 @@ fn queue_cancel_and_skip_after_expiry() -> Result<()> {
         prover: DynamicSwapProverClient::new(),
     };
 
-    // 1. Two orders join the queue in creation order.
+    // 1. Three orders join the queue in creation order.
     assert_queue(&env, pair, 0, 0, "before create_escrow")?;
-    let order_a = create_order(&cx, 0, None)?;
-    let order_b = create_order(&cx, 1, Some(order_a.funding_hash))?;
-    assert_queue(&env, pair, 2, 0, "after create_escrow")?;
+    let order_a = create_order(&cx, 0, &[])?;
+    let order_b = create_order(&cx, 1, &[order_a.funding_hash])?;
+    let order_c = create_order(&cx, 2, &[order_a.funding_hash, order_b.funding_hash])?;
+    assert_queue(&env, pair, 3, 0, "after create_escrow")?;
     assert_liquidity(
         &env,
         pair,
-        POOL_DEPOSIT - 2 * MAX_ORDER_SIZE,
-        2,
+        POOL_DEPOSIT - 3 * MAX_ORDER_SIZE,
+        3,
         "after create_escrow",
     )?;
 
-    // 2. Both refunds, built while the orders are live.
+    // 2. All refunds, built while the orders are live.
     let cancel_a = build_cancel(&cx, &order_a)?;
     let cancel_b = build_cancel(&cx, &order_b)?;
+    let cancel_c = build_cancel(&cx, &order_c)?;
 
     // 3. The pre-expiry probes must actually run before A expires: proving
     // latency is bounded by EXPIRY_SLOTS by construction, but assert it rather
     // than let a slow machine turn a probe into a flake.
     let now = get_slot_with_retry(env.localnet.client.rpc().client())?;
-    if now > order_a.expires_at()? {
+    if now > order_a.state.expires_at {
         bail!("building the orders took longer than the expiry window; raise EXPIRY_SLOTS");
     }
+    let pair_before_rejections = read_pair(&env, pair)?;
     let err = send(
         env.localnet.client.rpc(),
         authority_solana,
@@ -521,9 +560,21 @@ fn queue_cancel_and_skip_after_expiry() -> Result<()> {
         &anyhow!("{err:?}"),
         NOT_YET_EXPIRED,
     );
+    assert_eq!(
+        read_pair(&env, pair)?,
+        pair_before_rejections,
+        "rejected FIFO and expiry operations must not change the pair"
+    );
+    for order in [&order_a, &order_b, &order_c] {
+        assert_eq!(
+            read_escrow(&env, order.escrow)?,
+            Some(order.state),
+            "rejected FIFO and expiry operations must not change an order"
+        );
+    }
 
-    // 4. Cross both expiry boundaries.
-    wait_for_slot(env.localnet.client.rpc().client(), order_b.expires_at()?)?;
+    // 4. Cross every expiry boundary.
+    wait_for_slot(env.localnet.client.rpc().client(), order_c.state.expires_at)?;
 
     // 5. The head can no longer settle.
     let err = send(
@@ -552,8 +603,8 @@ fn queue_cancel_and_skip_after_expiry() -> Result<()> {
     assert_liquidity(
         &env,
         pair,
-        POOL_DEPOSIT - MAX_ORDER_SIZE,
-        1,
+        POOL_DEPOSIT - 2 * MAX_ORDER_SIZE,
+        2,
         "after cancel B",
     )?;
     let err = send(
@@ -575,34 +626,137 @@ fn queue_cancel_and_skip_after_expiry() -> Result<()> {
     .expect_err("skipping behind the queue head must fail");
     assert_custom_error("skip B before A", &anyhow!("{err:?}"), NOT_QUEUE_HEAD);
 
+    let pair_before_skip = read_pair(&env, pair)?;
     send(
         env.localnet.client.rpc(),
-        user_solana,
+        authority_solana,
         &[],
         skip_ix(&cx, &order_a),
     )
     .map_err(|e| anyhow!("send skip A: {e:?}"))?;
-    assert_queue(&env, pair, 2, 1, "after skip A")?;
+    assert_eq!(
+        read_pair(&env, pair)?,
+        dynamic_swap_program::state::Pair {
+            head_order_id: 1,
+            ..pair_before_skip
+        },
+        "advancing an expired open head must retain its reservation"
+    );
     assert_eq!(
         read_escrow(&env, order_a.escrow)?,
         Some(order_a.state),
         "a skipped open order stays open for its refund"
     );
 
+    let recipient_before_cleanup = env
+        .localnet
+        .client
+        .rpc()
+        .get_account(user_solana.pubkey())?
+        .ok_or_else(|| anyhow!("rent recipient missing"))?;
+    let marker_rent = env
+        .localnet
+        .client
+        .rpc()
+        .get_account(order_b.escrow)?
+        .ok_or_else(|| anyhow!("cancellation marker missing"))?
+        .lamports;
     send(
         env.localnet.client.rpc(),
-        user_solana,
+        authority_solana,
         &[],
         skip_ix(&cx, &order_b),
     )
     .map_err(|e| anyhow!("send skip B: {e:?}"))?;
-    assert_queue(&env, pair, 2, 2, "after skip B")?;
+    assert_queue(&env, pair, 3, 2, "after skip B")?;
     assert!(
         read_escrow(&env, order_b.escrow)?.is_none(),
         "skipping a cancellation marker must close it"
     );
+    let mut expected_recipient = recipient_before_cleanup;
+    expected_recipient.lamports += marker_rent;
+    assert_eq!(
+        env.localnet
+            .client
+            .rpc()
+            .get_account(user_solana.pubkey())?,
+        Some(expected_recipient),
+        "permissionless marker cleanup must return rent to the recorded owner"
+    );
 
-    // 8. Cancel A behind the head: refunded and closed.
+    // 8. Cancelling the current head advances it and returns rent immediately.
+    let pair_before_cancel_head = read_pair(&env, pair)?;
+    let escrow_before_bad_cpi = env.localnet.client.rpc().get_account(order_c.escrow)?;
+    let rent_before_bad_cpi = env
+        .localnet
+        .client
+        .rpc()
+        .get_account(user_solana.pubkey())?;
+    let (cancel_tag, cancel_body) = cancel_c
+        .ix
+        .data
+        .split_first()
+        .ok_or_else(|| anyhow!("cancel instruction omitted its tag"))?;
+    let mut bad_cpi_data: CancelIxData = wincode::deserialize_exact(cancel_body)?;
+    bad_cpi_data.transact.proof = TransactProof::zeroed();
+    let mut bad_cpi_ix = cancel_c.ix.clone();
+    bad_cpi_ix.data = vec![*cancel_tag];
+    bad_cpi_ix
+        .data
+        .extend_from_slice(&wincode::serialize(&bad_cpi_data)?);
+    // Keep the valid custom proof and its private transaction hash. Only the
+    // SPP proof is invalid, so the failure occurs after queue/accounting writes.
+    // Another fee payer keeps the rent recipient's balance unchanged by fees.
+    let err = send(
+        env.localnet.client.rpc(),
+        authority_solana,
+        &[user_solana],
+        bad_cpi_ix,
+    )
+    .expect_err("an invalid SPP proof must roll back the head cancellation");
+    assert_custom_error(
+        "cancel head with invalid SPP proof",
+        &anyhow!("{err:?}"),
+        ShieldedPoolError::TransactProofVerificationFailed as u32,
+    );
+    assert_eq!(
+        read_pair(&env, pair)?,
+        pair_before_cancel_head,
+        "a failed SPP CPI must roll back head and reservation mutations"
+    );
+    assert_eq!(
+        env.localnet.client.rpc().get_account(order_c.escrow)?,
+        escrow_before_bad_cpi,
+        "a failed SPP CPI must retain the complete escrow and its rent"
+    );
+    assert_eq!(
+        env.localnet
+            .client
+            .rpc()
+            .get_account(user_solana.pubkey())?,
+        rent_before_bad_cpi,
+        "a failed SPP CPI must not transfer escrow rent"
+    );
+    send(env.localnet.client.rpc(), user_solana, &[], cancel_c.ix)
+        .map_err(|e| anyhow!("send cancel C: {e:?}"))?;
+    env.leaf_index(cancel_c.refund_out_hash);
+    assert_eq!(
+        read_pair(&env, pair)?,
+        dynamic_swap_program::state::Pair {
+            available_liquidity: pair_before_cancel_head.available_liquidity + MAX_ORDER_SIZE,
+            open_reservations: pair_before_cancel_head.open_reservations - 1,
+            head_order_id: 3,
+            ..pair_before_cancel_head
+        },
+        "cancelling the head must release one reservation and advance once"
+    );
+    assert_eq!(
+        read_escrow(&env, order_c.escrow)?,
+        None,
+        "a cancelled head must close without a separate cleanup instruction"
+    );
+
+    // 9. Cancel A behind the head: refunded and closed.
     send(env.localnet.client.rpc(), user_solana, &[], cancel_a.ix)
         .map_err(|e| anyhow!("send cancel A: {e:?}"))?;
     env.leaf_index(cancel_a.refund_out_hash);
@@ -611,8 +765,9 @@ fn queue_cancel_and_skip_after_expiry() -> Result<()> {
         "a cancel behind the head must close the escrow"
     );
     assert_liquidity(&env, pair, POOL_DEPOSIT, 0, "after cancel A")?;
+    assert_queue(&env, pair, 3, 3, "after all refunds")?;
 
-    // The taker's wallet rediscovers both refunds.
+    // The taker's wallet rediscovers every refund.
     let mut user_wallet = Wallet::new(env.user.address()?, env.assets.clone())
         .map_err(|e| anyhow!("user wallet: {e:?}"))?;
     wait_until("refund notes", || {
@@ -629,7 +784,7 @@ fn queue_cancel_and_skip_after_expiry() -> Result<()> {
             .into_iter()
             .filter(|note| note.utxo.amount == ORDER_AMOUNT)
             .count();
-        Ok((refunds == 2).then_some(()))
+        Ok((refunds == 3).then_some(()))
     })?;
 
     Ok(())

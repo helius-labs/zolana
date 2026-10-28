@@ -297,7 +297,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         })?;
 
         // create_escrow prices the order at creation, stores the order leaf and
-        // its queue position; `created_at` is program-stamped from the Clock,
+        // its queue position; `expires_at` is program-stamped from the Clock,
         // so it is the one field read back rather than predicted.
         let escrow_account = env
             .localnet
@@ -320,7 +320,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             pair,
             order_utxo_hash,
             owner: user_solana.pubkey(),
-            created_at: escrow_state.created_at,
+            expires_at: escrow_state.expires_at,
             execution_price: PRICE,
             order_id: 0,
         };

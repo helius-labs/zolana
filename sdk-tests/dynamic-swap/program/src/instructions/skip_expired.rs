@@ -65,14 +65,8 @@ pub fn process_skip_expired_ix(accounts: &mut [AccountView], data: &[u8]) -> Pro
     // Step 7: Check that the escrow is a cancellation marker or has expired.
     // `cancel` requires expiry, so a marker has expired as well.
     let cancelled = escrow.cancelled != 0;
-    if !cancelled {
-        let expires_at = escrow
-            .created_at
-            .checked_add(pair.expiry_slots)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-        if Clock::get()?.slot <= expires_at {
-            return Err(DynamicSwapError::NotYetExpired.into());
-        }
+    if !cancelled && Clock::get()?.slot <= escrow.expires_at {
+        return Err(DynamicSwapError::NotYetExpired.into());
     }
 
     // Step 8: Advance the queue head.

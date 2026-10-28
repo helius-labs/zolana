@@ -7,6 +7,8 @@ use crate::tag;
 /// Permissionless and proof-free. `escrow` is the head order's account
 /// (`escrow_pda(pair, Pair::head_order_id)`); a cancellation marker closes,
 /// and its rent returns to `rent_recipient`, which must be the escrow owner.
+/// An expired open order retains its account and reservation until `Cancel`
+/// refunds it. Advancing the queue never releases that reservation.
 pub struct SkipExpired {
     pub pair: Pubkey,
     pub escrow: Pubkey,

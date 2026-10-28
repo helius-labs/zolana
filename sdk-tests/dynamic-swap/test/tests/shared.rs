@@ -617,7 +617,7 @@ pub fn token_balance(env: &TestEnv, token_account: Pubkey) -> Result<u64> {
 }
 
 /// Poll until the validator's slot is strictly past `target`. Used by the
-/// cancel flow to cross an escrow's expiry (`created_at + expiry_slots`)
+/// cancel flow to cross an escrow's stored `expires_at` deadline
 /// deterministically instead of sleeping a guessed duration.
 pub fn wait_for_slot(client: &solana_rpc_client::rpc_client::RpcClient, target: u64) -> Result<()> {
     loop {

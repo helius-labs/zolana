@@ -20,9 +20,10 @@ pub struct Pair {
     pub destination_asset_id: u64,
     pub price: u64,
     /// The maker's settle window in slots: `settle` requires the current slot
-    /// to be at most `Escrow.created_at + expiry_slots`, `cancel` requires it
-    /// to be past that. Set at `create_pair` and immutable, so the maker
-    /// cannot shrink or stretch the window on open escrows. Nonzero.
+    /// to be at most `Escrow.expires_at`, computed with checked arithmetic at
+    /// creation. `cancel` requires it to be past that. Set at `create_pair`
+    /// and immutable, so the maker cannot shrink or stretch the window on
+    /// open escrows. Nonzero.
     pub expiry_slots: u64,
     /// The worst-case owed per escrow (destination asset): every open escrow
     /// reserves exactly this much of `available_liquidity`, and the `escrow_open`
@@ -49,10 +50,11 @@ pub struct Pair {
     pub open_reservations: u64,
     /// The id `create_escrow` assigns to the next order, then increments.
     /// Orders form a FIFO queue per pair: ids are assigned in execution order,
-    /// and so are the `created_at` slots, so expiry is monotonic in the id.
+    /// and so are their fixed deadlines, so expiry is monotonic in the id.
     pub next_order_id: u64,
     /// The only order `settle` accepts. `settle` advances it past the order it
-    /// fills; `skip_expired` advances it past an expired or cancelled order.
+    /// fills; cancelling the head advances it immediately. `skip_expired`
+    /// advances it past an expired or already cancelled order.
     /// The maker therefore cannot fill later orders while leaving an
     /// unfavourable one to expire: every later fill waits for the head's
     /// settlement or expiry. `head_order_id <= next_order_id`; equal means the

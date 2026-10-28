@@ -5,7 +5,7 @@ use zolana_hasher::HasherError;
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 #[repr(u32)]
 pub enum DynamicSwapError {
-    /// `settle` after the escrow's window (`created_at + pair.expiry_slots`)
+    /// `settle` after the escrow's fixed deadline (`expires_at`)
     /// has passed; only `cancel` can resolve the escrow now.
     #[error("escrow has expired")]
     Expired = 9000,

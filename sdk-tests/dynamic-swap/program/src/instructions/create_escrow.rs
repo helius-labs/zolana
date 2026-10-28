@@ -92,6 +92,28 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         return Err(DynamicSwapError::InsufficientLiquidity.into());
     }
 
+    // Fix a resolvable deadline before accepting funds or creating the account.
+    // Resolution never recomputes this sum, so every accepted order has an
+    // expiry representable in the Clock's slot type.
+    let next_order_id = pair
+        .next_order_id
+        .checked_add(1)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    let expires_at = Clock::get()?
+        .slot
+        .checked_add(pair.expiry_slots)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+
+    // A competing creation consumes this id. Reject its stale PDA before
+    // proof verification; the same proof can be retried with the new id.
+    let order_id = pair.next_order_id;
+    let order_id_seed = order_id.to_le_bytes();
+    let escrow_bump = verify_pda(
+        escrow_account.address(),
+        &[Escrow::SEED_PREFIX, pair_address.as_array(), &order_id_seed],
+        &crate::ID,
+    )?;
+
     // The PDA half is recomputed here (never trusted from the client), binding
     // the created order UTXO to the program-controlled escrow_authority so only
     // settle/cancel can spend it; the nullifier pubkey is the hardcoded
@@ -132,13 +154,6 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // derive the head order's address from the pair alone. A taker racing
     // another create_escrow rebuilds the instruction for the next id; the
     // proof does not depend on it.
-    let order_id = pair.next_order_id;
-    let order_id_seed = order_id.to_le_bytes();
-    let escrow_bump = verify_pda(
-        escrow_account.address(),
-        &[Escrow::SEED_PREFIX, pair_address.as_array(), &order_id_seed],
-        &crate::ID,
-    )?;
     CreatePdaAccount::<3> {
         fee_payer: taker,
         new_account: escrow_account,
@@ -162,7 +177,7 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
             pair: pair_address,
             order_utxo_hash,
             owner: *taker.address(),
-            created_at: Clock::get()?.slot,
+            expires_at,
             execution_price,
             order_id,
         };
@@ -182,9 +197,7 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
             .open_reservations
             .checked_add(1)
             .ok_or(ProgramError::ArithmeticOverflow)?;
-        pair_mut.next_order_id = order_id
-            .checked_add(1)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
+        pair_mut.next_order_id = next_order_id;
     }
 
     let transact_bytes = transact

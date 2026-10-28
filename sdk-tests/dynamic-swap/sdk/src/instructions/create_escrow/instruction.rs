@@ -12,6 +12,12 @@ use crate::{err, escrow_authority_pda, tag, CreateEscrowIxData, Groth16ProofByte
 /// transact CPI's payer and an explicit owner signer) and pays the escrow
 /// account rent. The program signs for the escrow-authority-owned order
 /// output; the maker is not involved.
+///
+/// Derive `escrow` with `escrow_pda(pair, pair_state.next_order_id)` from a
+/// fresh pair account. If another order takes that position first, rebuild
+/// the instruction with the new counter and retry. Queue position is outside
+/// both proofs, so the proofs can be reused while their other inputs remain
+/// valid and unspent.
 pub struct CreateEscrow {
     pub taker: Pubkey,
     pub pair: Pubkey,

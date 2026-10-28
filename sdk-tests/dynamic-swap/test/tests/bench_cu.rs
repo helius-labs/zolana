@@ -673,7 +673,7 @@ impl EscrowBenchWorld {
             pair: self.pair,
             order_utxo_hash,
             owner: self.user_solana.pubkey(),
-            created_at: CREATED_AT,
+            expires_at: CREATED_AT + EXPIRY_SLOTS,
             execution_price: PRICE - 1,
             order_id: 0,
         }
@@ -836,7 +836,7 @@ fn bench_create_escrow(
     .instruction()
     .expect("create_escrow instruction");
 
-    // `created_at` is program-stamped from the Clock sysvar; any slot works.
+    // `expires_at` is computed from the Clock sysvar; any slot works.
     mollusk.sysvars.clock.slot = CREATED_AT;
 
     // The pool covers the worst-case reservation.
@@ -1038,7 +1038,7 @@ fn bench_settle(
     .instruction()
     .expect("settle instruction");
 
-    // Inside the settle window: created_at <= slot <= created_at + expiry.
+    // Inside the settle window: slot <= expires_at.
     mollusk.sysvars.clock.slot = CREATED_AT + 1;
 
     // One open reservation for settle to release; the bound is already net of
@@ -1196,7 +1196,7 @@ fn bench_cancel(
     .instruction()
     .expect("cancel instruction");
 
-    // Past the settle window: slot > created_at + expiry.
+    // Past the settle window: slot > expires_at.
     mollusk.sysvars.clock.slot = CREATED_AT + EXPIRY_SLOTS + 1;
 
     // One open reservation for cancel to release in full.

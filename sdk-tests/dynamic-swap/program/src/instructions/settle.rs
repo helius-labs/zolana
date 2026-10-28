@@ -88,11 +88,7 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     }
     // Settle only inside the window; past it the escrow belongs to `cancel`.
     // The strict partition means settle and cancel can never race.
-    let expires_at = escrow
-        .created_at
-        .checked_add(pair.expiry_slots)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    if Clock::get()?.slot > expires_at {
+    if Clock::get()?.slot > escrow.expires_at {
         return Err(DynamicSwapError::Expired.into());
     }
 

@@ -14,8 +14,7 @@ use crate::error::DynamicSwapError;
 /// owner-hash, bound in-circuit to the source UTXO's owner and committed as the
 /// order UTXO's `DataHash`, so it stays confidential. `create_escrow` prices the
 /// order at creation, writing a nonzero `execution_price` (the pair's current
-/// price); `settle` fills it before `created_at + Pair.expiry_slots`, `cancel`
-/// refunds it after.
+/// price); `settle` fills it through `expires_at`, `cancel` refunds it after.
 ///
 /// Orders settle in FIFO order: `order_id` is the order's position in the
 /// pair's queue, and `settle` accepts only the order at `Pair.head_order_id`.
@@ -27,7 +26,7 @@ use crate::error::DynamicSwapError;
 pub struct Escrow {
     pub discriminator: u8,
     pub bump: u8,
-    /// 1 once `cancel` refunded the order while it was at or ahead of the
+    /// 1 once `cancel` refunded the order while it was ahead of the
     /// queue head; the account then only marks the queue position.
     pub cancelled: u8,
     pub _pad: [u8; 5],
@@ -36,8 +35,8 @@ pub struct Escrow {
     /// creation.
     pub order_utxo_hash: [u8; 32],
     pub owner: Address,
-    /// The slot `create_escrow` executed in, read from the Clock sysvar.
-    pub created_at: u64,
+    /// The last settlement slot, checked and fixed when the order opens.
+    pub expires_at: u64,
     pub execution_price: u64,
     /// The order's position in the pair's queue, assigned from
     /// `Pair.next_order_id`. Also the escrow account's PDA seed with the pair.

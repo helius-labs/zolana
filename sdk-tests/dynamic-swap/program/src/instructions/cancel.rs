@@ -33,11 +33,10 @@ pub struct CancelIxData {
 /// handoff) can build a valid proof, and the refund destination is fixed by
 /// the proof.
 ///
-/// An order behind the queue head closes. An order at or ahead of the head
-/// stays as a cancellation marker until `skip_expired` passes it: the queue
-/// advances one position at a time, and the marker is what lets it advance
-/// past a refunded order. Expiry is monotonic in the order id, so every order
-/// from the head up to a cancellable one has expired as well.
+/// An order behind the queue head closes. Cancelling the head advances it and
+/// closes the account. An order ahead of the head stays as a cancellation
+/// marker until `skip_expired` passes it, so the queue can advance past an
+/// order that was refunded out of order.
 #[inline(never)]
 #[profile]
 pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
@@ -57,8 +56,7 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     // Snapshot the escrow's fields and immediately drop the borrow so
     // `escrow_account` is free to be closed later in this same call.
     let escrow = *load_escrow_mut(escrow_account)?;
-    // Bind escrow to this pair: the expiry window is a pair field, so a
-    // mismatched pair account must be rejected.
+    // Bind escrow to this pair before changing its reservation counters.
     if !address_eq(&escrow.pair, pair_account.address()) {
         return Err(DynamicSwapError::PairMismatch.into());
     }
@@ -73,11 +71,7 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     }
     // Cancel only past the window; inside it the escrow belongs to `settle`.
     // The strict partition means settle and cancel can never race.
-    let expires_at = escrow
-        .created_at
-        .checked_add(pair.expiry_slots)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    if Clock::get()?.slot <= expires_at {
+    if Clock::get()?.slot <= escrow.expires_at {
         return Err(DynamicSwapError::NotYetExpired.into());
     }
 
@@ -109,6 +103,12 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
             .open_reservations
             .checked_sub(1)
             .ok_or(ProgramError::ArithmeticOverflow)?;
+        if escrow.order_id == pair.head_order_id {
+            pair_mut.head_order_id = escrow
+                .order_id
+                .checked_add(1)
+                .ok_or(ProgramError::ArithmeticOverflow)?;
+        }
     }
 
     let transact_bytes = transact
@@ -125,7 +125,7 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         &transact_bytes,
     )?;
 
-    if escrow.order_id < pair.head_order_id {
+    if escrow.order_id <= pair.head_order_id {
         close_escrow_account(escrow_account, rent_recipient)
     } else {
         load_escrow_mut(escrow_account)?.cancelled = 1;

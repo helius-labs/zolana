@@ -8,10 +8,14 @@ use zolana_program::instruction::nullifier_pda_accounts;
 
 use crate::{err, escrow_authority_pda, tag, CancelIxData, Groth16ProofBytes};
 
-/// Refunds one expired escrow and closes it. Permissionless: `caller` only
+/// Refunds one expired escrow. Permissionless: `caller` only
 /// signs and pays fees; only a holder of the order UTXO data can build a valid
 /// proof, and the refund destination (the recipient committed as the order
 /// UTXO's data hash) is fixed by the proof.
+///
+/// An order at the queue head advances it and closes; an order behind the
+/// head closes. An order ahead of the head stays as a refunded marker until
+/// `SkipExpired` reaches it, when its rent returns to `rent_recipient`.
 pub struct Cancel {
     pub caller: Pubkey,
     pub pair: Pubkey,

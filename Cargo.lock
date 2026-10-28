@@ -3061,6 +3061,7 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
+ "solana-program-error",
  "solana-pubkey 4.2.1",
  "solana-rpc-client",
  "solana-signature",
