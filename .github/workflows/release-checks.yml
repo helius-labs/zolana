@@ -25,4 +25,4 @@ jobs:
       # GitHub supports queue:max; actionlint has not added that field yet.
       - uses: docker://rhysd/actionlint:1.7.12
         with:
-          args: -ignore 'unexpected key "queue" for "concurrency" section' .github/workflows/publish-image.yml .github/workflows/publish-service-image.yml .github/workflows/publish-nitro.yml .github/workflows/release-checks.yml
+          args: -ignore=unexpected.key.*queue.*concurrency.*section .github/workflows/publish-image.yml .github/workflows/publish-service-image.yml .github/workflows/publish-nitro.yml .github/workflows/release-checks.yml
