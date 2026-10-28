@@ -269,7 +269,7 @@ jobs:
         run: cp "../build-tools/$ZOLANA/prover/server/build-aeglos.sh" "$ZOLANA/prover/server/build-aeglos.sh"
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         id: build
-        if: steps.existing.outputs.digest == ''
+        if: steps.existing.outputs.digest == '' && steps.existing.outputs.measured != 'true'
         with:
           context: source/${{ env.ZOLANA }}
           file: build-tools/${{ env.ZOLANA }}/prover/server/Dockerfile.nitro
@@ -299,7 +299,7 @@ jobs:
       # Kept in GitHub's attestation store, as publish-image does: ECR's support
       # for OCI referrers is uneven.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        if: steps.existing.outputs.digest == ''
+        if: steps.existing.outputs.digest == '' && steps.existing.outputs.measured != 'true'
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}
           subject-digest: ${{ steps.existing.outputs.digest || steps.build.outputs.digest }}
@@ -335,11 +335,22 @@ jobs:
           bucket=${PREFIX#s3://}
           bucket=${bucket%%/*}
           key=${PREFIX#s3://"$bucket"/}
-          # JSON content type, so zolana-infra can read measurements.json at plan time.
-          aws s3api put-object --bucket "$bucket" --key "$key/prover.eif" --body eif/prover.eif \
-            --if-none-match '*' > /dev/null
-          aws s3api put-object --bucket "$bucket" --key "$key/measurements.json" --body eif/measurements.json \
-            --content-type application/json --if-none-match '*' > /dev/null
+          upload_once() {
+            local artifact_key="$1" artifact_file="$2" error previous
+            previous="$RUNNER_TEMP/existing-$(basename "$artifact_file")"
+            shift 2
+            if error="$(aws s3api put-object --bucket "$bucket" --key "$artifact_key" --body "$artifact_file" --if-none-match '*' "$@" 2>&1)"; then
+              return 0
+            fi
+            [[ "$error" == *PreconditionFailed* ]] || { echo "$error" >&2; return 1; }
+            aws s3api get-object --bucket "$bucket" --key "$artifact_key" "$previous" > /dev/null
+            cmp -s "$artifact_file" "$previous" || {
+              echo "::error::Published object differs; allocate a new Nitro generation."
+              return 1
+            }
+          }
+          upload_once "$key/prover.eif" eif/prover.eif
+          upload_once "$key/measurements.json" eif/measurements.json --content-type application/json
           {
             echo "### Nitro prover for $DEPLOYMENT"
             echo
