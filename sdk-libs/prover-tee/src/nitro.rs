@@ -60,6 +60,9 @@ pub struct NitroMeasurement {
     pub pcr1: [u8; 48],
     #[serde(with = "hex")]
     pub pcr2: [u8; 48],
+    /// Optional key bound to this measured image, allowing safe rotation overlap.
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "hex_pin")]
+    pub hpke_public_key: Option<[u8; 32]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,6 +143,7 @@ impl TeePlatform for Nitro {
             pcr0: document.pcr(0)?,
             pcr1: document.pcr(1)?,
             pcr2: document.pcr(2)?,
+            hpke_public_key: None,
         };
         if measurement.pcr0 == [0; 48] {
             return Err(invalid("PCR0 is zero, the enclave runs in debug mode"));
@@ -164,7 +168,12 @@ impl TeePlatform for Nitro {
         pins: &NitroPolicy,
         claims: &Claims<'_>,
     ) -> Result<(), TeeError> {
-        if !pins.measurements.contains(&identity.measurement) {
+        let matches_image = |pin: &&NitroMeasurement| {
+            pin.pcr0 == identity.measurement.pcr0
+                && pin.pcr1 == identity.measurement.pcr1
+                && pin.pcr2 == identity.measurement.pcr2
+        };
+        if !pins.measurements.iter().any(|pin| matches_image(&pin)) {
             return Err(TeeError::EnclaveMeasurementNotAllowed);
         }
         if identity.public_key.as_deref() != Some(claims.hpke_public_key.as_slice()) {
@@ -172,6 +181,12 @@ impl TeePlatform for Nitro {
         }
         if identity.nonce.as_deref() != Some(claims.nonce.as_slice()) {
             return Err(invalid("nonce is not the session nonce"));
+        }
+        if !pins.measurements.iter().filter(matches_image).any(|pin| {
+            pin.hpke_public_key
+                .is_none_or(|key| &key == claims.hpke_public_key)
+        }) {
+            return Err(TeeError::HpkeKeyMismatch);
         }
         if pins
             .hpke_public_key

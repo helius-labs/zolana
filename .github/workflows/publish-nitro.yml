@@ -27,6 +27,18 @@ on:
         description: The deployment's KMS key ARN, from zolana-infra's nitro_prover output
         required: true
         type: string
+      candidate_id:
+        type: string
+        default: ""
+      seed_context:
+        type: string
+        default: ""
+      profile_json:
+        type: string
+        default: ""
+      build_tools_commit:
+        type: string
+        default: ""
       source_commit:
         description: Full source commit SHA; empty builds the workflow ref
         required: false
@@ -61,6 +73,18 @@ on:
       kms_key_arn:
         required: true
         type: string
+      candidate_id:
+        type: string
+        default: ""
+      seed_context:
+        type: string
+        default: ""
+      profile_json:
+        type: string
+        default: ""
+      build_tools_commit:
+        type: string
+        default: ""
       source_commit:
         type: string
         default: ""
@@ -93,7 +117,7 @@ on:
 
 concurrency:
   group: publish-nitro-${{ inputs.deployment }}
-  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -122,6 +146,7 @@ jobs:
       # requested immutable protocol source, including already-published tags.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ inputs.build_tools_commit || github.sha }}
           path: build-tools
           submodules: ${{ inputs.submodules == true }}
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -194,13 +219,33 @@ jobs:
           role-session-name: ${{ env.REPOSITORY }}-publish
           aws-region: ${{ env.AWS_REGION }}
       - uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2
-      # The EIF upload below refuses an existing object by itself.
-      - name: Refuse to overwrite a published image
+      - name: Resolve published Nitro artifact
+        id: existing
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.plan.outputs.tag }}
+          PREFIX: ${{ steps.plan.outputs.prefix }}
+          SOURCE_COMMIT: ${{ steps.plan.outputs.source_commit }}
+          STABLE_ARTIFACT: "true"
+          KMS_KEY_ARN: ${{ steps.plan.outputs.kms_key_arn }}
+          BACKEND: ${{ inputs.backend }}
+          CONCURRENCY: ${{ inputs.concurrency }}
+          INDEXER_URL: ${{ inputs.indexer_url }}
         run: |
-          if aws ecr describe-images --repository-name "$REPOSITORY" --image-ids "imageTag=$TAG" > /dev/null 2>&1; then
-            echo "::error::$REPOSITORY:$TAG is already published" >&2
+          set -euo pipefail
+          bash "../build-tools/$ZOLANA/tools/release-image.sh" resolve nitro "$REPOSITORY" "$TAG" publish-nitro.yml
+          mkdir -p eif
+          if result="$(aws s3 cp "$PREFIX/measurements.json" eif/measurements.json 2>&1)"; then
+            jq -e --arg source "$SOURCE_COMMIT" --arg key "$KMS_KEY_ARN" --arg backend "$BACKEND" \
+              --arg indexer "$INDEXER_URL" --argjson concurrency "$CONCURRENCY" \
+              '.source_commit == $source and .kms_key == $key and .backend == $backend and .indexer_url == $indexer and .concurrency == $concurrency' eif/measurements.json
+            jq -e --arg tools "${{ steps.plan.outputs.build_tools_commit }}" ' .build_tools_commit == $tools ' eif/measurements.json > /dev/null
+            gh attestation verify eif/measurements.json --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/publish-nitro.yml" \
+              --source-ref refs/heads/main --deny-self-hosted-runners
+            echo "measured=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$result" != *404* && "$result" != *NoSuchKey* ]]; then
+            echo "$result" >&2
             exit 1
           fi
       - name: Read prover build settings
@@ -219,6 +264,7 @@ jobs:
         run: cp "../build-tools/$ZOLANA/prover/server/build-aeglos.sh" "$ZOLANA/prover/server/build-aeglos.sh"
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         id: build
+        if: steps.existing.outputs.digest == '' && steps.existing.outputs.measured != 'true'
         with:
           context: source/${{ env.ZOLANA }}
           file: build-tools/${{ env.ZOLANA }}/prover/server/Dockerfile.nitro
@@ -236,26 +282,50 @@ jobs:
             KEY_SOURCE=kms
             KMS_KEY_ARN=${{ steps.plan.outputs.kms_key_arn }}
             INDEXER_URL=${{ inputs.indexer_url }}
-          push: true
+          load: true
+          push: false
           tags: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}:${{ steps.plan.outputs.tag }}
           labels: |
             org.opencontainers.image.title=Zolana Nitro Enclave prover
             org.opencontainers.image.revision=${{ steps.plan.outputs.source_commit }}
+            org.zolana.publisher.revision=${{ github.sha }}
             org.zolana.build-tools.revision=${{ steps.plan.outputs.build_tools_commit }}
             org.opencontainers.image.licenses=Apache-2.0
           cache-from: ${{ inputs.backend == 'gnark' && 'type=gha,scope=publish-nitro' || '' }}
           cache-to: ${{ inputs.backend == 'gnark' && 'type=gha,mode=max,scope=publish-nitro' || '' }}
-      # Kept in GitHub's attestation store, as publish-image does: ECR's support
-      # for OCI referrers is uneven.
+      - name: Record Nitro build intent
+        if: steps.existing.outputs.digest == '' && steps.existing.outputs.measured != 'true'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: 'bash "../build-tools/$ZOLANA/tools/release-image.sh" intent nitro "$REPOSITORY" "$TAG" publish-nitro.yml'
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.existing.outputs.digest == '' && steps.existing.outputs.measured != 'true'
+        with:
+          subject-path: ${{ runner.temp }}/build-intent.json
+      - name: Retain Nitro build intent
+        if: steps.existing.outputs.digest == '' && steps.existing.outputs.measured != 'true'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: 'bash "../build-tools/$ZOLANA/tools/release-image.sh" retain-intent nitro "$REPOSITORY" "$TAG" publish-nitro.yml'
+      - name: Publish Nitro image
+        id: published
+        if: steps.existing.outputs.measured != 'true'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+          EXISTING_DIGEST: ${{ steps.existing.outputs.digest }}
+        run: 'bash "../build-tools/$ZOLANA/tools/release-image.sh" push nitro "$REPOSITORY" "$TAG" publish-nitro.yml'
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.existing.outputs.measured != 'true'
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.published.outputs.digest }}
       - name: Build and measure the EIF
+        if: steps.existing.outputs.measured != 'true'
         env:
-          IMAGE: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}@${{ steps.build.outputs.digest }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.REPOSITORY }}@${{ steps.published.outputs.digest }}
           KMS_KEY_ARN: ${{ steps.plan.outputs.kms_key_arn }}
           SOURCE_COMMIT: ${{ steps.plan.outputs.source_commit }}
+          STABLE_ARTIFACT: "true"
           BACKEND: ${{ inputs.backend }}
           CONCURRENCY: ${{ inputs.concurrency }}
           INDEXER_URL: ${{ inputs.indexer_url }}
@@ -268,11 +338,13 @@ jobs:
             '.backend == $backend and .source_commit == $source and .concurrency == $concurrency and .indexer_url == $indexer' eif/measurements.json \
             || { echo "::error::measured build profile differs from requested profile" >&2; exit 1; }
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.existing.outputs.measured != 'true'
         with:
           subject-path: |
             source/eif/prover.eif
             source/eif/measurements.json
       - name: Upload the EIF
+        if: steps.existing.outputs.measured != 'true'
         env:
           PREFIX: ${{ steps.plan.outputs.prefix }}
           DEPLOYMENT: ${{ steps.plan.outputs.deployment }}
@@ -280,11 +352,22 @@ jobs:
           bucket=${PREFIX#s3://}
           bucket=${bucket%%/*}
           key=${PREFIX#s3://"$bucket"/}
-          # JSON content type, so zolana-infra can read measurements.json at plan time.
-          aws s3api put-object --bucket "$bucket" --key "$key/prover.eif" --body eif/prover.eif \
-            --if-none-match '*' > /dev/null
-          aws s3api put-object --bucket "$bucket" --key "$key/measurements.json" --body eif/measurements.json \
-            --content-type application/json --if-none-match '*' > /dev/null
+          upload_once() {
+            local artifact_key="$1" artifact_file="$2" error previous
+            previous="$RUNNER_TEMP/existing-$(basename "$artifact_file")"
+            shift 2
+            if error="$(aws s3api put-object --bucket "$bucket" --key "$artifact_key" --body "$artifact_file" --if-none-match '*' "$@" 2>&1)"; then
+              return 0
+            fi
+            [[ "$error" == *PreconditionFailed* ]] || { echo "$error" >&2; return 1; }
+            aws s3api get-object --bucket "$bucket" --key "$artifact_key" "$previous" > /dev/null
+            cmp -s "$artifact_file" "$previous" || {
+              echo "::error::Published object differs; allocate a new Nitro generation."
+              return 1
+            }
+          }
+          upload_once "$key/prover.eif" eif/prover.eif
+          upload_once "$key/measurements.json" eif/measurements.json --content-type application/json
           {
             echo "### Nitro prover for $DEPLOYMENT"
             echo
@@ -299,3 +382,22 @@ jobs:
             jq '{pcr0: .PCR0, pcr1: .PCR1, pcr2: .PCR2}' eif/measurements.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Describe completed Nitro artifact
+        if: inputs.candidate_id != ''
+        env:
+          CANDIDATE: ${{ inputs.candidate_id }}
+          CONTEXT: ${{ inputs.seed_context }}
+          PROFILE: ${{ inputs.profile_json }}
+          PREFIX: ${{ steps.plan.outputs.prefix }}
+          DEPLOYMENT: ${{ steps.plan.outputs.deployment }}
+        run: |
+          jq -n --arg candidate "$CANDIDATE" --arg context "$CONTEXT" --argjson profile "$PROFILE" \
+            --arg prefix "$PREFIX" --arg generation "${DEPLOYMENT#devnet-d-}" --slurpfile m eif/measurements.json \
+            '{kind:"nitro",generation:$generation,measurements:($m[0]+{external:true,candidate_id:$candidate,seed_context:$context,profile:$profile,eif_prefix:$prefix,source:"measure"})}' > "$RUNNER_TEMP/nitro.json"
+      - uses: actions/upload-artifact@v4
+        if: inputs.candidate_id != ''
+        with:
+          name: release-part-nitro
+          path: ${{ runner.temp }}/nitro.json
+          if-no-files-found: error
+          overwrite: true

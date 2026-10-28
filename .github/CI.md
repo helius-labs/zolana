@@ -254,16 +254,16 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     **Triggered by:**
 
-    1. PR/main changes to `programs/`.
-    2. PR/main changes to Photon or image build inputs.
-    3. `photon-zolana-*` tags.
-    4. Manual dispatch.
+    1. Main changes to service sources, `protocol-ops/`, shared dependencies or release tooling.
+    2. Manual dispatch; `changed` and `release` are the defaults.
 
     **Runs:**
 
-    1. Photon image: `docker/build-push-action`.
-    2. Photon smoke test: `tools/check-photon-image.sh`.
-    3. Service publication: `uses: ./.github/workflows/publish-service-image.yml` (tags/manual only).
+    1. Build, smoke-test and attest the selected service images.
+    2. Build a pinned runtime probe; prepare and privately qualify Nitro when its inputs change.
+    3. Wait for source CI and assemble one complete immutable release.
+    4. Publish its durable ready marker and notify the infrastructure release controller.
+    5. The `preview` channel publishes the selected service without a deployment request.
 
 12. [Reusable service publisher](workflows/publish-service-image.yml)
 
@@ -350,3 +350,13 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     **Runs:**
 
     1. PR-only push policy: `bash`.
+
+Release automation uses each repository's built-in token and AWS OIDC. Infra
+pulls signed release manifests and their Sigstore bundles from S3; cross-repo
+GitHub dispatch is unnecessary. `release-client-policy.yml` discovers qualified
+Nitro identities and creates source-owned policy PRs. Its validator accepts only
+qualified overlapping policy data, runs the TypeScript package/policy checks and
+the real reusable async-prover suite, and reports required statuses on the exact
+PR commits. Client delivery is a separate gate; `publish-client-policy.yml`
+publishes policy evidence after delivery and answers fresh deployment-status
+requests when called in `check` mode by the client's scheduled workflow.

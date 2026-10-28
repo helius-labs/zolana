@@ -81,6 +81,7 @@ impl Fixture {
             pcr0: [1; 48],
             pcr1: [2; 48],
             pcr2: [3; 48],
+            hpke_public_key: None,
         };
         Self {
             now,

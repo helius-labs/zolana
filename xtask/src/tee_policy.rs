@@ -172,10 +172,18 @@ impl Pin<'_> {
                 {
                     bail!("prover holds another key than the pinned one, rerun with --replace");
                 }
-                if pin_key {
+                let mut measurement = found.measurement.clone();
+                if pins
+                    .measurements
+                    .iter()
+                    .any(|pin| pin.hpke_public_key.is_some())
+                {
+                    // Never append an unpinned duplicate that bypasses an image/key pair.
+                    measurement.hpke_public_key = Some(identity.hpke_public_key);
+                } else if pin_key {
                     pins.hpke_public_key = Some(identity.hpke_public_key);
                 }
-                push_new(&mut pins.measurements, found.measurement.clone());
+                push_new(&mut pins.measurements, measurement);
                 Ok(PlatformPolicy::AwsNitro(pins))
             }
             _ => bail!("cannot pin a {found_platform} prover"),
@@ -215,6 +223,7 @@ fn parse_pcrs(json: &str) -> Result<NitroMeasurement> {
         pcr0: pcr("PCR0")?,
         pcr1: pcr("PCR1")?,
         pcr2: pcr("PCR2")?,
+        hpke_public_key: None,
     })
 }
 
@@ -286,6 +295,7 @@ mod tests {
             pcr0: [1; 48],
             pcr1: [2; 48],
             pcr2: [pcr2; 48],
+            hpke_public_key: None,
         }
     }
 
@@ -331,6 +341,15 @@ mod tests {
             hpke_public_key: Some([0; 32]),
         });
         assert!(pin(Some(&other), true).is_err());
+        let paired = PlatformPolicy::AwsNitro(NitroPolicy {
+            measurements: vec![NitroMeasurement {
+                hpke_public_key: Some(nitro.hpke_public_key),
+                ..found.measurement.clone()
+            }],
+            hpke_public_key: None,
+        });
+        assert_eq!(pin(Some(&paired), false).unwrap(), paired);
+        assert_eq!(pin(Some(&paired), true).unwrap(), paired);
         let unbuilt = Pin {
             current: None,
             identity: &nitro,

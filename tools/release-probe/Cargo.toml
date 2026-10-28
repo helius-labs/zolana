@@ -1,0 +1,17 @@
+[package]
+name = "spr-release-probe"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+groth16-solana.workspace = true
+spr-client.workspace = true
+spr-interface.workspace = true
+spr-keypair.workspace = true
+spr-transaction.workspace = true

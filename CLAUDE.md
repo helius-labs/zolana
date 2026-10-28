@@ -640,28 +640,27 @@ workspace path dependencies:
 docker build -f services/photon/Dockerfile .
 ```
 
-Photon keeps its own deployment approval even though it shares source and a
-lockfile with the protocol. Release images must be immutable, identify the
-Zolana repository commit, and include the root license and third-party notices.
-Localnet tests never consume those production images.
+Application deployment is approved by merging the single **Deploy devnet-d** PR
+in `zolana-infra`. A relevant source merge to `main` automatically builds the
+changed services, checks their containers, and publishes one signed complete
+release after source CI passes. Nitro changes are privately qualified and wait
+for delivery of a compatible client policy before cutover. The infrastructure
+PR preview and merge are the normal deployment gate. Each repository uses its
+own built-in `GITHUB_TOKEN`; AWS authentication uses OIDC. Infra exports signed
+build context to S3 and polls complete releases and Nitro requests. Source owns
+SDK policy PRs. Explicit validation reports checks on the exact generated PR
+commits, without a PAT, a new App or an extra workflow-approval click. Client
+repositories publish delivered-policy evidence and answer fresh status requests
+through `publish-client-policy.yml`; source changes alone never authorize cutover.
 
-From the commit on `main` to release, create and push its fork tag:
-
-```bash
-tag="photon-zolana-$(git rev-parse --short=12 HEAD)"
-git tag "$tag"
-git push origin "$tag"
-```
-
-A manual `publish-image.yml` dispatch on the `release` channel must use that
-same commit-derived value for its `image_tag`, and the commit must be on
-`main`; the `preview` channel takes any branch and any tag, for images that are
-not releases, and refuses a `-zolana-` tag so a preview cannot claim a release
-name. The protected `image-publish` environment gates publication. The workflow
-publishes the `photon-zolana-<12-character-commit>` tag and a full `sha-<commit>`
-alias, refuses to overwrite either, and does not publish `latest`. The imported
-crate version in `services/photon/Cargo.toml` is upstream source provenance, not
-the Zolana fork's release identifier.
+For an explicit build, run `publish-image.yml` on `main` with service `changed`
+and channel `release`; optionally force a service rebuild. Tags and digests are
+derived automatically. A `preview` dispatch selects a service on the chosen
+branch and publishes a preview without requesting deployment. Release image
+tags and full `sha-<commit>` aliases are immutable, and no `latest` is published.
+Photon images include the root license and third-party notices. The imported
+crate version in `services/photon/Cargo.toml` is upstream source provenance;
+localnet tests use the same-revision workspace binary.
 
 `publish-gpu.yml` is a second Photon channel, for GPU deployments only. A push
 to `main` that changes its inputs publishes `zolana-photon:gpu-<commit>` and

@@ -512,3 +512,35 @@ fn the_shared_cbor_cases_pass_or_fail_as_pinned() {
         }
     }
 }
+
+#[test]
+fn rotation_preserves_image_and_key_pairs_across_languages() {
+    let live: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../prover/tee/testdata/nitro_live_attestation.json"
+    ))
+    .unwrap();
+    let cases: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../prover/tee/testdata/nitro_rotation_cases.json"
+    ))
+    .unwrap();
+    let nonce: [u8; 32] = hex::decode(live["nonce"].as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    for case in cases.as_array().unwrap() {
+        let policy = TeePolicy::from_json(&case["policy"].to_string()).unwrap();
+        let attestation = serde_json::from_value(live["attestation"].clone()).unwrap();
+        let verdict = verify(
+            attestation,
+            &policy,
+            &nonce,
+            live["captured_at"].as_u64().unwrap(),
+        );
+        assert_eq!(
+            verdict.is_ok(),
+            case["accept"].as_bool().unwrap(),
+            "{}: {verdict:?}",
+            case["name"]
+        );
+    }
+}
