@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - "services/photon/**"
-      - "forester/**"
+      - "protocol-ops/**"
       - "prover/server/**"
       - "program-libs/**"
       - "sdk-libs/event/**"

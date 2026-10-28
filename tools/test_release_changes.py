@@ -19,3 +19,9 @@ class ChangedServices(unittest.TestCase):
 
     def test_photon_smoke_changes_are_not_missed(self):
         self.assertEqual(release_changes.changed_services(['tools/check-photon-image.sh'])['services'], ['photon'])
+
+    def test_protocol_operations_changes_publish_forester_from_its_new_location(self):
+        for path in ('protocol-ops/forester/src/run.rs','protocol-ops/instructions/src/lib.rs',
+                     'protocol-ops/forester-prover/src/client.rs','protocol-ops/merkle-tree/src/lib.rs'):
+            with self.subTest(path=path):
+                self.assertEqual(release_changes.changed_services([path]), {'services':['forester'],'nitro':False})
