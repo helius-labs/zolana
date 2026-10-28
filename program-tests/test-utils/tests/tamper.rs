@@ -1,33 +1,30 @@
 mod wallet_common;
 
+use spr_keypair::x25519::X25519_PUBKEY_LEN;
 use spr_keypair::ShieldedKeypair;
-use spr_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN};
 use spr_test_utils::wallet::{Wallet, DEFAULT_TAG_WINDOW};
 use spr_transaction::{AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, Utxo};
 use wallet_common::{
-    build_transfer, keypair_from_index, local_authority, wallet_for, TransferSpec,
+    build_unified_transfer, keypair_from_index, local_authority, wallet_for, UnifiedTransferSpec,
 };
 
 const BORSH_HEADER_LEN: usize = 5;
 const SCHEME_BYTE_LEN: usize = 1;
 const ASSET_ID_LEN: usize = 8;
 const AMOUNT_LEN: usize = 8;
-const RECIPIENT_SLOT: usize = 1;
-const AMOUNT_OFFSET: usize =
-    BORSH_HEADER_LEN + SCHEME_BYTE_LEN + PUBLIC_KEY_LEN + X25519_PUBKEY_LEN + ASSET_ID_LEN;
+const RECIPIENT_SLOT: usize = 2;
+const AMOUNT_OFFSET: usize = BORSH_HEADER_LEN + SCHEME_BYTE_LEN + X25519_PUBKEY_LEN + ASSET_ID_LEN;
 
 fn transfer_alice_receives() -> (ShieldedTransaction, Utxo, AssetRegistry) {
     let assets = AssetRegistry::default();
     let alice = keypair_from_index(0);
     let bob = keypair_from_index(1);
-    let (tx, recipient_utxo, _change) = build_transfer(
+    let (tx, _, recipient_utxo) = build_unified_transfer(
         &assets,
-        TransferSpec {
+        UnifiedTransferSpec {
             sender: &bob,
             recipient: &alice,
             amount: 1_000,
-            slot_tag: alice.recipient_bootstrap_view_tag(),
-            sender_view_tag: bob.get_sender_view_tag(0).unwrap(),
             first_nullifier: [0xAB; 32],
             change_amount: 0,
             blinding: {
@@ -35,7 +32,7 @@ fn transfer_alice_receives() -> (ShieldedTransaction, Utxo, AssetRegistry) {
                 b[1..].fill(0xBB);
                 b
             },
-            blinding_seed: [0xCC; 32],
+            change_blinding: [3; 32],
         },
     );
     (tx, recipient_utxo, assets)

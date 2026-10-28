@@ -4,12 +4,15 @@ use crate::error::TransactionError;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EncryptedScheme {
     Proofless = 0,
+    /// Reserved; anonymous encryption is not implemented in this repository.
     AnonymousRecipient = 1,
+    /// Reserved; anonymous encryption is not implemented in this repository.
     AnonymousSender = 2,
     Confidential = 3,
     RingConfidential = 4,
     Merge = 6,
     PlaintextTransfer = 7,
+    /// Reserved; ring deposit encryption is not implemented in this repository.
     RingDeposit = 8,
 }
 

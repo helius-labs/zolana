@@ -309,9 +309,9 @@ each selecting its asset by `asset_index` into `assets`.
   - Suggested test: positive with recomputed hash; harness: mollusk unit
 
 - [x] **INV-RING-DEPOSIT-07: the emitted proofless output carries the ring fields**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_sol_deposit_settles_and_indexes_the_exact_output`, `ring_deposit_event_carries_the_ring_data_preimage_verbatim`
+  - Covered by: `program-tests/shielded-pool/tests/deposit/functional.rs` `ring_sol_deposit_settles_and_indexes_the_exact_output`, `ring_deposit_event_carries_the_opaque_ciphertext_verbatim`
   - Kind: postcondition
-  - Statement: after a successful `ring_deposit`, each emitted `ProoflessOutput` payload carries exactly `ring_program_id = Some(ring_config.program_id)`, the entry's `ring_data_hash`, and the `ring_data` preimage.
+  - Statement: after a successful `ring_deposit`, each emitted encrypted ring-deposit output carries `ring_program_id = ring_config.program_id`, the entry's `ring_data_hash`, and its opaque encrypted payload verbatim.
   - Location: `programs/shielded-pool/src/instructions/deposit/event.rs:16-46` (`fn proofless_output_utxo`), `processor.rs:142-150`
   - Severity: Medium (indexer/ring discovery)
   - Suggested test: positive; harness: litesvm

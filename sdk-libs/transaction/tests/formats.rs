@@ -2,13 +2,8 @@ mod common;
 
 use common::{keypair, wallet_utxo};
 use spr_event::{OutputDataEncoding, ProoflessOutput};
-use spr_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN};
 use spr_transaction::{
     serialization::{
-        anonymous::{
-            AnonymousRecipient, AnonymousSenderBundle, AnonymousTransferRecipientPlaintext,
-            AnonymousTransferSenderPlaintext,
-        },
         confidential::{Confidential, ConfidentialOutputPlaintext},
         plaintext::{
             PlaintextEncode, PlaintextTransfer, TransferPlaintextRecipient,
@@ -18,34 +13,8 @@ use spr_transaction::{
     },
     utxo::derive_transact_output_blinding,
     Address, AssetRegistry, Data, DataRecord, DecodeCx, EncryptedScheme, Mint, OutputContext,
-    OutputSlot, OwnerCx, RingDepositPlaintext, TransactionError, UtxoSerialization,
-    TRANSFER_PLAINTEXT,
+    OutputSlot, OwnerCx, TransactionError, UtxoSerialization, TRANSFER_PLAINTEXT,
 };
-
-fn recipient() -> AnonymousTransferRecipientPlaintext {
-    let owner = keypair(41);
-    AnonymousTransferRecipientPlaintext {
-        owner_pubkey: owner.signing_pubkey(),
-        sender_pubkey: keypair(42).viewing_pubkey(),
-        asset_id: 1,
-        amount: 17,
-        blinding: [1; 32],
-        data: Data::default(),
-    }
-}
-
-fn sender() -> AnonymousTransferSenderPlaintext {
-    AnonymousTransferSenderPlaintext {
-        owner_pubkey: keypair(41).signing_pubkey(),
-        spl_asset_id: 9,
-        spl_amount: 23,
-        sol_amount: 31,
-        blinding_seed: [2; 32],
-        recipient_viewing_pks: vec![keypair(42).viewing_pubkey()],
-        spl_data: Data::default(),
-        sol_data: Data::default(),
-    }
-}
 
 fn plaintext() -> TransferPlaintextUtxos {
     TransferPlaintextUtxos {
@@ -137,26 +106,6 @@ fn payload_wrappers_validate_all_record_kinds_on_write_and_read() {
             ConfidentialOutputPlaintext::deserialize(&wincode::serialize(&note).unwrap()),
             Err(error.clone())
         );
-        let mut note = recipient();
-        note.data = invalid.clone();
-        assert_eq!(note.serialize(), Err(error.clone()));
-        assert_eq!(
-            AnonymousTransferRecipientPlaintext::deserialize(&wincode::serialize(&note).unwrap()),
-            Err(error.clone())
-        );
-        for spl in [true, false] {
-            let mut note = sender();
-            if spl {
-                note.spl_data = invalid.clone();
-            } else {
-                note.sol_data = invalid.clone();
-            }
-            assert_eq!(note.serialize(), Err(error.clone()));
-            assert_eq!(
-                AnonymousTransferSenderPlaintext::deserialize(&wincode::serialize(&note).unwrap()),
-                Err(error.clone())
-            );
-        }
         for field in 0..3 {
             let mut note = plaintext();
             match field {
@@ -174,7 +123,7 @@ fn payload_wrappers_validate_all_record_kinds_on_write_and_read() {
 }
 
 #[test]
-fn exact_payload_decoders_reject_every_truncation_trailing_bytes_and_invalid_keys() {
+fn exact_payload_decoders_reject_every_truncation_trailing_bytes_and_invalid_prefix() {
     fn reject_mutations<T>(bytes: Vec<u8>, decode: impl Fn(&[u8]) -> Result<T, TransactionError>) {
         assert!(decode(&bytes).is_ok());
         for length in 0..bytes.len() {
@@ -198,39 +147,10 @@ fn exact_payload_decoders_reject_every_truncation_trailing_bytes_and_invalid_key
         Confidential::deserialize,
     );
     reject_mutations(
-        recipient().serialize().unwrap(),
-        AnonymousRecipient::deserialize,
-    );
-    reject_mutations(
-        sender().serialize().unwrap(),
-        AnonymousSenderBundle::deserialize,
-    );
-    reject_mutations(
         plaintext().serialize().unwrap(),
         PlaintextTransfer::deserialize,
     );
 
-    let mut bad_key = recipient().serialize().unwrap();
-    bad_key.get_mut(..PUBLIC_KEY_LEN).unwrap().fill(255);
-    assert!(matches!(
-        AnonymousRecipient::deserialize(&bad_key),
-        Err(TransactionError::Deserialize(_))
-    ));
-    let mut bad_viewing_key = recipient().serialize().unwrap();
-    bad_viewing_key
-        .get_mut(PUBLIC_KEY_LEN..PUBLIC_KEY_LEN + X25519_PUBKEY_LEN)
-        .unwrap()
-        .fill(0);
-    assert!(matches!(
-        AnonymousRecipient::deserialize(&bad_viewing_key),
-        Err(TransactionError::Deserialize(_))
-    ));
-    let mut bad_sender = sender().serialize().unwrap();
-    bad_sender.get_mut(..PUBLIC_KEY_LEN).unwrap().fill(255);
-    assert!(matches!(
-        AnonymousSenderBundle::deserialize(&bad_sender),
-        Err(TransactionError::Deserialize(_))
-    ));
     let mut bad_prefix = plaintext().serialize().unwrap();
     *bad_prefix.first_mut().unwrap() = 255;
     assert_eq!(
@@ -258,14 +178,6 @@ fn encrypted_formats_require_both_context_fields_and_reconstruction_checks_asset
             Confidential::decrypt(&[], &cx),
             Err(TransactionError::MissingEncryptionContext)
         );
-        assert_eq!(
-            AnonymousRecipient::decrypt(&[], &cx),
-            Err(TransactionError::MissingEncryptionContext)
-        );
-        assert_eq!(
-            AnonymousSenderBundle::decrypt(&[], &cx),
-            Err(TransactionError::MissingEncryptionContext)
-        );
     }
     let spl = Mint::new(Address::new_from_array([44; 32]), 9);
     let assets = AssetRegistry::new([(9, spl.asset)]).unwrap();
@@ -281,18 +193,6 @@ fn encrypted_formats_require_both_context_fields_and_reconstruction_checks_asset
         Confidential::into_utxos(note, &owner_cx),
         Err(TransactionError::UnknownAsset(99))
     );
-    let mut note = recipient();
-    note.asset_id = 99;
-    assert_eq!(
-        AnonymousRecipient::into_utxos(note, &owner_cx),
-        Err(TransactionError::UnknownAsset(99))
-    );
-    let mut note = sender();
-    note.spl_asset_id = 99;
-    assert_eq!(
-        AnonymousSenderBundle::into_utxos(note, &owner_cx),
-        Err(TransactionError::UnknownAsset(99))
-    );
     let mut note = plaintext();
     note.recipient_slots.first_mut().unwrap().asset_id = 99;
     assert_eq!(
@@ -304,12 +204,6 @@ fn encrypted_formats_require_both_context_fields_and_reconstruction_checks_asset
     note.data = ring_data.clone();
     assert_eq!(
         Confidential::into_utxos(note, &owner_cx),
-        Err(TransactionError::MissingRingProgramId)
-    );
-    let mut note = sender();
-    note.spl_data = ring_data.clone();
-    assert_eq!(
-        AnonymousSenderBundle::into_utxos(note, &owner_cx),
         Err(TransactionError::MissingRingProgramId)
     );
     let mut note = plaintext();
@@ -344,15 +238,6 @@ fn present_change_outputs_lead_and_recipients_follow_them() {
                 } else {
                     Data::default()
                 };
-                let mut anonymous = sender();
-                anonymous.spl_amount = if spl_present { 23 } else { 0 };
-                anonymous.sol_amount = if sol_present { 31 } else { 0 };
-                if spl_present {
-                    anonymous.spl_data = data.clone();
-                }
-                if sol_present {
-                    anonymous.sol_data = data.clone();
-                }
                 let mut plain = plaintext();
                 let plain_sender = plain.sender.as_mut().unwrap();
                 plain_sender.spl = spl_present.then_some(TransferPlaintextSplChange {
@@ -360,8 +245,16 @@ fn present_change_outputs_lead_and_recipients_follow_them() {
                     asset_id: 9,
                 });
                 plain_sender.sol_amount = sol_present.then_some(31);
-                plain_sender.spl_data = anonymous.spl_data.clone();
-                plain_sender.sol_data = anonymous.sol_data.clone();
+                plain_sender.spl_data = if spl_present {
+                    data.clone()
+                } else {
+                    Data::default()
+                };
+                plain_sender.sol_data = if sol_present {
+                    data.clone()
+                } else {
+                    Data::default()
+                };
                 let mut expected = vec![];
                 let sol_slot = u32::from(spl_present);
                 for (present, amount, mint, slot) in [
@@ -377,12 +270,6 @@ fn present_change_outputs_lead_and_recipients_follow_them() {
                         expected.push(utxo);
                     }
                 }
-                assert_eq!(
-                    anonymous
-                        .into_utxos(&first_nullifier, &assets, Some(ring))
-                        .unwrap(),
-                    expected
-                );
                 let mut receiver = wallet_utxo(&keypair(42), Mint::SOL, 17, 0, 1).utxo;
                 let receiver_slot = u32::from(spl_present) + u32::from(sol_present);
                 receiver.blinding =
@@ -483,18 +370,6 @@ fn plaintext_encoder_rejects_unknown_duplicate_reordered_and_gapped_positions() 
 fn data_requires_a_present_sender_output_but_explicit_zero_plaintext_outputs_exist() {
     let assets = AssetRegistry::new([(9, Address::new_from_array([48; 32]))]).unwrap();
     for spl in [true, false] {
-        let mut anonymous = sender();
-        if spl {
-            anonymous.spl_amount = 0;
-            anonymous.spl_data = Data::new(vec![DataRecord::Memo(vec![1])]);
-        } else {
-            anonymous.sol_amount = 0;
-            anonymous.sol_data = Data::new(vec![DataRecord::Memo(vec![1])]);
-        }
-        assert_eq!(
-            anonymous.into_utxos(&[1; 32], &assets, None),
-            Err(TransactionError::DataWithoutOutput)
-        );
         let mut plain = plaintext();
         let sender = plain.sender.as_mut().unwrap();
         if spl {
@@ -623,57 +498,59 @@ fn proofless_full_fields_use_exact_borsh_and_resolve_the_published_mint() {
 }
 
 #[test]
-fn ring_deposit_recovers_all_optional_records_and_reproduces_the_commitment() {
-    let owner = keypair(52);
-    let mint = Mint::new(Address::new_from_array([53; 32]), 9);
-    let ring = Address::new_from_array([54; 32]);
-    for utxo_data in [None, Some(vec![]), Some(vec![1, 2])] {
-        for memo in [None, Some(vec![]), Some(vec![3, 4])] {
-            let plaintext = RingDepositPlaintext {
-                blinding: [1; 32],
-                utxo_data: utxo_data.clone(),
-                memo: memo.clone(),
-                ring_data: vec![5, 6],
-            };
-            let encrypted = plaintext.encrypt(&owner.viewing_pubkey()).unwrap();
-            let recovered = RingDepositPlaintext::decrypt(&encrypted, &owner.viewing_key).unwrap();
-            assert_eq!(recovered, plaintext);
-            let mut expected = wallet_utxo(&owner, mint, 61, 8, 1).utxo;
-            expected.blinding = [1; 32];
-            expected.ring_program_id = Some(ring);
-            let mut records = vec![DataRecord::RingData(vec![5, 6])];
-            if let Some(bytes) = &utxo_data {
-                records.push(DataRecord::UtxoData(bytes.clone()));
-            }
-            if let Some(bytes) = &memo {
-                records.push(DataRecord::Memo(bytes.clone()));
-            }
-            expected.data = Data::new(records);
-            let note = recovered.into_utxo(owner.signing_pubkey(), mint, 61, ring);
-            assert_eq!(note, expected);
-            let nullifier_pk = owner.shielded_address().unwrap().nullifier_pubkey;
-            let expected_hash = expected.hash(&nullifier_pk, &[2; 32], &[3; 32], 8).unwrap();
-            assert_eq!(
-                note.hash(&nullifier_pk, &[2; 32], &[3; 32], 8).unwrap(),
-                expected_hash
-            );
-            // Exact decoder rejects a valid plaintext followed by noise, even when encrypted correctly.
-            let mut bytes = wincode::serialize(&plaintext).unwrap();
-            bytes.push(0);
-            let tx = keypair(55).viewing_key;
-            let malformed = spr_event::EncryptedRingDepositData {
-                tx_viewing_pk: *tx.pubkey().as_bytes(),
-                salt: [7; 16],
-                ciphertext: tx
-                    .encrypt_ring_deposit(&owner.viewing_pubkey(), &bytes, [7; 16])
-                    .unwrap(),
-            };
-            assert!(matches!(
-                RingDepositPlaintext::decrypt(&malformed, &owner.viewing_key),
-                Err(TransactionError::Deserialize(_))
-            ));
-        }
+fn ring_deposit_framing_preserves_opaque_payloads_and_rejects_invalid_frames() {
+    use spr_event::{
+        encode_encrypted_ring_deposit_output, EncryptedRingDepositData, EncryptedRingDepositOutput,
+    };
+
+    fn unframe(ciphertext: &[u8]) -> Result<Option<&[u8]>, TransactionError> {
+        ciphertext
+            .strip_prefix(b"frame")
+            .map(Some)
+            .ok_or_else(|| TransactionError::Deserialize("bad frame".into()))
     }
+
+    let ring = Address::new_from_array([4; 32]);
+    let output = EncryptedRingDepositOutput {
+        owner_utxo_hash: [1; 32],
+        asset: *Mint::SOL.asset.as_array(),
+        amount: 50,
+        data_hash: None,
+        ring_program_id: *ring.as_array(),
+        ring_data_hash: [2; 32],
+        encrypted: EncryptedRingDepositData {
+            tx_viewing_pk: *keypair(58).viewing_pubkey().as_bytes(),
+            salt: [3; 16],
+            ciphertext: b"frameopaque".to_vec(),
+        },
+    };
+    let original = OutputSlot {
+        view_tag: [5; 32],
+        output_context: OutputContext {
+            hash: [6; 32],
+            tree_id: 7,
+            leaf_index: 8,
+        },
+        payload: encode_encrypted_ring_deposit_output(output.clone()),
+    };
+    let mut slot = original.clone();
+    slot.unwrap_ring_deposit(&Address::new_from_array([9; 32]), unframe)
+        .unwrap();
+    assert_eq!(slot, original, "another ring's framing is not applied");
+
+    slot.unwrap_ring_deposit(&ring, unframe).unwrap();
+    let mut unframed = output;
+    unframed.encrypted.ciphertext = b"opaque".to_vec();
+    let expected = OutputSlot {
+        payload: encode_encrypted_ring_deposit_output(unframed),
+        ..original
+    };
+    assert_eq!(slot, expected, "only the framing is removed");
+    assert_eq!(
+        slot.unwrap_ring_deposit(&ring, unframe),
+        Err(TransactionError::Deserialize("bad frame".into()))
+    );
+    assert_eq!(slot, expected, "invalid framing does not mutate the slot");
 }
 
 #[test]
@@ -717,28 +594,6 @@ fn data_and_payload_lengths_match_literal_little_endian_layouts() {
     expected.extend([3, 1, 0, 0, 2, 2, 0, 0xaa, 0xbb, 3, 1, 0, 0xcc]);
     assert_eq!(note.serialize().unwrap(), expected);
 
-    let mut anonymous = sender();
-    anonymous.recipient_viewing_pks = vec![keypair(42).viewing_pubkey(); 255];
-    let mut prefix = anonymous.owner_pubkey.as_bytes().to_vec();
-    prefix.extend(9u64.to_le_bytes());
-    prefix.extend(23u64.to_le_bytes());
-    prefix.extend(31u64.to_le_bytes());
-    prefix.extend([2; 32]);
-    prefix.push(255);
-    let mut expected = prefix;
-    for key in &anonymous.recipient_viewing_pks {
-        expected.extend(key.as_bytes());
-    }
-    expected.extend([0, 0]);
-    assert_eq!(anonymous.serialize().unwrap(), expected);
-    anonymous
-        .recipient_viewing_pks
-        .push(keypair(42).viewing_pubkey());
-    assert!(matches!(
-        anonymous.serialize(),
-        Err(TransactionError::Serialize(_))
-    ));
-
     let mut plain = plaintext();
     plain.sender = None;
     let recipient = plain.recipient_slots.first().unwrap().clone();
@@ -762,10 +617,7 @@ fn data_and_payload_lengths_match_literal_little_endian_layouts() {
 
 #[test]
 fn encoders_publish_the_expected_envelope_and_scheme_with_decodable_bodies() {
-    use spr_transaction::serialization::{
-        anonymous::{AnonymousRecipientEncode, AnonymousSenderEncode},
-        confidential::ConfidentialEncode,
-    };
+    use spr_transaction::serialization::confidential::ConfidentialEncode;
     let owner = keypair(56);
     let tx = keypair(57).viewing_key;
     let salt = [7; 16];
@@ -776,21 +628,6 @@ fn encoders_publish_the_expected_envelope_and_scheme_with_decodable_bodies() {
         slot_index: 3,
         first_nullifier: Some([1; 32]),
     };
-    let anonymous_cx = AnonymousRecipientEncode {
-        tx: tx.clone(),
-        recipient_pubkey: owner.viewing_pubkey(),
-        sender_pubkey: tx.pubkey(),
-        salt,
-        slot_index: 3,
-    };
-    let sender_cx = AnonymousSenderEncode {
-        tx: tx.clone(),
-        self_pubkey: owner.viewing_pubkey(),
-        salt,
-        slot_index: 3,
-        blinding_seed: [2; 32],
-        recipient_viewing_pks: vec![],
-    };
     let confidential_cx = ConfidentialEncode {
         tx: tx.clone(),
         recipient_pubkey: owner.viewing_pubkey(),
@@ -798,27 +635,8 @@ fn encoders_publish_the_expected_envelope_and_scheme_with_decodable_bodies() {
         slot_index: 3,
     };
     let encoded =
-        AnonymousRecipient::encode_plaintext(&recipient(), [9; 32], &anonymous_cx).unwrap();
-    assert_eq!(encoded.view_tag, [9; 32]);
-    let OutputDataEncoding::Encrypted(blob) = borsh::from_slice(&encoded.data).unwrap() else {
-        panic!("anonymous encrypted envelope")
-    };
-    assert_eq!(blob.first(), Some(&1));
-    assert_eq!(
-        AnonymousRecipient::decode(blob.get(1..).unwrap(), &decode).unwrap(),
-        recipient()
-    );
-    let encoded = AnonymousSenderBundle::encode_plaintext(&sender(), [9; 32], &sender_cx).unwrap();
-    let OutputDataEncoding::Encrypted(blob) = borsh::from_slice(&encoded.data).unwrap() else {
-        panic!("sender encrypted envelope")
-    };
-    assert_eq!(blob.first(), Some(&2));
-    assert_eq!(
-        AnonymousSenderBundle::decode(blob.get(1..).unwrap(), &decode).unwrap(),
-        sender()
-    );
-    let encoded =
         Confidential::encode_plaintext(&confidential(), [9; 32], &confidential_cx).unwrap();
+    assert_eq!(encoded.view_tag, [9; 32]);
     let OutputDataEncoding::Encrypted(blob) = borsh::from_slice(&encoded.data).unwrap() else {
         panic!("confidential encrypted envelope")
     };

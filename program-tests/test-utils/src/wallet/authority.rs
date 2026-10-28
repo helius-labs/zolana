@@ -4,19 +4,12 @@ use spr_event::MessageData;
 use spr_keypair::{
     derivation,
     shielded::{ShieldedAddress, ShieldedKeypair},
-    viewing_key::{random_salt, Salt, ViewTag},
+    viewing_key::{random_salt, Salt},
     Curve, NullifierKey, PublicKey, ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
     X25519Pubkey,
 };
 use spr_transaction::{
-    serialization::{
-        anonymous::{
-            AnonymousRecipient, AnonymousRecipientEncode, AnonymousSenderBundle,
-            AnonymousSenderEncode, AnonymousTransferRecipientPlaintext,
-            AnonymousTransferSenderPlaintext,
-        },
-        confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
-    },
+    serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     SppProofOutputUtxo, TransactionError, UtxoSerialization,
 };
 
@@ -24,13 +17,6 @@ use spr_transaction::{
 pub struct ApprovalRequest {
     pub solana_pubkey: Address,
     pub summary: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AnonymousRecipientSlot {
-    pub view_tag: ViewTag,
-    pub recipient_pubkey: X25519Pubkey,
-    pub plaintext: AnonymousTransferRecipientPlaintext,
 }
 
 /// Per-transaction encryption envelope an authority returns: the ephemeral
@@ -87,14 +73,6 @@ pub trait WalletAuthority: Send + Sync {
         outputs: &[SppProofOutputUtxo],
     ) -> Result<EncryptedTransfer, TransactionError>;
 
-    async fn encrypt_anonymous_transfer(
-        &self,
-        first_nullifier: &[u8; 32],
-        sender_view_tag: ViewTag,
-        sender: &AnonymousTransferSenderPlaintext,
-        recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError>;
-
     async fn request_user_approval(
         &self,
         _request: ApprovalRequest,
@@ -128,14 +106,6 @@ pub trait SyncWalletAuthority: Send + Sync {
         &self,
         first_nullifier: &[u8; 32],
         outputs: &[SppProofOutputUtxo],
-    ) -> Result<EncryptedTransfer, TransactionError>;
-
-    fn encrypt_anonymous_transfer(
-        &self,
-        first_nullifier: &[u8; 32],
-        sender_view_tag: ViewTag,
-        sender: &AnonymousTransferSenderPlaintext,
-        recipients: &[AnonymousRecipientSlot],
     ) -> Result<EncryptedTransfer, TransactionError>;
 
     fn request_user_approval(&self, _request: ApprovalRequest) -> Result<(), TransactionError> {
@@ -172,22 +142,6 @@ where
         outputs: &[SppProofOutputUtxo],
     ) -> Result<EncryptedTransfer, TransactionError> {
         SyncWalletAuthority::encrypt_confidential_transfer(self, first_nullifier, outputs)
-    }
-
-    async fn encrypt_anonymous_transfer(
-        &self,
-        first_nullifier: &[u8; 32],
-        sender_view_tag: ViewTag,
-        sender: &AnonymousTransferSenderPlaintext,
-        recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError> {
-        SyncWalletAuthority::encrypt_anonymous_transfer(
-            self,
-            first_nullifier,
-            sender_view_tag,
-            sender,
-            recipients,
-        )
     }
 
     async fn request_user_approval(
@@ -317,14 +271,6 @@ impl<'a, K: ViewingKeyTrait> KeypairWalletAuthority<'a, K> {
     }
 }
 
-fn recipient_slot_index(i: usize) -> Result<u32, TransactionError> {
-    let got = i.saturating_add(1);
-    u32::try_from(got).map_err(|_| TransactionError::TooManyOutputsForShape {
-        got,
-        max: u32::MAX as usize,
-    })
-}
-
 /// Shared bodies for every authority over a shielded keypair
 /// ([`KeypairWalletAuthority`] and the bare keypair impl below), so the
 /// encryption and signing logic exists once.
@@ -385,54 +331,6 @@ fn encrypt_confidential_transfer_with<K: ViewingKeyTrait>(
     })
 }
 
-fn encrypt_anonymous_transfer_with<K: ViewingKeyTrait>(
-    keypair: &K,
-    first_nullifier: &[u8; 32],
-    sender_view_tag: ViewTag,
-    sender: &AnonymousTransferSenderPlaintext,
-    recipients: &[AnonymousRecipientSlot],
-) -> Result<EncryptedTransfer, TransactionError> {
-    let tx = keypair.get_transaction_viewing_key(first_nullifier)?;
-    let salt = random_salt();
-    let self_pubkey = keypair.pubkey();
-
-    let mut slots = Vec::with_capacity(1 + recipients.len());
-    let sender_cx = AnonymousSenderEncode {
-        tx: tx.clone(),
-        self_pubkey,
-        salt,
-        slot_index: 0,
-        blinding_seed: sender.blinding_seed,
-        recipient_viewing_pks: sender.recipient_viewing_pks.clone(),
-    };
-    slots.push(AnonymousSenderBundle::encode_plaintext(
-        sender,
-        sender_view_tag,
-        &sender_cx,
-    )?);
-
-    for (i, recipient) in recipients.iter().enumerate() {
-        let cx = AnonymousRecipientEncode {
-            tx: tx.clone(),
-            recipient_pubkey: recipient.recipient_pubkey,
-            sender_pubkey: recipient.plaintext.sender_pubkey,
-            salt,
-            slot_index: recipient_slot_index(i)?,
-        };
-        slots.push(AnonymousRecipient::encode_plaintext(
-            &recipient.plaintext,
-            recipient.view_tag,
-            &cx,
-        )?);
-    }
-
-    Ok(EncryptedTransfer {
-        tx_viewing_pk: tx.pubkey(),
-        salt,
-        payload: slots,
-    })
-}
-
 impl SyncWalletAuthority for ClientEd25519WalletAuthority {
     fn solana_pubkey(&self) -> Address {
         self.solana_pubkey
@@ -456,22 +354,6 @@ impl SyncWalletAuthority for ClientEd25519WalletAuthority {
         outputs: &[SppProofOutputUtxo],
     ) -> Result<EncryptedTransfer, TransactionError> {
         encrypt_confidential_transfer_with(&self.viewing_key, first_nullifier, outputs)
-    }
-
-    fn encrypt_anonymous_transfer(
-        &self,
-        first_nullifier: &[u8; 32],
-        sender_view_tag: ViewTag,
-        sender: &AnonymousTransferSenderPlaintext,
-        recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError> {
-        encrypt_anonymous_transfer_with(
-            &self.viewing_key,
-            first_nullifier,
-            sender_view_tag,
-            sender,
-            recipients,
-        )
     }
 
     /// Deliberately a no-op rather than the inherited trait default, so that
@@ -515,22 +397,6 @@ impl<K: ShieldedKeypairTrait + ViewingKeyTrait + Sync> SyncWalletAuthority
         encrypt_confidential_transfer_with(self.keypair, first_nullifier, outputs)
     }
 
-    fn encrypt_anonymous_transfer(
-        &self,
-        first_nullifier: &[u8; 32],
-        sender_view_tag: ViewTag,
-        sender: &AnonymousTransferSenderPlaintext,
-        recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError> {
-        encrypt_anonymous_transfer_with(
-            self.keypair,
-            first_nullifier,
-            sender_view_tag,
-            sender,
-            recipients,
-        )
-    }
-
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {
         Ok(ShieldedKeypairTrait::nullifier_key(self.keypair))
     }
@@ -558,16 +424,6 @@ impl SyncWalletAuthority for ShieldedKeypair {
         outputs: &[SppProofOutputUtxo],
     ) -> Result<EncryptedTransfer, TransactionError> {
         encrypt_confidential_transfer_with(self, first_nullifier, outputs)
-    }
-
-    fn encrypt_anonymous_transfer(
-        &self,
-        first_nullifier: &[u8; 32],
-        sender_view_tag: ViewTag,
-        sender: &AnonymousTransferSenderPlaintext,
-        recipients: &[AnonymousRecipientSlot],
-    ) -> Result<EncryptedTransfer, TransactionError> {
-        encrypt_anonymous_transfer_with(self, first_nullifier, sender_view_tag, sender, recipients)
     }
 
     fn spend_nullifier_key(&self) -> Result<NullifierKey, TransactionError> {

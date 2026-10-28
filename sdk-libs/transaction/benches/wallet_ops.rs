@@ -3,20 +3,17 @@ mod transfer_fixtures;
 
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use spr_keypair::ShieldedKeypair;
 use spr_transaction::{
-    serialization::{
-        anonymous::{AnonymousRecipient, AnonymousSenderBundle, AnonymousSenderEncode},
-        confidential::Confidential,
-    },
-    AssetRegistry, Data, DecodeCx, Mint, OwnerCx, Utxo, UtxoSerialization,
+    serialization::confidential::Confidential, AssetRegistry, Data, DecodeCx, Mint, Utxo,
+    UtxoSerialization,
 };
 use transfer_fixtures::{
-    build_transfer, keypair_from_index, unique31, unique_nullifier, TransferSpec,
+    build_unified_transfer, keypair_from_index, unique31, unique_nullifier, UnifiedTransferSpec,
 };
 
-const RECIPIENT_SLOT_INDEX: usize = 1;
+const RECIPIENT_SLOT_INDEX: usize = 2;
 
 fn sample_utxo(owner: &ShieldedKeypair, counter: &mut u64) -> Utxo {
     Utxo {
@@ -27,50 +24,6 @@ fn sample_utxo(owner: &ShieldedKeypair, counter: &mut u64) -> Utxo {
         ring_program_id: None,
         data: Data::default(),
     }
-}
-
-fn sender_bundle_body(recipient_count: u16) -> (ShieldedKeypair, Vec<u8>, Option<[u8; 32]>) {
-    let assets = AssetRegistry::default();
-    let alice = keypair_from_index(0);
-    let recipients: Vec<ShieldedKeypair> = (1..=recipient_count).map(keypair_from_index).collect();
-    let mut counter = 0u64;
-    let first_nullifier = unique_nullifier(&mut counter);
-
-    let tx_key = alice
-        .viewing_key
-        .get_transaction_viewing_key(&first_nullifier)
-        .unwrap();
-    let mut salt = [0u8; 16];
-    salt.copy_from_slice(&first_nullifier[..16]);
-    let blinding_seed = unique31(&mut counter, 0xCC);
-
-    let change = vec![Utxo {
-        owner: alice.signing_pubkey(),
-        asset: Mint::SOL,
-        amount: 50,
-        blinding: blinding_seed,
-        ring_program_id: None,
-        data: Data::default(),
-    }];
-
-    let owner_cx = OwnerCx {
-        owner: alice.signing_pubkey(),
-        assets: &assets,
-        ring_program_id: None,
-        first_nullifier: None,
-    };
-    let cx = AnonymousSenderEncode {
-        tx: tx_key,
-        self_pubkey: alice.viewing_pubkey(),
-        salt,
-        slot_index: 0,
-        blinding_seed,
-        recipient_viewing_pks: recipients.iter().map(|r| r.viewing_pubkey()).collect(),
-    };
-    let plaintext = AnonymousSenderBundle::from_utxos(&change, &owner_cx, &cx).unwrap();
-    let bytes = AnonymousSenderBundle::serialize(&plaintext).unwrap();
-    let body = AnonymousSenderBundle::encrypt(&bytes, &cx).unwrap();
-    (alice, body, Some(first_nullifier))
 }
 
 fn primitives(c: &mut Criterion) {
@@ -147,51 +100,20 @@ fn primitives(c: &mut Criterion) {
 
 fn decrypt(c: &mut Criterion) {
     let mut group = c.benchmark_group("decrypt");
-    for recipient_count in [1u16, 2, 4, 8] {
-        let (alice, body, first_nullifier) = sender_bundle_body(recipient_count);
-        let mut salt = [0u8; 16];
-        if let Some(nullifier) = first_nullifier {
-            salt.copy_from_slice(&nullifier[..16]);
-        }
-        let tx_viewing_pk = alice
-            .viewing_key
-            .get_transaction_viewing_key(&first_nullifier.unwrap())
-            .unwrap()
-            .pubkey();
-        group.bench_with_input(
-            BenchmarkId::new("decrypt_transfer", recipient_count),
-            &recipient_count,
-            |b, _| {
-                b.iter(|| {
-                    let cx = DecodeCx {
-                        viewing_key: &alice.viewing_key,
-                        tx_viewing_pk: Some(tx_viewing_pk),
-                        salt: Some(salt),
-                        slot_index: 0,
-                        first_nullifier,
-                    };
-                    AnonymousSenderBundle::decode(black_box(&body), &cx).unwrap()
-                })
-            },
-        );
-    }
-
     let assets = AssetRegistry::default();
     let alice = keypair_from_index(0);
     let bob = keypair_from_index(1);
     let mut counter = 0u64;
-    let (tx, _, _) = build_transfer(
+    let (tx, _, _) = build_unified_transfer(
         &assets,
-        TransferSpec {
+        UnifiedTransferSpec {
             sender: &bob,
             recipient: &alice,
             amount: 100,
-            slot_tag: alice.recipient_bootstrap_view_tag(),
-            sender_view_tag: bob.get_sender_view_tag(0).unwrap(),
             first_nullifier: unique_nullifier(&mut counter),
             change_amount: 0,
             blinding: unique31(&mut counter, 0xBB),
-            blinding_seed: unique31(&mut counter, 0xCC),
+            change_blinding: unique31(&mut counter, 0xCC),
         },
     );
     let recipient_slot = tx
@@ -209,7 +131,7 @@ fn decrypt(c: &mut Criterion) {
     group.bench_function("decrypt_transfer_recipient", |b| {
         b.iter(|| {
             let cx = DecodeCx::for_slot(&alice.viewing_key, &tx, RECIPIENT_SLOT_INDEX as u32);
-            AnonymousRecipient::decode(black_box(&recipient_body), &cx).unwrap()
+            Confidential::decode(black_box(&recipient_body), &cx).unwrap()
         })
     });
 
@@ -224,7 +146,7 @@ fn decrypt(c: &mut Criterion) {
             let spr_event::OutputDataEncoding::Encrypted(blob) = slot.output_data().unwrap() else {
                 panic!("encrypted output expected")
             };
-            blob[1..].to_vec()
+            blob.get(1..).unwrap().to_vec()
         })
         .collect();
     group.bench_function("decrypt_self_outputs", |b| {

@@ -1,6 +1,6 @@
 use core::mem::MaybeUninit;
 
-use spr_keypair::{constants::PUBLIC_KEY_LEN, x25519::X25519_PUBKEY_LEN, PublicKey, X25519Pubkey};
+use spr_keypair::{constants::PUBLIC_KEY_LEN, PublicKey};
 use wincode::{
     config::ConfigCore,
     error::{ReadError, ReadResult, WriteResult},
@@ -40,9 +40,7 @@ pub use keys::{
     TransactionKeyRequest,
 };
 pub use selection::{select_merge, select_spend, select_spend_excluding};
-pub use serialization::{
-    scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
-};
+pub use serialization::{scheme::EncryptedScheme, DecodeCx, OwnerCx, UtxoSerialization};
 pub use solana_address::Address;
 pub use spr_keypair::constants::VIEW_TAG_LEN;
 pub use utxo::wallet as spendable;
@@ -55,33 +53,7 @@ pub const TRANSFER: u8 = 1;
 pub const MERGE: u8 = 3;
 pub const TRANSFER_PLAINTEXT: u8 = 4;
 
-pub(crate) struct X25519PubkeySchema;
 pub(crate) struct PublicKeySchema;
-
-unsafe impl<C: ConfigCore> SchemaWrite<C> for X25519PubkeySchema {
-    type Src = X25519Pubkey;
-
-    fn size_of(_: &X25519Pubkey) -> WriteResult<usize> {
-        Ok(X25519_PUBKEY_LEN)
-    }
-
-    fn write(writer: impl Writer, src: &X25519Pubkey) -> WriteResult<()> {
-        <[u8; X25519_PUBKEY_LEN] as SchemaWrite<C>>::write(writer, src.as_bytes())
-    }
-}
-
-unsafe impl<'de, C: ConfigCore> SchemaRead<'de, C> for X25519PubkeySchema {
-    type Dst = X25519Pubkey;
-
-    fn read(reader: impl Reader<'de>, dst: &mut MaybeUninit<X25519Pubkey>) -> ReadResult<()> {
-        let mut bytes = MaybeUninit::<[u8; X25519_PUBKEY_LEN]>::uninit();
-        <[u8; X25519_PUBKEY_LEN] as SchemaRead<'de, C>>::read(reader, &mut bytes)?;
-        let pubkey = X25519Pubkey::from_bytes(unsafe { bytes.assume_init() })
-            .map_err(|_| ReadError::Custom("invalid X25519 public key"))?;
-        dst.write(pubkey);
-        Ok(())
-    }
-}
 
 unsafe impl<C: ConfigCore> SchemaWrite<C> for PublicKeySchema {
     type Src = PublicKey;

@@ -1,8 +1,6 @@
 //! Post-instruction checks for `ring_deposit` (policy-ring deposits).
 
-use crate::wallet::{SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use solana_pubkey::Pubkey;
-use spr_interface::state::read_tree_id;
 use spr_program::instruction::RingAssetDeposit;
 use spr_program_test::{RingDepositOutput, ZolanaProgramTest};
 
@@ -11,12 +9,11 @@ use spr_program_test::{RingDepositOutput, ZolanaProgramTest};
 /// instruction data and the settled amount, the created UTXO is owned by the
 /// ring program and carries its policy hash, the state tree advanced, the
 /// indexer agrees with the on-chain root, the recipient view tag locates
-/// exactly one deposit, and the recipient wallet discovers the new ring-owned
-/// UTXO.
+/// exactly one deposit.
 ///
 /// `expected_ring_program_id` is the ring wrapper program id; `root_before` is
 /// the on-chain state root captured before the deposit.
-pub struct RingDepositAssertArgs<'a, A: ?Sized> {
+pub struct RingDepositAssertArgs<'a> {
     pub tree: &'a Pubkey,
     pub event: &'a RingDepositOutput,
     pub data: &'a RingAssetDeposit,
@@ -24,14 +21,12 @@ pub struct RingDepositAssertArgs<'a, A: ?Sized> {
     pub expected_asset: [u8; 32],
     pub expected_ring_program_id: [u8; 32],
     pub root_before: [u8; 32],
-    pub authority: &'a A,
 }
 
 #[track_caller]
-pub fn litesvm_assert_ring_deposit<A: SyncWalletAuthority + ?Sized>(
+pub fn litesvm_assert_ring_deposit(
     program_test: &mut ZolanaProgramTest,
-    recipient: &mut Wallet,
-    args: RingDepositAssertArgs<'_, A>,
+    args: RingDepositAssertArgs<'_>,
 ) {
     let RingDepositAssertArgs {
         tree,
@@ -41,7 +36,6 @@ pub fn litesvm_assert_ring_deposit<A: SyncWalletAuthority + ?Sized>(
         expected_asset,
         expected_ring_program_id,
         root_before,
-        authority,
     } = args;
     let expected = RingDepositOutput {
         view_tag: data.view_tag,
@@ -77,30 +71,4 @@ pub fn litesvm_assert_ring_deposit<A: SyncWalletAuthority + ?Sized>(
         .fetch_by_view_tag(&data.view_tag)
         .collect();
     assert_eq!(by_tag.len(), 1, "recipient view tag locates the deposit");
-
-    // The commitment folds the tree's raw id in, and the id lives in the tree
-    // account, so the assert reads it there rather than restating it.
-    let tree_id =
-        read_tree_id(&program_test.account_data(tree).expect("tree account")).expect("tree id");
-    let before = recipient.utxos.len();
-    recipient
-        .sync(
-            authority,
-            &[event.to_shielded_transaction(solana_signature::Signature::default(), tree_id)],
-            0,
-            DEFAULT_TAG_WINDOW,
-        )
-        .expect("wallet discovery");
-    assert_eq!(
-        recipient.utxos.len(),
-        before + 1,
-        "recipient wallet must discover the ring deposit"
-    );
-    let utxo = recipient.utxos.last().expect("discovered UTXO");
-    assert_eq!(utxo.utxo_hash, event.utxo_hash, "wallet UTXO hash");
-    assert_eq!(
-        utxo.utxo.ring_program_id.map(|id| id.to_bytes()),
-        Some(expected_ring_program_id),
-        "wallet UTXO is owned by the ring program"
-    );
 }

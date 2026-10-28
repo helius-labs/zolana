@@ -1,11 +1,8 @@
 use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
-use borsh::BorshDeserialize;
 use solana_address::Address;
-use spr_event::{split_merge_output_body, EncryptedRingDepositOutput, OutputDataEncoding};
-use spr_keypair::{
-    shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, KeypairError, X25519Pubkey,
-};
+use spr_event::{split_merge_output_body, OutputDataEncoding};
+use spr_keypair::{shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, KeypairError};
 
 use crate::{
     asset::{AssetBalance, AssetRegistry, Balances, Mint},
@@ -14,11 +11,10 @@ use crate::{
     instructions::merge::MergeOutputPlaintext,
     keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::{
-        anonymous::AnonymousRecipient, confidential::Confidential, plaintext::PlaintextTransfer,
-        proofless::Proofless, ring_deposit::RingDepositPlaintext, scheme::EncryptedScheme, OwnerCx,
-        UtxoSerialization,
+        confidential::Confidential, plaintext::PlaintextTransfer, proofless::Proofless,
+        scheme::EncryptedScheme, OwnerCx, UtxoSerialization,
     },
-    utxo::{owner_utxo_hash, Utxo, WalletUtxo},
+    utxo::{Utxo, WalletUtxo},
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -417,9 +413,6 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             let Ok(scheme) = EncryptedScheme::from_byte(scheme_byte) else {
                 return Ok(None);
             };
-            if scheme == EncryptedScheme::RingDeposit {
-                return decode_ring_deposit(shielded_keys, address, body, assets);
-            }
             // A ring merge publishes its ciphertext unverified: the ring merge
             // proof does not bind it, so only the commitment check accepts it.
             if scheme == EncryptedScheme::Merge {
@@ -441,7 +434,6 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     };
                     (ciphertext, vec![viewing_pubkey])
                 }
-                EncryptedScheme::AnonymousRecipient => (body, shielded_keys.viewing_public_keys()),
                 _ => return Ok(None),
             };
             let (Some(tx_viewing_pubkey), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
@@ -468,15 +460,6 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                             continue;
                         };
                         Confidential::into_utxos(plaintext, &owner_cx)
-                    }
-                    EncryptedScheme::AnonymousRecipient => {
-                        let Ok(plaintext) = AnonymousRecipient::deserialize(&bytes) else {
-                            continue;
-                        };
-                        if plaintext.owner_pubkey != address.signing_pubkey {
-                            continue;
-                        }
-                        AnonymousRecipient::into_utxos(plaintext, &owner_cx)
                     }
                     _ => return Ok(None),
                 };
@@ -569,60 +552,6 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
         data_hash: None,
         ring_data_hash: ring_data_hash.copied(),
     }))
-}
-
-/// A ring deposit publishes its settlement fields in the clear and the owner's
-/// preimages under a ciphertext with its own key and salt. The cipher is
-/// unauthenticated, so ownership is confirmed by the published owner-UTXO hash,
-/// not by the decryption succeeding.
-fn decode_ring_deposit<K: ShieldedKeys + ?Sized>(
-    shielded_keys: &K,
-    address: &ShieldedAddress,
-    body: &[u8],
-    assets: &AssetRegistry,
-) -> Result<Option<DecodedSlot>, TransactionError> {
-    let Ok(output) = EncryptedRingDepositOutput::try_from_slice(body) else {
-        return Ok(None);
-    };
-    let Ok(tx_viewing_pubkey) = X25519Pubkey::from_bytes(output.encrypted.tx_viewing_pk) else {
-        return Ok(None);
-    };
-    let requests: Vec<_> = shielded_keys
-        .viewing_public_keys()
-        .into_iter()
-        .map(|viewing_pubkey| DecryptRequest {
-            ciphertext: &output.encrypted.ciphertext,
-            viewing_pubkey,
-            tx_viewing_pubkey,
-            salt: output.encrypted.salt,
-            slot_index: 0,
-            label: DecryptLabel::RingDeposit,
-        })
-        .collect();
-    let Some(plaintexts) = trial_decrypt(shielded_keys, &requests)? else {
-        return Ok(None);
-    };
-    let owner_hash = address.owner_hash()?;
-    for bytes in plaintexts {
-        let Ok(plaintext) = wincode::deserialize_exact::<RingDepositPlaintext>(&bytes) else {
-            continue;
-        };
-        if owner_utxo_hash(&owner_hash, &plaintext.blinding)? != output.owner_utxo_hash {
-            continue;
-        }
-        let utxo = plaintext.into_utxo(
-            address.signing_pubkey,
-            assets.mint(&Address::new_from_array(output.asset))?,
-            output.amount,
-            Address::new_from_array(output.ring_program_id),
-        );
-        return Ok(Some(DecodedSlot {
-            utxos: vec![utxo],
-            data_hash: output.data_hash,
-            ring_data_hash: Some(output.ring_data_hash),
-        }));
-    }
-    Ok(None)
 }
 
 /// A sender-chosen plaintext that rebuilds no note skips its slot, except a registry miss.
