@@ -15,8 +15,9 @@ localnet = ["zolana-client/solana-rpc"]
 proofs = []
 
 [dependencies]
+zolana-protocol-instructions = { workspace = true }
 anyhow = { workspace = true }
-forester = { path = "../../forester" }
+forester = { path = "../../protocol-ops/forester" }
 solana-instruction = { workspace = true }
 solana-clock = { workspace = true }
 serial_test = { workspace = true }
@@ -32,7 +33,7 @@ zolana-account-checks = { workspace = true, features = ["test-only"] }
 pinocchio = { workspace = true }
 shielded-pool-program = { workspace = true, features = ["test-sbf"] }
 zolana-interface = { workspace = true }
-zolana-program = { workspace = true, features = ["protocol-instructions"] }
+zolana-program = { workspace = true }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-keypair = { workspace = true }

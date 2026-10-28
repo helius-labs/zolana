@@ -6,7 +6,7 @@ use zolana_interface::{
     pda,
     state::{state_root_offset, ProtocolConfig},
 };
-use zolana_program::instruction::CreateTree;
+use zolana_protocol_instructions::CreateTree;
 use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 use crate::ProgramTestError;

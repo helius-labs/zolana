@@ -6,6 +6,9 @@
 implementation cleanup unless that is the explicit task. If code, tests, and the
 spec disagree, treat the code or tests as suspect first.
 
+Document CI changes in [`.github/CI.md`](.github/CI.md) in the same commit. Keep its
+workflow triggers and run commands up to date.
+
 ## Repo Structure
 
 program-libs
@@ -45,8 +48,8 @@ layering and optional circuit dependencies.
 - `program-tests`: internal test crates and test-only SBF programs.
 - `sdk-libs`: externally useful Rust SDK crates.
 - `cli`: local developer/operator tooling.
-- `forester`: compilable forester skeleton for future nullifier-tree
-  maintenance work.
+- `protocol-ops`: operator CLI, forester and batch prover, protocol instructions,
+  smart-account client, and reference Merkle trees.
 - `prover`: proof client and prover server.
 - `sdk-tests/zk-standalone`: a standalone circuit fixture for Zolana CLI,
   wasm and SBF integration tests against the pinned zk-tools dependency.
@@ -82,7 +85,7 @@ sdk-libs/
                           the emitting instruction plus the minimal on-chain event
   instruction/         -- SBF-buildable shielded-pool instruction builders and the
                           SPP hash and blinding derivations programs recompute;
-                          features `cpi` (transact CPI) and `protocol`
+                          feature `cpi` (transact CPI)
   keypair/             -- shielded key material and hashes; feature `circuit`
                           (owner circuit types, ShieldedAddress as proof input)
   macros/              -- zolana-macros: the ZK program derives (UtxoState,
@@ -102,7 +105,7 @@ sdk-tests/zk-standalone/ -- standalone circuit fixture and its verifier program
                           (litesvm test: sdk-tests/zk-tests)
 
 cli/                   -- root Zolana developer/operator CLI
-forester/              -- forester skeleton
+protocol-ops/          -- protocol operation libraries and binaries
 prover/                -- Rust prover client and Go prover server
 xtask/                 -- workspace maintenance tools
 ```
@@ -182,7 +185,8 @@ carrying transaction simply fits.
   constant per language: `solana_message::v1::MAX_TRANSACTION_SIZE` in Rust,
   `TRANSACTION_SIZE_LIMIT` in `sdk-libs/ts`. Do not hand-roll a third.
 - **The budget lives in the message header**, not in compute-budget
-  instructions. Build through `zolana_client::compile_message` and
+  instructions. Build through `zolana_client::compile_message` (SDKs) or the
+  operator's local `transaction::compile_message` helper and
   `ComputeBudgetConfig`; never construct a `v1::TransactionConfig` at a call
   site.
 - **An unset header field is zero, not a default.** Omitting either the
@@ -408,10 +412,8 @@ impl CreateSplInterface {
 - Builders are imported as `zolana_program::instruction::<builder>` (re-exported
   from `zolana_instruction`)
 - Builders for protocol operations (protocol and fee authority administration,
-  tree creation, ring activation, forester maintenance) go behind the
-  non-default `protocol` feature of `zolana-instruction`
-  (`#[cfg(feature = "protocol")]` on the module or item and its re-export),
-  which `zolana-program` exposes as `protocol-instructions`.
+  tree creation, ring activation, forester maintenance) live in
+  `protocol-ops/instructions` (`zolana-protocol-instructions`).
   `CreateSplInterface` stays ungated: the protocol config can open it to
   everyone, and users register their own mints.
 
@@ -674,7 +676,7 @@ what they push.
 Before archiving the standalone Photon repository, update external deployment
 configuration that consumes its old `<run>-<sha>` or `latest` tags to use a new
 immutable `photon-zolana-*` or `sha-*` tag from this repository. Keep the
-base-image digests in `services/photon/Dockerfile`, `forester/Dockerfile` and
+base-image digests in `services/photon/Dockerfile`, `protocol-ops/forester/Dockerfile` and
 `prover/server/Dockerfile.light` updated through reviewed changes -- all three
 images are attested, and a mutable base tag would let one commit produce
 different bytes.

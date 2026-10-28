@@ -1,10 +1,9 @@
 [workspace]
 members = [
-    "forester",
+    "protocol-ops/forester",
     "program-libs/account-checks",
     "program-libs/event",
     "program-libs/hasher",
-    "program-libs/indexed-array",
     "program-libs/interface",
     "program-libs/user-registry-interface",
     "program-libs/tree",
@@ -28,9 +27,12 @@ members = [
     "sdk-libs/event",
     "sdk-libs/indexer-api",
     "sdk-libs/keypair",
-    "sdk-libs/merkle-tree",
+    "protocol-ops/merkle-tree",
     "sdk-libs/instruction",
-    "sdk-libs/smart-account-client",
+    "protocol-ops/smart-account",
+    "protocol-ops/instructions",
+    "protocol-ops/cli",
+    "protocol-ops/forester-prover",
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
     "sdk-libs/transaction",
@@ -56,7 +58,7 @@ members = [
     "xtask",
 ]
 default-members = [
-    "forester",
+    "protocol-ops/forester",
     "program-libs/interface",
     "programs/shielded-pool",
 ]
@@ -77,6 +79,8 @@ form_urlencoded = "1.2.2"
 time = ">=0.3, <0.3.46"
 
 # Local workspace crates.
+zolana-protocol-instructions = { path = "protocol-ops/instructions", version = "0.1.0" }
+zolana-forester-prover = { path = "protocol-ops/forester-prover", version = "0.1.0", default-features = false }
 zolana-event = { path = "program-libs/event", version = "0.1.0" }
 zolana-event-parser = { path = "sdk-libs/event", version = "0.1.0" }
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
@@ -99,8 +103,8 @@ zolana-gnark-ffi-prover = { path = "sdk-libs/gnark-ffi-prover", version = "0.1.0
 zolana-gnark-ffi-prover-build = { path = "sdk-libs/gnark-ffi-prover/build-helper", version = "0.1.0" }
 zolana-indexer-api = { path = "sdk-libs/indexer-api", version = "0.1.0" }
 zolana-rpc-http = { path = "services/rpc-http", version = "0.1.0" }
-zolana-merkle-tree = { path = "sdk-libs/merkle-tree", version = "4.0.0" }
-zolana-smart-account-client = { path = "sdk-libs/smart-account-client", version = "0.1.0" }
+zolana-merkle-tree = { path = "protocol-ops/merkle-tree", version = "4.0.0" }
+zolana-smart-account-client = { path = "protocol-ops/smart-account", version = "0.1.0" }
 zolana-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 zolana-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
@@ -110,7 +114,6 @@ groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev 
 light-array-map = "0.2.0"
 zolana-account-checks = { path = "program-libs/account-checks", version = "0.8.0", default-features = false }
 zolana-hasher = { path = "program-libs/hasher", version = "5.0.0", default-features = false }
-zolana-indexed-array = { path = "program-libs/indexed-array", version = "0.3.0" }
 light-poseidon = "0.4.0"
 # Pinned to the head of the mollusk-0.15 branch (Lightprotocol/light-program-profiler).
 # Switch back to a released version once that lands upstream.

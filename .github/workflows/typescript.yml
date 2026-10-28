@@ -3,7 +3,13 @@ name: typescript
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "protocol-ops/**"
+      - ".github/workflows/protocol-ops.yml"
   pull_request:
+    paths-ignore:
+      - "protocol-ops/**"
+      - ".github/workflows/protocol-ops.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

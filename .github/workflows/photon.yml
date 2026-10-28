@@ -6,10 +6,9 @@ on:
     paths:
       - "services/photon/**"
       - "program-libs/**"
-      - "programs/shielded-pool/**"
+      - "programs/**"
       - "program-tests/ring-test-program/**"
       - "sdk-libs/event/**"
-      - "sdk-libs/merkle-tree/**"
       - "sdk-libs/indexer-api/**"
       - "sdk-libs/zolana-api/**"
       - ".cargo/**"
@@ -23,10 +22,9 @@ on:
     paths:
       - "services/photon/**"
       - "program-libs/**"
-      - "programs/shielded-pool/**"
+      - "programs/**"
       - "program-tests/ring-test-program/**"
       - "sdk-libs/event/**"
-      - "sdk-libs/merkle-tree/**"
       - "sdk-libs/indexer-api/**"
       - "sdk-libs/zolana-api/**"
       - ".cargo/**"

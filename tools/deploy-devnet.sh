@@ -5,7 +5,7 @@
 #
 # DEPLOYMENT NOTES for the protocol-config initialization gate
 # (INV-CREATE-PC-10):
-# - Run `cargo run -p xtask -- init-protocol` BEFORE renouncing the upgrade
+# - Run `cargo run -p zolana-protocol-cli -- init-protocol` BEFORE renouncing the upgrade
 #   authority or migrating away from loader-v3. Immutable, zero-authority and
 #   non-loader-v3 deployments all fail closed and cannot initialize the config.
 # - Before the Squads handoff, the local config keypair performs direct
@@ -170,7 +170,7 @@ upgrade_shielded_pool_via_squads() {
 
     # Verify the loader authority is exactly the configured protocol vault and
     # that its Squads settings can be recovered before funding a buffer.
-    cargo run -q -p xtask -- upgrade-shielded-pool \
+    cargo run -q -p zolana-protocol-cli -- upgrade-shielded-pool \
         --cluster devnet --rpc-url "$cluster_url" --payer "$payer_keypair" \
         --protocol-signer "$signer_1" --protocol-signer "$signer_2" \
         --check-only
@@ -191,7 +191,7 @@ upgrade_shielded_pool_via_squads() {
 
     echo "Executing loader upgrade through protocol Squads vault $vault..."
     echo "If execution is interrupted, rerun the xtask with --buffer $buffer; the on-chain buffer remains vault-controlled."
-    cargo run -q -p xtask -- upgrade-shielded-pool \
+    cargo run -q -p zolana-protocol-cli -- upgrade-shielded-pool \
         --cluster devnet --rpc-url "$cluster_url" --payer "$payer_keypair" \
         --protocol-signer "$signer_1" --protocol-signer "$signer_2" \
         --buffer "$buffer"

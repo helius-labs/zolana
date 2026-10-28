@@ -261,10 +261,10 @@ Status of the audit findings against the current (post-PR164) tree:
   to its real, nonzero deploy upgrade authority
   (`programs/shielded-pool/src/instructions/protocol_config/create.rs` `check_initialization_authority`,
   INV-CREATE-PC-10). Non-upgradeable, unset/immutable, zero, forged and
-  truncated states fail closed. `xtask init-protocol` writes the final protocol
+  truncated states fail closed. `zolana-protocol init-protocol` writes the final protocol
   vault directly and either uses the loader-authority keypair or executes
   through Squads when that vault already owns the program. Post-handoff
-  deployments use a vault-owned loader buffer and `xtask upgrade-shielded-pool`.
+  deployments use a vault-owned loader buffer and `zolana-protocol upgrade-shielded-pool`.
   Regression coverage lives in
   `program-tests/shielded-pool/tests/protocol_config/gate.rs`.
 - F-08 ring-merge viewing-key binding: PARTIALLY addressed (output

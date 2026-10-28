@@ -17,6 +17,7 @@ on:
     branches: [main]
     tags: ["photon-zolana-*"]
     paths:
+      - "programs/**"
       - "services/photon/**"
       - "program-libs/**"
       - "sdk-libs/event/**"
@@ -35,6 +36,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - "programs/**"
       - "services/photon/**"
       - "program-libs/**"
       - "sdk-libs/event/**"
@@ -88,7 +90,7 @@ jobs:
     name: container / photon
     runs-on: ubuntu-24.04
     # Photon's own image check. The prover and forester are built and tested by
-    # prover-server.yml and forester.yml, so this does not gate them.
+    # prover-server.yml and protocol-ops.yml, so this does not gate them.
     if: >-
       (github.event_name != 'pull_request' || github.event.pull_request.draft == false) &&
       (github.event_name != 'workflow_dispatch' || inputs.service == 'photon')

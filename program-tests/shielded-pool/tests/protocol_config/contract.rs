@@ -12,8 +12,8 @@ use zolana_interface::{
     state::{discriminator, ProtocolConfig},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::instruction::UpdateProtocolConfig;
 use zolana_program_test::{Rejection, ZolanaProgramTest};
+use zolana_protocol_instructions::UpdateProtocolConfig;
 use zolana_test_utils::mollusk::{expect_err_exact, mollusk_with_program};
 
 const SBF_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/deploy");

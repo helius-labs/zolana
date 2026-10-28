@@ -15,8 +15,8 @@ use zolana_interface::{
     },
     NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY,
 };
-use zolana_program::instruction::CreateTree;
 use zolana_program_test::{ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use zolana_protocol_instructions::CreateTree;
 use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
 use zolana_test_utils::mollusk::snapshot_instruction_accounts;
 use zolana_test_utils::nullifier_pda::tree_fees;

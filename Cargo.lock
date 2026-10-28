@@ -1962,6 +1962,7 @@ dependencies = [
  "zolana-keypair",
  "zolana-program",
  "zolana-program-test",
+ "zolana-protocol-instructions",
  "zolana-test-utils",
  "zolana-transaction",
  "zolana-user-registry-interface",
@@ -3507,13 +3508,16 @@ name = "forester"
 version = "1.1.0"
 dependencies = [
  "anyhow",
+ "bs58",
  "clap",
  "dotenvy",
  "hex",
  "num-bigint 0.4.8",
- "num-traits",
+ "reqwest",
+ "serde",
  "serde_json",
  "solana-account 4.3.2",
+ "solana-address 2.6.1",
  "solana-commitment-config",
  "solana-hash",
  "solana-instruction",
@@ -3528,12 +3532,9 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "tracing-subscriber",
- "zolana-api",
- "zolana-client",
- "zolana-hasher",
+ "zolana-forester-prover",
  "zolana-interface",
- "zolana-merkle-tree",
- "zolana-program",
+ "zolana-protocol-instructions",
  "zolana-smart-account-client",
  "zolana-tree",
 ]
@@ -7762,6 +7763,7 @@ dependencies = [
  "zolana-merkle-tree",
  "zolana-program",
  "zolana-program-test",
+ "zolana-protocol-instructions",
  "zolana-smart-account-client",
  "zolana-test-utils",
  "zolana-transaction",
@@ -12316,7 +12318,6 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bincode 1.3.3",
  "bs58",
  "flate2",
  "groth16-solana",
@@ -12325,12 +12326,9 @@ dependencies = [
  "reqwest",
  "serde_json",
  "sha2 0.10.9",
- "solana-account 4.3.2",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
- "solana-loader-v3-interface 7.0.0",
- "solana-loader-v3-interface 8.0.1",
  "solana-message",
  "solana-pubkey 4.2.1",
  "solana-signer",
@@ -12345,7 +12343,6 @@ dependencies = [
  "zolana-smart-account-client",
  "zolana-test-utils",
  "zolana-transaction",
- "zolana-tree",
  "zolana-user-registry-interface",
 ]
 
@@ -12572,6 +12569,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-program",
+ "zolana-protocol-instructions",
  "zolana-transaction",
  "zolana-user-registry-interface",
 ]
@@ -12655,6 +12653,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "zolana-forester-prover"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "groth16-solana",
+ "hex",
+ "num-bigint 0.4.8",
+ "num-traits",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "solana-address 2.6.1",
+ "solana-bn254",
+ "thiserror 2.0.20",
+ "url",
+ "zolana-hasher",
+ "zolana-interface",
+ "zolana-merkle-tree",
+ "zolana-tree",
+]
+
+[[package]]
 name = "zolana-gnark-ffi-prover"
 version = "0.1.0"
 dependencies = [
@@ -12690,17 +12710,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zolana-indexed-array"
-version = "0.3.0"
-dependencies = [
- "num-bigint 0.4.8",
- "num-traits",
- "rand 0.8.8",
- "thiserror 2.0.20",
- "zolana-hasher",
-]
-
-[[package]]
 name = "zolana-indexer-api"
 version = "0.1.0"
 dependencies = [
@@ -12730,7 +12739,6 @@ dependencies = [
  "zolana-account-checks",
  "zolana-hasher",
  "zolana-interface",
- "zolana-tree",
 ]
 
 [[package]]
@@ -12820,7 +12828,6 @@ dependencies = [
  "rand 0.8.8",
  "thiserror 2.0.20",
  "zolana-hasher",
- "zolana-indexed-array",
 ]
 
 [[package]]
@@ -12891,6 +12898,7 @@ dependencies = [
  "zolana-keypair",
  "zolana-merkle-tree",
  "zolana-program",
+ "zolana-protocol-instructions",
  "zolana-transaction",
  "zolana-tree",
 ]
@@ -12911,6 +12919,44 @@ dependencies = [
  "zolana-keypair",
  "zolana-program",
  "zolana-transaction",
+]
+
+[[package]]
+name = "zolana-protocol-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode 1.3.3",
+ "solana-account 4.3.2",
+ "solana-address 2.6.1",
+ "solana-commitment-config",
+ "solana-hash",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-loader-v3-interface 7.0.0",
+ "solana-loader-v3-interface 8.0.1",
+ "solana-message",
+ "solana-pubkey 4.2.1",
+ "solana-rpc-client",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
+ "zolana-interface",
+ "zolana-protocol-instructions",
+ "zolana-smart-account-client",
+ "zolana-tree",
+]
+
+[[package]]
+name = "zolana-protocol-instructions"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "solana-address 2.6.1",
+ "solana-instruction",
+ "solana-pubkey 4.2.1",
+ "zolana-interface",
+ "zolana-tree",
 ]
 
 [[package]]
@@ -12999,6 +13045,7 @@ dependencies = [
  "zolana-merkle-tree",
  "zolana-program",
  "zolana-program-test",
+ "zolana-protocol-instructions",
  "zolana-smart-account-client",
  "zolana-transaction",
  "zolana-tree",
@@ -13054,7 +13101,6 @@ dependencies = [
  "zolana-client",
  "zolana-event",
  "zolana-hasher",
- "zolana-indexed-array",
  "zolana-merkle-tree",
 ]
 

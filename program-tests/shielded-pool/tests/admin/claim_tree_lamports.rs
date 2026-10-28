@@ -10,8 +10,8 @@ use zolana_interface::{
     error::ShieldedPoolError, instruction::UpdateProtocolConfigData, pda,
     state::tree_liquid_working_capital_lamports, NULLIFIER_PDA_SIZE,
 };
-use zolana_program::instruction::ClaimTreeLamports;
 use zolana_program_test::Rejection;
+use zolana_protocol_instructions::ClaimTreeLamports;
 use zolana_test_utils::mollusk::{
     expect_err_exact, mollusk_pubkey, sweep_account_matrix, AccountMutation, Expected,
 };

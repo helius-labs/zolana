@@ -4,11 +4,13 @@ on:
   push:
     branches: [main]
     paths:
+      - "programs/**"
       - "prover/**"
       - ".github/workflows/prover-server.yml"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - "programs/**"
       - "prover/**"
       - ".github/workflows/prover-server.yml"
 

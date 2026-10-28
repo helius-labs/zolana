@@ -1,0 +1,257 @@
+//! Submit a single nullifier-tree maintenance transaction to SPP through the
+//! forester's smart-account vault.
+//!
+//! The tree's `forester_authority` is a Squads smart-account vault (consistent
+//! with the SPP's other protocol authorities), so the update is not signed by a
+//! plain key: `execute_sync_ix` has the smart-account program CPI into the
+//! shielded pool with the vault PDA as the signer, and the outer transaction is
+//! signed by a smart-account member. Proof generation lives in `prover/client`;
+//! this module handles submission once a proof and root are ready.
+
+use crate::transaction::{compile_message, sign_transaction, ComputeBudgetConfig};
+use solana_commitment_config::CommitmentConfig;
+use solana_hash::Hash;
+use solana_instruction::Instruction;
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_rpc_client::rpc_client::RpcClient;
+use solana_rpc_client_api::client_error::{Error as RpcClientError, ErrorKind};
+use solana_signature::Signature;
+use solana_signer::Signer;
+use solana_transaction::versioned::VersionedTransaction;
+use zolana_interface::instruction::BatchUpdateNullifierTreeData;
+use zolana_protocol_instructions::BatchUpdateNullifierTree;
+use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
+
+#[derive(Debug, thiserror::Error)]
+pub enum ForestError {
+    #[error("rpc: {0}")]
+    Rpc(String),
+    #[error("transaction failed: {0}")]
+    TxFailed(String),
+}
+
+pub struct ForestParams<'a> {
+    pub rpc_url: &'a str,
+    /// Smart-account member that signs the outer transaction and pays fees.
+    pub member: &'a Keypair,
+    /// Forester smart-account settings account.
+    pub settings: Pubkey,
+    /// Vault index within the settings (the vault at this index is the tree's
+    /// `forester_authority`).
+    pub account_index: u8,
+    pub pool_tree: Pubkey,
+    pub batch_update: BatchUpdateNullifierTreeData,
+}
+
+/// Build the smart-account `execute_sync` instruction that CPIs
+/// `batch_update_nullifier_tree` into SPP with `vault` as the signer.
+pub fn build_forester_execute_ix(
+    settings: &Pubkey,
+    account_index: u8,
+    member: &Pubkey,
+    pool_tree: Pubkey,
+    batch_update: &BatchUpdateNullifierTreeData,
+) -> Instruction {
+    let (vault, _) = smart_account_pda(settings, account_index);
+    let inner = BatchUpdateNullifierTree {
+        authority: vault,
+        tree: pool_tree,
+        reimbursement_recipient: *member,
+        new_root: batch_update.new_root,
+        old_root: batch_update.old_root,
+        zkp_batch_index: batch_update.zkp_batch_index,
+        proof_a: batch_update.proof.a,
+        proof_b: batch_update.proof.b,
+        proof_c: batch_update.proof.c,
+    }
+    .instruction();
+    execute_sync_ix(settings, account_index, &[*member], &[inner])
+}
+
+pub fn batch_update_nullifier_tree_once(
+    params: ForestParams<'_>,
+) -> Result<Signature, ForestError> {
+    let rpc =
+        RpcClient::new_with_commitment(params.rpc_url.to_string(), CommitmentConfig::confirmed());
+    let blockhash = rpc
+        .get_latest_blockhash()
+        .map_err(|e| ForestError::Rpc(e.to_string()))?;
+    let tx = params.build_transaction(blockhash)?;
+    rpc.send_and_confirm_transaction(&tx).map_err(send_failure)
+}
+
+/// The node could not be reached or did not answer. Anything it did answer,
+/// a rejected transaction included, is `TxFailed`.
+fn send_failure(error: RpcClientError) -> ForestError {
+    match error.kind() {
+        ErrorKind::Io(_) | ErrorKind::Reqwest(_) | ErrorKind::Middleware(_) => {
+            ForestError::Rpc(error.to_string())
+        }
+        _ => ForestError::TxFailed(error.to_string()),
+    }
+}
+
+impl ForestParams<'_> {
+    fn build_transaction(&self, blockhash: Hash) -> Result<VersionedTransaction, ForestError> {
+        let member = self.member.pubkey();
+        let execute = build_forester_execute_ix(
+            &self.settings,
+            self.account_index,
+            &member,
+            self.pool_tree,
+            &self.batch_update,
+        );
+        let message = compile_message(
+            &member,
+            &[execute],
+            blockhash,
+            ComputeBudgetConfig::for_instruction_count(1),
+        )
+        .map_err(|error| ForestError::TxFailed(error.to_string()))?;
+        sign_transaction(message, &[self.member])
+            .map_err(|error| ForestError::TxFailed(error.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use solana_instruction::AccountMeta;
+    use solana_rpc_client_api::request::RpcError;
+    use zolana_interface::{
+        instruction::{encode_instruction, tag},
+        pda, SHIELDED_POOL_PROGRAM_ID,
+    };
+    use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
+
+    use super::*;
+
+    fn sample_batch_update() -> BatchUpdateNullifierTreeData {
+        BatchUpdateNullifierTreeData {
+            new_root: [1u8; 32],
+            old_root: [5u8; 32],
+            zkp_batch_index: 0,
+            proof: zolana_interface::instruction::NullifierTreeProof {
+                a: [2u8; 32],
+                b: [3u8; 128],
+                c: [4u8; 32],
+            },
+        }
+    }
+
+    #[test]
+    fn only_an_unreachable_node_is_an_rpc_failure() {
+        let unreachable = RpcClientError::from(ErrorKind::Io(std::io::Error::other("refused")));
+        assert!(matches!(send_failure(unreachable), ForestError::Rpc(_)));
+        for answered in [
+            ErrorKind::RpcError(RpcError::ForUser("unable to confirm transaction".into())),
+            ErrorKind::Custom("simulation failed".into()),
+        ] {
+            assert!(matches!(
+                send_failure(RpcClientError::from(answered)),
+                ForestError::TxFailed(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn inner_instruction_targets_spp_with_vault_authority() {
+        let settings = Pubkey::new_unique();
+        let tree = Pubkey::new_unique();
+        let member = Pubkey::new_unique();
+        let (vault, _) = smart_account_pda(&settings, 0);
+
+        let ix = BatchUpdateNullifierTree {
+            authority: vault,
+            tree,
+            reimbursement_recipient: member,
+            new_root: [1u8; 32],
+            old_root: [5u8; 32],
+            zkp_batch_index: 0,
+            proof_a: [2u8; 32],
+            proof_b: [3u8; 128],
+            proof_c: [4u8; 32],
+        }
+        .instruction();
+
+        let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+        let data = BatchUpdateNullifierTreeData {
+            new_root: [1u8; 32],
+            old_root: [5u8; 32],
+            zkp_batch_index: 0,
+            proof: zolana_interface::instruction::NullifierTreeProof {
+                a: [2u8; 32],
+                b: [3u8; 128],
+                c: [4u8; 32],
+            },
+        };
+        let expected = Instruction {
+            program_id,
+            accounts: vec![
+                AccountMeta::new_readonly(vault, true),
+                AccountMeta::new_readonly(pda::protocol_config(), false),
+                AccountMeta::new(tree, false),
+                AccountMeta::new(member, false),
+                AccountMeta::new_readonly(program_id, false),
+            ],
+            data: encode_instruction(tag::BATCH_UPDATE_NULLIFIER_TREE, &data),
+        };
+
+        assert_eq!(ix, expected);
+    }
+
+    #[test]
+    fn execute_wraps_batch_update_for_smart_account() {
+        let settings = Pubkey::new_unique();
+        let member = Pubkey::new_unique();
+        let tree = Pubkey::new_unique();
+
+        let execute =
+            build_forester_execute_ix(&settings, 0, &member, tree, &sample_batch_update());
+
+        // Submitted instruction targets the smart-account program, carries the
+        // settings account, and the member is an outer signer.
+        assert_eq!(execute.program_id, SMART_ACCOUNT_PROGRAM_ID);
+        assert_eq!(execute.accounts.first().unwrap().pubkey, settings);
+        assert!(execute
+            .accounts
+            .iter()
+            .any(|meta| meta.pubkey == member && meta.is_signer));
+    }
+
+    #[test]
+    fn batch_update_builds_a_signed_transaction_with_header_budgets() {
+        let member = Keypair::new();
+        let params = ForestParams {
+            rpc_url: "http://unused.invalid",
+            member: &member,
+            settings: Pubkey::new_unique(),
+            account_index: 0,
+            pool_tree: Pubkey::new_unique(),
+            batch_update: sample_batch_update(),
+        };
+        let blockhash = Hash::new_from_array([7; 32]);
+        let transaction = params
+            .build_transaction(blockhash)
+            .expect("build transaction");
+        let solana_message::VersionedMessage::V1(message) = &transaction.message else {
+            panic!("forester must send transaction version 1");
+        };
+        assert_eq!(
+            message.config,
+            solana_message::v1::TransactionConfig::empty()
+                .with_compute_unit_limit(200_000)
+                .with_loaded_accounts_data_size_limit(
+                    crate::transaction::MAX_LOADED_ACCOUNTS_DATA_SIZE
+                ),
+        );
+        assert_eq!(message.lifetime_specifier, blockhash);
+        assert_eq!(message.instructions.len(), 1);
+        assert_eq!(message.account_keys.first(), Some(&member.pubkey()));
+        transaction.sanitize().expect("valid transaction");
+        assert_eq!(
+            transaction.signatures,
+            vec![member.sign_message(&transaction.message.serialize())],
+        );
+    }
+}

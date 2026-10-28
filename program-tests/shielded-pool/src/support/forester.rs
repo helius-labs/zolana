@@ -13,7 +13,7 @@ use zolana_client::{
 use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
-use zolana_program::instruction::BatchUpdateNullifierTree;
+use zolana_protocol_instructions::BatchUpdateNullifierTree;
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_test_utils::localnet::{send_transaction, send_transaction_with_budget};
 use zolana_transaction::instructions::transact::BN254_MODULUS_DEC;

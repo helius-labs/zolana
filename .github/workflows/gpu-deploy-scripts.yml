@@ -1,11 +1,11 @@
 name: gpu-deploy-scripts
 
-# The GPU and Nitro deployment scripts, and the prover image checks, read only
-# these paths, so nothing else triggers them.
+# Program changes run the full validation suite, including these script checks.
 on:
   push:
     branches: [main]
     paths:
+      - "programs/**"
       - "tools/gpu/**"
       - "tools/nitro/**"
       - "tools/check-photon-image.sh"
@@ -27,6 +27,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - "programs/**"
       - "tools/gpu/**"
       - "tools/nitro/**"
       - "tools/check-photon-image.sh"

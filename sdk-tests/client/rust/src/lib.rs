@@ -12,12 +12,13 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program::instruction::{AssetDeposit, CreateProtocolConfig, Deposit, DepositAsset};
+use zolana_program::instruction::{AssetDeposit, Deposit, DepositAsset};
 use zolana_program_test::{
     create_tree_instructions,
     localnet::{LocalnetPorts, LocalnetValidator, UpgradeableProgram},
     next_tree_id, workspace_path,
 };
+use zolana_protocol_instructions::CreateProtocolConfig;
 use zolana_test_utils::smart_account::{self, ProtocolSigners, StandardSigners};
 use zolana_transaction::{decrypt_spendable, AssetRegistry, WalletUtxo, SOL_MINT};
 use zolana_user_registry_interface::{
