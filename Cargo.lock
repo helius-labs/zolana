@@ -12312,7 +12312,7 @@ dependencies = [
 [[package]]
 name = "xark"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -12326,7 +12326,7 @@ dependencies = [
 [[package]]
 name = "xark-backend"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -12348,7 +12348,7 @@ dependencies = [
 [[package]]
 name = "xark-cli"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "anyhow",
  "ark-bn254 0.6.0",
@@ -12374,7 +12374,7 @@ dependencies = [
 [[package]]
 name = "xark-frontend"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "addr2line",
  "num-bigint 0.4.8",
@@ -12388,7 +12388,7 @@ dependencies = [
 [[package]]
 name = "xark-groth16"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -12405,7 +12405,7 @@ dependencies = [
 [[package]]
 name = "xark-ir"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -12419,7 +12419,7 @@ dependencies = [
 [[package]]
 name = "xark-macros"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -12429,7 +12429,7 @@ dependencies = [
 [[package]]
 name = "xark-poseidon2"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -12439,7 +12439,7 @@ dependencies = [
 [[package]]
 name = "xark-prover"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -12455,7 +12455,7 @@ dependencies = [
 [[package]]
 name = "xark-schema"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -12466,7 +12466,7 @@ dependencies = [
 [[package]]
 name = "xark-wasm"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=d93513f277b4d3c38367c46fc70db622dde40e4c#d93513f277b4d3c38367c46fc70db622dde40e4c"
+source = "git+https://github.com/ananas-block/xark?rev=38c0de6fec56cff52f5a4e0cf2d86721ea29e583#38c0de6fec56cff52f5a4e0cf2d86721ea29e583"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",

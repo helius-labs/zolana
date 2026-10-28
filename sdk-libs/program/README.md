@@ -409,7 +409,7 @@ compilation. Dev dependencies, build dependencies, host proc macros, native-only
 dependencies, and unrelated workspace packages do not trigger this check.
 
 The workspace pins `ananas-block/xark` to commit
-`d93513f277b4d3c38367c46fc70db622dde40e4c`. The CLI links `xark-cli` as a library
+`38c0de6fec56cff52f5a4e0cf2d86721ea29e583`. The CLI links `xark-cli` as a library
 and calls its `build`, `setup`, and `client` APIs. Building the Zolana CLI
 builds those toolchain components too; no standalone `xark` executable, executable
 version probe, source override, or patch bootstrap is required. Generated circuit
