@@ -6,6 +6,7 @@ import (
 
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/std/rangecheck"
 )
 
 const byteBits = 8
@@ -66,26 +67,39 @@ func FieldToBytesBE(api frontend.API, value frontend.Variable) [32]frontend.Vari
 }
 
 // FieldLowBytesBE returns the low n big-endian bytes of value, never of value+q.
-func FieldLowBytesBE(api frontend.API, rc frontend.Rangechecker, value frontend.Variable, n int) []frontend.Variable {
+func FieldLowBytesBE(api frontend.API, value frontend.Variable, n int) []frontend.Variable {
 	if n < 1 || n > HashBytesChunkSize {
 		panic("field low bytes: byte count outside 1..31")
 	}
-	q := api.Compiler().Field()
-	lowBits := byteBits * n
 	out, err := api.Compiler().NewHint(lowBytesHint, n+1, value)
 	if err != nil {
 		panic(err)
 	}
 	high, bytes := out[0], out[1:]
-	low := BytesToFieldWith(api, rc, bytes)
-	rc.Check(high, q.BitLen()-lowBits)
-	api.AssertIsEqual(value, api.Add(api.Mul(high, new(big.Int).Lsh(big.NewInt(1), uint(lowBits))), low))
-	qHigh := new(big.Int).Rsh(q, uint(lowBits))
-	qLow := new(big.Int).Sub(q, new(big.Int).Lsh(qHigh, uint(lowBits)))
-	rc.Check(api.Sub(qHigh, high), qHigh.BitLen())
-	atBound := api.IsZero(api.Sub(high, qHigh))
-	rc.Check(api.Mul(atBound, api.Sub(new(big.Int).Sub(qLow, big.NewInt(1)), low)), lowBits)
+	CanonicalSplit{Value: value, High: high, Low: BytesToFieldWith(api, rangecheck.New(api), bytes), LowBits: byteBits * n}.Assert(api)
 	return bytes
+}
+
+type CanonicalSplit struct {
+	Value, High, Low frontend.Variable
+	LowBits          int
+}
+
+// Assert pins Value = High*2^LowBits + Low as an integer below q for a Low the caller bounds to LowBits bits.
+func (s CanonicalSplit) Assert(api frontend.API) {
+	q := api.Compiler().Field()
+	if s.LowBits < 1 || s.LowBits >= q.BitLen() {
+		panic("canonical split: low bit count outside 1..field bit length - 1")
+	}
+	rc := rangecheck.New(api)
+	// Without the bound, a High near q wraps qHigh - High into range.
+	rc.Check(s.High, q.BitLen()-s.LowBits)
+	api.AssertIsEqual(s.Value, api.Add(api.Mul(s.High, new(big.Int).Lsh(big.NewInt(1), uint(s.LowBits))), s.Low))
+	qHigh := new(big.Int).Rsh(q, uint(s.LowBits))
+	qLow := new(big.Int).Sub(q, new(big.Int).Lsh(qHigh, uint(s.LowBits)))
+	rc.Check(api.Sub(qHigh, s.High), qHigh.BitLen())
+	atBound := api.IsZero(api.Sub(s.High, qHigh))
+	rc.Check(api.Mul(atBound, api.Sub(new(big.Int).Sub(qLow, big.NewInt(1)), s.Low)), s.LowBits)
 }
 
 func init() { solver.RegisterHint(lowBytesHint) }

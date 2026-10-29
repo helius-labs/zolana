@@ -5,7 +5,6 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/math/bits"
-	"github.com/consensys/gnark/std/rangecheck"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 )
@@ -74,16 +73,15 @@ func KeySchedule(
 		siloed,
 	})
 
-	rc := rangecheck.New(api)
-	copy(key[:16], gadget.FieldLowBytesBE(api, rc, keyHi, 16))
-	copy(key[16:], gadget.FieldLowBytesBE(api, rc, keyLo, 16))
+	copy(key[:16], gadget.FieldLowBytesBE(api, keyHi, 16))
+	copy(key[16:], gadget.FieldLowBytesBE(api, keyLo, 16))
 
 	// Single Poseidon call for the GCM nonce (last 12 bytes of the output).
 	nonceRaw := gadget.PoseidonHash(api, []frontend.Variable{
 		frontend.Variable(uint64(DomSepNonce)),
 		siloed,
 	})
-	copy(nonce[:], gadget.FieldLowBytesBE(api, rc, nonceRaw, 12))
+	copy(nonce[:], gadget.FieldLowBytesBE(api, nonceRaw, 12))
 
 	return key, nonce
 }

@@ -1,9 +1,8 @@
 package shared
 
 import (
-	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-
 	"github.com/consensys/gnark/frontend"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
 // Owner-tag bindings apply to rails that publish per-slot owner tags. Rails
@@ -26,7 +25,7 @@ func AssertOutputOwnerTags(
 		return err
 	}
 	for i, utxo := range outputs {
-		ownerHash := gadget.PoseidonHash(api, []frontend.Variable{ownerPkHashes[i], nullifierPks[i]})
+		ownerHash := abstractor.Call(api, OwnerHashGadget{OwnerKeyHash: ownerPkHashes[i], NullifierPk: nullifierPks[i]})
 		AssertWhen(api, utxo.isUtxo(api), api.IsZero(api.Sub(ownerHash, utxo.Owner)))
 	}
 	return nil

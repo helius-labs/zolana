@@ -19,12 +19,13 @@ func HashBytesWith(api frontend.API, rc frontend.Rangechecker, bytes []frontend.
 
 // HashBoundedBytes is HashBytes for bytes the caller constrains to 8 bits.
 func HashBoundedBytes(api frontend.API, bytes []frontend.Variable) frontend.Variable {
-	return HashBytesWith(api, boundedBytes{}, bytes)
+	return HashBytesWith(api, BoundedBytes{}, bytes)
 }
 
-type boundedBytes struct{}
+// BoundedBytes skips every range check, sound only on bytes the caller bounds to 8 bits.
+type BoundedBytes struct{}
 
-func (boundedBytes) Check(frontend.Variable, int) {}
+func (BoundedBytes) Check(frontend.Variable, int) {}
 
 // Range-checks each byte, the last chunk stays unpadded.
 func PackBytesBE(api frontend.API, bytes []frontend.Variable) []frontend.Variable {

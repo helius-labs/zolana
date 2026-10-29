@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/consensys/gnark/frontend"
+	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
@@ -194,14 +195,14 @@ func (t Transaction) ValidateLayout(numInputs int) error {
 // Constrain proves the common merge statement and binds every supplied common
 // public-input-hash component to its in-circuit derivation.
 func (t Transaction) Constrain(api frontend.API) (Derived, error) {
-	userOwnerHash := gadget.PoseidonHash(
-		api,
-		[]frontend.Variable{t.OwnerPkHash, t.UserNullifierPk},
-	)
+	userOwnerHash := abstractor.Call(api, transaction.OwnerHashGadget{
+		OwnerKeyHash: t.OwnerPkHash,
+		NullifierPk:  t.UserNullifierPk,
+	})
 
 	asset := gadget.HashChain(api, t.MintChunks[:])
 
-	nullifierPk := gadget.PoseidonHash(api, []frontend.Variable{t.UserNullifierSecret})
+	nullifierPk := abstractor.Call(api, transaction.NullifierPkGadget{NullifierSecret: t.UserNullifierSecret})
 	api.AssertIsEqual(t.UserNullifierPk, nullifierPk)
 	api.AssertIsBoolean(t.Public.AllowDummyInputs)
 	isCompact := transaction.CompactSlots(api, t.Public.Nullifiers)
@@ -254,17 +255,12 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.Public.OutputTreeID,
 	)
 
-	addressNullifiers := make([]frontend.Variable, len(inputHashes))
-	for i := range addressNullifiers {
-		addressNullifiers[i] = frontend.Variable(0)
-	}
-	privateTxHash := transaction.PrivateTxHashCircuit(
-		api,
-		inputHashes,
-		[]frontend.Variable{outputHash},
-		addressNullifiers,
-		transaction.DerivePrivateTxBlinding(api, nullifiers[0], t.UserNullifierSecret),
-	)
+	privateTxHash := PrivateTx{
+		InputUtxoHashes: inputHashes,
+		OutputUtxoHash:  outputHash,
+		FirstNullifier:  nullifiers[0],
+		NullifierSecret: t.UserNullifierSecret,
+	}.Hash(api)
 	api.AssertIsEqual(privateTxHash, t.Public.PrivateTxHash)
 
 	for i := range nullifiers {
@@ -275,4 +271,26 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		OutputAmount:   sumInputs,
 		FirstNullifier: nullifiers[0],
 	}, nil
+}
+
+type PrivateTx struct {
+	InputUtxoHashes []frontend.Variable
+	OutputUtxoHash  frontend.Variable
+	FirstNullifier  frontend.Variable
+	NullifierSecret frontend.Variable
+}
+
+// Hash is SPP's private_tx_hash of a merge, with every address slot zero.
+func (tx PrivateTx) Hash(api frontend.API) frontend.Variable {
+	addressNullifiers := make([]frontend.Variable, len(tx.InputUtxoHashes))
+	for i := range addressNullifiers {
+		addressNullifiers[i] = frontend.Variable(0)
+	}
+	return transaction.PrivateTxHashCircuit(
+		api,
+		tx.InputUtxoHashes,
+		[]frontend.Variable{tx.OutputUtxoHash},
+		addressNullifiers,
+		transaction.DerivePrivateTxBlinding(api, tx.FirstNullifier, tx.NullifierSecret),
+	)
 }

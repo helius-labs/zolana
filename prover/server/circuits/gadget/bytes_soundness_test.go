@@ -163,7 +163,7 @@ type lowBytesCircuit struct {
 }
 
 func (c *lowBytesCircuit) Define(api frontend.API) error {
-	for i, b := range FieldLowBytesBE(api, BitChecker{api}, c.Value, len(c.Bytes)) {
+	for i, b := range FieldLowBytesBE(api, c.Value, len(c.Bytes)) {
 		api.AssertIsEqual(b, c.Bytes[i])
 	}
 	return nil

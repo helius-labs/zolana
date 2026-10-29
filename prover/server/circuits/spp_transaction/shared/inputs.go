@@ -108,10 +108,10 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// Checks UTXO and address:
 	// 1. Check owner hash matches UTXO.
 	{
-		nullifierPk := abstractor.Call(api, nullifierPkGadget{
+		nullifierPk := abstractor.Call(api, NullifierPkGadget{
 			NullifierSecret: in.NullifierSecret,
 		})
-		ownerHash := abstractor.Call(api, ownerHashGadget{
+		ownerHash := abstractor.Call(api, OwnerHashGadget{
 			OwnerKeyHash: signals.SignerPk,
 			NullifierPk:  nullifierPk,
 		})
@@ -238,11 +238,11 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 	assertStrictlyOrdered(api, in.NullifierLowValue, nullifier, in.NullifierNextValue)
 }
 
-type nullifierPkGadget struct {
+type NullifierPkGadget struct {
 	NullifierSecret frontend.Variable
 }
 
-func (gadget nullifierPkGadget) DefineGadget(api frontend.API) interface{} {
+func (gadget NullifierPkGadget) DefineGadget(api frontend.API) interface{} {
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{gadget.NullifierSecret})
 }
 
