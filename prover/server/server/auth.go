@@ -74,8 +74,8 @@ func getAPIKeyFromEnv() string {
 }
 
 func requiresAuthentication(path string) bool {
-	// /proving-keys only reports proving-key digests, which are public setup
-	// parameters, so clients can check them before holding an API key.
+	// /proving-keys lists public proving-key downloads and checksums, so clients
+	// can obtain and check setup parameters before holding an API key.
 	publicPaths := []string{
 		"/health",
 		"/ready",

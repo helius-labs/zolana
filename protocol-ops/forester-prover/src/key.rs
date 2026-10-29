@@ -3,7 +3,7 @@ use serde::Deserialize;
 use spr_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S;
 
 pub struct ProvingKeyReport {
-    pub prefix: String,
+    pub keys: usize,
 }
 #[derive(Clone)]
 pub(crate) struct ExpectedProvingKey {
@@ -35,29 +35,41 @@ impl ExpectedProvingKey {
     }
 }
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct KeyStatus {
     name: String,
-    expected_sha256: Option<String>,
-    loaded_sha256: Option<String>,
+    artifacts: Vec<Artifact>,
+}
+#[derive(Deserialize)]
+struct Artifact {
+    format: String,
+    sha256: String,
 }
 #[derive(Deserialize)]
 struct Keys {
-    prefix: String,
     keys: Vec<KeyStatus>,
 }
 pub(crate) fn check_report(value: serde_json::Value) -> Result<ProvingKeyReport> {
     let report: Keys = serde_json::from_value(value)?;
     let mut mismatches = Vec::new();
-    for (name, digest) in PROVING_KEY_SHA256S {
-        if let Some(status) = report.keys.iter().find(|status| status.name == *name) {
-            for reported in [&status.expected_sha256, &status.loaded_sha256]
-                .into_iter()
-                .flatten()
-            {
-                if *reported != hex::encode(digest) {
-                    mismatches.push(format!("{name}: {reported}"));
+    for key in &report.keys {
+        let Some((_, digest)) = PROVING_KEY_SHA256S
+            .iter()
+            .find(|(name, _)| *name == key.name)
+        else {
+            continue;
+        };
+        let mut gnark = key.artifacts.iter().filter(|a| a.format == "gnark");
+        match (gnark.next(), gnark.next()) {
+            (Some(artifact), None) => {
+                if artifact.sha256 != hex::encode(digest) {
+                    mismatches.push(key.name.clone());
                 }
+            }
+            _ => {
+                return Err(Error::Prover(format!(
+                    "{} must have exactly one gnark artifact",
+                    key.name
+                )))
             }
         }
     }
@@ -65,6 +77,37 @@ pub(crate) fn check_report(value: serde_json::Value) -> Result<ProvingKeyReport>
         return Err(Error::ProverProvingKeysMismatch { mismatches });
     }
     Ok(ProvingKeyReport {
-        prefix: report.prefix,
+        keys: report.keys.len(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_shared_catalog() {
+        let catalog = serde_json::from_str(include_str!(
+            "../../../test-vectors/proving_key_catalog.json"
+        ))
+        .unwrap();
+        assert_eq!(check_report(catalog).unwrap().keys, 2);
+    }
+
+    #[test]
+    fn known_keys_require_one_gnark_artifact() {
+        for artifacts in [
+            serde_json::json!([]),
+            serde_json::json!([
+                {"format":"gnark", "sha256":"a"}, {"format":"gnark", "sha256":"b"}
+            ]),
+        ] {
+            assert!(matches!(
+                check_report(serde_json::json!({"keys":[{
+                    "name":"batch_address-append_40_10.key", "artifacts":artifacts
+                }]})),
+                Err(Error::Prover(_))
+            ));
+        }
+    }
 }

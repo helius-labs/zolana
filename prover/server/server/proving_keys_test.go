@@ -17,7 +17,7 @@ func TestProvingKeysHandlerReportsEveryLockfileKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load embedded lockfile: %v", err)
 	}
-	handler := provingKeysHandler{keyManager: common.NewLazyKeyManager(t.TempDir(), &common.DownloadConfig{})}
+	handler := provingKeysHandler{}
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/proving-keys", nil))
@@ -31,25 +31,39 @@ func TestProvingKeysHandlerReportsEveryLockfileKey(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &report); err != nil {
 		t.Fatalf("decode report: %v", err)
 	}
-	if report.Prefix != manifest.Prefix {
-		t.Fatalf("prefix = %q, want %q", report.Prefix, manifest.Prefix)
-	}
 	if len(report.Keys) != len(manifest.Keys) {
 		t.Fatalf("reported %d keys, lockfile pins %d", len(report.Keys), len(manifest.Keys))
 	}
+	zoproCount := 0
 	for _, key := range report.Keys {
 		entry := manifest.Keys[key.Name]
-		if key.ExpectedSha256 == nil || *key.ExpectedSha256 != entry.Sha256 {
-			t.Fatalf("%s expectedSha256 = %v, want %s", key.Name, key.ExpectedSha256, entry.Sha256)
+		if len(key.Artifacts) == 0 || key.Artifacts[0].Format != "gnark" || key.Artifacts[0].Sha256 != entry.Sha256 || key.Artifacts[0].Size != entry.Size {
+			t.Fatalf("%s has no matching gnark download: %+v", key.Name, key.Artifacts)
 		}
-		if key.LoadedSha256 != nil || key.Available {
-			t.Fatalf("%s reported loaded or available with an empty keys dir", key.Name)
+		for _, artifact := range key.Artifacts {
+			if artifact.URL == "" {
+				t.Fatalf("%s has no URL", key.Name)
+			}
+			if artifact.Format == "zopro" {
+				zoproCount++
+			}
 		}
 	}
+	if zoproCount != 41 {
+		t.Fatalf("zopro downloads = %d, want 41", zoproCount)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &wire); err != nil {
+		t.Fatal(err)
+	}
+	if len(wire) != 1 || wire["keys"] == nil {
+		t.Fatalf("unexpected response fields: %s", recorder.Body.String())
+	}
+
 }
 
 func TestProvingKeysHandlerRejectsNonGet(t *testing.T) {
-	handler := provingKeysHandler{keyManager: common.NewLazyKeyManager(t.TempDir(), &common.DownloadConfig{})}
+	handler := provingKeysHandler{}
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/proving-keys", nil))
 	if recorder.Code != http.StatusMethodNotAllowed {

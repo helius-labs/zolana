@@ -18,6 +18,25 @@ every key. A key the deployment does not serve answers `404` with code
 path names answers `400` with code `proving_key_mismatch`. `/health` lists the
 served keys.
 
+## Proving-key downloads
+
+`GET /proving-keys` (also `/v1/zolana/proving-keys`) returns `keys`, each with
+`name` and `artifacts`. Every artifact has `format` (`gnark` or `zopro`),
+`sha256`, `size` in bytes, and a complete `url`. Each key has one gnark
+artifact and, when published, a zopro conversion.
+
+Clients compare the gnark checksum with their verifying-key pin. Downloaders
+verify the chosen artifact's bytes against its own checksum. The catalog
+lists manifest keys, independently of the deployment's enabled proof routes.
+
+`provingkeys/zopro-keys.lock`, copied from the mobile SDK's native package,
+pins each conversion to its gnark source checksum. Update it when source keys
+change. Each manifest keeps its own download prefix; standard URLs use
+`ZOLANA_PROVING_KEYS_URL`, and extension keys use their registered release URL.
+
+This replaces `expectedSha256`, `loadedSha256`, `available`, and the response's
+`prefix`. Upgrade server and clients together.
+
 ## Delivery
 
 Transfers and merges return their proofs in the HTTP response by default.

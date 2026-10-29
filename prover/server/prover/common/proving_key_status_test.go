@@ -1,80 +1,59 @@
 package common
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
 )
 
-func strPtr(s string) *string { return &s }
-
-func TestProvingKeysReportCoversPinnedLoadedAndLocalKeys(t *testing.T) {
-	pinnedOnDisk := sha256.Sum256([]byte("transfer_ring_2_2"))
-	pinnedMissing := sha256.Sum256([]byte("merge_52_1"))
-	useTestManifest(t, &lockManifest{
-		Prefix: "proving-keys/test",
-		Keys: map[string]lockEntry{
-			"transfer_ring_2_2.key": {Sha256: hex.EncodeToString(pinnedOnDisk[:]), Size: 1},
-			"merge_52_1.key":        {Sha256: hex.EncodeToString(pinnedMissing[:]), Size: 1},
-		},
-	})
-	keysDir := t.TempDir()
-	for _, name := range []string{"transfer_ring_2_2.key", "local_only.key", "notes.txt"} {
-		if err := os.WriteFile(filepath.Join(keysDir, name), []byte("x"), 0o600); err != nil {
-			t.Fatalf("write %s: %v", name, err)
+func TestProvingKeyDownloadsMatchSharedCatalog(t *testing.T) {
+	t.Setenv(provingKeysURLEnvVar, defaultProvingKeysBaseURL)
+	data, err := os.ReadFile("../../../../test-vectors/proving_key_catalog.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected ProvingKeysReport
+	if err := json.Unmarshal(data, &expected); err != nil {
+		t.Fatal(err)
+	}
+	report, err := ProvingKeyDownloads()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected []ProvingKeyStatus
+	for _, key := range report.Keys {
+		for _, want := range expected.Keys {
+			if key.Name == want.Name {
+				selected = append(selected, key)
+			}
 		}
 	}
-	manager := NewLazyKeyManager(keysDir, &DownloadConfig{AutoDownload: false})
-	loaded := sha256.Sum256([]byte("bytes actually read"))
-	manager.loadedDigests["transfer_ring_2_2.key"] = loaded
-
-	report, err := manager.ProvingKeysReport()
-	if err != nil {
-		t.Fatalf("ProvingKeysReport: %v", err)
-	}
-	want := &ProvingKeysReport{
-		Prefix: "proving-keys/test",
-		Keys: []ProvingKeyStatus{
-			{Name: "local_only.key", Available: true},
-			{Name: "merge_52_1.key", ExpectedSha256: strPtr(hex.EncodeToString(pinnedMissing[:])), Available: false},
-			{
-				Name:           "transfer_ring_2_2.key",
-				ExpectedSha256: strPtr(hex.EncodeToString(pinnedOnDisk[:])),
-				LoadedSha256:   strPtr(hex.EncodeToString(loaded[:])),
-				Available:      true,
-			},
-		},
-	}
-	if !reflect.DeepEqual(report, want) {
-		t.Fatalf("report = %+v, want %+v", report, want)
+	if !reflect.DeepEqual(selected, expected.Keys) {
+		t.Fatalf("catalog differs: %+v", selected)
 	}
 }
 
-func TestProvingKeysReportPinnedKeyAvailableWithAutoDownload(t *testing.T) {
-	pinned := sha256.Sum256([]byte("merge_24_1"))
-	release := sha256.Sum256([]byte("release_asset"))
-	useTestManifest(t, &lockManifest{
-		Prefix: "proving-keys/test",
-		Keys: map[string]lockEntry{
-			"merge_24_1.key": {Sha256: hex.EncodeToString(pinned[:]), Size: 1},
-			// Release assets are never auto-downloaded, so they stay unavailable.
-			"release_asset.key": {Sha256: hex.EncodeToString(release[:]), Size: 1, Source: "release"},
-		},
-	})
-	manager := NewLazyKeyManager(t.TempDir(), &DownloadConfig{AutoDownload: true})
-
-	report, err := manager.ProvingKeysReport()
-	if err != nil {
-		t.Fatalf("ProvingKeysReport: %v", err)
-	}
+func TestDownloadURLsUseEachManifestPrefixAndReleaseSource(t *testing.T) {
+	t.Setenv(provingKeysURLEnvVar, "https://mirror.example/assets/")
+	manifest := &lockManifest{Prefix: "proving-keys/new", Keys: map[string]lockEntry{
+		"test.key":    {Sha256: "source-sha", Size: 10},
+		"release.key": {Sha256: "release-sha", Size: 30, Source: "release", URL: "https://release.example/v1/release.key"},
+	}}
+	zopro := &provingkeys.ZoproManifest{Prefix: "proving-keys/old", Keys: map[string]provingkeys.ZoproEntry{
+		"test.key": {File: "test.zopro", Sha256: "zopro-sha", Size: 20},
+	}}
+	report := provingKeyDownloads(manifest, zopro)
 	want := []ProvingKeyStatus{
-		{Name: "merge_24_1.key", ExpectedSha256: strPtr(hex.EncodeToString(pinned[:])), Available: true},
-		{Name: "release_asset.key", ExpectedSha256: strPtr(hex.EncodeToString(release[:])), Available: false},
+		{Name: "release.key", Artifacts: []ProvingKeyArtifact{{Format: "gnark", Sha256: "release-sha", Size: 30, URL: "https://release.example/v1/release.key"}}},
+		{Name: "test.key", Artifacts: []ProvingKeyArtifact{
+			{Format: "gnark", Sha256: "source-sha", Size: 10, URL: "https://mirror.example/assets/proving-keys/new/test.key"},
+			{Format: "zopro", Sha256: "zopro-sha", Size: 20, URL: "https://mirror.example/assets/proving-keys/old/test.zopro"},
+		}},
 	}
 	if !reflect.DeepEqual(report.Keys, want) {
-		t.Fatalf("keys = %+v, want %+v", report.Keys, want)
+		t.Fatalf("catalog = %+v, want %+v", report.Keys, want)
 	}
 }

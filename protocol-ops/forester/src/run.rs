@@ -201,7 +201,7 @@ pub fn run(config: &ForesterConfig, opts: RunOptions) -> Result<()> {
         if !keys_checked {
             match prover.check_proving_keys() {
                 Ok(keys) => {
-                    tracing::info!(prefix = %keys.prefix, "prover key configuration checked");
+                    tracing::info!(keys = keys.keys, "prover key configuration checked");
                     keys_checked = true;
                 }
                 Err(err) => {

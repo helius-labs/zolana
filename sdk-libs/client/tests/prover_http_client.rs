@@ -139,16 +139,11 @@ fn proving_keys() -> Vec<Answer> {
             let hex: String = sha256.iter().map(|byte| format!("{byte:02x}")).collect();
             json!({
                 "name": name,
-                "expectedSha256": hex,
-                "loadedSha256": null,
-                "available": true,
+                "artifacts": [{ "format": "gnark", "sha256": hex, "size": 1, "url": "https://keys.example/key" }],
             })
         })
         .collect();
-    vec![Ok((
-        200,
-        json!({ "prefix": "proving-keys/test", "keys": keys }),
-    ))]
+    vec![Ok((200, json!({ "keys": keys })))]
 }
 
 fn header<'a>(request: &'a HttpRequest, name: &str) -> Option<&'a str> {
@@ -235,7 +230,7 @@ fn the_proving_keys_are_read_through_the_client() {
     let report = ProverClient::with_client(PROVER_URL.to_string(), client)
         .check_proving_keys()
         .expect("a matching prover");
-    assert_eq!(report.prefix, "proving-keys/test");
+    assert_eq!(report.keys.len(), known_proving_keys().count());
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 1);
     assert_get(&requests[0], PROVING_KEYS_URL);

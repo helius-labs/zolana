@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -742,24 +743,17 @@ describe("proving key check", () => {
 describe("prover proving keys check", () => {
   const json = { "content-type": "application/json" };
 
-  /** What a prover built from this commit reports before it loads anything. */
-  function matchingReport(): {
-    prefix: string;
-    keys: Record<string, unknown>[];
-  } {
+  function matchingReport() {
     return {
-      prefix: "proving-keys/test",
       keys: Object.entries(PROVING_KEY_SHA256S).map(([name, sha256]) => ({
         name,
-        expectedSha256: sha256,
-        loadedSha256: null,
-        available: true,
+        artifacts: [{ format: "gnark", sha256, size: 1, url: "https://keys.example/key" }],
       })),
     };
   }
 
-  function entry(report: ReturnType<typeof matchingReport>, name: string): Record<string, unknown> {
-    const found = report.keys.find((key) => key["name"] === name);
+  function artifact(report: ReturnType<typeof matchingReport>, name: string) {
+    const found = report.keys.find((key) => key.name === name)?.artifacts[0];
     if (found === undefined) throw new Error(`${name} is not listed`);
     return found;
   }
@@ -785,105 +779,78 @@ describe("prover proving keys check", () => {
     }
   }
 
-  it("reports every known key of a prover on the same key set", async () => {
+  it("returns the complete download catalog for a matching prover", async () => {
     const report = matchingReport();
-    const loaded = entry(report, "transfer_ring_2_2.key");
-    loaded["loadedSha256"] = loaded["expectedSha256"];
-
-    expect(await check(report)).toEqual({
-      prefix: "proving-keys/test",
-      keys: Object.keys(PROVING_KEY_SHA256S).map((name) => ({
-        name,
-        served: true,
-        available: true,
-        loaded: name === "transfer_ring_2_2.key",
-      })),
-    });
+    expect(await check(report)).toEqual(report);
   });
 
-  it("names every key whose expected or loaded digest differs", async () => {
+  it("names every key whose gnark digest differs", async () => {
     const report = matchingReport();
-    entry(report, "merge_24_1.key")["expectedSha256"] = "ab".repeat(32);
-    entry(report, "batch_address-append_40_10.key")["loadedSha256"] = "cd".repeat(32);
-
+    artifact(report, "merge_24_1.key").sha256 = "ab".repeat(32);
+    artifact(report, "batch_address-append_40_10.key").sha256 = "cd".repeat(32);
     expect(await check(report)).toMatchObject({
       code: "CLIENT_PROVER_PROVING_KEYS_MISMATCH",
       details: { keyNames: "batch_address-append_40_10.key,merge_24_1.key" },
     });
   });
 
-  it("reports a key the prover lacks or cannot load without failing", async () => {
+  it("keeps absent keys absent without failing", async () => {
     const report = matchingReport();
-    report.keys = report.keys.filter((key) => key["name"] !== "merge_52_1.key");
-    entry(report, "transfer_ring_49_2.key")["available"] = false;
-
-    const result = (await check(report)) as {
-      keys: { name: string; served: boolean; available: boolean }[];
-    };
-    expect(
-      result.keys.filter((key) => ["merge_52_1.key", "transfer_ring_49_2.key"].includes(key.name)),
-    ).toEqual([
-      {
-        name: "merge_52_1.key",
-        served: false,
-        available: false,
-        loaded: false,
-      },
-      {
-        name: "transfer_ring_49_2.key",
-        served: true,
-        available: false,
-        loaded: false,
-      },
-    ]);
+    report.keys = report.keys.filter((key) => key.name !== "merge_52_1.key");
+    expect(await check(report)).toEqual(report);
   });
 
-  it("rejects a malformed report instead of skipping keys", async () => {
-    const malformed: unknown[] = [
+  it("reads the shared catalog", async () => {
+    const catalog: unknown = JSON.parse(
+      readFileSync(
+        new URL("../../../test-vectors/proving_key_catalog.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    expect(await check(catalog)).toEqual(catalog);
+  });
+
+  it("requires one gnark artifact for each known key", async () => {
+    for (const duplicate of [false, true]) {
+      const report = matchingReport();
+      const key = report.keys[0]!;
+      key.artifacts = duplicate ? [...key.artifacts, ...key.artifacts] : [];
+      expect(await check(report)).toMatchObject({ code: "CLIENT_PROVER_JSON" });
+    }
+  });
+
+  it("checks every listed copy of a known key", async () => {
+    const report = matchingReport();
+    const key = report.keys[0]!;
+    report.keys.push({ ...key, artifacts: key.artifacts.map((a) => ({ ...a, sha256: "wrong" })) });
+    expect(await check(report)).toMatchObject({ code: "CLIENT_PROVER_PROVING_KEYS_MISMATCH" });
+  });
+
+  it("passes download metadata through without treating it as a compatibility check", async () => {
+    const report = matchingReport();
+    const download = artifact(report, "merge_24_1.key");
+    download.url = "ipfs://example/key";
+    download.size = 0;
+    expect(await check(report)).toEqual(report);
+  });
+
+  it("rejects malformed field types and the old schema", async () => {
+    for (const body of [
       [],
-      { keys: [] },
-      { prefix: "p", keys: {} },
-      {
-        prefix: "p",
-        keys: [{ name: "merge_24_1.key", loadedSha256: null, available: true }],
-      },
-      {
-        prefix: "p",
-        keys: [
-          {
-            name: "merge_24_1.key",
-            expectedSha256: "AB".repeat(32),
-            loadedSha256: null,
-            available: true,
-          },
-        ],
-      },
-      {
-        prefix: "p",
-        keys: [
-          {
-            name: "merge_24_1.key",
-            expectedSha256: null,
-            loadedSha256: 7,
-            available: true,
-          },
-        ],
-      },
-      {
-        prefix: "p",
-        keys: [
-          {
-            name: "merge_24_1.key",
-            expectedSha256: null,
-            loadedSha256: null,
-            available: "yes",
-          },
-        ],
-      },
-    ];
-    for (const body of malformed) {
+      {},
+      { keys: {} },
+      { keys: [{ name: "test.key", expectedSha256: "old" }] },
+    ]) {
       expect(await check(body)).toMatchObject({ code: "CLIENT_PROVER_JSON" });
     }
+    const report = matchingReport();
+    expect(
+      await check({
+        keys: [
+          { ...report.keys[0], artifacts: [{ format: "gnark", sha256: 7, size: 1, url: "test" }] },
+        ],
+      }),
+    ).toMatchObject({ code: "CLIENT_PROVER_JSON" });
   });
 
   it("fails on a prover without the endpoint", async () => {

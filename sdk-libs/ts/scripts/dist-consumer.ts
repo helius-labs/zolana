@@ -15,6 +15,9 @@ export {
   decodeShieldedPoolError,
 } from "@heliuslabs/zolana/interface";
 export type {
+  ProvingKeyArtifact,
+  ProvingKeyCheck,
+  ProvingKeyReport,
   AuthorizedPrivateTransaction,
   ChainReader,
   IndexerReader,
