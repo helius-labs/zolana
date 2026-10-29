@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ZolanaClient, type ProofDataSource, type SpendProof } from "../src/client/index.js";
 import { assemble } from "../src/client/prover/assembly.js";
-import { bytesField, poseidon } from "../src/client/internal.js";
+import { bytesField, hasIndexedMethod, poseidon } from "../src/client/internal.js";
 import { parseProof } from "../src/client/prover/proof.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import {
@@ -150,7 +150,9 @@ describe("owner-bound proving keypairs", () => {
       const tx = fixture([first, wallet, second, first]);
       const env = setup(tx, source);
       const assembled = assemble(tx.proofInputs, tx.proofs);
-      const indexed = vi.spyOn(env.client.proofService, "proveIndexed").mockResolvedValue({
+      const httpProver = env.client.proofService;
+      if (!hasIndexedMethod(httpProver)) throw new Error("expected an HTTP prover");
+      const indexed = vi.spyOn(httpProver, "proveIndexed").mockResolvedValue({
         proof: env.proof,
         resolution: {
           publicInputHash: assembled.publicInputHash,

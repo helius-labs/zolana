@@ -46,7 +46,6 @@ import {
   type AuthorizedPrivateTransactionMaterial,
   type BlockhashProvider,
   type ChainReader,
-  type IndexedProofAuthority,
   type IndexerReader,
   type KitRpcAccess,
   type MergeAssembler,
@@ -148,6 +147,14 @@ export interface ZolanaClientConfig {
   readonly solanaRpcSubscriptionsUrl?: string | URL;
   readonly indexerUrl?: string | URL | undefined;
   readonly proverUrl?: string | URL | undefined;
+  /**
+   * Runs proving in-process with client-fetched proof data (the default when
+   * set). Cannot be combined with `proverUrl`, `proverTee`, `proverAsyncPoll`,
+   * or `proofDataSource: "prover"`. HTTP-only health, key-catalog and attestation
+   * methods fail with `CLIENT_INVALID_CONFIG`. Adapt a local JSON handler with
+   * `createLocalProofService`.
+   */
+  readonly prover?: ProofService;
   /** Sent by the indexer client. A URL that already carries a key needs none. */
   readonly apiKey?: string;
   /**
@@ -212,10 +219,10 @@ export class ZolanaClient
   readonly solanaRpc: SolanaRpc;
   readonly solanaRpcSubscriptions: SolanaRpcSubscriptions;
   readonly commitment: Commitment;
-  /** The prover server, for a `LocalKeys` to forward completed inputs to. */
-  readonly proofService: ProofService & IndexedProofAuthority;
+  /** Where a `LocalKeys` forwards completed inputs: the HTTP client or `prover`. */
+  readonly proofService: ProofService;
   readonly #indexer: ZolanaIndexer;
-  readonly #prover: ProverClient;
+  readonly #prover: ProverClient | undefined;
   readonly #computeUnitLimit: number;
   readonly #priorityFee: bigint | undefined;
   readonly #indexerConfig: IndexerRpcConfig;
@@ -252,6 +259,25 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
     }
 
+    const localProver = input.prover;
+    if (localProver !== undefined) {
+      if (!hasProofMethods(localProver)) {
+        throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "prover" } });
+      }
+      if (input.proofDataSource === "prover") {
+        throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
+      }
+      if (input.proverUrl !== undefined) {
+        throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proverUrl" } });
+      }
+      if (input.proverTee !== undefined) {
+        throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proverTee" } });
+      }
+      if (input.proverAsyncPoll !== undefined) {
+        throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proverAsyncPoll" } });
+      }
+    }
+
     const endpoints = resolveClientEndpoints(input);
     const kit = createKitClients({
       solanaRpcUrl: endpoints.solana,
@@ -266,7 +292,6 @@ export class ZolanaClient
       endpoints.photonField,
       allowInsecureHttp,
     );
-    const proverUrl = checkedServiceUrl(endpoints.prover, endpoints.proverField, allowInsecureHttp);
     let indexer: ZolanaIndexer;
     try {
       indexer = new ZolanaIndexer(
@@ -282,24 +307,34 @@ export class ZolanaClient
         cause,
       });
     }
-    let prover: ProverClient;
-    try {
-      prover = new ProverClient({
-        url: proverUrl,
+
+    let prover: ProverClient | undefined;
+    if (localProver === undefined) {
+      const proverUrl = checkedServiceUrl(
+        endpoints.prover,
+        endpoints.proverField,
         allowInsecureHttp,
-        ...(input.proverAsyncPoll === undefined ? {} : { asyncPoll: input.proverAsyncPoll }),
-        ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
-        ...(input.proverTee === undefined ? {} : { tee: input.proverTee }),
-      });
-    } catch (cause) {
-      throw new ClientError("CLIENT_INVALID_CONFIG", {
-        details: {
-          field: input.proverAsyncPoll === undefined ? endpoints.proverField : "proverAsyncPoll",
-        },
-        cause,
-      });
+      );
+      try {
+        prover = new ProverClient({
+          url: proverUrl,
+          allowInsecureHttp,
+          ...(input.proverAsyncPoll === undefined ? {} : { asyncPoll: input.proverAsyncPoll }),
+          ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
+          ...(input.proverTee === undefined ? {} : { tee: input.proverTee }),
+        });
+      } catch (cause) {
+        throw new ClientError("CLIENT_INVALID_CONFIG", {
+          details: {
+            field: input.proverAsyncPoll === undefined ? endpoints.proverField : "proverAsyncPoll",
+          },
+          cause,
+        });
+      }
+      this.#proofDataSource = input.proofDataSource ?? "prover";
+    } else {
+      this.#proofDataSource = "client";
     }
-    this.#proofDataSource = input.proofDataSource ?? "prover";
 
     this.#computeUnitLimit = checkedComputeUnitLimit(
       input.computeUnitLimit ?? DEFAULT_TRANSACT_CU_LIMIT,
@@ -312,11 +347,25 @@ export class ZolanaClient
     this.commitment = commitment;
     this.#indexer = indexer;
     this.#prover = prover;
-    this.proofService = prover;
+    if (localProver !== undefined) {
+      this.proofService = localProver;
+    } else if (prover !== undefined) {
+      this.proofService = prover;
+    } else {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "prover" } });
+    }
     this.#priorityFee = input.priorityFeeLamports;
     const indexerConfig = input.indexerConfig ?? DEFAULT_INDEXER_RPC_CONFIG;
     validatePollConfig(indexerConfig.poll);
     this.#indexerConfig = indexerConfig;
+  }
+
+  /** The HTTP prover, or a config error when the client was given `prover`. */
+  #httpProver(field: string): ProverClient {
+    if (this.#prover === undefined) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field } });
+    }
+    return this.#prover;
   }
 
   /// Mirrors Rust's `ZolanaClient::indexer_config`: the config every indexer
@@ -846,17 +895,19 @@ export class ZolanaClient
   }
 
   proverHealth(context?: RequestContext): Promise<ProverHealth> {
-    return this.#proving(() => this.#prover.health(context));
+    return this.#proving(() => this.#httpProver("proverHealth").health(context));
   }
 
   /** See `ProverClient.checkProvingKeys`: run it before the first proof. */
   checkProverProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
-    return this.#proving(() => this.#prover.checkProvingKeys(context));
+    return this.#proving(() =>
+      this.#httpProver("checkProverProvingKeys").checkProvingKeys(context),
+    );
   }
 
   /** Attests the prover now against `proverTee`. */
   attestProver(context?: RequestContext): Promise<AttestedProver> {
-    return this.#proving(() => this.#prover.attest(context));
+    return this.#proving(() => this.#httpProver("attestProver").attest(context));
   }
 
   get proofDataSource(): ProofDataSource {
@@ -883,7 +934,7 @@ export class ZolanaClient
 
   proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof> {
     return this.#proving(async () => {
-      const proof = await this.#prover.prove(checkedProverInputs(inputs), context);
+      const proof = await this.proofService.prove(checkedProverInputs(inputs), context);
       return compressProof(proof).toTransactProof();
     });
   }

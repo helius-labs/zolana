@@ -18,6 +18,7 @@ export function composeSignal(context: RequestContext | undefined): ComposedSign
   }
 
   const controller = new AbortController();
+  const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let didTimeOut = false;
   const abortFromCaller = (): void => {
@@ -33,7 +34,10 @@ export function composeSignal(context: RequestContext | undefined): ComposedSign
 
   return {
     signal: controller.signal,
-    timedOut: () => didTimeOut,
+    // A synchronous handler can finish after the deadline before the timer runs.
+    timedOut: () =>
+      didTimeOut ||
+      (!controller.signal.aborted && deadline !== undefined && Date.now() >= deadline),
     cleanup(): void {
       if (timeout !== undefined) clearTimeout(timeout);
       context?.signal?.removeEventListener("abort", abortFromCaller);

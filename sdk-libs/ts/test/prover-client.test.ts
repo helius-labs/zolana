@@ -4,11 +4,13 @@ import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
+import { ZolanaClient } from "../src/client/client.js";
 import {
   asField,
   asInteger,
   createDummyTransferInput,
   createOutput,
+  NULLIFIER_TREE_HEIGHT,
   treeSlotFields,
 } from "../src/client/prover/assembly.js";
 import { LocalKeys } from "../src/client/keys.js";
@@ -16,6 +18,7 @@ import { BN254_MODULUS, bytesField } from "../src/client/internal.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
   ProverClient,
+  createLocalProofService,
   mergeProverRequestBody,
   proverRequestBody,
   type ProverRefusal,
@@ -24,7 +27,8 @@ import { TeeSession } from "../src/client/prover/tee/session.js";
 import { readTeePolicy } from "./helpers/tee-policy.js";
 import { proofFor } from "./helpers/proofs.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
-import type { Bytes32 } from "../src/interface/index.js";
+import type { Bytes32, RequestContext } from "../src/interface/index.js";
+import type { ProofService } from "../src/client/ports.js";
 import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { PROVING_KEY_SHA256S, expectedProvingKey } from "../src/interface/proving-keys.js";
 import { treeAddress } from "../src/interface/pda/index.js";
@@ -190,6 +194,140 @@ function keysOf(value: unknown): string[] {
   return Object.keys(value as object).sort();
 }
 
+describe.each(["transfer", "merge"] as const)("local %s proving", (kind) => {
+  const run = (service: ProofService, context?: RequestContext) =>
+    kind === "transfer"
+      ? service.prove(transferInputs(), context)
+      : service.proveMerge(mergeInputs(), context);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("rejects an already-aborted request before invoking the handler", async () => {
+    const handler = vi.fn(async (body: string) => proofFor(body));
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      run(createLocalProofService(handler), { signal: controller.signal, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ code: "CLIENT_ABORTED" });
+    expect(handler).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+    "rejects invalid timeout %s before invoking the handler",
+    async (timeoutMs) => {
+      const handler = vi.fn(async (body: string) => proofFor(body));
+      await expect(run(createLocalProofService(handler), { timeoutMs })).rejects.toMatchObject({
+        code: "CLIENT_INVALID_CONTEXT",
+        details: { field: "timeoutMs" },
+      });
+      expect(handler).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it.each(["abort", "timeout"] as const)(
+    "settles a stalled handler on %s and ignores its later completion",
+    async (stop) => {
+      const pending = Promise.withResolvers<unknown>();
+      const handler = vi.fn((_body: string, _context?: RequestContext) => pending.promise);
+      const controller = new AbortController();
+      const removeCallerListener = vi.spyOn(controller.signal, "removeEventListener");
+      const fulfilled = vi.fn();
+      const rejected = vi.fn();
+      const result = run(createLocalProofService(handler), {
+        signal: controller.signal,
+        timeoutMs: 10,
+      }).then(fulfilled, rejected);
+      await Promise.resolve();
+      const signal = handler.mock.calls[0]?.[1]?.signal;
+      if (signal === undefined) throw new Error("handler did not receive a signal");
+      expect(signal).not.toBe(controller.signal);
+      const removeHandlerListener = vi.spyOn(signal, "removeEventListener");
+
+      if (stop === "abort") controller.abort();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(rejected).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ code: stop === "abort" ? "CLIENT_ABORTED" : "CLIENT_TIMEOUT" }),
+      );
+      expect(signal.aborted).toBe(true);
+      expect(removeCallerListener).toHaveBeenCalledWith("abort", expect.any(Function));
+      expect(removeHandlerListener).toHaveBeenCalledWith("abort", expect.any(Function));
+      expect(vi.getTimerCount()).toBe(0);
+      if (stop === "abort") pending.reject(new ClientError("CLIENT_PROVER_INPUT"));
+      else pending.resolve(proofFor(handler.mock.calls[0]?.[0]));
+      await result;
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fulfilled).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["resolve", "reject"] as const)("cleans up when the handler %ss", async (outcome) => {
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    const failure = new ClientError("CLIENT_PROVER_INPUT");
+    const handler = vi.fn(async (body: string, _context?: RequestContext) => {
+      if (outcome === "reject") throw failure;
+      return proofFor(body);
+    });
+    const result = run(createLocalProofService(handler), {
+      signal: controller.signal,
+      timeoutMs: 10,
+    });
+    if (outcome === "reject") await expect(result).rejects.toBe(failure);
+    else await expect(result).resolves.toBeDefined();
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(vi.getTimerCount()).toBe(0);
+    const signal = handler.mock.calls[0]?.[1]?.signal;
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(signal?.aborted).toBe(false);
+  });
+
+  it("rejects a proof returned after a synchronous handler exceeds its deadline", async () => {
+    const handler = vi.fn(async (body: string) => {
+      vi.setSystemTime(Date.now() + 20);
+      return proofFor(body);
+    });
+    await expect(run(createLocalProofService(handler), { timeoutMs: 10 })).rejects.toMatchObject({
+      code: "CLIENT_TIMEOUT",
+    });
+    expect(handler).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("preserves cancellation when the handler returns after the deadline", async () => {
+    const controller = new AbortController();
+    const handler = vi.fn(async (body: string) => {
+      controller.abort();
+      vi.setSystemTime(Date.now() + 20);
+      return proofFor(body);
+    });
+    await expect(
+      run(createLocalProofService(handler), { signal: controller.signal, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ code: "CLIENT_ABORTED" });
+    expect(handler).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("does not invoke the handler when cancelled before its queued invocation", async () => {
+    const controller = new AbortController();
+    const handler = vi.fn(async (body: string) => proofFor(body));
+    const result = run(createLocalProofService(handler), { signal: controller.signal });
+    controller.abort();
+    await expect(result).rejects.toMatchObject({ code: "CLIENT_ABORTED" });
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
 describe("queued prover polling", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -237,6 +375,28 @@ describe("queued prover polling", () => {
 });
 
 describe("prover request routing", () => {
+  it("honours pre-abort through ZolanaClient.proveTransferInputs without proving or HTTP", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const handler = vi.fn(async (body: string) => proofFor(body));
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const client = new ZolanaClient({ prover: createLocalProofService(handler), fetch });
+    const { payload } = transferInputs();
+    const inputs = {
+      ...payload,
+      inputs: payload.inputs.map((input) => ({
+        ...input,
+        nullifierLowPathElements: Array.from({ length: NULLIFIER_TREE_HEIGHT }, () => asField(0n)),
+      })),
+    };
+
+    await expect(
+      client.proveTransferInputs(inputs, { signal: controller.signal }),
+    ).rejects.toMatchObject({ code: "CLIENT_ABORTED" });
+    expect(handler).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("rejects a merge for another wallet before submitting a proof", async () => {
     const owner = ShieldedKeypair.generate();
     const other = ShieldedKeypair.generate();

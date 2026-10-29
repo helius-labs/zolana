@@ -2,16 +2,15 @@
 
 ## 0.5.1-alpha — unreleased
 
-Packages that extend the protocol build on this one through an entry point
-outside semver, and the prover and indexer clients carry the requests such a
-package defines. External wallets use `ed25519DerivationMessage(publicKey)` to
-derive their shielded identity. The bare-payload helper is removed because its
-signatures are rejected by the wallet keys constructors. Anonymous transfer and
-ring deposit encryption move to `@heliuslabs/zolana-custom-rings`, and wallet
-sync skips those outputs without decrypting them.
+Extension packages use a separate entry point and define requests carried by
+the prover and indexer clients. External wallets derive their shielded identity
+from `ed25519DerivationMessage(publicKey)`, while anonymous transfer and ring
+deposit encryption move to `@heliuslabs/zolana-custom-rings`. Wallets can use an
+in-process prover with client-fetched proof data.
 
 Breaking
 
+- `ZolanaClient.proofService` exposes only `ProofService` → use the client's proof methods with `proofDataSource: "prover"` for indexed proving.
 - `ZolanaClient` now defaults to `proofDataSource: "prover"` for Helius API URLs too → configure indexed proving on the upstream or set `proofDataSource: "client"` to retain SDK-fetched proof data.
 - `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
 - `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
@@ -39,6 +38,9 @@ Added
   `senderViewTag`, `recipientRequestViewTag`, `sendSharedViewTags` and
   `recipientSharedViewTags`, and a `SharedViewTags` derives the shared tag of
   every transfer index from one key agreement.
+- `createLocalProofService(prove)` adapts a local JSON proof handler for
+  `ZolanaClientConfig.prover`, using client-fetched proof data and enforcing
+  cancellation and deadlines even when the handler ignores its signal.
 
 Changed
 

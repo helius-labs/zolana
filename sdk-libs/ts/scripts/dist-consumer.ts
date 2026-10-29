@@ -48,6 +48,7 @@ export {
   LocalKeys,
   NullifierKeyProofAuthority,
   teePolicyFromJson,
+  createLocalProofService,
 } from "@heliuslabs/zolana/client";
 export type {
   DecryptRequest,
@@ -63,6 +64,7 @@ export {
 } from "@heliuslabs/zolana/transaction";
 export {
   LocalKeys as RootLocalKeys,
+  createLocalProofService as rootCreateLocalProofService,
   LocalShieldedKeys as RootLocalShieldedKeys,
   type ShieldedKeys as RootShieldedKeys,
   type WalletKeys as RootWalletKeys,

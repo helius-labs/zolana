@@ -4,6 +4,7 @@ import type {
   IndexedProofResult,
   PreparedTransferInput,
   PreparedMergeInputs,
+  ProofService,
 } from "../ports.js";
 import {
   decodeIndexedInputs,
@@ -602,6 +603,66 @@ export function proverRequestBody(inputs: ProverInputs): ProverRequestBody {
 /** The merge counterpart of `proverRequestBody`. */
 export function mergeProverRequestBody(inputs: MergeInputs): ProverRequestBody {
   return mergeProverRequest(inputs, pendingSecret);
+}
+
+/**
+ * Adapts a local handler of the prover's JSON request and response format.
+ * Cancellation and deadlines reject the wait even if the handler ignores the
+ * supplied signal; stopping synchronous WASM requires handler or worker support.
+ */
+export function createLocalProofService(
+  prove: (body: string, context?: RequestContext) => Promise<unknown>,
+): ProofService {
+  if (typeof prove !== "function") {
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "prove" } });
+  }
+  const run = async (
+    body: string,
+    key: ExpectedProvingKey,
+    context?: RequestContext,
+  ): Promise<Proof> => {
+    const request = composeSignal(context, "prove");
+    const checkActive = (): void => {
+      if (request.signal.aborted || request.timedOut()) throw requestError("prove", request);
+    };
+    let rejectAborted: ((error: ClientError) => void) | undefined;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectAborted = reject;
+    });
+    const abort = (): void => rejectAborted?.(requestError("prove", request));
+    request.signal.addEventListener("abort", abort, { once: true });
+    try {
+      const pending = Promise.resolve().then(() => {
+        checkActive();
+        return prove(body, { ...context, signal: request.signal });
+      });
+      const result = await Promise.race([pending, aborted]);
+      checkActive();
+      return parseCheckedProof(result, key);
+    } catch (cause) {
+      checkActive();
+      throw cause;
+    } finally {
+      request.signal.removeEventListener("abort", abort);
+      request.cleanup();
+    }
+  };
+  return Object.freeze({
+    async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
+      const body = JSON.stringify(proverRequest(inputs, completeSecret));
+      const key = provingKeyFor({
+        circuit: transferCircuit(inputs),
+        nInputs: inputs.payload.inputs.length,
+        nOutputs: inputs.payload.outputs.length,
+      });
+      return run(body, key, context);
+    },
+    async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
+      const body = JSON.stringify(mergeProverRequest(inputs, completeSecret));
+      const key = provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length });
+      return run(body, key, context);
+    },
+  });
 }
 
 /** A merge inside a custom ring is proven by the `merge-ring` circuit. */

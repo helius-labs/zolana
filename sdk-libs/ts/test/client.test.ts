@@ -20,6 +20,7 @@ import {
   LocalKeys,
   NullifierKeyProofAuthority,
   ZolanaClient,
+  createLocalProofService,
   proverRequestBody,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
@@ -34,6 +35,7 @@ import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { proofFor } from "./helpers/proofs.js";
+import { readTeePolicy } from "./helpers/tee-policy.js";
 import {
   ProofInputUtxo,
   SOL_MINT,
@@ -355,6 +357,101 @@ describe("ZolanaClient", () => {
     expect(instance).not.toHaveProperty("sendTransaction");
     expect(instance).not.toHaveProperty("signAndSendInstructions");
     expect(instance).not.toHaveProperty("submitPrivateTransaction");
+  });
+
+  it("proves through an in-process ProofService without HTTP", async () => {
+    const bodies: string[] = [];
+    const local = createLocalProofService(async (body) => {
+      bodies.push(body);
+      return proofFor(body);
+    });
+    const network = vi.fn<typeof globalThis.fetch>(() => {
+      throw new Error("network reached");
+    });
+    const instance = new ZolanaClient({
+      solanaRpcUrl: "http://127.0.0.1:8899",
+      proofDataSource: "client",
+      indexerUrl: "http://127.0.0.1:8784",
+      prover: local,
+      tree: TREE,
+      fetch: network,
+      indexerConfig: {
+        poll: { numRetries: 1, delayMs: 0n, maxDelayMs: 0n },
+      },
+    });
+    const fixture = proofFixture();
+    vi.spyOn(instance, "getMerkleProofs").mockResolvedValue({
+      context: { blockTime: 1n, slot: 1n },
+      proofs: [fixture.spendProof.state],
+    });
+    vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
+      context: { blockTime: 1n, slot: 1n },
+      proofs: [fixture.spendProof.nullifier, ...fixture.dummyProofs],
+    });
+
+    await expect(
+      instance.proveTransact(
+        fixture.proofInputs,
+        LocalKeys.fromKeypair(fixture.keypair, instance.proofService),
+      ),
+    ).resolves.toBeDefined();
+    expect(bodies).toHaveLength(1);
+    expect(network).not.toHaveBeenCalled();
+  });
+
+  it("refuses HTTP prover options together with an in-process prover", () => {
+    const local = createLocalProofService(async (body) => proofFor(body));
+    const cases: readonly Readonly<{ field: string; config: Partial<ZolanaClientConfig> }>[] = [
+      { field: "proverUrl", config: { proverUrl: "http://127.0.0.1:3001" } },
+      {
+        field: "proverTee",
+        config: {
+          proverTee: readTeePolicy(
+            new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
+          ),
+        },
+      },
+      {
+        field: "proverAsyncPoll",
+        config: { proverAsyncPoll: { pollIntervalCapMs: 1_000, maxWaitMs: 60_000 } },
+      },
+      { field: "proofDataSource", config: { proofDataSource: "prover" } },
+    ];
+    for (const { field, config } of cases) {
+      expect(
+        () =>
+          new ZolanaClient({
+            solanaRpcUrl: "http://127.0.0.1:8899",
+            indexerUrl: "http://127.0.0.1:8784",
+            prover: local,
+            tree: TREE,
+            ...config,
+          }),
+      ).toThrowError(
+        expect.objectContaining({ code: "CLIENT_INVALID_CONFIG", details: { field } }),
+      );
+    }
+  });
+
+  it("refuses HTTP-only prover methods when proving in-process", async () => {
+    const instance = new ZolanaClient({
+      solanaRpcUrl: "http://127.0.0.1:8899",
+      indexerUrl: "http://127.0.0.1:8784",
+      prover: createLocalProofService(async (body) => proofFor(body)),
+      tree: TREE,
+    });
+    await expect(instance.proverHealth()).rejects.toMatchObject({
+      code: "CLIENT_INVALID_CONFIG",
+      details: { field: "proverHealth" },
+    });
+    await expect(instance.checkProverProvingKeys()).rejects.toMatchObject({
+      code: "CLIENT_INVALID_CONFIG",
+      details: { field: "checkProverProvingKeys" },
+    });
+    await expect(instance.attestProver()).rejects.toMatchObject({
+      code: "CLIENT_INVALID_CONFIG",
+      details: { field: "attestProver" },
+    });
   });
 
   it("resolves confirmTransaction to the slot the transaction landed in", async () => {
