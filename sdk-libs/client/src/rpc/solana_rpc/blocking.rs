@@ -144,21 +144,17 @@ impl SolanaRpc {
     ) -> Result<EncodedConfirmedTransactionWithStatusMeta, ClientError> {
         let started = Instant::now();
         loop {
-            let config = RpcTransactionConfig {
-                encoding: Some(UiTransactionEncoding::Json),
-                commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(1),
-            };
-            match self.client.get_transaction_with_config(signature, config) {
-                Ok(transaction) => return Ok(transaction),
-                Err(_) if started.elapsed() < self.confirmation_timeout => {
+            match self.get_confirmed_transaction(*signature) {
+                Ok(Some(transaction)) => return Ok(transaction),
+                _ if started.elapsed() < self.confirmation_timeout => {
                     sleep(self.poll_interval);
                 }
-                Err(err) => {
+                Ok(None) => {
                     return Err(ClientError::Rpc(format!(
-                        "get_transaction {signature}: {err}"
+                        "get_transaction {signature}: transaction not found"
                     )));
                 }
+                Err(error) => return Err(error),
             }
         }
     }
@@ -249,12 +245,17 @@ impl Rpc for SolanaRpc {
         &self,
         signature: Signature,
     ) -> Result<Option<EncodedConfirmedTransactionWithStatusMeta>, ClientError> {
-        self.client.send(
-            solana_rpc_client_api::request::RpcRequest::GetTransaction,
-            serde_json::json!([signature.to_string(), {
-                "encoding": "json", "commitment": "confirmed", "maxSupportedTransactionVersion": 1
-            }]),
-        ).map_err(|error| ClientError::Rpc(error.to_string()))
+        let config = RpcTransactionConfig {
+            encoding: Some(UiTransactionEncoding::Json),
+            commitment: Some(CommitmentConfig::confirmed()),
+            max_supported_transaction_version: Some(1),
+        };
+        self.client
+            .send(
+                solana_rpc_client_api::request::RpcRequest::GetTransaction,
+                serde_json::json!([signature.to_string(), config]),
+            )
+            .map_err(|error| ClientError::Rpc(format!("get_transaction {signature}: {error}")))
     }
 
     fn get_signature_statuses(

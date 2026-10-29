@@ -271,6 +271,69 @@ fn confirmed_transaction(
     serde_json::from_value(json).expect("rpc shape")
 }
 
+#[test]
+fn confirmed_lookup_distinguishes_missing_invalid_and_found() {
+    let found = serde_json::to_value(confirmed_transaction(Value::Null, json!(2))).unwrap();
+    for (response, expected) in [
+        (Value::Null, Ok(None)),
+        (json!({"invalid": true}), Err(())),
+        (found, Ok(Some(7))),
+    ] {
+        let rpc = || {
+            SolanaRpc::with_client(RpcClient::new_mock_with_mocks(
+                "succeeds",
+                Mocks::from([(RpcRequest::GetTransaction, response.clone())]),
+            ))
+        };
+        let result = rpc().get_confirmed_transaction(Signature::default());
+        assert_eq!(
+            result.map(|tx| tx.map(|tx| tx.slot)).map_err(|_| ()),
+            expected
+        );
+        if let Ok(Some(slot)) = expected {
+            assert_eq!(
+                rpc()
+                    .fetch_confirmed_transaction(&Signature::default())
+                    .unwrap()
+                    .slot,
+                slot
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn async_confirmed_lookup_distinguishes_missing_invalid_and_found() {
+    let found = serde_json::to_value(confirmed_transaction(Value::Null, json!(2))).unwrap();
+    for (response, expected) in [
+        (Value::Null, Ok(None)),
+        (json!({"invalid": true}), Err(())),
+        (found, Ok(Some(7))),
+    ] {
+        let rpc = || {
+            AsyncSolanaRpc::with_client(NonblockingRpcClient::new_mock_with_mocks(
+                "succeeds".to_owned(),
+                Mocks::from([(RpcRequest::GetTransaction, response.clone())]),
+            ))
+        };
+        let result = rpc().get_confirmed_transaction(Signature::default()).await;
+        assert_eq!(
+            result.map(|tx| tx.map(|tx| tx.slot)).map_err(|_| ()),
+            expected
+        );
+        if let Ok(Some(slot)) = expected {
+            assert_eq!(
+                rpc()
+                    .fetch_confirmed_transaction(&Signature::default())
+                    .await
+                    .unwrap()
+                    .slot,
+                slot
+            );
+        }
+    }
+}
+
 /// A transaction can record an event and then fail, rolling back its state, so
 /// its instruction groups must not reach an indexer.
 #[test]
