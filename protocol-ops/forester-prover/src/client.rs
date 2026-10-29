@@ -68,9 +68,7 @@ impl ProverClient {
         match &self.backend {
             Backend::Remote { .. } => check_report(self.get("/proving-keys")?),
             #[cfg(feature = "gnark")]
-            Backend::Local(_) => Ok(ProvingKeyReport {
-                prefix: "local (key digests checked on load)".into(),
-            }),
+            Backend::Local(_) => Ok(ProvingKeyReport { keys: 0 }),
         }
     }
     pub fn check_indexed(&self) -> Result<()> {
@@ -413,7 +411,7 @@ mod tests {
         let (endpoint, handle) = server(vec![(
             "GET /proving-keys?api-key=secret ",
             200,
-            serde_json::json!({"prefix":"old", "keys":[{"name":"batch_address-append_40_10.key", "expectedSha256":"00", "loadedSha256":null}]}),
+            serde_json::json!({"keys":[{"name":"batch_address-append_40_10.key", "artifacts":[{"format":"gnark", "sha256":"00".repeat(32), "size":1, "url":"https://keys.example/key"}]}]}),
         )]);
         assert!(matches!(
             ProverClient::new(endpoint).unwrap().check_proving_keys(),

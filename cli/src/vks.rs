@@ -119,8 +119,8 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
                     .check_proving_keys()
                     .with_context(|| format!("prover {shown} failed the proving key check"))?;
                 prover_report.push(format!(
-                    "Prover {shown} ({}): serves the same proving keys",
-                    report.prefix
+                    "Prover {shown} ({} keys): pins the same proving keys",
+                    report.keys.len()
                 ));
                 Ok(())
             })();

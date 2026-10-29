@@ -1,92 +1,65 @@
 package common
 
 import (
-	"encoding/hex"
-	"os"
-	"path/filepath"
 	"sort"
-	"strings"
+
+	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
 )
 
-// ProvingKeyStatus is one key in the GET /proving-keys response.
+// ProvingKeyArtifact describes the exact bytes of one public download.
+type ProvingKeyArtifact struct {
+	Format string `json:"format"`
+	Sha256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+	URL    string `json:"url"`
+}
+
+// ProvingKeyStatus groups the original gnark key and its published conversions.
+// The gnark artifact's digest identifies the key used by proof responses.
 type ProvingKeyStatus struct {
-	// Name is the key file name, as in proving-keys.lock.
-	Name string `json:"name"`
-	// ExpectedSha256 is the sha256 proving-keys.lock pins, nil for a key the
-	// lockfile does not know. EnsureProvingKey refuses to load any other file
-	// under a pinned name, so for a key that is not loaded yet this is the
-	// digest the server will prove with.
-	ExpectedSha256 *string `json:"expectedSha256"`
-	// LoadedSha256 is the sha256 of the bytes actually read, nil until the
-	// key is loaded.
-	LoadedSha256 *string `json:"loadedSha256"`
-	// Available reports whether a proof for this key can be served: it is
-	// loaded, on disk, or pinned on the object store with auto-download on.
-	// On-disk files are not re-hashed here.
-	Available bool `json:"available"`
+	Name      string               `json:"name"`
+	Artifacts []ProvingKeyArtifact `json:"artifacts"`
 }
 
-// ProvingKeysReport is the GET /proving-keys response.
 type ProvingKeysReport struct {
-	// Prefix is the lockfile's version-hashed object-store prefix, i.e. the
-	// proving-key version this server pins.
-	Prefix string             `json:"prefix"`
-	Keys   []ProvingKeyStatus `json:"keys"`
+	Keys []ProvingKeyStatus `json:"keys"`
 }
 
-// ProvingKeysReport lists every lockfile key plus any other key file that is
-// on disk or loaded, sorted by name. It never hashes a file: loaded digests
-// were computed while the keys were read.
-func (m *LazyKeyManager) ProvingKeysReport() (*ProvingKeysReport, error) {
+// ProvingKeyDownloads lists only manifest-backed downloads. It does not inspect
+// local files, load keys, contact the object store, or describe proof routing.
+func ProvingKeyDownloads() (*ProvingKeysReport, error) {
 	manifest, err := loadManifest()
 	if err != nil {
 		return nil, err
 	}
-
-	m.mu.RLock()
-	loaded := make(map[string][32]byte, len(m.loadedDigests))
-	for name, digest := range m.loadedDigests {
-		loaded[name] = digest
+	zopro, err := provingkeys.LoadZopro()
+	if err != nil {
+		return nil, err
 	}
-	m.mu.RUnlock()
+	return provingKeyDownloads(manifest, zopro), nil
+}
 
-	names := make(map[string]struct{}, len(manifest.Keys))
+func provingKeyDownloads(manifest *lockManifest, zopro *provingkeys.ZoproManifest) *ProvingKeysReport {
+	names := make([]string, 0, len(manifest.Keys))
 	for name := range manifest.Keys {
-		names[name] = struct{}{}
+		names = append(names, name)
 	}
-	for name := range loaded {
-		names[name] = struct{}{}
-	}
-	if entries, err := os.ReadDir(m.keysDir); err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".key") {
-				names[entry.Name()] = struct{}{}
-			}
+	sort.Strings(names)
+	report := &ProvingKeysReport{Keys: make([]ProvingKeyStatus, 0, len(names))}
+	for _, name := range names {
+		entry := manifest.Keys[name]
+		url := entry.URL
+		if url == "" {
+			url = objectURL(manifest.Prefix, name)
 		}
-	}
-	sorted := make([]string, 0, len(names))
-	for name := range names {
-		sorted = append(sorted, name)
-	}
-	sort.Strings(sorted)
-
-	report := &ProvingKeysReport{Prefix: manifest.Prefix, Keys: make([]ProvingKeyStatus, 0, len(sorted))}
-	for _, name := range sorted {
-		status := ProvingKeyStatus{Name: name}
-		entry, pinned := manifest.Keys[name]
-		if pinned {
-			expected := entry.Sha256
-			status.ExpectedSha256 = &expected
+		artifacts := []ProvingKeyArtifact{{Format: "gnark", Sha256: entry.Sha256, Size: entry.Size, URL: url}}
+		if converted, ok := zopro.Keys[name]; ok {
+			artifacts = append(artifacts, ProvingKeyArtifact{
+				Format: "zopro", Sha256: converted.Sha256, Size: converted.Size,
+				URL: objectURL(zopro.Prefix, converted.File),
+			})
 		}
-		if digest, ok := loaded[name]; ok {
-			loadedHex := hex.EncodeToString(digest[:])
-			status.LoadedSha256 = &loadedHex
-		}
-		_, statErr := os.Stat(filepath.Join(m.keysDir, name))
-		// A key with a Source (a release asset) is never auto-downloaded.
-		downloadable := pinned && entry.Source == "" && m.downloadConfig.AutoDownload
-		status.Available = status.LoadedSha256 != nil || statErr == nil || downloadable
-		report.Keys = append(report.Keys, status)
+		report.Keys = append(report.Keys, ProvingKeyStatus{Name: name, Artifacts: artifacts})
 	}
-	return report, nil
+	return report
 }

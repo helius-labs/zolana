@@ -140,7 +140,7 @@ impl ProverService<'_> {
             .with_context(|| {
                 format!("prover on port {prover_port} failed the proving key check")
             })?;
-        println!("Prover proving keys match ({})", keys.prefix);
+        println!("Prover proving keys match ({} keys)", keys.keys.len());
         Ok(())
     }
 }

@@ -721,7 +721,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		indexed:  config.Indexer != nil,
 	})
 
-	handleBoth(proverMux, "/proving-keys", provingKeysHandler{keyManager: keyManager})
+	handleBoth(proverMux, "/proving-keys", provingKeysHandler{})
 
 	if redisQueue != nil {
 		proverMux.Handle("/queue/stats", queueStatsHandler{redisQueue: redisQueue})
@@ -921,19 +921,15 @@ type healthHandler struct {
 	indexed  bool
 }
 
-// provingKeysHandler serves GET /proving-keys: per key, the sha256 the
-// lockfile pins, the sha256 of the loaded bytes, and whether it is available,
-// so clients can check the prover against their verifying keys at startup.
-type provingKeysHandler struct {
-	keyManager *common.LazyKeyManager
-}
+// provingKeysHandler serves the pinned gnark and zopro download catalog.
+type provingKeysHandler struct{}
 
 func (handler provingKeysHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	report, err := handler.keyManager.ProvingKeysReport()
+	report, err := common.ProvingKeyDownloads()
 	if err != nil {
 		logging.Logger().Error().Err(err).Msg("error building proving key report")
 		w.WriteHeader(http.StatusInternalServerError)

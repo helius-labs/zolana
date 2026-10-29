@@ -2287,13 +2287,11 @@ mod tests {
             .map(|(name, sha256)| {
                 json!({
                     "name": name,
-                    "expectedSha256": crate::prover::proving_key::hex(&sha256),
-                    "loadedSha256": null,
-                    "available": true,
+                    "artifacts": [{ "format": "gnark", "sha256": crate::prover::proving_key::hex(&sha256), "size": 1, "url": "https://keys.example/key" }],
                 })
             })
             .collect();
-        json!({ "prefix": "proving-keys/test", "keys": keys })
+        json!({ "keys": keys })
     }
 
     #[test]
@@ -2304,11 +2302,8 @@ mod tests {
             .expect("matching prover");
         assert_paths(&server.requests(), ["/proving-keys"]);
         assert_eq!(
-            (
-                report.prefix.as_str(),
-                report.keys.iter().all(|key| key.served)
-            ),
-            ("proving-keys/test", true)
+            report.keys.len(),
+            crate::prover::known_proving_keys().count()
         );
     }
 
@@ -2323,7 +2318,10 @@ mod tests {
             .check_proving_keys()
             .expect("matching prover");
         assert_paths(&server.requests(), ["/proving-keys"]);
-        assert_eq!(report.prefix.as_str(), "proving-keys/test");
+        assert_eq!(
+            report.keys.len(),
+            crate::prover::known_proving_keys().count()
+        );
     }
 
     /// A prover without the endpoint predates the check and fails it.
@@ -2416,7 +2414,10 @@ mod tests {
             .check_proving_keys()
             .await
             .expect("matching prover");
-        assert_eq!(report.prefix, "proving-keys/test");
+        assert_eq!(
+            report.keys.len(),
+            crate::prover::known_proving_keys().count()
+        );
     }
 
     #[tokio::test]
@@ -2430,7 +2431,10 @@ mod tests {
             .check_proving_keys()
             .await
             .expect("matching prover");
-        assert_eq!(report.prefix, "proving-keys/test");
+        assert_eq!(
+            report.keys.len(),
+            crate::prover::known_proving_keys().count()
+        );
     }
 
     #[test]

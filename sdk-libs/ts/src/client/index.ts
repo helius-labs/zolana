@@ -53,6 +53,7 @@ export {
   type AsyncPollConfig,
   type ProverHealth,
   type ProverRequestBody,
+  type ProvingKeyArtifact,
   type ProvingKeyCheck,
   type ProvingKeyReport,
 } from "./prover/client.js";

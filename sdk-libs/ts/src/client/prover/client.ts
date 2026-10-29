@@ -119,20 +119,23 @@ export interface ProverHealth {
   readonly circuits: readonly string[];
 }
 
-/** How one proving key the SDK knows stands on the prover. */
-export interface ProvingKeyCheck {
-  /** Key file name, as proving-keys.lock and the prover's `/proving-keys` name it. */
-  readonly name: string;
-  /** Whether the prover lists the key at all. */
-  readonly served: boolean;
-  readonly available: boolean;
-  readonly loaded: boolean;
+/** A published serialization of a proving key. */
+export interface ProvingKeyArtifact {
+  readonly format: "gnark" | "zopro";
+  /** SHA-256 of the exact downloaded bytes. */
+  readonly sha256: string;
+  readonly size: number;
+  readonly url: string;
 }
 
-/** A prover's proving keys, every digest matching the SDK's verifying keys. */
+/** A manifest-backed key with exactly one gnark and at most one zopro download. */
+export interface ProvingKeyCheck {
+  readonly name: string;
+  readonly artifacts: readonly ProvingKeyArtifact[];
+}
+
+/** A catalog whose gnark digests match the client's known verifying-key pins. */
 export interface ProvingKeyReport {
-  /** The prover's proving-key version, its lockfile prefix. */
-  readonly prefix: string;
   readonly keys: readonly ProvingKeyCheck[];
 }
 
@@ -302,8 +305,9 @@ export class ProverClient {
    * Compare the prover's proving keys (`GET /proving-keys`) with `pins`, by
    * default the proving-key sha256 each committed verifying key pins, so a
    * prover on another key set fails before the first proof instead of on-chain. A
-   * differing digest throws `CLIENT_PROVER_PROVING_KEYS_MISMATCH` naming every
-   * such key; a key the prover lacks or cannot load is only reported.
+   * differing gnark digest throws `CLIENT_PROVER_PROVING_KEYS_MISMATCH` naming
+   * every such key. The returned catalog includes download URLs and artifact
+   * checksums; a key absent from the manifest remains absent.
    */
   async checkProvingKeys(
     context?: RequestContext,
@@ -530,74 +534,79 @@ export class ProverClient {
   }
 }
 
-type ProverKeyStatus = Readonly<{
-  name: string;
-  expectedSha256: string | null;
-  loadedSha256: string | null;
-  available: boolean;
-}>;
-
 const invalidProverJson = (): ClientError => new ClientError("CLIENT_PROVER_JSON");
 const proverJsonDecoder = wireDecoder(invalidProverJson);
 const SHA256_HEX = /^[0-9a-f]{64}$/u;
 
-/** Strict decode of `GET /proving-keys`: any other shape is an error, not a skipped key. */
-function decodeProverKeys(
-  value: unknown,
-): Readonly<{ prefix: string; keys: readonly ProverKeyStatus[] }> {
+/** Strict decode of the download catalog; ambiguous formats and names fail. */
+function decodeProverKeys(value: unknown): ProvingKeyReport {
   const body = proverJsonDecoder.record(value, "$");
-  const digest = (entry: Record<string, unknown>, field: string): string | null => {
-    const raw = entry[field];
-    if (raw === null) return null;
-    const hex = proverJsonDecoder.string(raw, `$.keys[].${field}`);
-    if (!SHA256_HEX.test(hex)) throw invalidProverJson();
-    return hex;
-  };
+  const names = new Set<string>();
   const keys = proverJsonDecoder.list(body["keys"], "$.keys").map((raw) => {
     const entry = proverJsonDecoder.record(raw, "$.keys[]");
-    return Object.freeze({
-      name: proverJsonDecoder.string(entry["name"], "$.keys[].name"),
-      expectedSha256: digest(entry, "expectedSha256"),
-      loadedSha256: digest(entry, "loadedSha256"),
-      available: proverJsonDecoder.boolean(entry["available"], "$.keys[].available"),
-    });
+    const name = proverJsonDecoder.string(entry["name"], "$.keys[].name");
+    if (!/^[a-zA-Z0-9_.-]+\.key$/u.test(name) || name.includes("..") || names.has(name)) {
+      throw invalidProverJson();
+    }
+    names.add(name);
+    const formats = new Set<string>();
+    const artifacts = proverJsonDecoder
+      .list(entry["artifacts"], "$.keys[].artifacts")
+      .map((rawArtifact): ProvingKeyArtifact => {
+        const artifact = proverJsonDecoder.record(rawArtifact, "$.keys[].artifacts[]");
+        const format = proverJsonDecoder.string(artifact["format"], "$.artifacts[].format");
+        if ((format !== "gnark" && format !== "zopro") || formats.has(format)) {
+          throw invalidProverJson();
+        }
+        formats.add(format);
+        const sha256 = proverJsonDecoder.string(artifact["sha256"], "$.artifacts[].sha256");
+        if (!SHA256_HEX.test(sha256)) throw invalidProverJson();
+        const size = artifact["size"];
+        if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) {
+          throw invalidProverJson();
+        }
+        const url = proverJsonDecoder.string(artifact["url"], "$.artifacts[].url");
+        let parsed: URL;
+        try {
+          parsed = new URL(url);
+        } catch {
+          throw invalidProverJson();
+        }
+        if (
+          (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
+          parsed.hostname.length === 0 ||
+          parsed.username.length > 0 ||
+          parsed.password.length > 0 ||
+          parsed.hash.length > 0
+        )
+          throw invalidProverJson();
+        return Object.freeze({ format, sha256, size, url });
+      });
+    if (!formats.has("gnark")) throw invalidProverJson();
+    return Object.freeze({ name, artifacts: Object.freeze(artifacts) });
   });
-  return Object.freeze({
-    prefix: proverJsonDecoder.string(body["prefix"], "$.prefix"),
-    keys: Object.freeze(keys),
-  });
+  return Object.freeze({ keys: Object.freeze(keys) });
 }
 
-/** Compare a prover's keys with every pinned proving key, as Rust `ProverKeys::check`. */
+/** Compare the original gnark artifact with the verifying key's pin. */
 function checkProverKeys(
-  prover: Readonly<{ prefix: string; keys: readonly ProverKeyStatus[] }>,
+  prover: ProvingKeyReport,
   pins: Readonly<Record<string, string>>,
 ): ProvingKeyReport {
   const mismatched: string[] = [];
-  const keys = Object.entries(pins).map(([name, pinned]): ProvingKeyCheck => {
-    const status = prover.keys.find((key) => key.name === name);
-    if (status === undefined) {
-      return Object.freeze({ name, served: false, available: false, loaded: false });
-    }
-    if (
-      (status.expectedSha256 !== null && status.expectedSha256 !== pinned) ||
-      (status.loadedSha256 !== null && status.loadedSha256 !== pinned)
-    ) {
-      mismatched.push(name);
-    }
-    return Object.freeze({
-      name,
-      served: true,
-      available: status.available,
-      loaded: status.loadedSha256 !== null,
-    });
-  });
+  for (const [name, pinned] of Object.entries(pins)) {
+    const key = prover.keys.find((entry) => entry.name === name);
+    if (key === undefined) continue;
+    const gnark = key.artifacts.find((artifact) => artifact.format === "gnark");
+    if (gnark === undefined) throw invalidProverJson();
+    if (gnark.sha256 !== pinned) mismatched.push(name);
+  }
   if (mismatched.length > 0) {
     throw new ClientError("CLIENT_PROVER_PROVING_KEYS_MISMATCH", {
       details: { keyNames: mismatched.join(",") },
     });
   }
-  return Object.freeze({ prefix: prover.prefix, keys: Object.freeze(keys) });
+  return prover;
 }
 
 /**

@@ -18,92 +18,111 @@ use spr_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S as ADD
 
 use crate::ClientError;
 
-/// One key in the prover's `GET /proving-keys` response.
+/// Serialization of one downloadable proving-key artifact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProvingKeyFormat {
+    Gnark,
+    Zopro,
+}
+
+/// The checksum and size apply to the bytes downloaded from this URL.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+pub struct ProvingKeyArtifact {
+    pub format: ProvingKeyFormat,
+    pub sha256: String,
+    pub size: u64,
+    pub url: String,
+}
+
+/// A manifest-backed key and its published downloads.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct ProverKeyStatus {
     pub name: String,
-    /// The sha256 the prover's proving-keys.lock pins; `None` for a key the
-    /// lockfile does not know.
-    pub expected_sha256: Option<String>,
-    /// The sha256 of the bytes the prover loaded; `None` until loaded.
-    pub loaded_sha256: Option<String>,
-    pub available: bool,
+    pub artifacts: Vec<ProvingKeyArtifact>,
 }
 
 /// The prover's `GET /proving-keys` response.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct ProverKeys {
-    /// The prover's proving-key version (its lockfile prefix).
-    pub prefix: String,
     pub keys: Vec<ProverKeyStatus>,
 }
 
-/// How one proving key this client knows stands on the prover.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProvingKeyCheck {
-    pub name: &'static str,
-    /// Whether the prover lists the key at all.
-    pub served: bool,
-    pub available: bool,
-    pub loaded: bool,
-}
+/// A key in the checked download catalog.
+pub type ProvingKeyCheck = ProverKeyStatus;
 
-/// A prover's proving keys, every one matching this client's verifying keys.
+/// A download catalog whose gnark digests match every client-known key listed.
+/// Keys absent from the catalog remain absent; this does not describe routing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProvingKeyReport {
-    pub prefix: String,
     pub keys: Vec<ProvingKeyCheck>,
 }
 
 impl ProverKeys {
-    /// Compare with every proving key this client knows. An expected or
-    /// loaded digest that differs from the verifying key's pin is an error
-    /// naming every such key. A key the prover does not serve or cannot load
-    /// is only reported: provers may serve a subset.
+    /// Validate the catalog and compare gnark hashes with the verifying-key pins.
+    /// A missing key is permitted, but every listed key needs one gnark artifact.
     pub fn check(&self) -> Result<ProvingKeyReport, ClientError> {
+        let invalid = || ClientError::ProverServer("invalid /proving-keys catalog".into());
+        let mut names = std::collections::HashSet::new();
         let mut mismatches = Vec::new();
-        let mut keys = Vec::new();
-        for (name, pinned) in known_proving_keys() {
-            let Some(status) = self.keys.iter().find(|status| status.name == name) else {
-                keys.push(ProvingKeyCheck {
-                    name,
-                    served: false,
-                    available: false,
-                    loaded: false,
-                });
-                continue;
-            };
-            for (kind, digest) in [
-                ("expected", &status.expected_sha256),
-                ("loaded", &status.loaded_sha256),
-            ] {
-                let Some(digest) = digest else { continue };
-                let reported = parse_sha256_hex(digest).ok_or_else(|| {
-                    ClientError::ProverServer(format!(
-                        "/proving-keys reports a malformed {kind} sha256 for {name}"
-                    ))
-                })?;
-                if reported != pinned {
+        for status in &self.keys {
+            if !names.insert(&status.name)
+                || status.name.len() <= 4
+                || !status.name.ends_with(".key")
+                || !status
+                    .name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"_-.".contains(&b))
+                || status.name.contains("..")
+            {
+                return Err(invalid());
+            }
+            let mut gnark = None;
+            let mut zopro = false;
+            for artifact in &status.artifacts {
+                let digest = parse_sha256_hex(&artifact.sha256).ok_or_else(invalid)?;
+                let url = url::Url::parse(&artifact.url).map_err(|_| invalid())?;
+                if artifact.size == 0
+                    || artifact.size > 9_007_199_254_740_991
+                    || !matches!(url.scheme(), "https" | "http")
+                    || url.host_str().is_none()
+                    || !url.username().is_empty()
+                    || url.password().is_some()
+                    || url.fragment().is_some()
+                {
+                    return Err(invalid());
+                }
+                match artifact.format {
+                    ProvingKeyFormat::Gnark => {
+                        if gnark.replace(digest).is_some() {
+                            return Err(invalid());
+                        }
+                    }
+                    ProvingKeyFormat::Zopro => {
+                        if zopro {
+                            return Err(invalid());
+                        }
+                        zopro = true;
+                    }
+                }
+            }
+            let gnark = gnark.ok_or_else(invalid)?;
+            if let Some((_, pinned)) = known_proving_keys().find(|(name, _)| *name == status.name) {
+                if gnark != pinned {
                     mismatches.push(format!(
-                        "{name} {kind} {digest}, verifying key pins {}",
+                        "{} gnark {}, verifying key pins {}",
+                        status.name,
+                        hex(&gnark),
                         hex(&pinned)
                     ));
                 }
             }
-            keys.push(ProvingKeyCheck {
-                name,
-                served: true,
-                available: status.available,
-                loaded: status.loaded_sha256.is_some(),
-            });
         }
         if !mismatches.is_empty() {
             return Err(ClientError::ProverProvingKeysMismatch { mismatches });
         }
         Ok(ProvingKeyReport {
-            prefix: self.prefix.clone(),
-            keys,
+            keys: self.keys.clone(),
         })
     }
 }

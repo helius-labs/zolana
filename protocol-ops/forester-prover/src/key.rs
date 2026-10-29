@@ -3,7 +3,7 @@ use serde::Deserialize;
 use spr_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S;
 
 pub struct ProvingKeyReport {
-    pub prefix: String,
+    pub keys: usize,
 }
 #[derive(Clone)]
 pub(crate) struct ExpectedProvingKey {
@@ -35,29 +35,70 @@ impl ExpectedProvingKey {
     }
 }
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct KeyStatus {
     name: String,
-    expected_sha256: Option<String>,
-    loaded_sha256: Option<String>,
+    artifacts: Vec<Artifact>,
+}
+#[derive(Deserialize)]
+struct Artifact {
+    format: String,
+    sha256: String,
+    size: u64,
+    url: String,
 }
 #[derive(Deserialize)]
 struct Keys {
-    prefix: String,
     keys: Vec<KeyStatus>,
 }
 pub(crate) fn check_report(value: serde_json::Value) -> Result<ProvingKeyReport> {
     let report: Keys = serde_json::from_value(value)?;
+    let invalid = || Error::Prover("invalid /proving-keys catalog".into());
+    let mut names = std::collections::HashSet::new();
     let mut mismatches = Vec::new();
-    for (name, digest) in PROVING_KEY_SHA256S {
-        if let Some(status) = report.keys.iter().find(|status| status.name == *name) {
-            for reported in [&status.expected_sha256, &status.loaded_sha256]
-                .into_iter()
-                .flatten()
+    for key in &report.keys {
+        if !names.insert(&key.name)
+            || key.name.len() <= 4
+            || !key.name.ends_with(".key")
+            || key.name.contains("..")
+            || !key
+                .name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_-.".contains(&b))
+        {
+            return Err(invalid());
+        }
+        let mut formats = std::collections::HashSet::new();
+        let mut gnark = None;
+        for artifact in &key.artifacts {
+            let url = url::Url::parse(&artifact.url).map_err(|_| invalid())?;
+            if !matches!(artifact.format.as_str(), "gnark" | "zopro")
+                || !formats.insert(&artifact.format)
+                || artifact.sha256.len() != 64
+                || !artifact
+                    .sha256
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                || artifact.size == 0
+                || artifact.size > 9_007_199_254_740_991
+                || !matches!(url.scheme(), "http" | "https")
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.fragment().is_some()
             {
-                if *reported != hex::encode(digest) {
-                    mismatches.push(format!("{name}: {reported}"));
-                }
+                return Err(invalid());
+            }
+            if artifact.format == "gnark" {
+                gnark = Some(&artifact.sha256);
+            }
+        }
+        let gnark = gnark.ok_or_else(invalid)?;
+        if let Some((_, digest)) = PROVING_KEY_SHA256S
+            .iter()
+            .find(|(name, _)| *name == key.name)
+        {
+            if *gnark != hex::encode(digest) {
+                mismatches.push(key.name.clone());
             }
         }
     }
@@ -65,6 +106,26 @@ pub(crate) fn check_report(value: serde_json::Value) -> Result<ProvingKeyReport>
         return Err(Error::ProverProvingKeysMismatch { mismatches });
     }
     Ok(ProvingKeyReport {
-        prefix: report.prefix,
+        keys: report.keys.len(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn shared_catalog_contract() {
+        let vectors: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../test-vectors/proving_key_catalog.json"
+        ))
+        .unwrap();
+        assert_eq!(check_report(vectors["catalog"].clone()).unwrap().keys, 2);
+        for case in vectors["invalidCatalogs"].as_array().unwrap() {
+            assert!(
+                check_report(case["catalog"].clone()).is_err(),
+                "accepted {}",
+                case["description"]
+            );
+        }
+    }
 }
