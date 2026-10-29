@@ -28,7 +28,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/consensys/gnark/constraint"
 	gnarkLogger "github.com/consensys/gnark/logger"
 	"github.com/urfave/cli/v2"
 )
@@ -196,34 +195,24 @@ func Run(args []string) error {
 				Name: "r1cs",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
-					&cli.StringFlag{Name: "circuit", Usage: "Type of circuit (\"address-append\")", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Circuit (\"transfer-confidential\", \"transfer-eddsa-ring\", \"merge\", \"address-append\")", Required: true},
+					&cli.UintFlag{Name: "n-inputs", Usage: "[transfer/merge]: input slots", Required: false},
+					&cli.UintFlag{Name: "n-outputs", Usage: "[transfer]: output slots. Merge is 1-out; 0 means 1", Required: false},
 					&cli.UintFlag{Name: "address-append-tree-height", Usage: "[Batch address append]: tree height", Required: false},
 					&cli.UintFlag{Name: "address-append-batch-size", Usage: "[Batch address append]: batch size", Required: false},
 				},
 				Action: func(context *cli.Context) error {
 					circuit := common.CircuitType(context.String("circuit"))
-					if circuit != common.BatchAddressAppendCircuitType {
-						return fmt.Errorf("invalid circuit type %s", circuit)
-					}
-
 					path := context.String("output")
-					batchAddressAppendTreeHeight := uint32(context.Uint("address-append-tree-height"))
-					batchAddressAppendBatchSize := uint32(context.Uint("address-append-batch-size"))
-
-					if (batchAddressAppendTreeHeight == 0 || batchAddressAppendBatchSize == 0) && circuit == common.BatchAddressAppendCircuitType {
-						return fmt.Errorf("[Batch address append]: tree height and batch size must be provided")
-					}
-
 					logging.Logger().Info().Msg("Building R1CS")
 
-					var cs constraint.ConstraintSystem
-					var err error
-
-					if circuit == common.BatchAddressAppendCircuitType {
-						cs, err = nullifiertree.R1CSBatchAddressAppend(batchAddressAppendTreeHeight, batchAddressAppendBatchSize)
-					} else {
-						return fmt.Errorf("invalid circuit type %s", circuit)
-					}
+					cs, err := compileCeremonyConstraintSystem(
+						circuit,
+						uint32(context.Uint("n-inputs")),
+						uint32(context.Uint("n-outputs")),
+						uint32(context.Uint("address-append-tree-height")),
+						uint32(context.Uint("address-append-batch-size")),
+					)
 
 					if err != nil {
 						return err
@@ -249,12 +238,14 @@ func Run(args []string) error {
 			{
 				Name: "import-setup",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "circuit", Usage: "Type of circuit (\"address-append\")", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Circuit (\"transfer-confidential\", \"transfer-eddsa-ring\", \"merge\", \"address-append\")", Required: true},
 					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
 					&cli.StringFlag{Name: "vkey-output", Usage: "Verifying key output file (optional)", Required: false},
 					&cli.StringFlag{Name: "pk", Usage: "Proving key", Required: true},
 					&cli.StringFlag{Name: "vk", Usage: "Verifying key", Required: true},
 					&cli.StringFlag{Name: "r1cs", Usage: "R1CS file", Required: false},
+					&cli.UintFlag{Name: "n-inputs", Usage: "[transfer/merge]: input slots", Required: false},
+					&cli.UintFlag{Name: "n-outputs", Usage: "[transfer]: output slots. Merge is 1-out; 0 means 1", Required: false},
 					&cli.UintFlag{Name: "address-append-tree-height", Usage: "[Batch address append]: tree height", Required: false},
 					&cli.UintFlag{Name: "address-append-batch-size", Usage: "[Batch address append]: batch size", Required: false},
 				},
@@ -273,6 +264,22 @@ func Run(args []string) error {
 					var err error
 
 					logging.Logger().Info().Msg("Importing setup")
+
+					switch common.CircuitType(circuit) {
+					case common.TransferConfidentialCircuitType,
+						common.TransferAnonymousRingEddsaCircuitType,
+						common.MergeCircuitType:
+						system, err := importCoreProvingSystem(
+							common.CircuitType(circuit),
+							uint32(context.Uint("n-inputs")),
+							uint32(context.Uint("n-outputs")),
+							pk, vk, r1csPath,
+						)
+						if err != nil {
+							return err
+						}
+						return common.WriteProvingSystem(system, path, pathVkey)
+					}
 
 					if circuit == "address-append" {
 						if batchAddressAppendTreeHeight == 0 || batchAddressAppendBatchSize == 0 {
