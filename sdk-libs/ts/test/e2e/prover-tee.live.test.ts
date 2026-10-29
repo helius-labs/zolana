@@ -120,10 +120,10 @@ function inputs(): ProverInputs {
 
 describe("configured TEE prover", () => {
   it("attests and returns an encrypted valid proof with a caller-supplied URL and policy", async () => {
-    const endpoint = process.env["ZOLANA_PROVER_URL"];
-    const policyPath = process.env["ZOLANA_PROVER_TEE_POLICY"];
+    const endpoint = process.env["ZOLANA_TEE_PROVER_URL"];
+    const policyPath = process.env["ZOLANA_TEE_PROVER_POLICY"];
     if (endpoint === undefined || policyPath === undefined)
-      throw new Error("Supply ZOLANA_PROVER_URL and ZOLANA_PROVER_TEE_POLICY");
+      throw new Error("Supply ZOLANA_TEE_PROVER_URL and ZOLANA_TEE_PROVER_POLICY");
     const policyJson: unknown = JSON.parse(readFileSync(policyPath, "utf8"));
     const policy = teePolicyFromJson(policyJson);
     let encryptedProofCalls = 0;

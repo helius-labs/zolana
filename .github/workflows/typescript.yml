@@ -84,8 +84,18 @@ jobs:
     timeout-minutes: 120
     env:
       AGAVE_VERSION: v4.2.2
+      # Independent of the local prover URL that just test-ts-e2e supplies.
+      ZOLANA_TEE_PROVER_URL: ${{ vars.ZOLANA_TEE_PROVER_URL }}
+      ZOLANA_TEE_PROVER_POLICY: ${{ github.workspace }}/${{ vars.ZOLANA_TEE_PROVER_POLICY }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Check live TEE test configuration
+        env:
+          POLICY_PATH: ${{ vars.ZOLANA_TEE_PROVER_POLICY }}
+        run: |
+          test -n "$ZOLANA_TEE_PROVER_URL"
+          test -n "$POLICY_PATH"
+          test -f "$ZOLANA_TEE_PROVER_POLICY"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
