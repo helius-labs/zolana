@@ -1,8 +1,8 @@
 /**
  * The URL of each service a client talks to.
  *
- * Helius RPC URLs select the pinned prover for their network. A config that
- * names no URL at all means the local stack, where the
+ * Each remote service uses a caller-supplied URL. A config that names no URL
+ * at all means the local stack, where the
  * validator, photon, and the prover each listen on their own port.
  */
 
@@ -16,41 +16,7 @@ export const LOCALNET_PROVER_ENDPOINT = "http://127.0.0.1:3001";
 /** Where a Helius RPC host serves the indexer and the prover. */
 export const ZOLANA_GATEWAY_PATH = "/v1/zolana";
 
-/**
- * The devnet Nitro Enclave prover the SDK's default TEE deployment pins. A
- * Helius devnet RPC URL sends proofs here rather than to its gateway.
- */
-export const DEFAULT_TEE_PROVER_ENDPOINT = "https://dd73hh473h6ha.cloudfront.net";
-/** The mainnet Nitro Enclave prover pinned by the SDK. */
-export const MAINNET_TEE_PROVER_ENDPOINT = "https://d3ky2kt0ntqxt1.cloudfront.net";
-
 const HELIUS_RPC_HOST = /(^|\.)helius-rpc\.com$/u;
-// devnet.helius-rpc.com and beta-devnet.helius-rpc.com.
-const HELIUS_DEVNET_HOST = /(^|[.-])devnet\.helius-rpc\.com$/u;
-
-/** Whether `url` is one of the SDK's pinned prover endpoints. */
-export function isDefaultTeeProver(url: URL): boolean {
-  return (
-    [DEFAULT_TEE_PROVER_ENDPOINT, MAINNET_TEE_PROVER_ENDPOINT].includes(url.origin) &&
-    url.pathname.replace(/\/+$/u, "") === ""
-  );
-}
-
-export function isMainnetTeeProver(url: URL): boolean {
-  return url.origin === MAINNET_TEE_PROVER_ENDPOINT && url.pathname.replace(/\/+$/u, "") === "";
-}
-
-function heliusTeeProver(rpc: string | URL | undefined): string | undefined {
-  if (rpc === undefined) return undefined;
-  try {
-    const host = new URL(rpc).hostname;
-    if (HELIUS_DEVNET_HOST.test(host)) return DEFAULT_TEE_PROVER_ENDPOINT;
-    if (host === "mainnet.helius-rpc.com") return MAINNET_TEE_PROVER_ENDPOINT;
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
 
 /**
  * Whether `url` is the Helius gateway's zolana namespace on a
@@ -100,8 +66,7 @@ export interface ResolvedClientEndpoints {
  *
  * Each service takes the URL named for it, else `solanaRpcUrl`, else its local
  * default. A Helius RPC root lends the indexer and the prover its `/v1/zolana`
- * namespace, while Helius mainnet and devnet RPC URLs send proofs to their
- * pinned Nitro endpoints. Resolution lives here alone so the local defaults and the named URLs
+ * namespace. Resolution lives here alone so the local defaults and the named URLs
  * cannot disagree about where a service ended up.
  */
 export function resolveClientEndpoints(input: ClientEndpointConfig): ResolvedClientEndpoints {
@@ -123,11 +88,7 @@ export function resolveClientEndpoints(input: ClientEndpointConfig): ResolvedCli
   };
 
   const photon = resolve(input.indexerUrl, "indexerUrl", LOCALNET_PHOTON_ENDPOINT);
-  const pinnedProver = heliusTeeProver(input.solanaRpcUrl);
-  const prover =
-    input.proverUrl === undefined && pinnedProver !== undefined
-      ? { url: pinnedProver, field: "solanaRpcUrl" }
-      : resolve(input.proverUrl, "proverUrl", LOCALNET_PROVER_ENDPOINT);
+  const prover = resolve(input.proverUrl, "proverUrl", LOCALNET_PROVER_ENDPOINT);
   const subscriptions = input.solanaRpcSubscriptionsUrl;
 
   return Object.freeze({

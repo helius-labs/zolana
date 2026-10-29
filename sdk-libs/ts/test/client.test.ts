@@ -794,14 +794,10 @@ describe("ZolanaClient", () => {
     const keys = LocalKeys.fromKeypair(fixture.keypair, prover);
 
     await expect(keys.prove(proverInputs)).rejects.toMatchObject({
-      code: "CLIENT_PROVER_TEE_ATTESTATION",
-      details: { check: "unavailable" },
+      code: "CLIENT_INVALID_CONFIG",
+      details: { field: "tee" },
     });
-    expect(fetch).toHaveBeenCalledTimes(1);
-    const [url, init] = fetch.mock.calls[0] ?? [];
-    expect(String(url)).toContain("/tee/v1/attestation?nonce=");
-    expect(new Request(String(url), init).method).toBe("GET");
-    expect(init?.body).toBeUndefined();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("fetches state and nullifier proofs once and in parallel", async () => {

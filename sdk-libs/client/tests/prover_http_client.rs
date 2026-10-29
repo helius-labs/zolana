@@ -394,41 +394,30 @@ async fn an_async_tee_client_attests_through_the_client() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn remote_defaults_never_send_witnesses_after_failed_attestation() {
+async fn remote_clients_without_a_supplied_policy_never_reach_http() {
     for url in [
         "https://prover.example",
-        "https://devnet.helius-rpc.com/v1/zolana?api-key=secret",
+        "https://api.example/v1/zolana?api-key=secret",
     ] {
-        let (client, requests) = FakeClient::answering(vec![Ok((404, json!({})))]);
-        let error = ProverClient::with_client(url.into(), client)
+        let (http, requests) = FakeClient::answering(vec![]);
+        let error = ProverClient::with_client(url.into(), http)
             .prove(&IN_RESPONSE)
             .unwrap_err();
-        assert!(
-            matches!(&error, ClientError::ProverServer(message) if message.starts_with("attestation failed with status 404")),
-            "{error}"
-        );
-        {
-            let recorded = requests.lock().unwrap();
-            assert_eq!(recorded.len(), 1);
-            assert_eq!(recorded[0].method, Method::GET);
-            assert!(recorded[0].body.is_empty());
-            assert!(recorded[0].url.contains("/tee/v1/attestation?"));
-        }
-
-        let (client, requests) = FakeClient::answering(vec![Ok((404, json!({})))]);
-        let error = AsyncProverClient::with_client(url.into(), client)
+        assert!(matches!(
+            error,
+            ClientError::Tee(spr_client::prover::tee::TeeError::NoPolicy)
+        ));
+        assert!(requests.lock().unwrap().is_empty());
+        let (http, requests) = FakeClient::answering(vec![]);
+        let error = AsyncProverClient::with_client(url.into(), http)
             .prove(&IN_RESPONSE)
             .await
             .unwrap_err();
-        assert!(
-            matches!(&error, ClientError::ProverServer(message) if message.starts_with("attestation failed with status 404")),
-            "{error}"
-        );
-        let recorded = requests.lock().unwrap();
-        assert_eq!(recorded.len(), 1);
-        assert_eq!(recorded[0].method, Method::GET);
-        assert!(recorded[0].body.is_empty());
-        assert!(recorded[0].url.contains("/tee/v1/attestation?"));
+        assert!(matches!(
+            error,
+            ClientError::Tee(spr_client::prover::tee::TeeError::NoPolicy)
+        ));
+        assert!(requests.lock().unwrap().is_empty());
     }
 }
 

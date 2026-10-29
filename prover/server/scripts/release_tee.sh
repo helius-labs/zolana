@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys the prover and a co-hosted Photon to a Phala Cloud TDX CVM and pins it into the SDKs.
+# Deploys the prover and a co-hosted Photon to a Phala Cloud TDX CVM and writes its policy.
 set -euo pipefail
 
 usage() {
@@ -242,6 +242,5 @@ for _ in $(seq 120); do
 done
 $healthy || { echo "prover $prover never became healthy" >&2; exit 1; }
 
-(cd "$root" && cargo run -q -p xtask -- tee-policy "$prover" ${gpu_flag[@]+"${gpu_flag[@]}"} ${replace[@]+"${replace[@]}"})
-(cd "$root/sdk-libs/ts" && npx oxfmt --write src/client/prover/tee/default.ts > /dev/null)
-echo "prover $prover pinned, commit the policy files with the release"
+(cd "$root" && cargo run -q -p xtask -- tee-policy "$prover" --policy "prover/tee/deployments/$name.json" ${gpu_flag[@]+"${gpu_flag[@]}"} ${replace[@]+"${replace[@]}"})
+echo "prover $prover pinned, review and distribute prover/tee/deployments/$name.json"

@@ -257,15 +257,7 @@ fn default_tee(endpoint: &ProverEndpoint) -> Tee {
     if endpoint.is_loopback() {
         return Tee::Off;
     }
-    let policy = if endpoint.is_mainnet_tee() {
-        TeePolicy::mainnet_deployment()
-    } else {
-        TeePolicy::default_deployment()
-    };
-    match policy {
-        Ok(policy) => Tee::On(Box::new(TeeSession::new(policy))),
-        Err(error) => Tee::Broken(error),
-    }
+    Tee::Broken(TeeError::NoPolicy)
 }
 
 /// Async client for the transfer proving endpoints of the prover server.
@@ -726,8 +718,8 @@ impl AsyncProverClient {
     ///
     /// Async counterpart of [`ProverClient::with_client`].
     ///
-    /// Calls go encrypted to a prover attesting to the default deployment,
-    /// except to a loopback prover.
+    /// Remote calls require an explicit [`Self::with_tee`] policy.
+    /// Only a loopback prover permits plaintext.
     pub fn with_client(server_address: String, http: impl HttpClient + 'static) -> Self {
         let endpoint = ProverEndpoint::parse(&server_address);
         Self {
@@ -760,7 +752,7 @@ impl AsyncProverClient {
         let http = build_async_http_client(Some(prover_proxy(proxy_url)?))
             .map_err(|_| ClientError::Prover("failed to build proxy HTTP client".into()))?;
         if let Tee::Off = self.tee {
-            self.tee = Tee::On(Box::new(TeeSession::new(TeePolicy::default_deployment()?)));
+            self.tee = Tee::Broken(TeeError::NoPolicy);
         }
         self.http = Arc::new(http);
         Ok(self)
@@ -1382,16 +1374,15 @@ mod tests {
     }
 
     #[test]
-    fn a_remote_prover_without_a_release_pin_fails_before_http() {
-        let mut client = ProverClient::with_client("https://prover.example".into(), NoRequests);
-        client.client.tee = Tee::Broken(TeeError::NoDefaultDeployment);
+    fn a_remote_prover_without_a_supplied_policy_fails_before_http() {
+        let client = ProverClient::with_client("https://prover.example".into(), NoRequests);
         assert!(matches!(
             client.send(
                 r#"{"privateWitness":"secret"}"#,
                 Delivery::InResponse,
                 &test_key()
             ),
-            Err(ClientError::Tee(TeeError::NoDefaultDeployment))
+            Err(ClientError::Tee(TeeError::NoPolicy))
         ));
     }
 
@@ -1555,7 +1546,10 @@ mod tests {
             "https://devnet.helius-rpc.com/v1/zolana?api-key=k",
         ] {
             assert!(
-                matches!(AsyncProverClient::new(remote.into()).tee, Tee::On(_)),
+                matches!(
+                    AsyncProverClient::new(remote.into()).tee,
+                    Tee::Broken(TeeError::NoPolicy)
+                ),
                 "{remote}"
             );
         }
@@ -1572,9 +1566,7 @@ mod tests {
     }
 
     #[test]
-    fn the_default_tee_prover_takes_prover_proof_data() {
-        let prover = AsyncProverClient::new(crate::prover::tee::DEFAULT_PROVER_URL.into());
-        assert_eq!(prover.proof_data_source(), ProofDataSource::Prover);
+    fn a_supplied_prover_url_takes_prover_proof_data() {
         assert_eq!(
             AsyncProverClient::new("https://prover.example".into()).proof_data_source(),
             ProofDataSource::Prover
@@ -1623,40 +1615,35 @@ mod tests {
     }
 
     #[test]
-    fn blocking_loopback_proxy_requires_attestation() {
-        let proxy = MockServer::respond_with(vec![MockResponse::text(404, "no attestation")]);
+    fn blocking_loopback_proxy_requires_a_supplied_policy_before_http() {
+        let proxy = MockServer::respond_then_hold(vec![]);
         let client = queued_prover_client("http://127.0.0.1:3001")
             .with_proxy(proxy.url())
             .unwrap();
         assert!(client.has_tee());
-        assert!(client
-            .send(r#"{"secret":1}"#, Delivery::InResponse, &test_key())
-            .is_err());
+        assert!(matches!(
+            client.send(r#"{"secret":1}"#, Delivery::InResponse, &test_key()),
+            Err(ClientError::Tee(TeeError::NoPolicy))
+        ));
         let requests = proxy.requests();
-        assert_eq!(requests.len(), 1);
-        assert!(requests[0]
-            .path
-            .starts_with("http://127.0.0.1:3001/tee/v1/attestation?nonce="));
-        assert!(requests[0].body.is_empty());
+        assert!(requests.is_empty());
     }
 
     #[tokio::test]
-    async fn async_loopback_proxy_requires_attestation() {
-        let proxy = MockServer::respond_with(vec![MockResponse::text(404, "no attestation")]);
+    async fn async_loopback_proxy_requires_a_supplied_policy_before_http() {
+        let proxy = MockServer::respond_then_hold(vec![]);
         let client = async_prover_client("http://127.0.0.1:3001")
             .with_proxy(proxy.url())
             .unwrap();
         assert!(client.has_tee());
-        assert!(client
-            .send(r#"{"secret":1}"#, Delivery::InResponse, &test_key())
-            .await
-            .is_err());
+        assert!(matches!(
+            client
+                .send(r#"{"secret":1}"#, Delivery::InResponse, &test_key())
+                .await,
+            Err(ClientError::Tee(TeeError::NoPolicy))
+        ));
         let requests = proxy.requests();
-        assert_eq!(requests.len(), 1);
-        assert!(requests[0]
-            .path
-            .starts_with("http://127.0.0.1:3001/tee/v1/attestation?nonce="));
-        assert!(requests[0].body.is_empty());
+        assert!(requests.is_empty());
     }
 
     #[test]
@@ -1668,6 +1655,7 @@ mod tests {
                 .collect(),
         );
         let client = queued_prover_client(direct.url())
+            .with_tee(probe_policy())
             .with_proxy(proxy.url())
             .unwrap();
         assert!(client
@@ -1689,6 +1677,7 @@ mod tests {
                 .collect(),
         );
         let client = async_prover_client(direct.url())
+            .with_tee(probe_policy())
             .with_proxy(proxy.url())
             .unwrap();
         assert!(client

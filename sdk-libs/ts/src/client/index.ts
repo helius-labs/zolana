@@ -56,8 +56,7 @@ export {
   type ProvingKeyCheck,
   type ProvingKeyReport,
 } from "./prover/client.js";
-export { defaultTeePolicy, teePolicyFromJson, type GpuRequirement } from "./prover/tee/policy.js";
-export { DEFAULT_TEE_PROVER_ENDPOINT, MAINNET_TEE_PROVER_ENDPOINT } from "../endpoint.js";
+export { teePolicyFromJson, type GpuRequirement } from "./prover/tee/policy.js";
 export type {
   AwsNitroPolicy,
   DstackTdxPolicy,

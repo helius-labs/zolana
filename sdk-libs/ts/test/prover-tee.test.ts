@@ -1,3 +1,4 @@
+import { readTeePolicy } from "./helpers/tee-policy.js";
 import { readFileSync } from "node:fs";
 
 import { Aes256Gcm, CipherSuite, DhkemX25519HkdfSha256, HkdfSha256 } from "@hpke/core";
@@ -37,14 +38,7 @@ import {
 import { TeeSession, encryptedInit, type ProverCall } from "../src/client/prover/tee/session.js";
 import { composeSignal } from "../src/client/internal.js";
 import { attestationRetryDelayMs } from "../src/client/prover/retry.js";
-import { DEFAULT_TEE_POLICY_FILE } from "../src/client/prover/tee/default.js";
-import { MAINNET_TEE_POLICY_FILE } from "../src/client/prover/tee/mainnet.js";
-import { MAINNET_TEE_PROVER_ENDPOINT } from "../src/endpoint.js";
-import {
-  checkedTeePolicy,
-  defaultTeePolicy,
-  teePolicyFromJson,
-} from "../src/client/prover/tee/policy.js";
+import { checkedTeePolicy, teePolicyFromJson } from "../src/client/prover/tee/policy.js";
 import {
   PLATFORMS,
   type DstackTdxPolicy,
@@ -95,20 +89,26 @@ function check(run: () => unknown): string | undefined {
 }
 
 describe("TEE policy", () => {
+  it("accepts supplied bare or wrapped JSON and rejects malformed file wrappers", () => {
+    const policy = teePolicyFromJson(probePolicyJson);
+    expect(teePolicyFromJson({ deployment: probePolicyJson })).toEqual(policy);
+    for (const file of [
+      { deployment: null },
+      { deployment: probePolicyJson, network: "devnet" },
+      { deployment: { deployment: probePolicyJson } },
+    ]) {
+      expect(() => teePolicyFromJson(file)).toThrow(
+        expect.objectContaining({ code: "CLIENT_INVALID_CONFIG" }),
+      );
+    }
+  });
+
   const nitroPolicyJson = {
     platform: "aws-nitro",
     measurements: [],
     gpu: "optional",
     max_age_secs: 600,
   };
-
-  it("mirrors the Rust SDK's pinned policy file", () => {
-    expect(DEFAULT_TEE_POLICY_FILE).toEqual(json("../../prover-tee/src/policy.json"));
-    expect(MAINNET_TEE_POLICY_FILE).toEqual(json("../../prover-tee/src/mainnet-policy.json"));
-    expect(MAINNET_TEE_POLICY_FILE).toEqual(
-      json("../../../prover/tee/deployments/mainnet-v0.6.0-alpha.json"),
-    );
-  });
 
   it("authenticates mainnet-tee-2 with its own pin and refuses devnet and changed bindings", () => {
     const live = decode.record(
@@ -117,13 +117,24 @@ describe("TEE policy", () => {
     );
     const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
     const at = Number(decode.integer(live["captured_at"], "captured_at"));
-    const policy = defaultTeePolicy(new URL(MAINNET_TEE_PROVER_ENDPOINT));
+    const policy = readTeePolicy(
+      new URL("../../../prover/tee/deployments/mainnet-v0.6.0-alpha.json", import.meta.url),
+    );
     expect(
       bytesToHex(verifyAttestation(live["attestation"], policy, nonce, at).hpkePublicKey),
     ).toBe(policy.hpkePublicKey);
-    expect(check(() => verifyAttestation(live["attestation"], defaultTeePolicy(), nonce, at))).toBe(
-      "measurement",
-    );
+    expect(
+      check(() =>
+        verifyAttestation(
+          live["attestation"],
+          readTeePolicy(
+            new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
+          ),
+          nonce,
+          at,
+        ),
+      ),
+    ).toBe("measurement");
     expect(
       check(() =>
         verifyAttestation(
@@ -164,14 +175,16 @@ describe("TEE policy", () => {
     ]);
   });
 
-  it("authenticates devnet-e-tee-1 with the default pin and refuses changed bindings", () => {
+  it("authenticates devnet-e-tee-1 with a supplied pin and refuses changed bindings", () => {
     const live = decode.record(
       json("../../../prover/tee/testdata/devnet_e_tee_1_attestation.json"),
       "live",
     );
     const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
     const at = Number(decode.integer(live["captured_at"], "captured_at"));
-    const policy = defaultTeePolicy();
+    const policy = readTeePolicy(
+      new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
+    );
     const attested = verifyAttestation(live["attestation"], policy, nonce, at);
     expect(attested.platform).toBe("aws-nitro");
     expect(bytesToHex(attested.hpkePublicKey)).toBe(policy.hpkePublicKey);
@@ -195,7 +208,7 @@ describe("TEE policy", () => {
     ).toBe("certificate_validity");
   });
 
-  it("refuses the retired devnet-d deployment with the default pin", () => {
+  it("refuses the retired devnet-d deployment with a supplied pin", () => {
     const retired = decode.record(
       json("../../../prover/tee/testdata/devnet_d_tee_3_attestation.json"),
       "retired",
@@ -203,7 +216,16 @@ describe("TEE policy", () => {
     const nonce = hexToBytes(decode.string(retired["nonce"], "nonce"));
     const at = Number(decode.integer(retired["captured_at"], "captured_at"));
     expect(
-      check(() => verifyAttestation(retired["attestation"], defaultTeePolicy(), nonce, at)),
+      check(() =>
+        verifyAttestation(
+          retired["attestation"],
+          readTeePolicy(
+            new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
+          ),
+          nonce,
+          at,
+        ),
+      ),
     ).toBe("measurement");
   });
 
@@ -221,14 +243,6 @@ describe("TEE policy", () => {
     expect(
       check(() => verifyAttestation(live["attestation"], livePolicy, new Uint8Array(32), at)),
     ).toBe("report_data");
-  });
-
-  it("loads the release pin or refuses its absence", () => {
-    if (DEFAULT_TEE_POLICY_FILE.deployment === null) {
-      expect(check(defaultTeePolicy)).toBe("no_default_deployment");
-    } else {
-      expect(defaultTeePolicy()).toEqual(teePolicyFromJson(DEFAULT_TEE_POLICY_FILE.deployment));
-    }
   });
 
   it("rejects a malformed policy", () => {
