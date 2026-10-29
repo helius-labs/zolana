@@ -19,7 +19,7 @@ use spr_interface::{verifying_keys::CircuitId, N_PUBLIC_SLOTS};
 use zeroize::Zeroizing;
 
 const RECORDED_ATTESTATION: &str =
-    include_str!("../../../prover/tee/testdata/devnet_d_tee_3_attestation.json");
+    include_str!("../../../prover/tee/testdata/devnet_e_tee_1_attestation.json");
 const TRANSFER: &str =
     include_str!("../../../prover/server/prover/request/testdata/transfer-2x2.json");
 const TRANSFER_KEY: &str = "transfer_confidential_2_2.key";
@@ -32,13 +32,31 @@ struct RecordedAttestation {
 }
 
 #[test]
-fn the_release_policy_accepts_the_measured_devnet_d_tee_3_attestation() {
+fn the_release_policy_accepts_the_measured_devnet_e_tee_1_attestation() {
     let fixture: RecordedAttestation = serde_json::from_str(RECORDED_ATTESTATION).unwrap();
     let nonce: [u8; 32] = hex::decode(fixture.nonce).unwrap().try_into().unwrap();
     let policy = TeePolicy::default_deployment().unwrap();
     let attested = verify(fixture.attestation, &policy, &nonce, fixture.captured_at)
         .expect("the release pin must accept the AWS-signed measured deployment");
     assert_eq!(attested.platform, Platform::AwsNitro);
+}
+
+#[test]
+fn the_release_policy_refuses_the_retired_devnet_d_deployment() {
+    let fixture: RecordedAttestation = serde_json::from_str(include_str!(
+        "../../../prover/tee/testdata/devnet_d_tee_3_attestation.json"
+    ))
+    .unwrap();
+    let nonce: [u8; 32] = hex::decode(fixture.nonce).unwrap().try_into().unwrap();
+    assert!(matches!(
+        verify(
+            fixture.attestation,
+            &TeePolicy::default_deployment().unwrap(),
+            &nonce,
+            fixture.captured_at
+        ),
+        Err(TeeError::EnclaveMeasurementNotAllowed)
+    ));
 }
 
 #[test]
@@ -67,7 +85,7 @@ fn the_new_deployment_refuses_the_retired_hpke_key_pin() {
         panic!("the default deployment must remain Nitro");
     };
     pins.hpke_public_key = Some(
-        hex::decode("91c087bcca7e3ba33d893b3f2f9768bef3553d30b1db0db248b8e20c35d4f00e")
+        hex::decode("270e90208e7f79a8fe1ca1b2eb6670421a3ae95b4119928a915cbd8977c2e055")
             .unwrap()
             .try_into()
             .unwrap(),
@@ -85,7 +103,7 @@ fn the_new_deployment_refuses_the_retired_hpke_key_pin() {
 
 #[test]
 fn the_default_endpoint_requires_attestation_and_prover_proof_data() {
-    assert_eq!(DEFAULT_PROVER_URL, "https://d1unet9hn0mci0.cloudfront.net");
+    assert_eq!(DEFAULT_PROVER_URL, "https://dd73hh473h6ha.cloudfront.net");
     let prover = ProverClient::new(DEFAULT_PROVER_URL.into());
     assert_eq!(
         (prover.has_tee(), prover.proof_data_source()),

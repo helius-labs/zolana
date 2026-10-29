@@ -37,6 +37,10 @@ Added
   `recipientSharedViewTags`, and a `SharedViewTags` derives the shared tag of
   every transfer index from one key agreement.
 
+Changed
+
+- `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` select the indexed `devnet-e-tee-1` prover and its measured enclave and HPKE key; the previous devnet deployment requires an explicit policy and endpoint.
+
 ## 0.5.0-alpha — 2026-10-23
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet

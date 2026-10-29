@@ -14,8 +14,8 @@ import {
 const HELIUS = "https://devnet.helius-rpc.com?api-key=k";
 
 describe("resolveClientEndpoints", () => {
-  it("pins the devnet-d-tee-1 prover endpoint", () => {
-    expect(DEFAULT_TEE_PROVER_ENDPOINT).toBe("https://d1unet9hn0mci0.cloudfront.net");
+  it("pins the devnet-e-tee-1 prover endpoint", () => {
+    expect(DEFAULT_TEE_PROVER_ENDPOINT).toBe("https://dd73hh473h6ha.cloudfront.net");
     expect(isDefaultTeeProver(new URL("https://d55y5ksdsm1vw.cloudfront.net"))).toBe(false);
   });
 

@@ -319,6 +319,7 @@ fn the_published_deployment_pins_load() {
     for pin in [
         include_str!("../../../prover/tee/deployments/nitro-c7a.json"),
         include_str!("../../../prover/tee/deployments/devnet-d-v0.5.0-alpha.json"),
+        include_str!("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json"),
     ] {
         assert_eq!(
             TeePolicy::from_file_json(pin).unwrap().platform(),

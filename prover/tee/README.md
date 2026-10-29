@@ -34,8 +34,8 @@ In TypeScript, `tee` on `ProverClient` and `proverTee` on `ZolanaClient` take an
 The `zolana` commands that prove take `--prover-tee` to require the pin from a loopback prover too, and `--prover-tee-policy <file>` for another pin.
 `zolana vks check --prover-url <url>` attests a TEE prover before it checks its proving keys.
 
-The SDK pins `devnet-d-tee-3`, the indexed devnet Nitro Enclave prover at `https://d1unet9hn0mci0.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoint is `https://d21d98xh5lgv3b.cloudfront.net`.
-The enclave was built from prover source commit `0e63ff3672c0eb648c02f4a429376e95845a05b4`, with build tooling from `7fbe43dd8085cb87feb229539273c71586d3099e`, in the [measured build](https://github.com/helius-labs/zolana/actions/runs/39996194428). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key in the bundled default policy. Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
+The SDK pins `devnet-e-tee-1`, the indexed devnet Nitro Enclave prover at `https://dd73hh473h6ha.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoint is `https://d34xe1hqb2ibg2.cloudfront.net`.
+The enclave was built from prover source commit `8ae430a154e22bafa819a570d383d04e2046e802` in the [measured build](https://github.com/helius-labs/zolana/actions/runs/40784786893). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key in the bundled default policy. Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
 A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
 
 A TypeScript client given a Helius devnet RPC URL and no `proverUrl` proves through the pinned prover without forwarding the RPC API key.
@@ -51,20 +51,20 @@ Take new pins from a reviewed release, as an SDK release or an explicit policy, 
 `xtask tee-policy` writes both SDK policy files, and a test fails when they differ.
 The [Nitro guide](../../tools/nitro/README.md) measures a deployment before it pins it.
 
-## devnet-d: v0.5.0-alpha
+## devnet-e: v0.6.0-alpha
 
-[devnet-d-v0.5.0-alpha.json](deployments/devnet-d-v0.5.0-alpha.json) pins the
-v0.5.0-alpha deployment measurements. Use the updated SDKs from
-[v0.5.0-alpha](https://github.com/helius-labs/zolana/releases/tag/v0.5.0-alpha).
-The deployed protocol programs use commit `81d8f9cefed610247c9bd4cf69c3cf8553e0b731`.
+[devnet-e-v0.6.0-alpha.json](deployments/devnet-e-v0.6.0-alpha.json) carries the
+deployment's measurements and HPKE key, matching the SDK default policy.
+The prover uses the source pinned by
+[v0.6.0-alpha](https://github.com/helius-labs/zolana/releases/tag/v0.6.0-alpha).
 Its client prover runs Aeglos CPU in a Nitro Enclave and fetches indexed proof
 data from Photon. The SDK's bundled default policy pins this deployment and its
 attested HPKE key; an explicit policy override is optional.
 
 | Service | URL |
 | --- | --- |
-| Client TEE prover | `https://d1unet9hn0mci0.cloudfront.net` |
-| Photon JSON-RPC | `https://d21d98xh5lgv3b.cloudfront.net` |
+| Client TEE prover | `https://dd73hh473h6ha.cloudfront.net` |
+| Photon JSON-RPC | `https://d34xe1hqb2ibg2.cloudfront.net` |
 
 Use the bundled default policy. In Rust:
 
@@ -85,8 +85,8 @@ import { ZolanaClient } from "@heliuslabs/zolana/client";
 
 const client = new ZolanaClient({
   solanaRpcUrl: "https://api.devnet.solana.com",
-  indexerUrl: "https://d21d98xh5lgv3b.cloudfront.net",
-  proverUrl: "https://d1unet9hn0mci0.cloudfront.net",
+  indexerUrl: "https://d34xe1hqb2ibg2.cloudfront.net",
+  proverUrl: "https://dd73hh473h6ha.cloudfront.net",
   proofDataSource: "prover",
 });
 await client.attestProver();
@@ -97,12 +97,12 @@ The prover proof-data setting uses `/indexed`, including
 From the repository root, check attestation and encrypted proving-key digests:
 
 ```sh
-cargo run -p xtask -- tee-check https://d1unet9hn0mci0.cloudfront.net
+cargo run -p xtask -- tee-check https://dd73hh473h6ha.cloudfront.net
 ```
 
 The policy matches the measured EIF from
-[publisher run 39996194428](https://github.com/helius-labs/zolana/actions/runs/39996194428),
-with EIF SHA256 `899e588fd0678d69dcc13b4a65317187639730dd072abeca6df0600d7db3df02`.
+[publisher run 40784786893](https://github.com/helius-labs/zolana/actions/runs/40784786893),
+with EIF SHA256 `78355457ec0916ac00f6fd6c8f169997fccb5a3348613730d6cf3819511fc564`.
 Live attestation, encrypted key checks and an encrypted indexed proof were
 verified against it. A future enclave build requires newly measured and
 reviewed SDK pins. Applications selecting another reviewed policy can pass it
