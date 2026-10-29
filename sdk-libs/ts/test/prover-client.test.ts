@@ -20,6 +20,7 @@ import {
   type ProverRefusal,
 } from "../src/client/prover/client.js";
 import { TeeSession } from "../src/client/prover/tee/session.js";
+import { readTeePolicy } from "./helpers/tee-policy.js";
 import { proofFor } from "./helpers/proofs.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
@@ -615,6 +616,9 @@ describe("prover request routing", () => {
     try {
       const prover = new ProverClient({
         url: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
+        tee: readTeePolicy(
+          new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
+        ),
         fetch,
       });
       await prover.prove(transferInputs());
@@ -637,6 +641,9 @@ describe("prover request routing", () => {
       .mockResolvedValue(new Response(null, { status: 404 }));
     const prover = new ProverClient({
       url: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
+      tee: readTeePolicy(
+        new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
+      ),
       fetch,
     });
     await expect(prover.prove(transferInputs())).rejects.toMatchObject({

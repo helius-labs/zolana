@@ -14,7 +14,7 @@ use zeroize::Zeroizing;
 
 pub struct TeeCheckOptions {
     pub prover_url: String,
-    /// A policy JSON file, the release pin when absent.
+    /// A caller-supplied reviewed policy JSON file, required for attestation.
     pub policy: Option<PathBuf>,
     /// A raw prover request body and the proving key it targets.
     pub proof: Option<(PathBuf, String)>,
@@ -72,7 +72,7 @@ impl TeeCheckOptions {
                 TeePolicy::from_file_json(&json)
                     .with_context(|| format!("policy {}", path.display()))?
             }
-            None => TeePolicy::default_deployment()?,
+            None => bail!("tee-check requires --policy <policy.json>"),
         };
         let prover = ProverClient::new(url.into()).with_tee(policy);
 

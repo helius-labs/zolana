@@ -1,4 +1,4 @@
-//! Pins a live TEE prover into the SDK release.
+//! Writes a standalone deployment policy for review.
 
 use std::{
     fs,
@@ -13,18 +13,17 @@ use reqwest::Url;
 use spr_client::{
     prover::tee::{
         inspect, Attestation, AttestedIdentity, DstackIdentity, DstackPolicy, GpuRequirement,
-        NitroMeasurement, NitroPolicy, PlatformIdentity, PlatformPolicy, TeeError, TeePolicy,
-        TeePolicyFile, ATTESTATION_PATH, MAX_ATTESTATION_BYTES,
+        NitroMeasurement, NitroPolicy, PlatformIdentity, PlatformPolicy, TeePolicy, TeePolicyFile,
+        ATTESTATION_PATH, MAX_ATTESTATION_BYTES,
     },
     ProverClient,
 };
 
 const MEASURE: &str = "tools/nitro/aws_nitro.py measure";
-const RUST_POLICY: &str = "sdk-libs/prover-tee/src/policy.json";
-const TS_POLICY: &str = "sdk-libs/ts/src/client/prover/tee/default.ts";
 
 pub struct TeePolicyOptions {
     pub prover_url: String,
+    pub policy: PathBuf,
     pub gpu: GpuRequirement,
     /// Start a new pin instead of extending the pinned one.
     pub replace: bool,
@@ -41,9 +40,10 @@ struct Pin<'a> {
 
 impl TeePolicyOptions {
     pub fn parse(mut args: impl Iterator<Item = String>) -> Result<Self> {
-        let usage = "usage: tee-policy <prover-url> [--gpu-required] [--replace] [--expect-pcrs <file>] [--pin-key]";
+        let usage = "usage: tee-policy <prover-url> --policy <file> [--gpu-required] [--replace] [--expect-pcrs <file>] [--pin-key]";
         let mut options = Self {
             prover_url: args.next().context(usage)?,
+            policy: PathBuf::new(),
             gpu: GpuRequirement::Optional,
             replace: false,
             expect_pcrs: None,
@@ -55,8 +55,12 @@ impl TeePolicyOptions {
                 "--replace" => options.replace = true,
                 "--expect-pcrs" => options.expect_pcrs = Some(args.next().context(usage)?.into()),
                 "--pin-key" => options.pin_key = true,
+                "--policy" => options.policy = args.next().context(usage)?.into(),
                 other => bail!("tee-policy unexpected arg {other:?}"),
             }
+        }
+        if options.policy.as_os_str().is_empty() {
+            bail!("{usage}");
         }
         Ok(options)
     }
@@ -72,10 +76,13 @@ impl TeePolicyOptions {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let identity = inspect(attestation, now)?;
 
-        let current = match (self.replace, TeePolicy::default_deployment()) {
-            (false, Ok(current)) => Some(current),
-            (true, _) | (false, Err(TeeError::NoDefaultDeployment)) => None,
-            (false, Err(error)) => return Err(error.into()),
+        let policy_path = root.join(&self.policy);
+        let current = if !self.replace && policy_path.try_exists()? {
+            Some(TeePolicy::from_file_json(&fs::read_to_string(
+                &policy_path,
+            )?)?)
+        } else {
+            None
         };
         // A GPU-required pin never drops back to optional on an update without `--gpu-required`.
         let gpu = match current.as_ref().map(TeePolicy::gpu) {
@@ -102,7 +109,7 @@ impl TeePolicyOptions {
         prover
             .check_proving_keys()
             .context("encrypted proving key check failed")?;
-        write_pins(root, policy)?;
+        write_pin(&policy_path, policy)?;
         println!("pinned {attested}");
         Ok(())
     }
@@ -265,21 +272,32 @@ fn push_new<T: PartialEq>(values: &mut Vec<T>, value: T) {
     }
 }
 
-fn write_pins(root: &Path, policy: TeePolicy) -> Result<()> {
+fn write_pin(path: &Path, policy: TeePolicy) -> Result<()> {
     let file = serde_json::to_string_pretty(&TeePolicyFile {
         deployment: Some(policy),
     })?;
-    fs::write(root.join(RUST_POLICY), format!("{file}\n"))?;
-    let ts = format!(
-        "/** Mirrors `{RUST_POLICY}`, kept equal by a test. */\nexport const DEFAULT_TEE_POLICY_FILE: Readonly<{{ deployment: unknown }}> = Object.freeze({file});\n",
-    );
-    fs::write(root.join(TS_POLICY), ts)?;
+    fs::write(path, format!("{file}\n"))?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn policy_generation_requires_a_caller_supplied_file() {
+        assert!(TeePolicyOptions::parse(["https://prover.example".into()].into_iter()).is_err());
+        let options = TeePolicyOptions::parse(
+            [
+                "https://prover.example".into(),
+                "--policy".into(),
+                "reviewed-policy.json".into(),
+            ]
+            .into_iter(),
+        )
+        .unwrap();
+        assert_eq!(options.policy, PathBuf::from("reviewed-policy.json"));
+    }
 
     fn measurement(pcr2: u8) -> NitroMeasurement {
         NitroMeasurement {

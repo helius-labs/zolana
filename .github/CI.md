@@ -326,6 +326,8 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     1. Private TEE images: `docker/build-push-action`.
     2. Provenance: `actions/attest-build-provenance`.
     3. CVM deployment: `prover/server/scripts/release_tee.sh`.
+    4. Caller-supplied TEE policy artifact: `prover/tee/deployments/<cvm_name>.json`;
+       SDK source files are not rewritten by deployment.
 
 16. [TypeScript documentation](workflows/typescript-docs.yml)
 

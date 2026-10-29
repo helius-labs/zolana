@@ -13,7 +13,7 @@ sync skips those outputs without decrypting them.
 Breaking
 
 - `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
-
+- `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
 - `CircuitId` kinds `confidentialEddsa` and `confidentialEddsaCached` are now `confidentialSigner` and `confidentialSignerCached` for transaction signer authorization → rename existing matches and hand-built selectors, and supply `proofData` when using the new in-proof `confidentialEddsa` kinds.
 - `SHIELDED_POOL_PROGRAM_ID` is `ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW`, with new tree, custody and authority addresses → use the new deployment and fund new notes; accounts and notes from the earlier deployment remain separate.
 - `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
@@ -41,11 +41,7 @@ Added
 
 Changed
 
-- `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` select the indexed `devnet-e-tee-1` prover and its measured enclave and HPKE key; the previous devnet deployment requires an explicit policy and endpoint.
-
-Fixed
-
-- `ZolanaClient` and `ProverClient` select the measured mainnet enclave and HPKE key at `MAINNET_TEE_PROVER_ENDPOINT` instead of applying the devnet pin, `defaultTeePolicy(url)` returns the endpoint's policy, and a Helius mainnet RPC URL selects the mainnet prover without forwarding its API key.
+- A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
 
 ## 0.5.0-alpha — 2026-10-23
 

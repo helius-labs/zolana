@@ -26,32 +26,47 @@ Any compose the API key holder deploys under the same app derives the same key a
 
 ## Building on it
 
-Rust and TypeScript prover clients require every remote prover, the Helius gateway included, to attest to the bundled policy before it receives a witness, and encrypt every call to it.
-Only a loopback prover takes plaintext, and a Rust client with a proxy attests a loopback prover too, because the proxy can carry the call off the host.
-The one exception is the Rust `for_tree_batches` mode the forester uses. It sends nullifier-tree batch proofs in plaintext to any prover, as they carry only public tree data, and refuses every other proof.
-In Rust, `ProverClient::with_tee` and `AsyncProverClient::with_tee` take another policy, and `attest` returns the verified `AttestedProver` on demand.
-In TypeScript, `tee` on `ProverClient` and `proverTee` on `ZolanaClient` take another policy, and `attestProver` returns the verified prover on demand.
-The `zolana` commands that prove take `--prover-tee` to require the pin from a loopback prover too, and `--prover-tee-policy <file>` for another pin.
-`zolana vks check --prover-url <url>` attests a TEE prover before it checks its proving keys.
+Rust and TypeScript clients require a caller-supplied policy for every remote
+prover, the Helius gateway included, and encrypt every call to the attested key.
+The SDK contains no deployed prover URLs or deployment policies. Supply the
+prover URL and the reviewed policy together; selecting a different hostname or
+path never selects or changes the policy.
 
-The SDK pins two deployments separately. `mainnet-tee-2` at `https://d3ky2kt0ntqxt1.cloudfront.net` uses `sdk-libs/prover-tee/src/mainnet-policy.json` and its TypeScript mirror `mainnet.ts`. `devnet-e-tee-1` at `https://dd73hh473h6ha.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript) uses `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoints are listed below. Both clients choose the mainnet policy for the exact mainnet HTTPS origin and base path; other remote URLs retain the devnet policy unless the caller supplies another reviewed policy.
-The devnet enclave was built from prover source commit `8ae430a154e22bafa819a570d383d04e2046e802` in the [measured build](https://github.com/helius-labs/zolana/actions/runs/40784786893). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key in the bundled default policy. Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
-A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
+In Rust, pass a `TeePolicy` to `ProverClient::with_tee` or
+`AsyncProverClient::with_tee`. In TypeScript, pass `tee` to `ProverClient` or
+`proverTee` to `ZolanaClient`. A missing policy fails before any remote HTTP
+request. Only a loopback prover permits plaintext development; a Rust client
+using a proxy requires a policy even for loopback. The forester's explicit
+`for_tree_batches` mode permits plaintext nullifier-tree batch proofs, which
+carry only public tree data, and refuses every other proof.
 
-A TypeScript client given a Helius devnet RPC URL and no `proverUrl` proves through the pinned prover without forwarding the RPC API key.
-The indexed enclave fetches proof data from Photon; the Helius gateway still uses client-side proof data.
+The CLI takes `--prover-tee-policy <file>`, accepting either a bare policy or
+its `{ "deployment": ... }` file wrapper. `--prover-tee` also requires a supplied
+policy. `xtask tee-check <url> --policy <file>` attests and checks encrypted
+proving-key digests. For a unified Helius API, callers may supply the same
+`/v1/zolana` base URL for Photon and the prover, with the appropriate policy;
+the SDK keeps its query authentication on the attestation and encrypted calls.
 
 A server started with `--tee` rejects a plaintext request before reading its body, except on the attestation, `/auth`, `/ready`, `/health` and `/proving-keys` routes.
 
 ### Updating pins
 
-Each bundled policy pins the measurements and the HPKE key of one deployment.
-A new image changes the measurements, a key rotation changes the key pin, and a client refuses the changed prover until its policy carries the new pins.
-Take new pins from a reviewed release, as an SDK release or an explicit policy, never from the prover's own answer.
-`xtask tee-policy` writes both SDK policy files, and a test fails when they differ.
-That command updates the devnet default; the separate mainnet policy and its
-TypeScript mirror must be updated together with reviewed mainnet measurements.
-The [Nitro guide](../../tools/nitro/README.md) measures a deployment before it pins it.
+Each deployment policy pins the enclave measurements and HPKE public key.
+A new image or key rotation requires a new reviewed policy, supplied by the
+application. Never obtain trust pins from the prover's own response.
+`xtask tee-policy <url> --policy <file>` creates or extends the specified
+standalone policy file after attestation and encrypted proving-key checks.
+It never rewrites SDK code. The [Nitro guide](../../tools/nitro/README.md)
+explains how to independently measure the enclave before pinning it.
+
+Keep policies in `prover/tee/deployments` for code review. Publish reviewed
+policies as versioned JSON assets on the corresponding GitHub release, together
+with checksums and measured-build provenance. An application can download the
+chosen policy from that release, verify its checksum and bundle it with its
+configuration. The SDK never downloads a policy or follows a mutable latest pin.
+A deployment policy can be used by an older SDK when its policy schema,
+attestation protocol, wire format and circuit set remain compatible; an image
+rebuild or key rotation alone does not require an SDK release.
 
 ## Mainnet: v0.6.0-alpha
 
@@ -86,19 +101,14 @@ The HPKE key was taken from AWS-signed attestation only after verifying the
 certificate chain, fresh nonce, key binding and independently measured PCRs.
 The recorded attestation in `testdata/mainnet_tee_2_attestation.json` lets both
 SDKs check those bindings offline. Live tests also attest and generate an
-encrypted synthetic transfer proof through each network's default policy.
+encrypted synthetic transfer proof using caller-supplied URLs and policy files.
 
-In TypeScript, explicit `proverUrl: MAINNET_TEE_PROVER_ENDPOINT` selects the
-mainnet policy automatically. A Helius mainnet RPC URL also selects this prover
-when `proverUrl` is absent, without forwarding the RPC API key. Set `indexerUrl`
-to the mainnet Photon endpoint. `defaultTeePolicy(new URL(MAINNET_TEE_PROVER_ENDPOINT))`
-returns the same policy for an explicit `proverTee` override, including when
-using a proxy URL. `defaultTeePolicy()` without an argument remains devnet.
-
-In Rust, `ProverClient::new(MAINNET_PROVER_URL.into())` and
-`AsyncProverClient::new(MAINNET_PROVER_URL.into())` select the mainnet policy.
-`TeePolicy::mainnet_deployment()` returns it for an explicit `with_tee` override.
-The two policies do not accept each other's enclave measurements or keys.
+Load the reviewed policy JSON and pass it to
+`teePolicyFromJson`, then supply the result as `proverTee` (or `tee` on
+`ProverClient`). Rust accepts the same file through `TeePolicy::from_file_json`
+and `with_tee`. These parameters work with direct, unified API and proxy URLs;
+no endpoint constants or network-specific policy selectors are built into the
+SDK. The two published policies reject each other's enclave measurements and keys.
 
 For source pinning, the core program release artifacts are recorded by
 [`v0.6.0-alpha`](https://github.com/helius-labs/zolana/releases/tag/v0.6.0-alpha)
@@ -111,26 +121,27 @@ that requires comparing the deployed program to the release artifact.
 ## devnet-e: v0.6.0-alpha
 
 [devnet-e-v0.6.0-alpha.json](deployments/devnet-e-v0.6.0-alpha.json) carries the
-deployment's measurements and HPKE key, matching the SDK default policy.
+deployment's measurements and HPKE key for callers to supply.
 The prover uses the source pinned by
 [v0.6.0-alpha](https://github.com/helius-labs/zolana/releases/tag/v0.6.0-alpha).
 Its client prover runs Aeglos CPU in a Nitro Enclave and fetches indexed proof
-data from Photon. The SDK's bundled default policy pins this deployment and its
-attested HPKE key; an explicit policy override is optional.
+data from Photon. Supply this reviewed policy explicitly when using this deployment.
 
 | Service | URL |
 | --- | --- |
 | Client TEE prover | `https://dd73hh473h6ha.cloudfront.net` |
 | Photon JSON-RPC | `https://d34xe1hqb2ibg2.cloudfront.net` |
 
-Use the bundled default policy. In Rust:
+Supply the URL and reviewed policy. In Rust:
 
 ```rust
 use spr_client::prover::{
-    indexed::ProofDataSource, tee::DEFAULT_PROVER_URL, ProverClient,
+    indexed::ProofDataSource, tee::TeePolicy, ProverClient,
 };
 
-let prover = ProverClient::new(DEFAULT_PROVER_URL.into())
+let policy = TeePolicy::from_file_json(&std::fs::read_to_string(policy_path)?)?;
+let prover = ProverClient::new(prover_url)
+    .with_tee(policy)
     .with_proof_data_source(ProofDataSource::Prover);
 prover.attest()?;
 ```
@@ -138,12 +149,14 @@ prover.attest()?;
 In TypeScript:
 
 ```ts
-import { ZolanaClient } from "@heliuslabs/zolana/client";
+import { ZolanaClient, teePolicyFromJson } from "@heliuslabs/zolana/client";
+import policyFile from "./prover-policy.json" with { type: "json" };
 
 const client = new ZolanaClient({
   solanaRpcUrl: "https://api.devnet.solana.com",
   indexerUrl: "https://d34xe1hqb2ibg2.cloudfront.net",
   proverUrl: "https://dd73hh473h6ha.cloudfront.net",
+  proverTee: teePolicyFromJson(policyFile),
   proofDataSource: "prover",
 });
 await client.attestProver();
@@ -154,7 +167,8 @@ The prover proof-data setting uses `/indexed`, including
 From the repository root, check attestation and encrypted proving-key digests:
 
 ```sh
-cargo run -p xtask -- tee-check https://dd73hh473h6ha.cloudfront.net
+cargo run -p xtask -- tee-check https://dd73hh473h6ha.cloudfront.net \
+  --policy prover/tee/deployments/devnet-e-v0.6.0-alpha.json
 ```
 
 The policy matches the measured EIF from
@@ -162,13 +176,13 @@ The policy matches the measured EIF from
 with EIF SHA256 `78355457ec0916ac00f6fd6c8f169997fccb5a3348613730d6cf3819511fc564`.
 Live attestation, encrypted key checks and an encrypted indexed proof were
 verified against it. A future enclave build requires newly measured and
-reviewed SDK pins. Applications selecting another reviewed policy can pass it
+reviewed deployment pins. Applications pass the reviewed policy
 explicitly with `with_tee`, `proverTee`, or the xtask's `--policy` option.
 
 ## Roles
 
 The prover operator holds the Phala API key and the prover API key, and runs `prover/server/scripts/release_tee.sh`.
-The SDK release pins the deployment the operator released, in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`.
+The operator publishes the reviewed standalone policy with the deployment release. The application supplies that policy to the SDK.
 The client verifies the attestation against that pin and encrypts each call.
 Intel signs the quote, and NVIDIA's NRAS signs the GPU verdict.
 
@@ -207,19 +221,19 @@ Each snapshot digest uses separate database and restore volumes. A changed diges
 ## Steps
 
 1. For a snapshot, export the trusted database first. Set `PHOTON_DUMP_URL` to its download URL and pass its digest with `--photon-dump-sha256`. Run `prover/server/scripts/release_tee.sh <prover-image@sha256:digest> <cvm-name> --photon <photon-image@sha256:digest>`, with `--gpu` for an H200 prover. The compose it deploys pins both images and every command in the measured compose hash, and `--plan` prints it without deploying.
-2. Let the script finish its `tee-policy` xtask run. The live prover's app id, HPKE key, KMS root, OS image, measurements and compose hash land in both pin files. A second attestation and an encrypted proving key check must pass before the files are written.
-3. Run `cargo run -p xtask -- tee-check <prover-url> --prove <request.json> <key name>` with `PROVER_API_KEY` set. It attests under the new pin, runs an encrypted proving key check and returns one encrypted proof through the gateway.
-4. Commit `policy.json` and `default.ts` with the SDK release that ships them. Clients of that release then talk only to this deployment.
-5. To refresh an expired download link, run `prover/server/scripts/ship_photon_db.sh <cvm-name> --dump-url <https-url>`. The CVM accepts only the snapshot already pinned in its compose. To import another snapshot, release a new compose with its digest and publish the matching SDK pin.
+2. Let the script finish its `tee-policy` xtask run. The app id, HPKE key, KMS root, OS image, measurements and compose hash land in `prover/tee/deployments/<cvm-name>.json`. A second attestation and an encrypted proving key check must pass before the file is written.
+3. Run `cargo run -p xtask -- tee-check <prover-url> --policy <policy.json> --prove <request.json> <key name>` with `PROVER_API_KEY` set. It attests under the new pin, runs an encrypted proving key check and returns one encrypted proof through the gateway.
+4. Review and commit the policy, then attach the versioned JSON, checksum and build provenance to the deployment release. Applications supply that file to their SDK.
+5. To refresh an expired download link, run `prover/server/scripts/ship_photon_db.sh <cvm-name> --dump-url <https-url>`. The CVM accepts only the snapshot already pinned in its compose. To import another snapshot, release a new compose with its digest and publish the matching deployment policy.
 6. For a new image, rerun the release with `--update` on the same CVM name. The new compose hash joins the pin, the app id and key stay, and `--replace` starts a new pin for a new app.
 
 The `deploy-tee` workflow runs the release from GitHub. It builds the sm_90 prover and Photon, publishes them to `ghcr.io/<owner>/spr-prover-tee` and `zolana-photon-tee` with build provenance, deploys and uploads the pin files as an artifact. Its `tee-deploy` environment holds `AEGLOS_DEPLOY_KEY`, `PHALA_KEY`, `PROVER_API_KEY`, `PROVER_INDEXER_API_KEY`, `PHOTON_RPC_URL`, `PHOTON_DUMP_URL`, `TEE_REGISTRY_USERNAME`, `TEE_REGISTRY_TOKEN` and `PRIVATE_LIBS_TOKEN`. The workflow refuses to push until both packages exist and are private or internal.
 
 ## Limits
 
-- An SDK with no deployment pin refuses `TeePolicy::default_deployment()` and `defaultTeePolicy()`, and a remote prover then needs an explicit policy.
-- Old SDK releases refuse an updated prover, because the update changes the compose hash they pin. Ship the SDK release that carries the new hash together with the update.
-- The HPKE key has no forward secrecy, because it derives from the app key. Rotate by releasing a new app with `--replace` and a matching SDK release.
+- A remote prover without a caller-supplied policy is refused before HTTP.
+- An application using an old policy refuses an updated image or key. Supply the newly reviewed policy; upgrade the SDK only if its supported policy or protocol is incompatible.
+- The HPKE key has no forward secrecy, because it derives from the app key. Rotate by releasing a new app with `--replace` and a matching reviewed policy.
 - The verifiers accept only dstack runtime events of the version 1 digest format, which the 0.5 OS images emit. An OS image that emits the version 2 format fails attestation.
 - A newly revoked TCB shows only after the prover refreshes its collateral cache, because the client verifies the collateral the prover relays. A TCB status the pin does not list fails at once.
 - A GPU prover cannot attest while NRAS is unreachable, because each attestation asks NRAS for a fresh verdict.

@@ -4,11 +4,9 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 
 import {
-  DEFAULT_TEE_PROVER_ENDPOINT,
-  MAINNET_TEE_PROVER_ENDPOINT,
+  teePolicyFromJson,
   ZolanaClient,
   compressProof,
-  defaultTeePolicy,
   type CircuitUtxo,
   type ProverInputs,
   type TransferInput,
@@ -120,25 +118,18 @@ function inputs(): ProverInputs {
   };
 }
 
-describe.each([
-  [
-    "devnet-e",
-    "https://devnet.helius-rpc.com",
-    "https://d34xe1hqb2ibg2.cloudfront.net",
-    DEFAULT_TEE_PROVER_ENDPOINT,
-  ],
-  [
-    "mainnet",
-    "https://mainnet.helius-rpc.com",
-    "https://dgcj4pjarvo65.cloudfront.net",
-    MAINNET_TEE_PROVER_ENDPOINT,
-  ],
-])("%s TEE prover", (_network, rpc, photon, endpoint) => {
-  it("attests and returns an encrypted valid proof without a caller policy", async () => {
+describe("configured TEE prover", () => {
+  it("attests and returns an encrypted valid proof with a caller-supplied URL and policy", async () => {
+    const endpoint = process.env["ZOLANA_PROVER_URL"];
+    const policyPath = process.env["ZOLANA_PROVER_TEE_POLICY"];
+    if (endpoint === undefined || policyPath === undefined)
+      throw new Error("Supply ZOLANA_PROVER_URL and ZOLANA_PROVER_TEE_POLICY");
+    const policyJson: unknown = JSON.parse(readFileSync(policyPath, "utf8"));
+    const policy = teePolicyFromJson(policyJson);
     let encryptedProofCalls = 0;
     const observedFetch: typeof globalThis.fetch = async (resource, init) => {
       const url = new URL(resource instanceof Request ? resource.url : resource);
-      expect(url.origin).toBe(endpoint);
+      expect(url.origin).toBe(new URL(endpoint).origin);
       if (url.pathname.startsWith("/prove/")) {
         const headers = new Headers(init?.headers);
         expect(headers.get("Zolana-Tee")).toBe("v1");
@@ -153,15 +144,14 @@ describe.each([
       }
       return response;
     };
-    // Omitting `tee` exercises the SDK default, including its nonce, certificate,
-    // freshness, measurements, HPKE pin and encrypted-response authentication.
+    // The supplied policy still requires nonce, certificate, measurements,
+    // HPKE pin and encrypted-response authentication.
     const client = new ZolanaClient({
-      solanaRpcUrl: rpc,
-      indexerUrl: photon,
+      proverUrl: endpoint,
+      proverTee: policy,
       fetch: observedFetch,
     });
     const attested = await client.attestProver({ timeoutMs: 120_000 });
-    const policy = defaultTeePolicy(new URL(endpoint));
     expect(attested.platform).toBe("aws-nitro");
     expect(bytesToHex(attested.hpkePublicKey)).toBe(policy.hpkePublicKey);
     const proof = await client.proofService.prove(inputs(), { timeoutMs: 180_000 });

@@ -153,30 +153,31 @@ The public dashboard reports protocol and service health.
 | Dashboard  | `https://djq45ljnl16bl.cloudfront.net`             | Shows public protocol and service health.                                                 |
 
 **Mainnet:** Photon RPC is `https://dgcj4pjarvo65.cloudfront.net` and the
-Nitro prover is `https://d3ky2kt0ntqxt1.cloudfront.net`
-(`MAINNET_TEE_PROVER_ENDPOINT`). Set `indexerUrl` to that Photon endpoint and
-`proverUrl` to that prover endpoint. A Helius mainnet RPC URL also selects this
-prover when `proverUrl` is omitted. The SDK selects its separately pinned mainnet
-measurements and HPKE key automatically; no `proverTee` override is needed.
+Nitro prover is `https://d3ky2kt0ntqxt1.cloudfront.net`. These are deployment
+examples; the SDK embeds no deployment URLs or policies. Supply your URLs and
+a reviewed policy from the deployment release:
 
 ```ts
-const client = await createZolanaClient({
-  solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
-  indexerUrl: "https://d34xe1hqb2ibg2.cloudfront.net",
-  proverUrl: "https://dd73hh473h6ha.cloudfront.net",
+import { ZolanaClient, teePolicyFromJson } from "@heliuslabs/zolana/client";
+import policyFile from "./prover-policy.json" with { type: "json" };
+
+const client = new ZolanaClient({
+  solanaRpcUrl: rpcUrl,
+  indexerUrl: indexerUrl,
+  proverUrl: proverUrl,
+  proverTee: teePolicyFromJson(policyFile),
 });
 ```
 
-Every remote prover must attest to `defaultTeePolicy(new URL(proverUrl))` before it receives a
-witness, and `proverTee` names another policy. A new prover image or key fails
-attestation until the client takes the new pins from an SDK release or a
-reviewed policy, never from the prover's own answer.
-
-With no URL argument, `defaultTeePolicy()` pins the indexed `devnet-e-tee-1`
-enclave measurements and attested HPKE public key. No `proverTee` policy override is needed for these
-endpoints. See the [TEE deployment pin](../../prover/tee/README.md#building-on-it)
-for the measured build and verified policy source. Attestation, certificate,
-nonce, freshness and HPKE-key verification remain required.
+A unified Helius `/v1/zolana` base URL can be used for both `indexerUrl` and
+`proverUrl`; policy selection is independent of the URL. Every remote prover
+requires the caller's `proverTee` (`tee` on `ProverClient`) before any HTTP
+request. Take new pins from a reviewed release policy, never from the prover's
+own response. Applications can bundle that versioned JSON and its checksum
+with their configuration; the SDK does not fetch policies automatically.
+See the [TEE deployment guide](../../prover/tee/README.md) for policy sources
+and measured-build provenance. Attestation signature, certificate, nonce,
+freshness and HPKE-key checks remain required with a supplied policy.
 
 On localnet, start the stack first with `zolana dev start`. The local test
 validator (`:8899`), Photon indexer (`:8784`), and prover (`:3001`) then
