@@ -1,228 +1,46 @@
-use std::sync::{Arc, Mutex};
-
-use crate::rpc::{OutputContext, OutputSlot};
-use base64::{engine::general_purpose::STANDARD, Engine};
-use serde_json::{json, Value};
-use solana_keypair::Keypair;
+use super::*;
+use crate::{
+    compile_message,
+    rpc::{OutputContext, OutputSlot},
+    ComputeBudgetConfig, Context, GetShieldedTransactionsBySignatureResponse,
+    GetUserRecordsResponse, IndexedShieldedTransaction, IndexerRpcConfig, ProgramAccountsFilter,
+};
+use serde_json::json;
+use solana_account::Account;
 use solana_signer::Signer;
 use spr_instruction::instruction::Transact;
-use spr_interface::instruction::{CircuitId, InputUtxo, TransactProof, TreeContext};
-use spr_transaction::{AssetRegistry, History, Mint, Utxo};
-
-use super::*;
-use crate::{compile_message, ComputeBudgetConfig};
-use solana_transaction::versioned::VersionedTransaction;
-use spr_interface::pda;
-use spr_transaction::HistoryKind as ActivityKind;
-use spr_transaction::{
-    instructions::transact::ConfidentialTransaction, SppProofOutputUtxo, WalletUtxo,
+use spr_interface::{
+    instruction::{CircuitId, InputUtxo, TransactProof, TreeContext},
+    pda,
+    state::SplAssetRegistry,
 };
-use spr_user_registry_interface::MergeEncryptionScheme;
-use std::str::FromStr;
-
-type Handler = dyn Fn(&str, &Value) -> Value + Send + Sync;
-struct ReaderRpc {
-    handler: Arc<Handler>,
-}
-impl ReaderRpc {
-    fn answer(&self, method: &str, params: Value) -> Result<Value, ClientError> {
-        let response = (self.handler)(method, &params);
-        if let Some(error) = response.get("error") {
-            return Err(ClientError::Rpc(error.to_string()));
-        }
-        Ok(response["result"].clone())
-    }
-}
-impl Rpc for ReaderRpc {
-    fn get_confirmed_transaction(
-        &self,
-        signature: Signature,
-    ) -> Result<Option<Confirmed>, ClientError> {
-        Ok(
-            serde_json::from_value(self.answer("getTransaction", json!([signature.to_string()]))?)
-                .unwrap(),
-        )
-    }
-    fn get_shielded_transactions_by_signature(
-        &self,
-        signature: Signature,
-        _: Option<crate::IndexerRpcConfig>,
-    ) -> Result<crate::GetShieldedTransactionsBySignatureResponse, ClientError> {
-        let value = self.answer(
-            "getShieldedTransactionsBySignature",
-            json!({"signature":signature.to_string()}),
-        )?;
-        Ok(crate::GetShieldedTransactionsBySignatureResponse {
-            context: crate::Context {
-                slot: value["context"]["slot"].as_u64().unwrap(),
-                block_time: 0,
-            },
-            output_tree_id: None,
-            transactions: value["transactions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|event| crate::IndexedShieldedTransaction {
-                    event_index: event["eventIndex"].as_u64().unwrap() as u16,
-                    transaction: crate::indexer::decode_shielded_transaction(
-                        serde_json::from_value(event["transaction"].clone()).unwrap(),
-                    )
-                    .unwrap(),
-                })
-                .collect(),
-        })
-    }
-    fn get_user_records(
-        &self,
-        owners: Vec<Pubkey>,
-        _: Option<crate::IndexerRpcConfig>,
-    ) -> Result<crate::GetUserRecordsResponse, ClientError> {
-        let value = self.answer(
-            "getUserRecords",
-            json!({"owners":owners.iter().map(ToString::to_string).collect::<Vec<_>>()}),
-        )?;
-        let records = value["records"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|record| {
-                if record.is_null() {
-                    return None;
-                }
-                Some(spr_user_registry_interface::UserRecord {
-                    owner: record["owner"].as_str().unwrap().parse().unwrap(),
-                    bump: 0,
-                    nullifier_pubkey: bs58::decode(record["nullifierPubkey"].as_str().unwrap())
-                        .into_vec()
-                        .unwrap()
-                        .try_into()
-                        .unwrap(),
-                    viewing_pubkey: STANDARD
-                        .decode(record["viewingPubkey"].as_str().unwrap())
-                        .unwrap()
-                        .try_into()
-                        .unwrap(),
-                    merge_encryption: MergeEncryptionScheme::Disabled,
-                })
-            })
-            .collect();
-        Ok(crate::GetUserRecordsResponse {
-            context: crate::Context {
-                slot: 10,
-                block_time: 0,
-            },
-            records,
-        })
-    }
-    fn get_program_accounts_filtered(
-        &self,
-        _: Pubkey,
-        _: &crate::ProgramAccountsFilter,
-    ) -> Result<Vec<(Pubkey, solana_account::Account)>, ClientError> {
-        let value = self.answer("getProgramAccounts", json!([]))?;
-        Ok(value
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|item| {
-                (
-                    item["pubkey"].as_str().unwrap().parse().unwrap(),
-                    solana_account::Account {
-                        data: STANDARD
-                            .decode(item["account"]["data"][0].as_str().unwrap())
-                            .unwrap(),
-                        owner: item["account"]["owner"].as_str().unwrap().parse().unwrap(),
-                        ..Default::default()
-                    },
-                )
-            })
-            .collect())
-    }
-}
-struct Reader {
-    owner: Pubkey,
-    address: spr_keypair::ShieldedAddress,
-    keys: spr_transaction::LocalShieldedKeys,
-    nullifier_key: spr_keypair::NullifierKey,
-    rpc: ReaderRpc,
-    registry: Mutex<AssetRegistry>,
-}
-impl Reader {
-    fn transaction(&self, signature: String) -> Result<TransactionLookup, ClientError> {
-        self.transaction_with_prepared(signature, &[])
-    }
-    fn transaction_with_prepared(
-        &self,
-        signature: String,
-        outputs: &[spr_transaction::SppProofOutputUtxo],
-    ) -> Result<TransactionLookup, ClientError> {
-        let openings: Vec<_> = outputs
-            .iter()
-            .filter(|output| output.is_dummy() && !output.is_compact())
-            .map(|output| DummyOutputOpening {
-                tree_id: 0,
-                blinding: output.blinding,
-            })
-            .collect();
-        self.lookup(signature, &openings)
-    }
-    fn lookup(
-        &self,
-        signature: String,
-        openings: &[DummyOutputOpening],
-    ) -> Result<TransactionLookup, ClientError> {
-        TransactionReader::new(&self.keys, &self.registry.lock().unwrap())
-            .with_asset_discovery()
-            .with_padding_openings(openings)
-            .fetch(&self.rpc, signature.parse().unwrap())
-    }
-}
-fn wallet(
-    signer: &Keypair,
-    handler: impl Fn(&str, &Value) -> Value + Send + Sync + 'static,
-) -> (Reader, Arc<Mutex<Vec<String>>>) {
-    let asked = Arc::new(Mutex::new(Vec::new()));
-    let calls = Arc::clone(&asked);
-    let handler = Arc::new(move |method: &str, params: &Value| {
-        calls.lock().unwrap().push(method.to_string());
-        handler(method, params)
-    });
-    let keypair = spr_keypair::ShieldedKeypair::from_keypair(
-        spr_keypair::SigningKey::from_ed25519_bytes(&signer.to_bytes()[..32].try_into().unwrap()),
-    )
-    .unwrap();
-    (
-        Reader {
-            owner: signer.pubkey(),
-            address: keypair.shielded_address().unwrap(),
-            keys: spr_transaction::LocalShieldedKeys::from_keypair(&keypair).unwrap(),
-            nullifier_key: keypair.nullifier_key,
-            rpc: ReaderRpc { handler },
-            registry: Mutex::new(AssetRegistry::default()),
-        },
-        asked,
-    )
-}
-fn identity(signer: &Keypair) -> Reader {
-    wallet(signer, |method, _| panic!("unexpected request: {method}")).0
-}
+use spr_keypair::ShieldedKeypair;
+use spr_transaction::{
+    instructions::transact::ConfidentialTransaction, History, Mint, SppProofOutputUtxo, Utxo,
+    WalletUtxo,
+};
+use spr_user_registry_interface::{MergeEncryptionScheme, UserRecord};
+use std::sync::Mutex;
 
 struct Fixture {
     signature: Signature,
-    chain: Value,
+    chain: Option<Confirmed>,
     events: Vec<ShieldedTransaction>,
     registry: AssetRegistry,
     notes: Vec<WalletUtxo>,
     openings: Vec<SppProofOutputUtxo>,
-    records: HashMap<Pubkey, spr_user_registry_interface::UserRecord>,
+    records: HashMap<Pubkey, UserRecord>,
+    indexed_slot: u64,
+    calls: Mutex<Vec<&'static str>>,
+    failing_call: Option<&'static str>,
 }
 
 impl Fixture {
     /// Real encrypted default-ring spend, with known source notes only in the
     /// fixture. The lookup receives neither those notes nor any history page.
     fn spend(
-        sender: &Reader,
-        recipient: &Reader,
+        sender: &ShieldedKeypair,
+        recipient: &ShieldedKeypair,
         private: u64,
         withdrawal: u64,
         assets: &[Mint],
@@ -231,14 +49,16 @@ impl Fixture {
     }
 
     fn spend_with_cache(
-        sender: &Reader,
-        recipient: &Reader,
+        sender: &ShieldedKeypair,
+        recipient: &ShieldedKeypair,
         private: u64,
         withdrawal: u64,
         assets: &[Mint],
         cached: bool,
     ) -> Self {
-        let payer = sender.owner;
+        let payer = sender.pubkey();
+        let sender_address = sender.address().unwrap();
+        let recipient_address = recipient.address().unwrap();
         let mut registry = AssetRegistry::default();
         for mint in assets {
             if mint.asset != SOL_MINT {
@@ -248,7 +68,7 @@ impl Fixture {
         let mut notes = Vec::new();
         for (index, asset) in assets.iter().enumerate() {
             let utxo = Utxo {
-                owner: sender.address.signing_pubkey,
+                owner: sender_address.signing_pubkey,
                 asset: *asset,
                 amount: 100,
                 blinding: [index as u8 + 1; 32],
@@ -256,12 +76,12 @@ impl Fixture {
                 data: Default::default(),
             };
             let hash = utxo
-                .hash(&sender.address.nullifier_pubkey, &[0; 32], &[0; 32], 0)
+                .hash(&sender_address.nullifier_pubkey, &[0; 32], &[0; 32], 0)
                 .unwrap();
             let nullifier = utxo.nullifier(&hash, &sender.nullifier_key).unwrap();
             notes.push(WalletUtxo {
                 utxo,
-                nullifier_pubkey: sender.address.nullifier_pubkey,
+                nullifier_pubkey: sender_address.nullifier_pubkey,
                 utxo_hash: hash,
                 nullifier,
                 tx_viewing_key: None,
@@ -281,11 +101,11 @@ impl Fixture {
             if private > 0 {
                 if asset.asset == SOL_MINT {
                     transaction
-                        .transfer_sol(&recipient.address, private)
+                        .transfer_sol(&recipient_address, private)
                         .unwrap();
                 } else {
                     transaction
-                        .transfer(&recipient.address, asset.asset, private)
+                        .transfer(&recipient_address, asset.asset, private)
                         .unwrap();
                 }
             }
@@ -295,14 +115,14 @@ impl Fixture {
                         .withdraw_to(
                             asset.asset,
                             withdrawal,
-                            recipient.owner,
+                            recipient.pubkey(),
                             (asset.asset != SOL_MINT).then(pda::spl_token_program_id),
                         )
                         .unwrap(),
                 );
             }
         }
-        let inputs = transaction.encrypt(&sender.keys).unwrap();
+        let inputs = transaction.encrypt(sender).unwrap();
         let tree_id = inputs.output_tree_id;
         // Read back only wire-visible data, just as the indexer does.
         let data = TransactIxData {
@@ -344,7 +164,7 @@ impl Fixture {
             payer,
             input_trees: vec![pda::tree(0)],
             output_tree: pda::tree(tree_id),
-            owner_signers: vec![sender.owner],
+            owner_signers: vec![sender.pubkey()],
             interface_transfer_accounts: settlements,
             data,
         };
@@ -370,16 +190,12 @@ impl Fixture {
             ComputeBudgetConfig::new(1_000_000),
         )
         .unwrap();
-        let signed = VersionedTransaction {
-            signatures: vec![signature],
-            message,
-        };
         let chain = json!({"slot": 10, "blockTime": 0, "version": 1,
             "transaction": {"signatures": [signature.to_string()], "message": {
-                "header": signed.message.header(),
-                "accountKeys": signed.message.static_account_keys().iter().map(ToString::to_string).collect::<Vec<_>>(),
-                "recentBlockhash": signed.message.recent_blockhash().to_string(),
-                "instructions": signed.message.instructions().iter().map(|ix| solana_transaction_status_client_types::UiCompiledInstruction::from(ix, None)).collect::<Vec<_>>(),
+                "header": message.header(),
+                "accountKeys": message.static_account_keys().iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "recentBlockhash": message.recent_blockhash().to_string(),
+                "instructions": message.instructions().iter().map(|ix| solana_transaction_status_client_types::UiCompiledInstruction::from(ix, None)).collect::<Vec<_>>(),
                 "addressTableLookups": []
             }},
             "meta": {"err": null, "status": {"Ok": null}, "fee": 5000,
@@ -426,91 +242,133 @@ impl Fixture {
             ring_program_id: None,
         };
         let record = spr_user_registry_interface::UserRecord {
-            owner: recipient.owner,
+            owner: recipient.pubkey(),
             bump: 0,
-            nullifier_pubkey: recipient.address.nullifier_pubkey,
-            viewing_pubkey: *recipient.address.viewing_pubkey.as_bytes(),
+            nullifier_pubkey: recipient_address.nullifier_pubkey,
+            viewing_pubkey: *recipient_address.viewing_pubkey.as_bytes(),
             merge_encryption: MergeEncryptionScheme::Disabled,
         };
         Self {
             signature,
-            chain,
+            chain: Some(serde_json::from_value(chain).unwrap()),
             events: vec![event],
             registry,
             notes,
             openings: inputs.output_utxos.clone(),
-            records: HashMap::from([(recipient.owner, record)]),
+            records: HashMap::from([(recipient.pubkey(), record)]),
+            indexed_slot: 10,
+            calls: Mutex::new(vec![]),
+            failing_call: None,
         }
     }
 
-    fn indexer(&self, slot: u64) -> Value {
-        json!({"context": {"slot": slot, "blockTime": 0}, "transactions": self.events.iter().enumerate().map(|(index, tx)| json!({
-            "eventIndex": index, "transaction": {
-                "slot": tx.slot, "txSignature": tx.tx_signature.to_string(), "eventIndex": tx.event_index,
-                "txViewingPk": tx.tx_viewing_pk.map(|key| STANDARD.encode(key.as_bytes())),
-                "salt": tx.salt.map(|salt| STANDARD.encode(salt)), "proofless": tx.proofless,
-                "nullifiers": tx.nullifiers.iter().map(|hash| spr_api::Hash::from(*hash).to_base58()).collect::<Vec<_>>(),
-                "messages": [], "outputSlots": tx.output_slots.iter().map(|slot| json!({
-                    "viewTag": spr_api::Hash::from(slot.view_tag).to_base58(), "payload": STANDARD.encode(&slot.payload),
-                    "outputContext": {"hash": spr_api::Hash::from(slot.output_context.hash).to_base58(),
-                        "tree": pda::tree(slot.output_context.tree_id).to_string(), "treeId": slot.output_context.tree_id,
-                        "leafIndex": slot.output_context.leaf_index}
-                })).collect::<Vec<_>>()
-            }
-        })).collect::<Vec<_>>()})
+    fn reader<'a>(&'a self, keys: &'a ShieldedKeypair) -> TransactionReader<'a, ShieldedKeypair> {
+        TransactionReader::new(keys, &self.registry).with_asset_discovery()
     }
 
-    fn open(self, signer: &Keypair) -> (Reader, Arc<Mutex<Vec<String>>>) {
-        self.open_with_registry(signer, true)
+    fn padding(&self) -> Vec<DummyOutputOpening> {
+        self.openings
+            .iter()
+            .filter(|output| output.is_dummy())
+            .map(|output| DummyOutputOpening {
+                tree_id: 0,
+                blinding: output.blinding,
+            })
+            .collect()
     }
 
-    fn prepared(&self, _: &Keypair) -> Vec<SppProofOutputUtxo> {
-        self.openings.clone()
+    fn called(&self, method: &'static str) -> Result<(), ClientError> {
+        self.calls.lock().unwrap().push(method);
+        if self.failing_call == Some(method) {
+            return Err(ClientError::Rpc("unavailable".into()));
+        }
+        Ok(())
+    }
+}
+
+impl Rpc for Fixture {
+    fn get_confirmed_transaction(
+        &self,
+        signature: Signature,
+    ) -> Result<Option<Confirmed>, ClientError> {
+        self.called("getTransaction")?;
+        assert_eq!(signature, self.signature);
+        Ok(self.chain.clone())
     }
 
-    fn open_with_registry(
-        self,
-        signer: &Keypair,
-        preload: bool,
-    ) -> (Reader, Arc<Mutex<Vec<String>>>) {
-        let registry = self.registry.clone();
-        let indexed = self.indexer(10);
-        let (wallet, calls) = wallet(signer, move |method, params| match method {
-            "getShieldedTransactionsBySignature" => json!({"result": indexed}),
-            "getTransaction" => json!({"result": self.chain}),
-            "getProgramAccounts" => {
-                json!({"result": self.notes.iter().filter(|note| note.utxo.asset.asset != SOL_MINT).map(|note| {
+    fn get_shielded_transactions_by_signature(
+        &self,
+        signature: Signature,
+        _: Option<IndexerRpcConfig>,
+    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
+        self.called("getShieldedTransactionsBySignature")?;
+        assert_eq!(signature, self.signature);
+        Ok(GetShieldedTransactionsBySignatureResponse {
+            context: Context {
+                slot: self.indexed_slot,
+                block_time: 0,
+            },
+            output_tree_id: None,
+            transactions: self
+                .events
+                .iter()
+                .enumerate()
+                .map(|(index, transaction)| IndexedShieldedTransaction {
+                    event_index: index as u16,
+                    transaction: transaction.clone(),
+                })
+                .collect(),
+        })
+    }
+
+    fn get_user_records(
+        &self,
+        owners: Vec<Pubkey>,
+        _: Option<IndexerRpcConfig>,
+    ) -> Result<GetUserRecordsResponse, ClientError> {
+        self.called("getUserRecords")?;
+        Ok(GetUserRecordsResponse {
+            context: Context {
+                slot: self.indexed_slot,
+                block_time: 0,
+            },
+            records: owners
+                .iter()
+                .map(|owner| self.records.get(owner).cloned())
+                .collect(),
+        })
+    }
+
+    fn get_program_accounts_filtered(
+        &self,
+        program: Pubkey,
+        _: &ProgramAccountsFilter,
+    ) -> Result<Vec<(Pubkey, Account)>, ClientError> {
+        self.called("getProgramAccounts")?;
+        assert_eq!(program, PROGRAM_ID_PUBKEY);
+        Ok(self
+            .notes
+            .iter()
+            .filter(|note| note.utxo.asset.asset != SOL_MINT)
+            .map(|note| {
                 let mint = note.utxo.asset;
-                json!({"pubkey": pda::spl_asset_registry(&mint.asset).to_string(), "account": {
-                    "owner": PROGRAM_ID_PUBKEY.to_string(), "lamports": 1000000, "executable": false, "rentEpoch": 0,
-                    "data": [STANDARD.encode(spr_interface::state::SplAssetRegistry::account_bytes(mint.asset, mint.asset_id)), "base64"]
-                }})
-            }).collect::<Vec<_>>()})
-            }
-            "getUserRecords" => {
-                let records = params["owners"].as_array().unwrap().iter().map(|owner| {
-                    let owner = Pubkey::from_str(owner.as_str().unwrap()).unwrap();
-                    self.records.get(&owner).map(|record| json!({"owner": record.owner.to_string(),
-                        "nullifierPubkey": spr_api::Hash::from(record.nullifier_pubkey).to_base58(),
-                        "viewingPubkey": STANDARD.encode(record.viewing_pubkey), "mergeEncryption": 0}))
-                }).collect::<Vec<_>>();
-                json!({"result": {"context": {"slot": 10, "blockTime": 0}, "records": records}})
-            }
-            _ => panic!("lookup must not fetch history: {method}"),
-        });
-        if preload {
-            *wallet.registry.lock().unwrap() = registry;
-        }
-        (wallet, calls)
+                (
+                    pda::spl_asset_registry(&mint.asset),
+                    Account {
+                        owner: PROGRAM_ID_PUBKEY,
+                        data: SplAssetRegistry::account_bytes(mint.asset, mint.asset_id).to_vec(),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect())
     }
 }
 
 #[test]
 fn cold_lookup_matches_history_for_sends_withdrawals_and_multiple_assets() {
-    let sender = Keypair::new();
-    let recipient = Keypair::new();
-    let owner = identity(&sender);
-    let recipient_wallet = identity(&recipient);
+    let owner = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
     for (private, withdrawal) in [(20, 0), (0, 100), (10, 20)] {
         for (assets, cached) in [
             (vec![Mint::SOL], false),
@@ -518,45 +376,26 @@ fn cold_lookup_matches_history_for_sends_withdrawals_and_multiple_assets() {
             (vec![Mint::SOL, Mint::new(Pubkey::new_unique(), 7)], false),
             (vec![Mint::SOL, Mint::new(Pubkey::new_unique(), 7)], true),
         ] {
-            let fixture = Fixture::spend_with_cache(
-                &owner,
-                &recipient_wallet,
-                private,
-                withdrawal,
-                &assets,
-                cached,
-            );
-            let decoded = decrypt(&owner.keys, &fixture.events, &fixture.registry).unwrap();
+            let fixture =
+                Fixture::spend_with_cache(&owner, &recipient, private, withdrawal, &assets, cached);
+            let decoded = decrypt(&owner, &fixture.events, &fixture.registry).unwrap();
             let mut utxos = fixture.notes.clone();
-            utxos.extend(verify_owned(&owner.keys, &decoded).unwrap().utxos);
+            utxos.extend(verify_owned(&owner, &decoded).unwrap().utxos);
             let expected = History {
                 transactions: fixture.events.clone(),
                 utxos,
-                view_tags: [owner
-                    .address
-                    .signing_pubkey
-                    .confidential_view_tag()
-                    .unwrap()]
-                .into_iter()
-                .collect(),
+                view_tags: [owner.signing_pubkey().confidential_view_tag().unwrap()].into(),
                 ..Default::default()
             }
             .entries();
-            let confirmed: Confirmed = serde_json::from_value(fixture.chain.clone()).unwrap();
-            let groups = ConfirmedInstructionGroups::try_from(confirmed)
-                .expect("fixture instruction groups");
-            assert!(
-                transact_context(&fixture.events[0], &groups).is_some(),
-                "fixture event matches its instruction"
-            );
-            let signature = fixture.signature.to_string();
-            let (wallet, asked) = fixture.open(&sender);
-            let result = wallet.transaction(signature).unwrap();
+            let result = fixture
+                .reader(&owner)
+                .fetch(&fixture, fixture.signature)
+                .unwrap();
             assert_eq!(
                 result.status,
                 Status::Ready,
-                "private={private}, withdrawal={withdrawal}, assets={assets:?}, calls={:?}",
-                asked.lock().unwrap()
+                "private={private}, withdrawal={withdrawal}, assets={assets:?}"
             );
             let rows = |entries: &[HistoryEntry]| {
                 entries
@@ -575,118 +414,114 @@ fn cold_lookup_matches_history_for_sends_withdrawals_and_multiple_assets() {
             assert_eq!(rows(&result.entries), rows(&expected));
             assert!(!result.entries.is_empty());
             assert_eq!(result.indexed_slot, 10);
-            assert!(asked.lock().unwrap().iter().all(|method| [
+            assert!(fixture.calls.lock().unwrap().iter().all(|method| [
                 "getTransaction",
                 "getShieldedTransactionsBySignature",
-                "getUserRecords"
+                "getUserRecords",
             ]
-            .contains(&method.as_str())));
+            .contains(method)));
         }
     }
 }
 
 #[test]
 fn incoming_unrelated_and_self_transfers_are_read_without_history() {
-    let sender = Keypair::new();
-    let recipient = Keypair::new();
-    let owner = identity(&sender);
-    let other = identity(&recipient);
-    let fixture = Fixture::spend(&owner, &other, 20, 0, &[Mint::SOL]);
-    let signature = fixture.signature.to_string();
-    let (wallet, _) = fixture.open(&recipient);
-    let incoming = wallet.transaction(signature).unwrap();
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    let fixture = Fixture::spend(&sender, &recipient, 20, 0, &[Mint::SOL]);
+    let incoming = fixture
+        .reader(&recipient)
+        .fetch(&fixture, fixture.signature)
+        .unwrap();
     assert_eq!(incoming.status, Status::Ready);
     assert_eq!(incoming.entries.len(), 1);
     assert_eq!(
         (incoming.entries[0].kind, incoming.entries[0].amount),
-        (ActivityKind::Received, 20)
+        (HistoryKind::Received, 20)
     );
 
-    let fixture = Fixture::spend(&owner, &other, 20, 0, &[Mint::SOL]);
-    let signature = fixture.signature.to_string();
-    let (wallet, _) = fixture.open(&Keypair::new());
-    let unrelated = wallet.transaction(signature).unwrap();
+    let unrelated = fixture
+        .reader(&ShieldedKeypair::new_ed25519().unwrap())
+        .fetch(&fixture, fixture.signature)
+        .unwrap();
     assert_eq!(unrelated.status, Status::Ready);
     assert!(unrelated.entries.is_empty());
 
-    let fixture = Fixture::spend(&owner, &owner, 20, 0, &[Mint::SOL]);
-    let signature = fixture.signature.to_string();
-    let (wallet, _) = fixture.open(&sender);
-    let own = wallet.transaction(signature).unwrap();
+    let fixture = Fixture::spend(&sender, &sender, 20, 0, &[Mint::SOL]);
+    let own = fixture
+        .reader(&sender)
+        .fetch(&fixture, fixture.signature)
+        .unwrap();
     assert_eq!(own.status, Status::Ready);
     assert_eq!(
         (own.entries[0].kind, own.entries[0].amount),
-        (ActivityKind::SelfTransfer, 100)
+        (HistoryKind::SelfTransfer, 100)
     );
 }
 
 #[test]
 fn indexing_delay_not_found_and_indexed_empty_are_distinct() {
-    let signer = Keypair::new();
+    let owner = ShieldedKeypair::new_ed25519().unwrap();
     for (chain_slot, indexed_slot, expected) in [
         (Some(10), 9, Status::PendingIndexing),
         (Some(10), 10, Status::Ready),
         (None, 10, Status::NotFound),
     ] {
-        let owner = identity(&signer);
         let mut fixture = Fixture::spend(&owner, &owner, 20, 0, &[Mint::SOL]);
         fixture.events.clear();
-        let indexed = fixture.indexer(indexed_slot);
-        let chain = chain_slot.map(|_| fixture.chain).unwrap_or(Value::Null);
-        let (wallet, asked) = wallet(&signer, move |method, _| match method {
-            "getShieldedTransactionsBySignature" => json!({"result": indexed}),
-            "getTransaction" => json!({"result": chain}),
-            _ => panic!("unexpected request: {method}"),
-        });
-        let result = wallet
-            .transaction(Signature::from([12; 64]).to_string())
+        fixture.indexed_slot = indexed_slot;
+        if chain_slot.is_none() {
+            fixture.chain = None;
+        }
+        let result = fixture
+            .reader(&owner)
+            .fetch(&fixture, fixture.signature)
             .unwrap();
         assert_eq!(result.status, expected);
         assert_eq!(result.slot, chain_slot);
         assert!(result.entries.is_empty());
-        assert_eq!(asked.lock().unwrap().len(), 2);
+        assert_eq!(fixture.calls.lock().unwrap().len(), 2);
     }
 }
 
 #[test]
 fn network_failures_are_not_empty_results() {
-    let signer = Keypair::new();
-    let (wallet, _) = wallet(
-        &signer,
-        |_, _| json!({"error": {"code": -32603, "message": "unavailable"}}),
-    );
-    assert!(matches!(
-        wallet.transaction(Signature::from([12; 64]).to_string()),
-        Err(ClientError::Rpc(_))
-    ));
+    let owner = ShieldedKeypair::new_ed25519().unwrap();
+    for method in ["getTransaction", "getShieldedTransactionsBySignature"] {
+        let mut fixture = Fixture::spend(&owner, &owner, 20, 0, &[Mint::SOL]);
+        fixture.failing_call = Some(method);
+        assert!(matches!(
+            fixture.reader(&owner).fetch(&fixture, fixture.signature),
+            Err(ClientError::Rpc(_))
+        ));
+    }
 }
 
 #[test]
 fn missing_metadata_and_corrupt_ciphertexts_never_return_partial_rows() {
-    let sender = Keypair::new();
-    let recipient = Keypair::new();
-    let owner = identity(&sender);
-    let other = identity(&recipient);
-    for mutation in [0, 1, 2] {
-        let mut fixture = Fixture::spend(&owner, &other, 20, 0, &[Mint::SOL]);
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    for mutation in 0..3 {
+        let mut fixture = Fixture::spend(&sender, &recipient, 20, 0, &[Mint::SOL]);
         match mutation {
-            0 => fixture.chain = Value::Null,
+            0 => fixture.chain = None,
             1 => fixture.events[0].output_slots[0].payload[10] ^= 1,
             _ => fixture.records.clear(),
         }
-        let signature = fixture.signature.to_string();
-        let (wallet, _) = fixture.open(&sender);
-        let result = wallet.transaction(signature).unwrap();
+        let result = fixture
+            .reader(&sender)
+            .fetch(&fixture, fixture.signature)
+            .unwrap();
         assert_eq!(result.status, Status::Incomplete, "mutation {mutation}");
         assert!(result.entries.is_empty());
     }
-    // A recipient can still authenticate its received notes when the chain
-    // RPC has pruned the metadata required for sender-side settlements.
-    let mut fixture = Fixture::spend(&owner, &other, 20, 0, &[Mint::SOL]);
-    fixture.chain = Value::Null;
-    let signature = fixture.signature.to_string();
-    let (wallet, _) = fixture.open(&recipient);
-    let result = wallet.transaction(signature).unwrap();
+    // Received notes can still be authenticated when chain metadata is pruned.
+    let mut fixture = Fixture::spend(&sender, &recipient, 20, 0, &[Mint::SOL]);
+    fixture.chain = None;
+    let result = fixture
+        .reader(&recipient)
+        .fetch(&fixture, fixture.signature)
+        .unwrap();
     assert_eq!(result.status, Status::Ready);
     assert_eq!(result.entries[0].amount, 20);
 }
@@ -694,19 +529,15 @@ fn missing_metadata_and_corrupt_ciphertexts_never_return_partial_rows() {
 #[test]
 fn deposit_events_are_aggregated_deduplicated_and_have_stable_asset_ids() {
     use spr_transaction::serialization::{OwnerCx, Proofless, ProoflessEncode, UtxoSerialization};
-    let signer = Keypair::new();
-    let owner = identity(&signer);
+    let owner = ShieldedKeypair::new_ed25519().unwrap();
+    let address = owner.address().unwrap();
     let token = Mint::new(Pubkey::new_unique(), 7);
     let mut fixture = Fixture::spend(&owner, &owner, 20, 0, &[Mint::SOL, token]);
-    let tag = owner
-        .address
-        .signing_pubkey
-        .confidential_view_tag()
-        .unwrap();
+    let tag = address.signing_pubkey.confidential_view_tag().unwrap();
     let mut slots = Vec::new();
     for (index, asset) in [Mint::SOL, token].iter().enumerate() {
         let utxo = Utxo {
-            owner: owner.address.signing_pubkey,
+            owner: address.signing_pubkey,
             asset: *asset,
             amount: 5 + index as u64,
             blinding: [index as u8; 32],
@@ -714,19 +545,19 @@ fn deposit_events_are_aggregated_deduplicated_and_have_stable_asset_ids() {
             data: Default::default(),
         };
         let hash = utxo
-            .hash(&owner.address.nullifier_pubkey, &[0; 32], &[0; 32], 0)
+            .hash(&address.nullifier_pubkey, &[0; 32], &[0; 32], 0)
             .unwrap();
         let encoded = Proofless::encode(
             &[utxo],
             &OwnerCx {
-                owner: owner.address.signing_pubkey,
+                owner: address.signing_pubkey,
                 assets: &fixture.registry,
                 ring_program_id: None,
                 first_nullifier: None,
             },
             tag,
             &ProoflessEncode {
-                owner_hash: owner.address.owner_hash().unwrap(),
+                owner_hash: address.owner_hash().unwrap(),
                 data_hash: None,
                 ring_data_hash: None,
             },
@@ -747,13 +578,14 @@ fn deposit_events_are_aggregated_deduplicated_and_have_stable_asset_ids() {
     fixture.events[0].tx_viewing_pk = None;
     fixture.events[0].salt = None;
     fixture.events[0].nullifiers.clear();
-    fixture.chain = Value::Null;
+    fixture.chain = None;
     let mut duplicate = fixture.events[0].clone();
     duplicate.event_index = Some(1);
     fixture.events.push(duplicate);
-    let signature = fixture.signature.to_string();
-    let (wallet, _) = fixture.open(&signer);
-    let result = wallet.transaction(signature).unwrap();
+    let result = fixture
+        .reader(&owner)
+        .fetch(&fixture, fixture.signature)
+        .unwrap();
     assert_eq!(result.status, Status::Ready);
     assert_eq!(result.entries.len(), 2);
     assert_eq!(
@@ -762,7 +594,7 @@ fn deposit_events_are_aggregated_deduplicated_and_have_stable_asset_ids() {
             .iter()
             .map(|entry| (
                 result.asset_registry.asset_id(&entry.mint).unwrap(),
-                entry.amount
+                entry.amount,
             ))
             .collect::<Vec<_>>(),
         vec![(1, 5), (7, 6)]
@@ -770,7 +602,7 @@ fn deposit_events_are_aggregated_deduplicated_and_have_stable_asset_ids() {
     assert!(result
         .entries
         .iter()
-        .all(|entry| entry.kind == ActivityKind::Deposit));
+        .all(|entry| entry.kind == HistoryKind::Deposit));
 }
 
 #[test]
@@ -779,8 +611,8 @@ fn a_cold_wallet_reads_a_merge_as_a_self_transfer() {
     use spr_transaction::instructions::merge::{
         merge_output_blinding, merge_output_key, MergeOutputPlaintext,
     };
-    let signer = Keypair::new();
-    let owner = identity(&signer);
+    let owner = ShieldedKeypair::new_ed25519().unwrap();
+    let address = owner.address().unwrap();
     let mut fixture = Fixture::spend(&owner, &owner, 20, 0, &[Mint::SOL]);
     let first = [1; 32];
     let salt = [3; 16];
@@ -791,16 +623,12 @@ fn a_cold_wallet_reads_a_merge_as_a_self_transfer() {
         mint: SOL_MINT,
     };
     let ciphertext = plaintext.encrypt(&key, &salt).unwrap();
-    let utxo = plaintext.into_utxo(owner.address.signing_pubkey, Mint::SOL, blinding, None);
+    let utxo = plaintext.into_utxo(address.signing_pubkey, Mint::SOL, blinding, None);
     let hash = utxo
-        .hash(&owner.address.nullifier_pubkey, &[0; 32], &[0; 32], 0)
+        .hash(&address.nullifier_pubkey, &[0; 32], &[0; 32], 0)
         .unwrap();
     fixture.events[0].output_slots = vec![OutputSlot {
-        view_tag: owner
-            .address
-            .signing_pubkey
-            .confidential_view_tag()
-            .unwrap(),
+        view_tag: address.signing_pubkey.confidential_view_tag().unwrap(),
         output_context: OutputContext {
             hash,
             tree_id: 0,
@@ -815,71 +643,57 @@ fn a_cold_wallet_reads_a_merge_as_a_self_transfer() {
     fixture.events[0].tx_viewing_pk = None;
     fixture.events[0].salt = None;
     fixture.events[0].nullifiers = vec![first];
-    fixture.chain = Value::Null;
-    let mut corrupt = Fixture {
-        signature: fixture.signature,
-        chain: fixture.chain.clone(),
-        events: fixture.events.clone(),
-        registry: fixture.registry.clone(),
-        notes: fixture.notes.clone(),
-        openings: fixture.openings.clone(),
-        records: fixture.records.clone(),
-    };
-    corrupt.events[0].output_slots[0].output_context.hash = [0; 32];
-    let signature = fixture.signature.to_string();
-    let (wallet, _) = fixture.open(&signer);
-    let result = wallet.transaction(signature.clone()).unwrap();
+    fixture.chain = None;
+    let result = fixture
+        .reader(&owner)
+        .fetch(&fixture, fixture.signature)
+        .unwrap();
     assert_eq!(result.status, Status::Ready);
     assert_eq!(
         (result.entries[0].kind, result.entries[0].amount),
-        (ActivityKind::SelfTransfer, 50)
+        (HistoryKind::SelfTransfer, 50)
     );
-    let (wallet, _) = corrupt.open(&signer);
-    let result = wallet.transaction(signature).unwrap();
+    fixture.events[0].output_slots[0].output_context.hash = [0; 32];
+    let result = fixture
+        .reader(&owner)
+        .fetch(&fixture, fixture.signature)
+        .unwrap();
     assert_eq!(result.status, Status::Incomplete);
     assert!(result.entries.is_empty());
 }
 
 #[test]
 fn a_full_private_send_with_recipient_tagged_padding_is_explicitly_incomplete() {
-    let sender = Keypair::new();
-    let recipient = Keypair::new();
-    let fixture = Fixture::spend(
-        &identity(&sender),
-        &identity(&recipient),
-        100,
-        0,
-        &[Mint::SOL],
-    );
-    let signature = fixture.signature.to_string();
-    let (wallet, _) = fixture.open(&sender);
-    let result = wallet.transaction(signature).unwrap();
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    let fixture = Fixture::spend(&sender, &recipient, 100, 0, &[Mint::SOL]);
+    let result = fixture
+        .reader(&sender)
+        .fetch(&fixture, fixture.signature)
+        .unwrap();
     assert_eq!(result.status, Status::Incomplete);
     assert!(result.entries.is_empty());
 }
 
 #[test]
 fn padding_openings_resolve_exact_balance_payments_without_history() {
-    let sender = Keypair::new();
-    let recipient = Keypair::new();
-    let owner = identity(&sender);
-    let receiver = identity(&recipient);
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
     for cached in [false, true] {
         for (private, withdrawal) in [(100, 0), (50, 50)] {
             for mint in [Mint::SOL, Mint::new(Pubkey::new_unique(), 7)] {
                 let fixture = Fixture::spend_with_cache(
-                    &owner,
-                    &receiver,
+                    &sender,
+                    &recipient,
                     private,
                     withdrawal,
                     &[mint],
                     cached,
                 );
-                let pending = fixture.prepared(&sender);
-                let signature = fixture.signature.to_string();
-                let (wallet, _) = fixture.open(&sender);
-                let result = wallet
-                    .transaction_with_prepared(signature.clone(), &pending)
+                let result = fixture
+                    .reader(&sender)
+                    .with_padding_openings(&fixture.padding())
+                    .fetch(&fixture, fixture.signature)
                     .unwrap();
                 assert_eq!(result.status, Status::Ready);
                 assert_eq!(result.entries.len(), 1);
@@ -887,7 +701,7 @@ fn padding_openings_resolve_exact_balance_payments_without_history() {
                 assert_eq!(entry.kind, HistoryKind::Sent);
                 assert_eq!(entry.amount, 100);
                 assert_eq!(entry.mint, mint.asset);
-                assert_eq!(entry.tx_signature.to_string(), signature);
+                assert_eq!(entry.tx_signature, fixture.signature);
                 assert_eq!(entry.slot, 10);
             }
         }
@@ -896,28 +710,22 @@ fn padding_openings_resolve_exact_balance_payments_without_history() {
 
 #[test]
 fn padding_openings_cannot_hide_missing_or_tampered_details() {
-    let sender = Keypair::new();
-    let recipient = Keypair::new();
-    let owner = identity(&sender);
-    let receiver = identity(&recipient);
-    for mutation in 0..8 {
-        let mut fixture = Fixture::spend(&owner, &receiver, 100, 0, &[Mint::SOL]);
-        let mut pending = fixture.prepared(&sender);
-        let padding = pending.iter_mut().find(|output| output.is_dummy()).unwrap();
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    for mutation in 0..6 {
+        let mut fixture = Fixture::spend(&sender, &recipient, 100, 0, &[Mint::SOL]);
+        let mut padding = fixture.padding();
         match mutation {
-            0 => padding.blinding[31] ^= 1,
-            1 => padding.blinding[30] ^= 1,
-            2 => padding.compact = true,
-            3 => {
-                pending = Fixture::spend(&owner, &receiver, 100, 0, &[Mint::SOL]).prepared(&sender);
-            }
-            4 => fixture.chain = Value::Null,
-            5 => fixture.records.clear(),
-            6 => {
-                // Even calling a real recipient output a dummy cannot open its
-                // commitment under the protocol's distinct dummy domain.
-                pending[0].owner_address = None;
-                pending[0].amount = 0;
+            0 => padding[0].blinding[31] ^= 1,
+            1 => padding = Fixture::spend(&sender, &recipient, 100, 0, &[Mint::SOL]).padding(),
+            2 => fixture.chain = None,
+            3 => fixture.records.clear(),
+            4 => {
+                // A real output cannot open under the dummy commitment domain.
+                padding.push(DummyOutputOpening {
+                    tree_id: 0,
+                    blinding: fixture.openings[0].blinding,
+                });
                 fixture
                     .records
                     .values_mut()
@@ -927,10 +735,10 @@ fn padding_openings_cannot_hide_missing_or_tampered_details() {
             }
             _ => fixture.events[0].output_slots[0].payload[10] ^= 1,
         }
-        let signature = fixture.signature.to_string();
-        let (wallet, _) = fixture.open(&sender);
-        let result = wallet
-            .transaction_with_prepared(signature, &pending)
+        let result = fixture
+            .reader(&sender)
+            .with_padding_openings(&padding)
+            .fetch(&fixture, fixture.signature)
             .unwrap();
         assert_eq!(result.status, Status::Incomplete, "mutation {mutation}");
         assert!(result.entries.is_empty());
@@ -939,19 +747,14 @@ fn padding_openings_cannot_hide_missing_or_tampered_details() {
 
 #[test]
 fn a_cold_token_lookup_discovers_only_asset_metadata_and_keeps_existing_mappings() {
-    let sender = Keypair::new();
-    let receiver = Keypair::new();
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
     let token = Mint::new(Pubkey::new_unique(), 7);
-    let fixture = Fixture::spend(
-        &identity(&sender),
-        &identity(&receiver),
-        10,
-        20,
-        &[Mint::SOL, token],
-    );
-    let signature = fixture.signature.to_string();
-    let (wallet, asked) = fixture.open_with_registry(&sender, false);
-    let result = wallet.transaction(signature).unwrap();
+    let fixture = Fixture::spend(&sender, &recipient, 10, 20, &[Mint::SOL, token]);
+    let result = TransactionReader::new(&sender, &AssetRegistry::default())
+        .with_asset_discovery()
+        .fetch(&fixture, fixture.signature)
+        .unwrap();
     assert_eq!(result.status, Status::Ready);
     assert_eq!(
         result
@@ -959,17 +762,18 @@ fn a_cold_token_lookup_discovers_only_asset_metadata_and_keeps_existing_mappings
             .iter()
             .map(|row| (
                 result.asset_registry.asset_id(&row.mint).unwrap(),
-                row.amount
+                row.amount,
             ))
             .collect::<Vec<_>>(),
         vec![(1, 30), (7, 30)]
     );
     assert_eq!(
-        asked
+        fixture
+            .calls
             .lock()
             .unwrap()
             .iter()
-            .filter(|method| method.as_str() == "getProgramAccounts")
+            .filter(|method| **method == "getProgramAccounts")
             .count(),
         1
     );
@@ -977,27 +781,18 @@ fn a_cold_token_lookup_discovers_only_asset_metadata_and_keeps_existing_mappings
 
 #[test]
 fn a_padding_opening_for_another_tree_cannot_hide_an_unreadable_slot() {
-    let sender = Keypair::new();
-    let recipient = Keypair::new();
-    let fixture = Fixture::spend(
-        &identity(&sender),
-        &identity(&recipient),
-        100,
-        0,
-        &[Mint::SOL],
-    );
-    let opening = fixture
-        .openings
-        .iter()
-        .find(|output| output.is_dummy())
+    let sender = ShieldedKeypair::new_ed25519().unwrap();
+    let recipient = ShieldedKeypair::new_ed25519().unwrap();
+    let fixture = Fixture::spend(&sender, &recipient, 100, 0, &[Mint::SOL]);
+    let mut padding = fixture.padding();
+    for opening in &mut padding {
+        opening.tree_id = 1;
+    }
+    let result = fixture
+        .reader(&sender)
+        .with_padding_openings(&padding)
+        .fetch(&fixture, fixture.signature)
         .unwrap();
-    let wrong_tree = DummyOutputOpening {
-        tree_id: 1,
-        blinding: opening.blinding,
-    };
-    let signature = fixture.signature.to_string();
-    let (wallet, _) = fixture.open(&sender);
-    let result = wallet.lookup(signature, &[wrong_tree]).unwrap();
     assert_eq!(result.status, Status::Incomplete);
     assert!(result.entries.is_empty());
 }
