@@ -11,14 +11,18 @@ client for blocking callers, run on a Tokio runtime it owns, over a blocking
 implementation of everything; the blocking client runs it to completion.
 
 ```rust
-let client = ZolanaClient::from_urls(rpc, indexer_url, prover_url)?;
-let client = AsyncZolanaClient::from_urls(rpc, indexer_url, prover_url)?;
+let policy = TeePolicy::from_file_json(&std::fs::read_to_string(policy_path)?)?;
+let client = ZolanaClient::from_urls(rpc, indexer_url, prover_url, Some(policy))?;
+// AsyncZolanaClient::from_urls takes the same arguments.
 ```
 
 or from the services: `ZolanaClient::new(rpc, indexer, prover)` with a
 `ZolanaIndexer` and a `ProverClient`, `AsyncZolanaClient::new` with their
 `async` counterparts. `from_urls` accepts https, or http to loopback only;
 `check_service_url` is that check for a caller building its own services.
+The fourth argument to both URL constructors (including
+`from_urls_allowing_insecure_http`) is the prover's policy. Pass `None` for
+loopback development; remote proving without a policy fails before HTTP.
 
 Use the blocking client from plain threads or inside a multi-thread runtime,
 as `solana_rpc_client`'s blocking client. Inside a `current_thread` runtime

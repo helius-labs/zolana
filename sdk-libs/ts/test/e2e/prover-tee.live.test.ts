@@ -126,11 +126,13 @@ describe("configured TEE prover", () => {
       throw new Error("Supply ZOLANA_TEE_PROVER_URL and ZOLANA_TEE_PROVER_POLICY");
     const policyJson: unknown = JSON.parse(readFileSync(policyPath, "utf8"));
     const policy = teePolicyFromJson(policyJson);
+    const proverUrl = new URL(endpoint);
+    const proofPathPrefix = `${proverUrl.pathname.replace(/\/+$/u, "")}/prove/`;
     let encryptedProofCalls = 0;
     const observedFetch: typeof globalThis.fetch = async (resource, init) => {
       const url = new URL(resource instanceof Request ? resource.url : resource);
-      expect(url.origin).toBe(new URL(endpoint).origin);
-      if (url.pathname.startsWith("/prove/")) {
+      expect(url.origin).toBe(proverUrl.origin);
+      if (url.pathname.startsWith(proofPathPrefix)) {
         const headers = new Headers(init?.headers);
         expect(headers.get("Zolana-Tee")).toBe("v1");
         expect(headers.get("Zolana-Tee-Enc")).toMatch(/^[0-9a-f]{64}$/u);
@@ -139,7 +141,7 @@ describe("configured TEE prover", () => {
         encryptedProofCalls++;
       }
       const response = await globalThis.fetch(resource, init);
-      if (url.pathname.startsWith("/prove/")) {
+      if (url.pathname.startsWith(proofPathPrefix)) {
         expect(response.headers.get("content-type")).toContain("application/octet-stream");
       }
       return response;

@@ -42,7 +42,7 @@ fn main() -> Result<()> {
     } = setup()?;
 
     // Load the funded fee payer and localnet settings, then connect.
-    let client = ZolanaClient::from_urls(SolanaRpc::new(rpc_url), &indexer_url, prover_url)?;
+    let client = ZolanaClient::from_urls(SolanaRpc::new(rpc_url), &indexer_url, prover_url, None)?;
 
     // Mints that are registered with Solana Rings for privacy.
     let assets = AssetRegistry::default();

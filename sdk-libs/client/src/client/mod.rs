@@ -22,8 +22,6 @@ use std::sync::Arc;
 
 use spr_api::BlockingRuntime;
 
-#[cfg(feature = "reqwest")]
-use crate::indexer::ZolanaIndexer;
 use crate::{
     authority::ProofAuthority,
     error::ClientError,
@@ -36,6 +34,8 @@ use crate::{
     },
     rpc::{AsyncRpc, Blocking, ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig, Rpc},
 };
+#[cfg(feature = "reqwest")]
+use crate::{indexer::ZolanaIndexer, prover::tee::TeePolicy};
 
 pub use merge::{check_merge_record, MergeSubmission, ProvedMerge, MERGE_CU_LIMIT};
 pub use transaction::{SignedPrivateTransaction, Submission, UnsignedMessage};
@@ -233,10 +233,13 @@ impl<R> AsyncZolanaClient<R, AsyncZolanaIndexer> {
     /// Build the Photon indexer and the prover client from their URLs. Both
     /// must be https, or http to loopback: the indexer answers with the
     /// wallet's UTXO set and the prover is sent every proof input.
+    /// Supply `Some(policy)` for a remote prover; `None` permits plaintext
+    /// only for loopback development.
     pub fn from_urls(
         rpc: R,
         indexer_url: impl AsRef<str>,
         prover_url: impl Into<String>,
+        prover_tee: Option<TeePolicy>,
     ) -> Result<Self, ClientError> {
         let indexer_url = indexer_url.as_ref();
         let prover_url = prover_url.into();
@@ -246,25 +249,28 @@ impl<R> AsyncZolanaClient<R, AsyncZolanaIndexer> {
             rpc,
             indexer_url,
             prover_url,
+            prover_tee,
         ))
     }
 
     /// [`Self::from_urls`] without the transport check.
     ///
     /// Only for a network that is already private or an explicitly disposable
-    /// development profile that accepts zero transport-privacy. On a public
-    /// endpoint this publishes the wallet's UTXO set and every proof input in
-    /// the clear. Never use this constructor for production funds.
+    /// development profile. A public HTTP indexer exposes the wallet's UTXO
+    /// set. The prover still requires the supplied policy off loopback.
+    /// Never use this constructor for production funds.
     pub fn from_urls_allowing_insecure_http(
         rpc: R,
         indexer_url: impl AsRef<str>,
         prover_url: impl Into<String>,
+        prover_tee: Option<TeePolicy>,
     ) -> Self {
-        Self::new(
-            rpc,
-            AsyncZolanaIndexer::new(indexer_url.as_ref()),
-            AsyncProverClient::new(prover_url.into()),
-        )
+        let prover = AsyncProverClient::new(prover_url.into());
+        let prover = match prover_tee {
+            Some(policy) => prover.with_tee(policy),
+            None => prover,
+        };
+        Self::new(rpc, AsyncZolanaIndexer::new(indexer_url.as_ref()), prover)
     }
 }
 
@@ -353,10 +359,13 @@ impl<R, I> ZolanaClient<R, I> {
 impl<R> ZolanaClient<R, ZolanaIndexer> {
     /// The blocking [`AsyncZolanaClient::from_urls`]: the indexer, the prover
     /// client and this client share one runtime.
+    /// Supply `Some(policy)` for a remote prover; `None` permits plaintext
+    /// only for loopback development.
     pub fn from_urls(
         rpc: R,
         indexer_url: impl AsRef<str>,
         prover_url: impl Into<String>,
+        prover_tee: Option<TeePolicy>,
     ) -> Result<Self, ClientError> {
         let indexer_url = indexer_url.as_ref();
         let prover_url = prover_url.into();
@@ -366,6 +375,7 @@ impl<R> ZolanaClient<R, ZolanaIndexer> {
             rpc,
             indexer_url,
             prover_url,
+            prover_tee,
         ))
     }
 
@@ -375,14 +385,20 @@ impl<R> ZolanaClient<R, ZolanaIndexer> {
         rpc: R,
         indexer_url: impl AsRef<str>,
         prover_url: impl Into<String>,
+        prover_tee: Option<TeePolicy>,
     ) -> Self {
         let indexer = ZolanaIndexer::new(indexer_url.as_ref());
+        let prover = AsyncProverClient::new(prover_url.into());
+        let prover = match prover_tee {
+            Some(policy) => prover.with_tee(policy),
+            None => prover,
+        };
         // The client runs on the indexer's runtime too. A lifted indexer call
         // then nests a `block_on` on that runtime from the blocking pool while
         // the client's own `block_on` holds it; Tokio's current-thread
         // scheduler polls the nested future on its own thread in that case,
         // so the two runtimes it saves do not come with a deadlock.
-        let prover = AsyncProverClient::new(prover_url.into()).into_blocking_on(indexer.runtime());
+        let prover = prover.into_blocking_on(indexer.runtime());
         Self::new(rpc, indexer, prover)
     }
 }

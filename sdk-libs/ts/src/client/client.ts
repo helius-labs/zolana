@@ -136,8 +136,8 @@ const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
   /**
-   * `"prover"` unless set; `"client"` on the Helius gateway, which refuses
-   * `"prover"`.
+   * Defaults to `"prover"` for every endpoint, including the Helius gateway.
+   * Set `"client"` to fetch proof data in the SDK instead.
    */
   readonly proofDataSource?: ProofDataSource;
   /**
@@ -168,7 +168,7 @@ export interface ZolanaClientConfig {
   readonly indexerConfig?: IndexerRpcConfig;
   readonly proverAsyncPoll?: AsyncPollConfig;
   /**
-   * Encrypts every prover call to a prover that attests to the policy. Left
+   * Encrypts every prover call to a prover that attests to the supplied policy.
    * Required for every remote prover; only loopback development permits plaintext.
    */
   readonly proverTee?: TeePolicy;

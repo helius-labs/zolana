@@ -76,8 +76,12 @@ fn main() -> Result<()> {
         utxos,
     } = setup_merge_scenario(UTXO_COUNT, DEPOSIT_AMOUNT)?;
 
-    let client =
-        ZolanaClient::from_urls(SolanaRpc::new(rpc_url), &indexer_url, prover_url.clone())?;
+    let client = ZolanaClient::from_urls(
+        SolanaRpc::new(rpc_url),
+        &indexer_url,
+        prover_url.clone(),
+        None,
+    )?;
     let indexer = ZolanaIndexer::new(&indexer_url);
     let prover = ProverClient::new(prover_url);
     let assets = AssetRegistry::default();

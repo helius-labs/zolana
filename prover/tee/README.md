@@ -42,7 +42,9 @@ carry only public tree data, and refuses every other proof.
 
 The CLI takes `--prover-tee-policy <file>`, accepting either a bare policy or
 its `{ "deployment": ... }` file wrapper. `--prover-tee` also requires a supplied
-policy. `xtask tee-check <url> --policy <file>` attests and checks encrypted
+policy. `xtask loadtest` accepts `--prover-tee-policy <file>` too, and refuses
+a remote prover without one before loading wallets or starting workers.
+`xtask tee-check <url> --policy <file>` attests and checks encrypted
 proving-key digests. For a unified Helius API, callers may supply the same
 `/v1/zolana` base URL for Photon and the prover, with the appropriate policy;
 the SDK keeps its query authentication on the attestation and encrypted calls.
