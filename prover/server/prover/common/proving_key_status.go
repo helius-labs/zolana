@@ -83,8 +83,8 @@ func (m *LazyKeyManager) ProvingKeysReport() (*ProvingKeysReport, error) {
 			status.LoadedSha256 = &loadedHex
 		}
 		_, statErr := os.Stat(filepath.Join(m.keysDir, name))
-		// A key with a Source (a release asset) is never auto-downloaded.
-		downloadable := pinned && entry.Source == "" && m.downloadConfig.AutoDownload
+		downloadable := pinned && m.downloadConfig.AutoDownload &&
+			(entry.Source == "" || (entry.Source == "release" && entry.URL != ""))
 		status.Available = status.LoadedSha256 != nil || statErr == nil || downloadable
 		report.Keys = append(report.Keys, status)
 	}

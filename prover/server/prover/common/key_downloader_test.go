@@ -378,25 +378,73 @@ func TestEnsureProvingKeyNotInManifestMissingErrors(t *testing.T) {
 	}
 }
 
-func TestEnsureProvingKeySourcedKeyIsNotFetched(t *testing.T) {
+func TestEnsureProvingKeyDownloadsReleaseAsset(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "sourced.key")
-
-	useTestManifest(t, &lockManifest{Prefix: "proving-keys", Keys: map[string]lockEntry{
-		"sourced.key": {Sha256: sha256Hex([]byte("body")), Size: 4, Source: "release"},
-	}})
-
+	body := []byte("pinned release bytes")
 	server := newCountingServer()
+	server.setBody("/release/sourced.key", body)
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
 	t.Setenv(provingKeysURLEnvVar, httpServer.URL)
 
-	err := EnsureProvingKey(keyPath, true, testDownloadConfig(1))
-	if err == nil || !strings.Contains(err.Error(), "not on the object store") {
-		t.Fatalf("error = %v, want an object-store error naming the source", err)
+	useTestManifest(t, &lockManifest{Prefix: "proving-keys", Keys: map[string]lockEntry{
+		"sourced.key": {Sha256: sha256Hex(body), Size: int64(len(body)), Source: "release", URL: httpServer.URL + "/release/sourced.key"},
+	}})
+
+	if err := EnsureProvingKey(keyPath, true, testDownloadConfig(1)); err != nil {
+		t.Fatalf("EnsureProvingKey: %v", err)
+	}
+	if got := readTestFile(t, keyPath); !bytes.Equal(got, body) {
+		t.Fatalf("downloaded file = %q, want %q", got, body)
+	}
+	if got := server.requests("/release/sourced.key"); got != 1 {
+		t.Fatalf("release requests = %d, want 1", got)
 	}
 	if got := server.requests("/proving-keys/sourced.key"); got != 0 {
-		t.Fatalf("requests = %d, want the download skipped", got)
+		t.Fatalf("object-store requests = %d, want 0", got)
+	}
+}
+
+func TestEnsureProvingKeyRejectsInvalidReleaseAsset(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "checksum", body: "wrong bytes!", want: "sha256 mismatch"},
+		{name: "size", body: "short", want: "size mismatch"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			keyPath := filepath.Join(t.TempDir(), "sourced.key")
+			server := newCountingServer()
+			server.setBody("/release/sourced.key", []byte(test.body))
+			httpServer := httptest.NewServer(server)
+			defer httpServer.Close()
+			useTestManifest(t, &lockManifest{Keys: map[string]lockEntry{
+				"sourced.key": {Sha256: sha256Hex([]byte("pinned bytes")), Size: int64(len("pinned bytes")), Source: "release", URL: httpServer.URL + "/release/sourced.key"},
+			}})
+
+			err := EnsureProvingKey(keyPath, true, testDownloadConfig(1))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %s", err, test.want)
+			}
+			if _, err := os.Stat(keyPath); !os.IsNotExist(err) {
+				t.Fatalf("invalid release asset installed: %v", err)
+			}
+		})
+	}
+}
+
+func TestEnsureProvingKeyRejectsUnsupportedSource(t *testing.T) {
+	keyPath := filepath.Join(t.TempDir(), "sourced.key")
+	useTestManifest(t, &lockManifest{Prefix: "proving-keys", Keys: map[string]lockEntry{
+		"sourced.key": {Sha256: sha256Hex([]byte("body")), Size: 4, Source: "unknown"},
+	}})
+
+	err := EnsureProvingKey(keyPath, true, testDownloadConfig(1))
+	if err == nil || !strings.Contains(err.Error(), "unsupported source") {
+		t.Fatalf("error = %v, want unsupported source", err)
 	}
 }
 
