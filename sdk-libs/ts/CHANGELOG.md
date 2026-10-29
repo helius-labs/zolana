@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.1-alpha — unreleased
+## 0.6.0 — 2026-10-29
 
 Packages that extend the protocol build on this one through an entry point
 outside semver, and the prover and indexer clients carry the requests such a
