@@ -2,6 +2,7 @@
 members = [
     "protocol-ops/forester",
     "program-libs/account-checks",
+    "program-libs/feature-gate",
     "program-libs/event",
     "program-libs/hasher",
     "program-libs/interface",
@@ -79,6 +80,7 @@ form_urlencoded = "1.2.2"
 time = ">=0.3, <0.3.46"
 
 # Local workspace crates.
+feature-gate = { path = "program-libs/feature-gate", version = "0.1.0", default-features = false }
 spr-protocol-instructions = { path = "protocol-ops/instructions", version = "0.1.0" }
 spr-forester-prover = { path = "protocol-ops/forester-prover", version = "0.1.0", default-features = false }
 spr-event = { path = "program-libs/event", version = "0.1.0" }

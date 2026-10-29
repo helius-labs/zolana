@@ -252,7 +252,7 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `Signature` | `[u8; 64]` | An Ed25519 signature. A Solana transaction signature, or a Ring RPC request signature under the signer's key. |
 | `SPPProof` | `[u8; 192]` | Vanilla Groth16 proof `a(32) || b(128) || c(32)`: `a` and `c` are compressed G1 points, `b` is the raw big-endian G2 point. |
 | `TransactProof` | struct | A 192-byte vanilla Groth16 proof (`a`, `b`, `c`): `a` and `c` compressed G1 (32 bytes each), `b` the raw big-endian G2 point (128 bytes). |
-| `CircuitId` | enum | Selects the circuit family and fixed shape: `ConfidentialEddsa`, `ConfidentialRingEddsa`, `AnonymousRingEddsa`, or `RingAuthority`, each carrying `(n_inputs, n_outputs, n_public_asset_slots)`. Owner-signed families have `*Cached` twins that add `CacheAccess { read_bitmap: u64, write_slots: [CacheWrite; MAX_CACHE_WRITES] }` (40 bytes, `MAX_CACHE_WRITES = 16`; validated in [`transact`](#transact) check 14) and use the family's key. Unknown values are rejected at deserialization. |
+| `CircuitId` | enum | Selects the circuit family and fixed shape: `ConfidentialSigner`, `ConfidentialRingEddsa`, `AnonymousRingEddsa`, `RingAuthority`, or `ConfidentialEddsa`, each carrying `(n_inputs, n_outputs, n_public_asset_slots)` followed by any family payload (`AnonymousRingEddsa`: `Bsb22Commitment` and an optional owner tag; `ConfidentialEddsa`: `EddsaProofData { bsb22_commitment: Bsb22Commitment, owner_pk: [u8; 32] }`; see [Circuit Combinations](#circuit-variants)). Owner-signed families have `*Cached` twins that add `CacheAccess { read_bitmap: u64, write_slots: [CacheWrite; MAX_CACHE_WRITES] }` (40 bytes, `MAX_CACHE_WRITES = 16`; validated in [`transact`](#transact) check 14) and use the family's key. Unknown values are rejected at deserialization. |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
@@ -293,6 +293,9 @@ Owner identities carry the tag `0x53`. It differs from the X25519 key tag
 `0x04`, so an owner identity cannot equal a viewing-key commitment. The
 `AnonymousRingEddsa` proof computes the hidden owner's Solana identity and
 asserts it differs from every signer identity; SPP hashes Solana identities.
+The `ConfidentialEddsa` proof verifies its owner's Ed25519 signature
+in-circuit, and SPP publishes `owner_proof_input_hash(owner_pk)` of that key
+as its own public input.
 
 ## Owner Hash
 
@@ -305,6 +308,10 @@ Ed25519 signer or a PDA signing via `invoke_signed`. The circuit relies on the
 SVM's signature verification, so the two are equivalent in the proof. The
 `AnonymousRingEddsa` rail instead proves one shared Ed25519 signature and
 derives the owner proof input from the hidden owner's Ed25519 key in-circuit.
+The `ConfidentialEddsa` rail proves one Ed25519 signature of a published
+owner; its owner proof input is the same `owner_proof_input_hash` the key has
+as a Solana signer, so a UTXO of an Ed25519 owner spends on either rail with
+one `owner_hash`.
 
 # Shielded Keypair
 
@@ -314,7 +321,7 @@ The client-side triple behind a [Shielded Address](#shielded-address): a
 
 **Curves** (the `PublicKey` scheme prefix, [Glossary](#glossary)):
 
-- `Ed25519` — Solana signer, authorized by SPP's signer-account check, or on the `AnonymousRingEddsa` rail by one shared Ed25519 signature proven in-circuit.
+- `Ed25519` — Solana signer, authorized by SPP's signer-account check, or by one Ed25519 signature proven in-circuit: the shared hidden owner on `AnonymousRingEddsa`, the published owner on `ConfidentialEddsa`.
 - Prefix `0x00` is reserved, and every decoder rejects it.
 - `Pda` — off the Ed25519 curve and cannot sign; the owning program authorizes via `invoke_signed`.
 
@@ -338,7 +345,7 @@ The client-side triple behind a [Shielded Address](#shielded-address): a
 **Methods:**
 
 - `pubkey() -> PublicKey` — the scheme-tagged public key ([Glossary](#glossary)).
-- `sign_message(msg) -> Result<Signature>` — Ed25519 over the raw bytes (RFC 8032, delegated to the host Solana wallet). PDA: error. On the `AnonymousRingEddsa` rail the owner signs the digest `SHA-256(private_tx_hash || external_data_hash)` with this method, and the proof verifies the signature.
+- `sign_message(msg) -> Result<Signature>` — Ed25519 over the raw bytes (RFC 8032, delegated to the host Solana wallet). PDA: error. On the `AnonymousRingEddsa` and `ConfidentialEddsa` rails the owner signs the digest `SHA-256(private_tx_hash || external_data_hash)` with this method, and the proof verifies the signature.
 
 ## Nullifier Key
 
@@ -346,7 +353,8 @@ Symmetric 31-byte key to derive nullifiers. The `nullifier_secret` is
 wallet-side material: it is a private proof input on every spend path, so it
 cannot be hardware-resident. It is required to spend but does not authorize a
 spend: authorization is the owner signature, checked by the proof
-(`AnonymousRingEddsa`) or by SPP's signer-account check (Ed25519, PDA).
+(`AnonymousRingEddsa`, `ConfidentialEddsa`) or by SPP's signer-account check
+(Ed25519, PDA).
 
 `nullifier_pk := Poseidon(nullifier_secret)`
 
@@ -1088,14 +1096,15 @@ input could be zero-padded to look like a fixed-length one. The same applies to
 | `tree_slot_chain` | commitment to the five input tree slots; see [Tree Slot Chain](#tree-slot-chain). SPP populates one slot per declared `tree_contexts` entry |
 | `output_tree_id` | raw `u16` id of `output_tree`; hashed into each output `utxo_hash` |
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
-| message hash (`AnonymousRingEddsa` only) | `hash_bytes_32(SHA-256(private_tx_hash || external_data_hash))`; SPP computes the digest, the circuit only hashes it |
+| message hash (`AnonymousRingEddsa`, `ConfidentialEddsa`) | `hash_bytes_32(SHA-256(private_tx_hash || external_data_hash))`; SPP computes the digest, the circuit only hashes it. The in-circuit owner signs this digest. |
+| `owner_pk_hash` (`ConfidentialEddsa` only) | `owner_proof_input_hash(owner_pk)` from `CircuitId::ConfidentialEddsa.owner_pk`. The circuit commits `RightHashChain4` over the identities of the owners whose signatures it verifies, which for the one owner its keys fix is that identity. This owner is not in the signer hash chain and takes no transaction address. |
 | `default_owner_pk_hash` (`AnonymousRingEddsa` only) | `hash_bytes_33(0x53 || owner_pk)` when a spent UTXO of the hidden owner belongs to the default ring, otherwise `0`. SPP derives it from `CircuitId::AnonymousRingEddsa.default_owner_tag`; the circuit checks it against the verified hidden Ed25519 key. Address slots do not force publication. |
 | `external_data_hash` | recomputed by SPP from the instruction data prefix and the committed accounts; see [external_data_hash](#external_data_hash). A separate public input, not part of the private transaction hash. |
 | public asset/amount slots (`N_PUBLIC_SLOTS = 3`) | six fields: `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. SPP aggregates settlement legs by asset in first-appearance order, drops zero-net groups, and pads with `(0, 0)`. Assets use `hash_bytes_32(mint)`, including `Address::default()` for SOL. Each net magnitude fits `u64`; deposits are positive and withdrawals negative in the BN254 field. |
 | `ring_program_id` | `pk_field(ring_config.program_id)` for a policy ring; `0` for default `transact` |
-| signer hash chain | `RightHashChain(signer_pk_hashes)`: tagged Solana identities `owner_proof_input_hash(signer)` of the first-occurrence-deduplicated owner signers, zero-padded to [`signer_width`](#signer-width). The fee payer is not in it unless it is also listed as an owner signer. `RingAuthority` uses only the payer (width 1). |
+| signer hash chain | `RightHashChain(signer_pk_hashes)`: tagged Solana identities `owner_proof_input_hash(signer)` of the first-occurrence-deduplicated owner signers, zero-padded to [`signer_width`](#signer-width). The fee payer is not in it unless it is also listed as an owner signer; the `ConfidentialEddsa` in-circuit owner is never in it. `RingAuthority` uses only the payer (width 1). |
 | `input_flags` | the dummy-input policy and every input's tree slot index, packed into one field element; see [input_flags](#input-flags) |
-| published output owner hash chain (owner-signed variants) | `RightHashChain4` over per-output tagged Solana identities. `ConfidentialEddsa` includes every resolved owner tag. `ConfidentialRingEddsa` and `AnonymousRingEddsa` use `hash_bytes_33(0x53 || fetch_tag)` for confidential-encrypted slots (scheme byte `3`), and `0` for other encodings. `RingAuthority` omits this field. |
+| published output owner hash chain (owner-signed variants) | `RightHashChain4` over per-output tagged Solana identities. `ConfidentialSigner` and `ConfidentialEddsa` include every resolved owner tag. `ConfidentialRingEddsa` and `AnonymousRingEddsa` use `hash_bytes_33(0x53 || fetch_tag)` for confidential-encrypted slots (scheme byte `3`), and `0` for other encodings. `RingAuthority` omits this field. |
 | cache selection (owner-signed variants) | the cache's raw `u16` `tree_id` and `RightHashChain4` over the UTXO hashes of the cache slots `read_bitmap` selects, in ascending slot order, zero-padded to `n_inputs`. Without a cache read the tree id is `0` and the chain is over `n_inputs` zeros. Selected inputs skip UTXO inclusion. `RingAuthority` omits these fields. |
 
 An `AnonymousRingEddsa` proof spending a policy-ring UTXO of the hidden owner must
@@ -1150,7 +1159,7 @@ governs.
 
 | Input | Description |
 | --- | --- |
-| owner proof input | Per-slot identity. Owner-signed variants require each Ed25519 identity to appear in the public signer vector; on `AnonymousRingEddsa`, zero selects the hidden Ed25519 owner. `RingAuthority` uses a witnessed identity without an owner-signature check. |
+| owner proof input | Per-slot identity. Owner-signed variants require each Ed25519 identity to appear in the public signer vector; on `ConfidentialEddsa` it may instead equal the in-circuit verified owner; on `AnonymousRingEddsa`, zero selects the hidden Ed25519 owner. `RingAuthority` uses a witnessed identity without an owner-signature check. |
 | `domain` | selects a spent UTXO, padding, or address; see [Input slots](#input-slots) |
 | `nullifier_secret` | the owner's secret for a spent UTXO (see [Nullifier Key](#nullifier-key)); zero for padding and addresses |
 | `blinding`, `asset`, `amount`, `data_hash`, `ring_data_hash`, `ring_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
@@ -1172,7 +1181,7 @@ governs.
 
 **external_data_hash**
 
-Hash over the public fields of the invoking SPP instruction and the Solana accounts the proof must commit to. As a public input of the SPP proof, it commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A hidden Ed25519 owner signs `SHA-256(private_tx_hash || external_data_hash)` (the message hash above), so the owner's signature covers the entire transaction. A proof built for one instruction cannot be replayed against another even when every other field matches.
+Hash over the public fields of the invoking SPP instruction and the Solana accounts the proof must commit to. As a public input of the SPP proof, it commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). An in-circuit Ed25519 owner (`AnonymousRingEddsa`, `ConfidentialEddsa`) signs `SHA-256(private_tx_hash || external_data_hash)` (the message hash above), so the owner's signature covers the entire transaction. A proof built for one instruction cannot be replayed against another even when every other field matches.
 
 ```
 external_data_hash := Sha256BE(
@@ -1234,15 +1243,15 @@ value while reusing the proof.
 | Check | Description |
 | --- | --- |
 | Owner hash binding | `owner = Poseidon(owner proof input, Poseidon(nullifier_secret))` for every real input and address. See [Input slots](#input-slots). |
-| UTXO Ownership | Owner-signed variants require an authorized Ed25519 signer or the verified hidden Ed25519 key for each real input and address. `RingAuthority` uses the ring's authorization. See [UTXO Ownership Check](#utxo-ownership-check). |
+| UTXO Ownership | Owner-signed variants require an authorized Ed25519 signer or the in-circuit verified Ed25519 key (the `ConfidentialEddsa` owner, the `AnonymousRingEddsa` hidden owner) for each real input and address. `RingAuthority` uses the ring's authorization. See [UTXO Ownership Check](#utxo-ownership-check). |
 | Inclusion | Each spent input UTXO must be a leaf at `utxo_tree_roots[tree_slot]`, hashed with `tree_ids[tree_slot]`. Padding and address inputs skip inclusion. |
 | Nullifiers | Every input's public nullifier equals its derived [nullifier](#nullifier), including padding and addresses, except [compact padding](#compact-padding); all nonzero input nullifiers must differ. |
 | Nullifier non-inclusion | Every input's derived nullifier must be strictly bracketed by its low leaf at `nullifier_tree_roots[tree_slot]`, including padding, addresses and compact padding. |
 | Output UTXOs | Every output hash uses `output_tree_id` and the derived `blinding_i`, and matches `output_utxo_hashes[i]`, except compact padding. Owner-signed variants recompute `owner_hash` from the recipient identity and nullifier pubkey; `RingAuthority` commits `owner` directly. |
-| Output owner tag | `ConfidentialEddsa` requires every real output's tag to equal its owner identity. Owner-signed ring circuits require real default-ring outputs to publish a confidential marker equal to their owner identity, and real policy-ring outputs to publish zero. A dummy's tag must name an owner signer (a fee payer that owns no input is not one) or a real output owner. This constrains the resolved identity, not whether the tag is encoded as `Inline` or `Account`. The ring circuits also accept zero. Compact padding publishes `0`. `RingAuthority` omits the owner chain. |
+| Output owner tag | `ConfidentialSigner` and `ConfidentialEddsa` require every real output's tag to equal its owner identity. Owner-signed ring circuits require real default-ring outputs to publish a confidential marker equal to their owner identity, and real policy-ring outputs to publish zero. A dummy's tag must name an owner signer (a fee payer that owns no input is not one), the `ConfidentialEddsa` in-circuit owner, or a real output owner. This constrains the resolved identity, not whether the tag is encoded as `Inline` or `Account`. The ring circuits also accept zero. Compact padding publishes `0`. `RingAuthority` omits the owner chain. |
 | Balance Conservation | For each active asset, inputs plus public deposits equal outputs plus public withdrawals. Public slots contain distinct assets with nonzero net movements; unused slots are `(0, 0)`. |
 | Private transaction hash | Matches the [derived hash](#private-transaction-hash). |
-| UTXO data | `data_hash` enters `utxo_hash` unchecked. A real output with nonzero `data_hash` must be owned by a signer (`ConfidentialEddsa`, `ConfidentialRingEddsa`), a signer or the hidden Ed25519 key (`AnonymousRingEddsa`), or a spent input's owner (`RingAuthority`). Application and ring proofs interpret the data before CPI into SPP. |
+| UTXO data | `data_hash` enters `utxo_hash` unchecked. A real output with nonzero `data_hash` must be owned by a signer (`ConfidentialSigner`, `ConfidentialRingEddsa`), a signer or the in-circuit verified Ed25519 key (`ConfidentialEddsa`, `AnonymousRingEddsa`), or a spent input's owner (`RingAuthority`). Application and ring proofs interpret the data before CPI into SPP. |
 | Dummy and address policy | Input domains and the capacity gate follow [Input slots](#input-slots). Dummy outputs are [empty UTXOs](#empty-utxo) with derived blindings. Dummies come last on both sides; see [Slot order](#slot-order). |
 
 <a id="input-slots"></a>
@@ -1312,7 +1321,8 @@ cover the full instruction.
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
 1. Ed25519 Solana signers checked by SPP. Authorization comes from the accounts array, not instruction data: the signer vector holds the owner-signer accounts in first-occurrence order (a repeated account signs once). The fee payer's signature authorizes no spend: an owner that also pays must be listed as an owner-signer account, so paying for a transaction does not spend the payer's UTXOs. Every owner-signer account must be a transaction signer, and SPP rejects more than `signer_width` owner-signer accounts.
-2. SPP hashes the run, `owner_proof_input_hash` of each signer address zero-padded to `signer_width`, as a `RightHashChain` public input. The circuit requires each Ed25519 input owner to equal a chain element and separately verifies hidden Ed25519 ownership on `AnonymousRingEddsa`.
+2. SPP hashes the run, `owner_proof_input_hash` of each signer address zero-padded to `signer_width`, as a `RightHashChain` public input. The circuit requires each Ed25519 input owner to equal a chain element or the key whose signature it verifies in-circuit, and separately verifies hidden Ed25519 ownership on `AnonymousRingEddsa`.
+3. `ConfidentialEddsa` adds one owner that signs no account: `CircuitId::ConfidentialEddsa.owner_pk`. It authorizes with an Ed25519 signature over the message hash, verified by the circuit's Ed25519 gadget, and SPP publishes its identity as [`owner_pk_hash`](#spp-proof---solana-privacy-zk-proof). It is not an owner-signer account, takes no transaction address, and no input has to belong to it; every other input owner still signs the transaction as in 1. This lets a relayer pay the fee and send the transaction while the owner never signs it.
 
 <a id="signer-width"></a>
 The public signer vector has `signer_width` slots on every signature-requiring
@@ -1335,8 +1345,8 @@ its nullifier PDA. Owner signers are ordinary accounts, so at most
 `64 - 4 - n_inputs` of them can exist; the transaction signature cap does not
 bound them because PDA owners sign through CPI. The width is that bound capped
 by the input count: `n_inputs + 1` for every shape up to 24 inputs, then 29
-for `32x2`, 21 for `40x2`, 13 for `48x2` and 12 for `49x2`. `MAX_SIGNERS` is
-reached at `32x2`, not at the widest shape.
+for `32x2`, 21 for `40x2`, 13 for the 48-input shapes and 12 for `49x2`.
+`MAX_SIGNERS` is reached at `32x2`, not at the widest shape.
 
 Declaring more than one `tree_contexts` entry spends one further address per
 extra input tree, so fewer owner signers fit. The circuit width is an upper
@@ -1346,17 +1356,35 @@ no different key; it simply cannot fill the vector.
 <a id="circuit-variants"></a>
 **Circuit Combinations**
 
-`CircuitId` selects the Ed25519 default (`ConfidentialEddsa`), Ed25519 ring
-(`ConfidentialRingEddsa`), hidden-owner Ed25519 ring (`AnonymousRingEddsa`), or
-ring-authority (`RingAuthority`) circuit and its fixed shape.
+`CircuitId` selects the Ed25519 default (`ConfidentialSigner`), in-circuit
+Ed25519 default (`ConfidentialEddsa`), Ed25519 ring (`ConfidentialRingEddsa`),
+hidden-owner Ed25519 ring (`AnonymousRingEddsa`), or ring-authority
+(`RingAuthority`) circuit and its fixed shape. The `u16` tag order is
+`ConfidentialSigner` (0), `ConfidentialRingEddsa` (1), `RingAuthority` (2),
+`AnonymousRingEddsa` (3), their cached twins in the same order (4, 5, 6),
+`ConfidentialEddsa` (7) and `ConfidentialEddsaCached` (8).
 `AnonymousRingEddsa` carries the BSB22 commitment/PoK and an optional owner
 tag, the hidden owner's raw Ed25519 key. The tag is present exactly when the
 transaction spends a default-ring UTXO of the hidden owner; SPP derives
-`default_owner_pk_hash` from it. It is a selector only — not a public input and never hashed into
+`default_owner_pk_hash` from it. `ConfidentialEddsa` carries
+`EddsaProofData`: the BSB22 commitment/PoK and `owner_pk`, the raw Ed25519 key
+of the owner whose signature the proof verifies; SPP derives `owner_pk_hash`
+from it. It is a selector only — not a public input and never hashed into
 `private_tx_hash` or `external_data_hash`. SPP validates it fail-closed: its
-family must match the dispatched instruction and its dimensions must match the
-input/output vectors and a generated verifying key. `AnonymousRingEddsa` uses the
-committed Groth16/BSB22 proof payload; the other variants use vanilla Groth16.
+family must match the dispatched instruction (`transact` takes
+`ConfidentialSigner` and `ConfidentialEddsa`, `ring_transact` takes
+`ConfidentialRingEddsa` and `AnonymousRingEddsa`, `ring_authority_transact`
+takes `RingAuthority`; else `MismatchedCircuitType`) and its dimensions must
+match the input/output vectors and a generated verifying key of that family
+(else `InvalidTransactShape`). `AnonymousRingEddsa` and `ConfidentialEddsa`
+use the committed Groth16/BSB22 proof payload, verified with the commitment;
+the other variants use vanilla Groth16.
+
+`ConfidentialEddsa` is `ConfidentialSigner` with one owner moved from the
+accounts into the proof: `ring_program_id` is `0`, every output owner is
+published, and the signer hash chain and cache selection are unchanged. It
+differs only in the message hash and `owner_pk_hash` public inputs and in its
+[key set](#supported-shapes).
 
 A third axis selects a ring-capable instantiation, fixed by the dispatched
 instruction. The non-ring variant pins every UTXO's ring fields to `0`. The
@@ -1369,9 +1397,9 @@ anonymous.
 
 **Transfer-key rotation.** Expanding the transfer circuit to
 `N_PUBLIC_SLOTS = 3` changes its constraint system. Every transfer proving key
-and embedded verifying key, across every shape and
-EdDSA/default-ring/policy-ring/anonymous/ring-authority variant, MUST be regenerated
-from that same circuit revision.
+and embedded verifying key, across every shape and rail (`ConfidentialSigner`,
+`ConfidentialEddsa`, `ConfidentialRingEddsa`, `AnonymousRingEddsa`,
+`RingAuthority`), MUST be regenerated from that same circuit revision.
 The transfer circuit fingerprints and proving-key lock file MUST identify those
 new artifacts. A deployment MUST activate the matching program and published
 proving keys together; an old proving key and new verifying key, or the reverse,
@@ -1384,7 +1412,7 @@ Circuits that only take them as public inputs need no key change for these
 derivations.
 
 <a id="supported-shapes"></a>
-**Supported shapes.** `ConfidentialEddsa`, `ConfidentialRingEddsa` and
+**Supported shapes.** `ConfidentialSigner`, `ConfidentialRingEddsa` and
 `AnonymousRingEddsa` share one grid of 38 `n_inputs x n_outputs` shapes, each
 with its own proving and verifying key per family. `CircuitId` dimensions
 outside this grid are rejected.
@@ -1406,6 +1434,27 @@ by proving cost, and automatic selection takes the first shape that fits the
 transaction. Slots past the real inputs and outputs are padding;
 [compact padding](#compact-padding) keeps them out of the instruction data. A
 transaction with one output uses a 2-output shape and pads the second slot.
+
+`ConfidentialEddsa` has its own key set, `CONFIDENTIAL_EDDSA_SHAPES` in the
+same file, 12 shapes ordered by proving cost; every key fixes one in-circuit
+verified owner. Its shapes stay within `MAX_TRANSACT_INPUTS`, `MAX_OUTPUTS` and
+`MAX_SIGNERS`:
+
+| Outputs | Input counts |
+| --- | --- |
+| 8 | 2, 4, 8, 16, 24, 48 |
+| 16 | 2, 4, 8, 16, 24, 48 |
+
+The shielded-pool binary must explicitly enable the `confidential-eddsa` Cargo
+feature to accept this family, including its cached selectors; otherwise it
+returns `CircuitFeatureDisabled` (7083) after validating the shape. The feature
+is disabled by default. `feature-gate` defines the feature state and exports
+indexable metadata containing its name, enabled flag, and the SHA-256 hashes
+of its proving keys. Proof admission uses the same descriptor. A linked
+verifying key alone does not establish that a feature is enabled. The
+`zolana-protocol circuit-features` command reads the metadata from a local
+`.so` or deployed program; absent metadata means the state is unknown. Test
+builds explicitly enable the feature through `just build-test-programs`.
 
 **Ring-authority instantiation.** A separate instantiation proves no owner authorization at all: it is the Solana-only ring variant (no in-circuit signature) and keeps every input owner `pk_field` private (omitted from the public input hash). Each input owner is an opaque field element hashed into `owner_hash` exactly like the merge circuit, so a UTXO of any owner scheme can be spent — the prover supplies the owner `pk_field` directly and the proof never checks ownership. The only in-circuit binding is `nullifier_secret` knowledge through `owner_hash`; authorization is the `ring_config` PDA signer plus the ring program's own policy, requiring `ring_authority_transact_is_enabled` set (instruction `ring_authority_transact`). It pairs only with the anonymous owner-tag variant. Because owners do not authorize the spend, shielded value cannot leave the ring here: the public `ring_program_id` is pinned non-zero and **every** non-dummy input *and* output `ring_program_id` must equal it (strict binding, no zero exemption). A default-ring UTXO can neither be spent nor created through this path. The `ring_program_id` check covers shielded UTXOs only: the shared balance constraints still accept negative public amounts, so SPP alone lets an authority transaction withdraw ring value publicly without an owner signature (the authority still needs the input's `nullifier_secret`). A ring program whose policy forbids authority withdrawals must reject public legs on this path itself; the reference policy ring does so on its delegate path (`DelegatePublicLeg`). Supported shapes:
 
@@ -1666,7 +1715,7 @@ operations, and tags 18–21 are maintenance and administration.
 
 **Discriminator:** 12
 
-**Description.** Implements deposit, withdraw, or shielded transfer. Verifies the proof, nullifies input UTXOs by inserting nullifiers into the nullifier queue, and appends output UTXOs to the UTXO tree.
+**Description.** Implements deposit, withdraw, or shielded transfer on the `ConfidentialSigner` and `ConfidentialEddsa` circuits. Verifies the proof, nullifies input UTXOs by inserting nullifiers into the nullifier queue, and appends output UTXOs to the UTXO tree.
 
 **Accounts**
 
@@ -1678,7 +1727,8 @@ entry in declaration order and one writable nullifier PDA per input in
 prefix positions do not depend on the number of trees or inputs. The
 **owner-signer run** follows: the ed25519 owners of the spent inputs in
 first-occurrence order, each read-only and signing; an owner equal to the
-payer is listed here too (the message lists its address once). Public
+payer is listed here too (the message lists its address once), and the
+`ConfidentialEddsa` in-circuit owner is never listed. Public
 settlement groups follow, in `interface_transfers` order; a cached `CircuitId`
 appends the cache and, when writing, its writer. A SOL group is
 `(sol_interface, recipient)`. An SPL deposit group is `(mint, spl_interface,
@@ -1705,7 +1755,7 @@ aggregate into one proof slot.
 | 5 (ring variants only) | ring_config |   | x | the ring's `ring_auth` PDA |
 | 5.. (6.. for ring variants) | input_trees | x |   | one per `tree_contexts` entry, in declaration order; each supplies the two historical roots its entry indexes, receives the nullifiers of the inputs that select it, and fills its tree slot. The same account may not appear twice |
 | .. | nullifier_pdas | x |   | one per `inputs[i]`, in order: `[b"nullifier", tree, nullifier_hash]` where `tree` is the input's selected tree, System-owned and empty; an initialized PDA means the nullifier is already pending (`NullifierAlreadyQueued`) |
-| .. | owner_signers |   | x | first-occurrence ed25519 input owners (read-only), at most `MAX_SIGNERS - 1` |
+| .. | owner_signers |   | x | first-occurrence ed25519 input owners (read-only), at most `MAX_SIGNERS - 1`; excludes the `ConfidentialEddsa` in-circuit owner |
 | .. | public-leg groups |   |   | one group per `u8`-counted entry in `interface_transfers`, in order, using the layouts above |
 | .. | cache | when writing |   | cached `CircuitId` only |
 | .. | cache_writer |   | x | when writing; the cache's `write_authority` |
@@ -1949,6 +1999,7 @@ proof shape, use fewer legs, or split the operation.
 13. An output with nonzero `data_hash` must be owned by a transaction participant (see the UTXO data [check](#spp-proof---solana-privacy-zk-proof)). Spending an input with `utxo_data` uses the normal owner-signed path; SPP enforces no program ownership.
 14. Cached `CircuitId`: `read_bitmap` sets only bits below the 36 cache slots and at most `inputs.len()` of them; the used `write_slots` entries form a prefix of the 16, each names an output below `outputs.len()` and a slot below 36, no two share an output or a slot, and the remaining entries are `(0xff, 0xff)`; a read, a write, or both is present (`InvalidCacheBitmap`). Before any write, selected inputs read nonzero slots (`CacheSlotEmpty`) of a cache on their tree (`CacheTreeMismatch`); a fully cached tree context uses root index 0 (`InvalidCacheRootIndex`). A write requires the `write_authority` signer (`CacheWriteAuthorityMismatch`) and an unexpired cache (`CacheExpired`) on `output_tree` (`CacheTreeMismatch`), and stores each write entry's output in its slot, in entry order, after the proof.
 15. `inputs` holds at least one and at most `n_inputs` entries and `outputs` at most `n_outputs` (`InvalidTransactShape`), and no `nullifier_hash` or `utxo_hash` is `0` (`ZeroInputNullifier`, `ZeroOutputUtxoHash`); see [compact padding](#compact-padding).
+16. `circuit` names a family of the dispatched instruction (`MismatchedCircuitType`) and a shape in that family's key set (`InvalidTransactShape`); see [Circuit Combinations](#circuit-variants).
 
 **Event**
 

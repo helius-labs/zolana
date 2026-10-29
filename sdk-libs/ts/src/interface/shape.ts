@@ -54,6 +54,25 @@ export const SPP_SUPPORTED_SHAPES: readonly Shape[] = Object.freeze([
   shape(49, 2),
 ]);
 
+/**
+ * Shapes the in-circuit EdDSA confidential rail has keys for, ordered by
+ * proving cost. Mirrors Rust `CONFIDENTIAL_EDDSA_SHAPES`.
+ */
+export const CONFIDENTIAL_EDDSA_SHAPES: readonly Shape[] = Object.freeze([
+  shape(2, 8),
+  shape(2, 16),
+  shape(4, 8),
+  shape(4, 16),
+  shape(8, 8),
+  shape(8, 16),
+  shape(16, 8),
+  shape(16, 16),
+  shape(24, 8),
+  shape(24, 16),
+  shape(48, 8),
+  shape(48, 16),
+]);
+
 function count(value: number, name: string): number {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new InterfaceError("INTERFACE_INVALID_SHAPE", { [name]: value });
@@ -113,6 +132,38 @@ export function selectSppShape(inputs: number, outputs: number): Shape {
   count(inputs, "inputs");
   count(outputs, "outputs");
   const selected = SPP_SUPPORTED_SHAPES.find(
+    (candidate) => inputs <= candidate.inputs && outputs <= candidate.outputs,
+  );
+  if (selected === undefined) {
+    throw new InterfaceError("INTERFACE_INVALID_SHAPE", { inputs, outputs });
+  }
+  return selected;
+}
+
+/** Whether the in-circuit EdDSA rail has keys for `shape`, Rust `Shape::is_confidential_eddsa`. */
+export function isConfidentialEddsaShape(shape: Shape): boolean {
+  return CONFIDENTIAL_EDDSA_SHAPES.some(
+    (candidate) => candidate.inputs === shape.inputs && candidate.outputs === shape.outputs,
+  );
+}
+
+/** Whether the signer, ring and ring authority rails have keys for `shape`, Rust `Shape::is_supported`. */
+export function isSppShape(shape: Shape): boolean {
+  return SPP_SUPPORTED_SHAPES.some(
+    (candidate) => candidate.inputs === shape.inputs && candidate.outputs === shape.outputs,
+  );
+}
+
+/** Whether some transact rail has keys for `shape`, Rust `is_transact_shape`. */
+export function isTransactShape(shape: Shape): boolean {
+  return isSppShape(shape) || isConfidentialEddsaShape(shape);
+}
+
+/** The cheapest in-circuit EdDSA shape holding `inputs` and `outputs`. */
+export function selectConfidentialEddsaShape(inputs: number, outputs: number): Shape {
+  count(inputs, "inputs");
+  count(outputs, "outputs");
+  const selected = CONFIDENTIAL_EDDSA_SHAPES.find(
     (candidate) => inputs <= candidate.inputs && outputs <= candidate.outputs,
   );
   if (selected === undefined) {

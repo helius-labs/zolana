@@ -94,6 +94,20 @@ func decodePrepared(request Request) (*Prepared, error) {
 			return nil, err
 		}
 		prepared.value, prepared.inputs, prepared.slots, prepared.hash = &value, inputs, &value.TreeSlots, &value.PublicInputHash
+	case common.TransferConfidentialEddsaCircuitType:
+		var value transfer.ConfidentialEddsaTransferParameters
+		if json.Unmarshal(request.Prepared, &value) != nil {
+			return nil, fmt.Errorf("invalid prepared confidential EdDSA transfer")
+		}
+		if int(value.NInputs) != len(value.Inputs) || int(value.NOutputs) != len(value.Outputs) {
+			return nil, fmt.Errorf("prepared counts mismatch")
+		}
+		shape.Inputs, shape.Outputs = value.NInputs, value.NOutputs
+		inputs, err := transferTargets(value.Inputs, value.Cache)
+		if err != nil {
+			return nil, err
+		}
+		prepared.value, prepared.inputs, prepared.slots, prepared.hash = &value, inputs, &value.TreeSlots, &value.PublicInputHash
 	case common.TransferAnonymousRingEddsaCircuitType:
 		var value transfer.AnonymousEddsaTransferParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {

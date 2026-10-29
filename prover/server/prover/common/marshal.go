@@ -362,6 +362,8 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		switch {
 		case ringAuthority:
 			ps.CircuitType = TransferRingAuthorityCircuitType
+		case strings.Contains(lowerPath, "confidential_eddsa"):
+			ps.CircuitType = TransferConfidentialEddsaCircuitType
 		case eddsaRing:
 			ps.CircuitType = TransferAnonymousRingEddsaCircuitType
 		case ring:

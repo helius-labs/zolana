@@ -165,6 +165,7 @@ async function transfer(
       client: input.client,
       wallet: input.wallet,
       keys: input.keys,
+      ...(input.owner === undefined ? {} : { owner: input.owner }),
       ...(input.approve === undefined ? {} : { approve: input.approve }),
       feePayer: input.feePayer.address,
       recipient: input.recipient,
@@ -384,7 +385,8 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
       client: harness.client,
       wallet: alice.wallet,
       keys: alice.keys,
-      feePayer: alice.signer,
+      feePayer: bob.signer,
+      owner: alice.keypair,
       recipient: bob.signer.address,
       amount: 20_000_000n,
     });

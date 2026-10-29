@@ -18,12 +18,14 @@ func TestLazyKeyManagerBuildsTransferKeyPaths(t *testing.T) {
 	tests := map[string]string{
 		"transfer ring eddsa":           manager.determineTransferKeyPath(TransferRingCircuitType, 49, 2),
 		"transfer anonymous ring eddsa": manager.determineTransferKeyPath(TransferAnonymousRingEddsaCircuitType, 8, 16),
+		"transfer confidential eddsa":   manager.determineTransferKeyPath(TransferConfidentialEddsaCircuitType, 48, 16),
 	}
 
 	expected := map[string]string{
 		// Key filenames mirror the verifying-key modules.
 		"transfer ring eddsa":           filepath.Join(keysDir, "transfer_ring_49_2.key"),
 		"transfer anonymous ring eddsa": filepath.Join(keysDir, "transfer_eddsa_ring_8_16.key"),
+		"transfer confidential eddsa":   filepath.Join(keysDir, "transfer_confidential_eddsa_48_16.key"),
 	}
 
 	for name, got := range tests {
@@ -65,22 +67,24 @@ func TestKeyFilesAreTheLockfileKeys(t *testing.T) {
 
 func TestKeyFileIsEmptyForAnUnsupportedShape(t *testing.T) {
 	for name, file := range map[string]string{
-		"transfer 6x6":          TransferKeyFile(TransferConfidentialCircuitType, 6, 6),
-		"removed transfer 1x1":  TransferKeyFile(TransferConfidentialCircuitType, 1, 1),
-		"removed transfer 2x3":  TransferKeyFile(TransferRingCircuitType, 2, 3),
-		"removed transfer 36x2": TransferKeyFile(TransferAnonymousRingEddsaCircuitType, 36, 2),
-		"ring authority 2x4":    TransferKeyFile(TransferRingAuthorityCircuitType, 2, 4),
-		"ring authority 1x1":    TransferKeyFile(TransferRingAuthorityCircuitType, 1, 1),
-		"ring authority 3x3":    TransferKeyFile(TransferRingAuthorityCircuitType, 3, 3),
-		"ring authority 8x8":    TransferKeyFile(TransferRingAuthorityCircuitType, 8, 8),
-		"merge 24x2":            TransferKeyFile(MergeCircuitType, 24, 2),
-		"merge 9x1":             TransferKeyFile(MergeCircuitType, 9, 1),
-		"removed merge 36x1":    TransferKeyFile(MergeRingCircuitType, 36, 1),
-		"removed merge 51x1":    TransferKeyFile(MergeCircuitType, 51, 1),
-		"address append 40x100": BatchKeyFile(BatchAddressAppendCircuitType, 40, 100),
-		"transfer as a batch":   BatchKeyFile(TransferConfidentialCircuitType, 40, 10),
-		"unknown extension":     ExtensionKeyFile("extension-unknown"),
-		"transfer as extension": ExtensionKeyFile(TransferConfidentialCircuitType),
+		"transfer 6x6":            TransferKeyFile(TransferConfidentialCircuitType, 6, 6),
+		"removed transfer 1x1":    TransferKeyFile(TransferConfidentialCircuitType, 1, 1),
+		"removed transfer 2x3":    TransferKeyFile(TransferRingCircuitType, 2, 3),
+		"removed transfer 36x2":   TransferKeyFile(TransferAnonymousRingEddsaCircuitType, 36, 2),
+		"ring authority 2x4":      TransferKeyFile(TransferRingAuthorityCircuitType, 2, 4),
+		"ring authority 1x1":      TransferKeyFile(TransferRingAuthorityCircuitType, 1, 1),
+		"ring authority 3x3":      TransferKeyFile(TransferRingAuthorityCircuitType, 3, 3),
+		"ring authority 8x8":      TransferKeyFile(TransferRingAuthorityCircuitType, 8, 8),
+		"merge 24x2":              TransferKeyFile(MergeCircuitType, 24, 2),
+		"merge 9x1":               TransferKeyFile(MergeCircuitType, 9, 1),
+		"removed merge 36x1":      TransferKeyFile(MergeRingCircuitType, 36, 1),
+		"removed merge 51x1":      TransferKeyFile(MergeCircuitType, 51, 1),
+		"address append 40x100":   BatchKeyFile(BatchAddressAppendCircuitType, 40, 100),
+		"transfer as a batch":     BatchKeyFile(TransferConfidentialCircuitType, 40, 10),
+		"unknown extension":       ExtensionKeyFile("extension-unknown"),
+		"transfer as extension":   ExtensionKeyFile(TransferConfidentialCircuitType),
+		"confidential eddsa 2x2":  TransferKeyFile(TransferConfidentialEddsaCircuitType, 2, 2),
+		"confidential eddsa 49x2": TransferKeyFile(TransferConfidentialEddsaCircuitType, 49, 2),
 	} {
 		if file != "" {
 			t.Errorf("%s: got %q", name, file)
@@ -95,6 +99,14 @@ func TestShapeListsMirrorTheirSources(t *testing.T) {
 	for i, shape := range protocol.SupportedShapes {
 		if transferSupportedShapes[i] != [2]uint32{uint32(shape.NInputs), uint32(shape.NOutputs)} {
 			t.Fatalf("transfer shape %d is %v, protocol has %s", i, transferSupportedShapes[i], shape)
+		}
+	}
+	if len(confidentialEddsaShapes) != len(protocol.ConfidentialEddsaShapes) {
+		t.Fatalf("confidential eddsa shapes %d, protocol shapes %d", len(confidentialEddsaShapes), len(protocol.ConfidentialEddsaShapes))
+	}
+	for i, shape := range protocol.ConfidentialEddsaShapes {
+		if confidentialEddsaShapes[i] != [2]uint32{uint32(shape.NInputs), uint32(shape.NOutputs)} {
+			t.Fatalf("confidential eddsa shape %d is %v, protocol has %s", i, confidentialEddsaShapes[i], shape)
 		}
 	}
 	if len(mergeSupportedInputCounts) != len(mergeshared.SupportedInputCounts) {

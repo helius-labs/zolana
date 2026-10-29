@@ -11,6 +11,9 @@ name = "zolana-protocol"
 path = "src/main.rs"
 
 [dependencies]
+feature-gate = { workspace = true, features = ["std"] }
+solana-loader-v4-interface = { workspace = true }
+solana-sdk-ids = { workspace = true }
 anyhow = { workspace = true }
 bincode = "1.3"
 solana-account = { workspace = true }

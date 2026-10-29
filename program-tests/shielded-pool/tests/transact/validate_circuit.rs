@@ -9,6 +9,15 @@ use spr_interface::{
         },
         tag::InstructionTag,
     },
+    verifying_keys::EddsaProofData,
+};
+
+const EDDSA_PROOF_DATA: EddsaProofData = EddsaProofData {
+    bsb22_commitment: Bsb22Commitment {
+        commitment: [1u8; 32],
+        commitment_pok: [2u8; 32],
+    },
+    owner_pk: [3u8; 32],
 };
 
 fn validate(
@@ -79,7 +88,7 @@ fn selector_family_must_match_instruction() {
     };
     for (circuit, instruction) in [
         (
-            CircuitId::ConfidentialEddsa(2, 4, 3),
+            CircuitId::ConfidentialSigner(2, 4, 3),
             InstructionTag::Transact,
         ),
         (
@@ -102,6 +111,10 @@ fn selector_family_must_match_instruction() {
             CircuitId::RingAuthority(2, 2, 3),
             InstructionTag::RingAuthorityTransact,
         ),
+        (
+            CircuitId::ConfidentialEddsa(2, 8, 3, EDDSA_PROOF_DATA),
+            InstructionTag::Transact,
+        ),
     ] {
         assert_eq!(
             validate(circuit, instruction, 2, circuit.num_outputs() as usize),
@@ -118,11 +131,100 @@ fn selector_family_must_match_instruction() {
         ),
         Err(ShieldedPoolError::MismatchedCircuitType.into())
     );
+    for instruction in [
+        InstructionTag::RingTransact,
+        InstructionTag::RingAuthorityTransact,
+    ] {
+        assert_eq!(
+            validate(
+                CircuitId::ConfidentialEddsa(2, 8, 3, EDDSA_PROOF_DATA),
+                instruction,
+                2,
+                8,
+            ),
+            Err(ShieldedPoolError::MismatchedCircuitType.into()),
+            "{instruction:?}"
+        );
+    }
+}
+
+/// The in-circuit EdDSA rail has its own key set: a shape of the signer rail
+/// that it has no key for fails closed, and so does a slot count or a sent
+/// input count the selector does not cover.
+#[test]
+fn the_in_circuit_eddsa_selector_accepts_only_its_own_shapes() {
+    let invalid_shape = Err(ShieldedPoolError::InvalidTransactShape.into());
+    for (inputs, outputs) in [
+        (2u8, 8u8),
+        (2, 16),
+        (4, 8),
+        (4, 16),
+        (8, 8),
+        (8, 16),
+        (16, 8),
+        (16, 16),
+        (24, 8),
+        (24, 16),
+        (48, 8),
+        (48, 16),
+    ] {
+        assert_eq!(
+            validate(
+                CircuitId::ConfidentialEddsa(inputs, outputs, 3, EDDSA_PROOF_DATA),
+                InstructionTag::Transact,
+                inputs as usize,
+                outputs as usize,
+            ),
+            Ok(()),
+            "{inputs}x{outputs}"
+        );
+    }
+    for (inputs, outputs) in [
+        (1u8, 2u8),
+        (2, 4),
+        (3, 8),
+        (6, 6),
+        (49, 2),
+        (48, 2),
+        (24, 4),
+    ] {
+        assert_eq!(
+            validate(
+                CircuitId::ConfidentialEddsa(inputs, outputs, 3, EDDSA_PROOF_DATA),
+                InstructionTag::Transact,
+                inputs as usize,
+                outputs as usize,
+            ),
+            invalid_shape,
+            "{inputs}x{outputs} has no in-circuit EdDSA key"
+        );
+    }
+    assert_eq!(
+        validate(
+            CircuitId::ConfidentialEddsa(2, 8, 2, EDDSA_PROOF_DATA),
+            InstructionTag::Transact,
+            2,
+            8,
+        ),
+        invalid_shape
+    );
+    for (inputs, outputs) in [(0usize, 8usize), (3, 8), (2, 9)] {
+        assert_eq!(
+            validate(
+                CircuitId::ConfidentialEddsa(2, 8, 3, EDDSA_PROOF_DATA),
+                InstructionTag::Transact,
+                inputs,
+                outputs,
+            ),
+            invalid_shape,
+            "{inputs} inputs, {outputs} outputs"
+        );
+    }
 }
 
 #[test]
 fn selector_dimensions_are_fail_closed() {
-    let valid = CircuitId::ConfidentialEddsa(2, 4, 3);
+    let valid = CircuitId::ConfidentialSigner(2, 4, 3);
     let invalid_shape = Err(ShieldedPoolError::InvalidTransactShape.into());
 
     for (inputs, outputs) in [(0, 4), (3, 4), (2, 5)] {
@@ -134,7 +236,7 @@ fn selector_dimensions_are_fail_closed() {
     }
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(2, 4, 2),
+            CircuitId::ConfidentialSigner(2, 4, 2),
             InstructionTag::Transact,
             2,
             4,
@@ -143,7 +245,7 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(6, 6, 3),
+            CircuitId::ConfidentialSigner(6, 6, 3),
             InstructionTag::Transact,
             6,
             6,
@@ -153,7 +255,7 @@ fn selector_dimensions_are_fail_closed() {
     for (inputs, outputs) in [(1, 1), (2, 3), (3, 3), (4, 3), (5, 3), (36, 2), (51, 2)] {
         assert_eq!(
             validate(
-                CircuitId::ConfidentialEddsa(inputs, outputs, 3),
+                CircuitId::ConfidentialSigner(inputs, outputs, 3),
                 InstructionTag::Transact,
                 inputs as usize,
                 outputs as usize,
@@ -164,7 +266,7 @@ fn selector_dimensions_are_fail_closed() {
     }
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(49, 2, 3),
+            CircuitId::ConfidentialSigner(49, 2, 3),
             InstructionTag::Transact,
             49,
             2,
@@ -182,7 +284,7 @@ fn selector_dimensions_are_fail_closed() {
     );
     assert_eq!(
         validate(
-            CircuitId::ConfidentialEddsa(49, 4, 3),
+            CircuitId::ConfidentialSigner(49, 4, 3),
             InstructionTag::Transact,
             49,
             4,
@@ -233,7 +335,7 @@ fn selector_dimensions_are_fail_closed() {
 /// from that padding, so it is rejected.
 #[test]
 fn compact_padding_shortens_the_instruction_and_a_sent_zero_is_rejected() {
-    let circuit = CircuitId::ConfidentialEddsa(2, 4, 3);
+    let circuit = CircuitId::ConfidentialSigner(2, 4, 3);
     for (inputs, outputs) in [(1, 4), (2, 1), (1, 0)] {
         assert_eq!(
             validate(circuit, InstructionTag::Transact, inputs, outputs),
@@ -284,7 +386,7 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
     };
     let cases = [
         (
-            CircuitId::ConfidentialEddsaCached(2, 2, 3, CACHE),
+            CircuitId::ConfidentialSignerCached(2, 2, 3, CACHE),
             InstructionTag::Transact,
         ),
         (
@@ -295,9 +397,14 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
             CircuitId::AnonymousRingEddsaCached(2, 2, 3, proof_data, CACHE),
             InstructionTag::RingTransact,
         ),
+        (
+            CircuitId::ConfidentialEddsaCached(2, 8, 3, EDDSA_PROOF_DATA, CACHE),
+            InstructionTag::Transact,
+        ),
     ];
     for (circuit, accepted_by) in cases {
-        assert_eq!(validate(circuit, accepted_by, 2, 2), Ok(()));
+        let outputs = usize::from(circuit.num_outputs());
+        assert_eq!(validate(circuit, accepted_by, 2, outputs), Ok(()));
         for instruction in [
             InstructionTag::Transact,
             InstructionTag::RingTransact,
@@ -307,7 +414,7 @@ fn a_cached_selector_is_accepted_exactly_where_its_rail_is() {
                 continue;
             }
             assert_eq!(
-                validate(circuit, instruction, 2, 2),
+                validate(circuit, instruction, 2, outputs),
                 Err(ShieldedPoolError::MismatchedCircuitType.into()),
                 "{circuit:?} on {instruction:?}"
             );
@@ -354,7 +461,7 @@ fn a_cached_selector_counts_only_the_sent_slots() {
         };
         assert_eq!(
             validate(
-                CircuitId::ConfidentialEddsaCached(2, 4, 3, access),
+                CircuitId::ConfidentialSignerCached(2, 4, 3, access),
                 InstructionTag::Transact,
                 1,
                 1
@@ -397,7 +504,7 @@ fn a_cached_selector_must_fit_the_inputs_the_outputs_and_the_cache() {
         };
         assert_eq!(
             validate(
-                CircuitId::ConfidentialEddsaCached(2, 2, 3, access),
+                CircuitId::ConfidentialSignerCached(2, 2, 3, access),
                 InstructionTag::Transact,
                 2,
                 2

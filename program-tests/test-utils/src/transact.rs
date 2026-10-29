@@ -247,7 +247,7 @@ pub fn new_transact_ix_data(
     interface_transfers: Vec<InterfaceTransfer>,
     outputs: Vec<TransactOutput>,
 ) -> TransactIxData {
-    let circuit = CircuitId::ConfidentialEddsa(
+    let circuit = CircuitId::ConfidentialSigner(
         inputs.len() as u8,
         outputs.len() as u8,
         N_PUBLIC_SLOTS as u8,
@@ -501,7 +501,7 @@ pub fn prove_and_verify_transfer(
     public_input_hash: [u8; 32],
     label: &str,
 ) -> Result<TransactProof> {
-    let circuit = CircuitId::ConfidentialEddsa(
+    let circuit = CircuitId::ConfidentialSigner(
         u8::try_from(prover_inputs.inputs.len())?,
         u8::try_from(prover_inputs.outputs.len())?,
         N_PUBLIC_SLOTS as u8,

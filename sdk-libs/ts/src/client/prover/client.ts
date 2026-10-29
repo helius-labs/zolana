@@ -1,3 +1,4 @@
+import { bytesToHex } from "@noble/hashes/utils.js";
 import type {
   IndexedProofInputs,
   IndexedProofResult,
@@ -25,6 +26,7 @@ import { isZolanaGateway } from "../../endpoint.js";
 import { ClientError } from "../error.js";
 import {
   field,
+  checkedBytes,
   checkedServiceUrl,
   composeSignal,
   requestError,
@@ -48,6 +50,7 @@ import type { TeePolicy } from "./tee/registry.js";
 import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
 import type {
+  EddsaOwnerAuthorization,
   Field,
   MergeInputs,
   Proof,
@@ -705,19 +708,45 @@ function treeSlotJson(slot: TreeSlotFields): Readonly<Record<string, unknown>> {
   });
 }
 
-/** Mirrors Rust `TransferInputsJson`, key set and order included. */
+type TransferRequest = ProverInputs | Exclude<IndexedProofInputs, { circuit: "merge" }>;
+
 /** The prover circuit a transfer is proven by. */
 function transferCircuit(
-  inputs: ProverInputs | Exclude<IndexedProofInputs, { circuit: "merge" }>,
-): "transfer-ring-authority" | "transfer-ring" | "transfer-confidential" {
-  if (inputs.circuit === "transferRingAuthority") return "transfer-ring-authority";
-  return inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential";
+  inputs: TransferRequest,
+):
+  | "transfer-ring-authority"
+  | "transfer-ring"
+  | "transfer-confidential-eddsa"
+  | "transfer-confidential" {
+  switch (inputs.circuit) {
+    case "transferRingAuthority":
+      return "transfer-ring-authority";
+    case "transferRing":
+      return "transfer-ring";
+    case "transferConfidentialEddsa":
+      return "transfer-confidential-eddsa";
+    case "transfer":
+      return "transfer-confidential";
+  }
 }
 
-function proverRequest(
-  inputs: ProverInputs | Exclude<IndexedProofInputs, { circuit: "merge" }>,
-  secret: SecretEncoder,
-): ProverRequestBody {
+/**
+ * The owner fields of the prover's `ConfidentialEddsaTransferParametersJSON`:
+ * the key and signature as 0x-hex bytes, the digest split into its high and
+ * low 16-byte limbs, each a field element, as Rust `EddsaAuthorization::fields`.
+ */
+function ownerAuthorizationJson(authorization: EddsaOwnerAuthorization): ProverRequestBody {
+  const digest = checkedBytes(authorization.messageDigest, 32, "messageDigest");
+  return Object.freeze({
+    ownerPublicKey: `0x${bytesToHex(checkedBytes(authorization.ownerPublicKey, 32, "ownerPublicKey"))}`,
+    ownerSignature: `0x${bytesToHex(checkedBytes(authorization.ownerSignature, 64, "ownerSignature"))}`,
+    messageHashLow: `0x${bytesToHex(digest.subarray(16))}`,
+    messageHashHigh: `0x${bytesToHex(digest.subarray(0, 16))}`,
+  });
+}
+
+/** Mirrors Rust `TransferInputsJson`, key set and order included. */
+function proverRequest(inputs: TransferRequest, secret: SecretEncoder): ProverRequestBody {
   const payload = inputs.payload;
   return Object.freeze({
     circuitType: transferCircuit(inputs),
@@ -749,6 +778,9 @@ function proverRequest(
     cacheReadHashes: hexes(payload.cacheReadHashes, "cacheReadHashes"),
     cacheIsCached: hexes(payload.cacheIsCached, "cacheIsCached"),
     cacheReadIndex: hexes(payload.cacheReadIndex, "cacheReadIndex"),
+    ...(inputs.circuit === "transferConfidentialEddsa"
+      ? ownerAuthorizationJson(inputs.payload.ownerAuthorization)
+      : {}),
   });
 }
 

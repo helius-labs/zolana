@@ -36,7 +36,7 @@ fn serialized_ix(owner_tags: &[OwnerTag]) -> Vec<u8> {
         outputs,
         messages: Vec::new(),
         private_tx_hash: [0u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(1, 2, 3),
+        circuit: CircuitId::ConfidentialSigner(1, 2, 3),
         proof: TransactProof::zeroed(),
         inputs: Vec::new(),
         tree_contexts: vec![TreeContext {

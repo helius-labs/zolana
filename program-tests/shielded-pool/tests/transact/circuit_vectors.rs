@@ -35,6 +35,7 @@ use spr_interface::{
     },
     state::cache::empty_cached_input_fields,
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
+    verifying_keys::EddsaProofData,
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 
@@ -249,7 +250,7 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
 
 fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
     let mut derived =
-        TransactProofInputs::new(CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8));
+        TransactProofInputs::new(CircuitId::ConfidentialSigner(2, 3, N_PUBLIC_SLOTS as u8));
     derived.external_data_hash = small_fe(0x62);
     derived.ring_program_id = small_fe(0x64);
     derived.input_flags = small_fe(1);
@@ -281,10 +282,10 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
 #[test]
 fn program_assembly_matches_the_go_ordering_on_every_variant() {
     for (circuit, signer_width, unique_signers, binds_output_owners) in [
-        (CircuitId::ConfidentialEddsa(2, 4, 3), 3usize, 2u8, true),
+        (CircuitId::ConfidentialSigner(2, 4, 3), 3usize, 2u8, true),
         (CircuitId::ConfidentialRingEddsa(2, 4, 3), 3, 2, true),
         (CircuitId::RingAuthority(2, 2, 3), 1, 1, false),
-        (CircuitId::ConfidentialEddsa(32, 2, 3), 29, 29, true),
+        (CircuitId::ConfidentialSigner(32, 2, 3), 29, 29, true),
         (CircuitId::ConfidentialRingEddsa(49, 2, 3), 12, 1, true),
     ] {
         let owned = ix_data(circuit);
@@ -362,7 +363,7 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
 /// leaves zero for unsent outputs.
 #[test]
 fn compact_program_assembly_matches_the_go_ordering() {
-    let circuit = CircuitId::ConfidentialEddsa(2, 3, 3);
+    let circuit = CircuitId::ConfidentialSigner(2, 3, 3);
     let mut owned = ix_data(circuit);
     owned.inputs.truncate(1);
     owned.outputs.truncate(1);
@@ -530,6 +531,116 @@ fn anonymous_ring_eddsa_assembly_matches_the_go_request_fixture() {
         .count();
     derived.signer_pk_hashes[..unique].copy_from_slice(&signers[..unique]);
     derived.unique_owner_signer_count = u8::try_from(unique).expect("signer count");
+
+    assert_eq!(
+        TransactProof::new(&ix, &derived)
+            .public_input_hash()
+            .expect("assembly"),
+        fe_at(&request, "publicInputHash")
+    );
+}
+
+/// The program assembles the ConfidentialEddsa public input hash the circuit
+/// proves for the committed Go request of
+/// `TestDefaultRingConfidentialInCircuitEddsaRequestFixture`: the signer-rail
+/// layout with the message hash and the owner identity after
+/// `private_tx_hash`, and no owner signer, the owner signing in-circuit only.
+#[test]
+fn confidential_eddsa_assembly_matches_the_go_request_fixture() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../prover/server/prover/transfer_eddsa/testdata/confidential-eddsa-2x8.json");
+    let request: Value = serde_json::from_str(&fs::read_to_string(&path).expect("read fixture"))
+        .expect("parse fixture");
+    let entries = |key: &str| -> Vec<Value> {
+        request
+            .get(key)
+            .and_then(Value::as_array)
+            .unwrap_or_else(|| panic!("fixture list {key}"))
+            .clone()
+    };
+    let circuit = CircuitId::ConfidentialEddsa(
+        2,
+        8,
+        3,
+        EddsaProofData {
+            bsb22_commitment: Bsb22Commitment {
+                commitment: [0u8; 32],
+                commitment_pok: [0u8; 32],
+            },
+            owner_pk: fe_at(&request, "ownerPublicKey"),
+        },
+    );
+    let private_tx_hash = fe_at(&request, "privateTxHash");
+    let external_data_hash = fe_at(&request, "externalDataHash");
+    let mut message_digest = fe_at(&request, "messageHashLow");
+    message_digest[..16].copy_from_slice(&fe_at(&request, "messageHashHigh")[16..]);
+    assert_eq!(
+        Sha256::hashv(&[private_tx_hash.as_slice(), external_data_hash.as_slice()])
+            .expect("sha256"),
+        message_digest,
+        "the fixture signs sha256(private_tx_hash || external_data_hash)"
+    );
+    assert_eq!(fe_at(&request, "ringProgramId"), [0u8; 32]);
+    assert!(
+        fe_list(&request, "signerPkHashes")
+            .iter()
+            .all(|signer| *signer == [0u8; 32]),
+        "the fixture's owner signs in-circuit only"
+    );
+
+    let owned = TransactIxData {
+        private_tx_hash,
+        inputs: entries("inputs")
+            .iter()
+            .map(|input| InputUtxo {
+                nullifier_hash: fe_at(input, "nullifier"),
+                tree_index: 0,
+            })
+            .collect(),
+        outputs: entries("outputs")
+            .iter()
+            .map(|output| TransactOutput {
+                utxo_hash: fe_at(output, "hash"),
+                owner_tag: OwnerTag::Inline([0u8; 32]),
+                data: None,
+            })
+            .collect(),
+        ..ix_data(circuit)
+    };
+    let bytes = owned.serialize().expect("serialize transact ix");
+    let ix = TransactIxDataRef::from_bytes(&bytes).expect("parse transact ix");
+
+    let mut derived = TransactProofInputs::new(circuit);
+    derived.tree_slots = entries("treeSlots")
+        .iter()
+        .map(|slot| TreeSlot {
+            id: fe_at(slot, "id"),
+            utxo_root: fe_at(slot, "utxoRoot"),
+            nullifier_root: fe_at(slot, "nullifierRoot"),
+        })
+        .collect();
+    derived.output_tree_id = fe_at(&request, "outputTreeId");
+    derived.external_data_hash = external_data_hash;
+    derived.ring_program_id = [0u8; 32];
+    derived.input_flags = fe_at(&request, "inputFlags");
+    for (slot, asset) in derived
+        .public_slot_assets
+        .iter_mut()
+        .zip(fe_list(&request, "publicAssets"))
+    {
+        *slot = asset;
+    }
+    assert!(fe_list(&request, "publicAmounts")
+        .iter()
+        .all(|amount| *amount == [0u8; 32]));
+    for (owner, published) in derived
+        .output_owner_pk_hashes
+        .iter_mut()
+        .zip(fe_list(&request, "publishedOutputOwnerPkHashes"))
+    {
+        *owner = published;
+    }
+    derived.unique_owner_signer_count = 0;
 
     assert_eq!(
         TransactProof::new(&ix, &derived)

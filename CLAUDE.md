@@ -460,6 +460,23 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 
 ## SPP Transaction Proving Keys & Verifying Keys
 
+### Compile-time circuit features
+
+`feature-gate` (`program-libs/feature-gate`) owns circuit feature definitions
+and their binary metadata format. `shielded-pool-program/confidential-eddsa`
+forwards to `feature-gate/confidential-eddsa` and enables the new in-circuit
+Ed25519 default-ring family, including cached selectors. It is off by default.
+The same descriptor checks allowed proving-key hashes and supplies the exported
+ELF marker. Existing VK setup markers describe linked keys, not active features.
+
+`just build-programs` leaves the feature off. Test recipes use
+`just build-test-programs`, which explicitly sets
+`SHIELDED_POOL_FEATURES=confidential-eddsa`; the host test crate also explicitly
+enables the program feature. Run `just test-feature-gate` to check both compile
+configurations. Inspect a binary with
+`cargo run -p spr-protocol-cli -- circuit-features --so <program.so>`, or a
+deployment with `circuit-features --program-id <id> --rpc-url <url>`.
+
 The runtime-authorized transfer and anonymous EdDSA ownership
 circuits live in `prover/server/circuits/spp_transaction/`. Their proving
 systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is
@@ -471,6 +488,13 @@ TS `sdk-libs/ts/src/interface/shape.ts`, Go
 `prover-test/spp/protocol/shape.go` (`SupportedShapes`), Go
 `prover/common/lazy_key_manager.go` (`transferSupportedShapes`), and the
 key-generation list in `prover/server/scripts/generate_keys_transfer.sh`. The
+in-circuit EdDSA rail (`CircuitId::ConfidentialEddsa`, circuit type
+`transfer-confidential-eddsa`) has its own key set with the same mirrors:
+Rust `CONFIDENTIAL_EDDSA_SHAPES` (`shape.rs`), the `confidential_eddsa` block
+of `circuit_key_item!`, TS `CONFIDENTIAL_EDDSA_SHAPES` (`shape.ts`), Go
+`ConfidentialEddsaShapes` (`prover-test/spp/protocol/shape.go`), Go
+`confidentialEddsaShapes` (`lazy_key_manager.go`), and
+`generate_keys_transfer.sh`. The
 merge widths (8, 24 and 52) live in `MERGE_SUPPORTED_INPUT_COUNTS`
 (`merge_transact.rs`), Go `spp_merge/shared` `SupportedInputCounts` and
 `lazy_key_manager.go` `mergeSupportedInputCounts`.
@@ -482,7 +506,8 @@ merge widths (8, 24 and 52) live in `MERGE_SUPPORTED_INPUT_COUNTS`
 prover/server/scripts/generate_keys_transfer.sh
 
 # One shape directly (--circuit flag = transfer-confidential | transfer-ring |
-# transfer-eddsa-ring | transfer-ring-authority). Key files mirror the vk modules.
+# transfer-eddsa-ring | transfer-ring-authority | transfer-confidential-eddsa).
+# Key files mirror the vk modules.
 cd prover/server && go build -o light-prover .
 ./light-prover setup-transfer --circuit transfer-eddsa-ring --n-inputs 2 --n-outputs 2 \
     --output proving-keys/transfer_eddsa_ring_2_2.key
@@ -592,28 +617,33 @@ key set fails before a transaction is built instead of on-chain:
   pinned to the lockfile by `test/proving-keys.test.ts`; a key rotation updates
   it in the same PR.
 
-### BSB22 commitments (the two rails differ on purpose)
+### BSB22 commitments (the in-circuit signature rails differ on purpose)
 
-- **transfer_eddsa_ring:** the signature gadget adds one BSB22 commitment over
-  private wires. Its vk has `vk_commitment_g2: Some(..)` and `vk_ic.len() ==
-  public_inputs + 2`. Proofs include `proofCommitment` + `proofCommitmentPok`.
-  Verify with `Groth16Verifier::new_with_commitment`.
-- **transfer (runtime-authorized EdDSA, Solana-only):** standard Groth16,
-  zero commitments. Its vk has `vk_commitment_g2: None` and `vk_ic.len() ==
-  public_inputs + 1`. Verify with `Groth16Verifier::new`.
+- **transfer_eddsa_ring (`AnonymousRingEddsa`) and transfer_confidential_eddsa
+  (`ConfidentialEddsa`):** the Ed25519 signature gadget adds one BSB22
+  commitment over private wires. Their vks have `vk_commitment_g2: Some(..)`
+  and `vk_ic.len() == public_inputs + 2`. Proofs include `proofCommitment` +
+  `proofCommitmentPok`, carried in the `CircuitId` payload
+  (`AnonymousRingEddsaProofData`, `EddsaProofData`). Verify with
+  `Groth16Verifier::new_with_commitment`.
+- **transfer_confidential (`ConfidentialSigner`), transfer_ring
+  (`ConfidentialRingEddsa`) and transfer_ring_authority (`RingAuthority`):**
+  the Solana runtime verifies every signer, so these are standard Groth16 with
+  zero commitments. Their vks have `vk_commitment_g2: None` and `vk_ic.len()
+  == public_inputs + 1`. Verify with `Groth16Verifier::new`.
 
-Both verify in one binary built with the `bsb22` feature: `verify_common` runs
+All verify in one binary built with the `bsb22` feature: `verify_common` runs
 the standard Groth16 pairing for every proof and only adds the Pedersen PoK
 pairing when a commitment is present. Dispatch on `vk.vk_commitment_g2.is_some()`
-(or the rail). The Go prover marshals `proofCommitment` as `omitempty`, so it is
-absent for the runtime-authorized EdDSA rails and present for the anonymous
-EdDSA rail.
+(or `CircuitId::bsb22_commitment()`). The Go prover marshals `proofCommitment`
+as `omitempty`, so it is absent for the runtime-authorized rails and present
+for the two in-circuit signature rails.
 
 NOTE: the parser/verifier support a single commitment over **private** wires
 only (empty `committed_wires`). Committing a **public** input (e.g.
 `committer.Commit(c.PublicInputHash)`) records that wire in
 `PublicAndCommitmentCommitted` and the parser rejects it with
-`Bsb22UnsupportedMultiCommitment`. The runtime-authorized EdDSA rails must
+`Bsb22UnsupportedMultiCommitment`. The runtime-authorized rails must
 therefore stay standard Groth16 (no explicit `Commit`), not force a public-wire
 commitment.
 

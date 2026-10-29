@@ -15,6 +15,7 @@ localnet = ["spr-client/solana-rpc"]
 proofs = []
 
 [dependencies]
+feature-gate = { workspace = true, features = ["std"] }
 spr-protocol-instructions = { workspace = true }
 anyhow = { workspace = true }
 forester = { path = "../../protocol-ops/forester" }
@@ -31,7 +32,7 @@ solana-system-interface = { workspace = true }
 spl-token = { workspace = true }
 spr-account-checks = { workspace = true, features = ["test-only"] }
 pinocchio = { workspace = true }
-shielded-pool-program = { workspace = true, features = ["test-sbf"] }
+shielded-pool-program = { workspace = true, features = ["test-sbf", "confidential-eddsa"] }
 spr-interface = { workspace = true }
 spr-program = { workspace = true }
 spr-event = { workspace = true }
@@ -296,6 +297,11 @@ path = "tests/transact/public_slots.rs"
 [[test]]
 name = "transact_validate_circuit"
 path = "tests/transact/validate_circuit.rs"
+
+[[test]]
+name = "transact_confidential_eddsa"
+path = "tests/transact/confidential_eddsa.rs"
+required-features = ["proofs"]
 
 [[test]]
 name = "spl_interface_validation"

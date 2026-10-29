@@ -23,10 +23,12 @@ import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
 import type { ProverHealth, ProvingKeyReport } from "./prover/client.js";
 import type {
+  EddsaOwnerAuthorization,
   MergeInputs,
   Proof,
   ProverInputs,
   RingTransactRoots,
+  TransactOwnerSigner,
   TransferInputs,
   TransferInput,
   Field,
@@ -160,6 +162,10 @@ export type PreparedTransferInputs = Omit<
   readonly inputs: readonly PreparedTransferInput[];
 };
 
+export type PreparedConfidentialEddsaTransferInputs = PreparedTransferInputs & {
+  readonly ownerAuthorization: EddsaOwnerAuthorization;
+};
+
 export type PreparedMergeInputs = Omit<MergeInputs, "inputs" | "treeSlots" | "publicInputHash"> & {
   readonly inputs: readonly PreparedTransferInput[];
 };
@@ -202,6 +208,10 @@ export type IndexedProofInputs = Readonly<{
     | Readonly<{
         circuit: "transfer" | "transferRing" | "transferRingAuthority";
         payload: PreparedTransferInputs;
+      }>
+    | Readonly<{
+        circuit: "transferConfidentialEddsa";
+        payload: PreparedConfidentialEddsaTransferInputs;
       }>
     | Readonly<{ circuit: "merge"; payload: PreparedMergeInputs }>
   );
@@ -276,6 +286,17 @@ export interface Prover {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData>;
+  /**
+   * The default ring with `owner` signing inside the proof: `owner` is left
+   * out of the transaction's owner signers, every other owner still signs.
+   */
+  proveConfidentialEddsaTransact(
+    proofInputs: SppProofInputs,
+    owner: TransactOwnerSigner,
+    keys: ProofAuthority,
+    config?: IndexerRpcConfig,
+    context?: RequestContext,
+  ): Promise<ProvenConfidentialEddsaTransact>;
   proveRingTransact(
     proofInputs: SppProofInputs,
     ringProgramId: Address,
@@ -394,12 +415,27 @@ export interface ProvenRingTransact {
   readonly roots: RingTransactRoots;
 }
 
+/**
+ * A proved transfer with the owner signers its transaction must carry: the
+ * Ed25519 and PDA owners of inputs and of outputs that carry data, in
+ * signer-vector order, without an owner the proof verifies.
+ */
+export interface ProvenConfidentialEddsaTransact {
+  readonly data: TransactInstructionData;
+  readonly ownerSigners: readonly Address[];
+}
+
 export interface TransactionAssembler {
+  /**
+   * With `owner`, the shielded owner authorizes inside the proof and is no
+   * signer of the transaction; any other required owners still sign.
+   */
   assembleAuthorizedPrivateTransaction(
     input: Readonly<{
       authorized: AuthorizedPrivateTransaction;
       feePayer: Address;
       keys: ProofAuthority;
+      owner?: TransactOwnerSigner;
     }>,
     context?: RequestContext,
   ): Promise<Transaction>;

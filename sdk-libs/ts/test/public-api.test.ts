@@ -563,7 +563,7 @@ describe("address and instruction builders", () => {
         expiryUnixTs: 0n,
         privateTxHash: new Uint8Array(32) as Bytes32,
         circuit: {
-          kind: "confidentialEddsa",
+          kind: "confidentialSigner",
           inputs: 0,
           outputs: 0,
           publicAssetSlots: 3,

@@ -184,6 +184,54 @@
       "sha256": "3fce685c5cfe6bc4ed1c11a74c4b9168c8d99e5b0cd2229a1217c3918c791a94",
       "size": 62008338
     },
+    "transfer_confidential_eddsa_16_16.key": {
+      "sha256": "ae94b617ae3f7ed4c2ba2df7cc4bae3afeda89090f025b2b153dc127e3028e37",
+      "size": 214026243
+    },
+    "transfer_confidential_eddsa_16_8.key": {
+      "sha256": "9d82d4be2d0741e53137c73375d8ccf4e1dda51ca33965d363a6cc74ccb40dae",
+      "size": 208928615
+    },
+    "transfer_confidential_eddsa_24_16.key": {
+      "sha256": "ed96171728783a85db28323e44fb49e8cd4a72bfa82ff31ab7ae77f5680b52c5",
+      "size": 285897593
+    },
+    "transfer_confidential_eddsa_24_8.key": {
+      "sha256": "a4187aa6b90013d01c00e90853ceaca0e1e5a6a5facb339ba216592128f14445",
+      "size": 280726230
+    },
+    "transfer_confidential_eddsa_2_16.key": {
+      "sha256": "bd5ee7839c0c3128cbb5489e6acfbfab27d7382bf6c34e9fc49747efd5461566",
+      "size": 109839653
+    },
+    "transfer_confidential_eddsa_2_8.key": {
+      "sha256": "67e37b413b0eeb97de0170519a9fe269d39792e8ed3d91c0c9336ac12f06684a",
+      "size": 100676477
+    },
+    "transfer_confidential_eddsa_48_16.key": {
+      "sha256": "72b7c5ca256b05ba43e4ecaed7aa3e5d1fbe9ee306bd436a8388a4f713b75db8",
+      "size": 482309994
+    },
+    "transfer_confidential_eddsa_48_8.key": {
+      "sha256": "ef92717877e915bc9042d64b5f295a5accb8f5efe1f5512f9b00cc54f90a0d2f",
+      "size": 477001663
+    },
+    "transfer_confidential_eddsa_4_16.key": {
+      "sha256": "db6fafd3b53c4d16600b35181d2e0c121e3cb6c992b323997ec52c99ebf61734",
+      "size": 123387131
+    },
+    "transfer_confidential_eddsa_4_8.key": {
+      "sha256": "506f40765a75aa56ac9332948fef62dc6d2f7958b9601e964ba6a2e6124fb4df",
+      "size": 118400749
+    },
+    "transfer_confidential_eddsa_8_16.key": {
+      "sha256": "e62032b8a510e12a8923fe1f2791985693ab3b5ed6e14a4e9edc46c9f79c70ed",
+      "size": 159279625
+    },
+    "transfer_confidential_eddsa_8_8.key": {
+      "sha256": "111004c953760420e3c4570234e88f2db3561cc36f773ec781ec689ff8cbf104",
+      "size": 145869239
+    },
     "transfer_eddsa_ring_12_2.key": {
       "sha256": "98939bf3992efb290d185d8543de5af307817cd34eb42abf0754261a02ea027b",
       "size": 177785518
@@ -497,5 +545,5 @@
       "size": 30658339
     }
   },
-  "prefix": "proving-keys/8e234b5a589cfb79"
+  "prefix": "proving-keys/7802e6a064832ccb"
 }

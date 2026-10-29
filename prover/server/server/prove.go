@@ -42,6 +42,7 @@ func (p circuitProver) dispatch(circuit common.CircuitType, payload []byte) (*co
 	case common.TransferConfidentialCircuitType,
 		common.TransferRingCircuitType,
 		common.TransferRingAuthorityCircuitType,
+		common.TransferConfidentialEddsaCircuitType,
 		common.MergeCircuitType,
 		common.MergeRingCircuitType:
 		return p.request(payload)

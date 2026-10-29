@@ -44,7 +44,7 @@ export {
   transactInstruction,
 } from "./instructions/index.js";
 export type { CacheWriteAccounts, TransactAccountsInput } from "./instructions/index.js";
-export { DepositAsset, TransactWithdrawal } from "./types.js";
+export { DepositAsset, TransactWithdrawal, circuitCacheAccess } from "./types.js";
 export {
   ciphertextHash,
   ownerPkFieldCompressed,
@@ -65,7 +65,16 @@ export {
   nullifierTreeParams,
 } from "./program.js";
 export type { CreateTreeData, NullifierTreeParams } from "./program.js";
-export { SPP_SUPPORTED_SHAPES, selectSppShape, validateSppShape } from "./shape.js";
+export {
+  CONFIDENTIAL_EDDSA_SHAPES,
+  SPP_SUPPORTED_SHAPES,
+  isConfidentialEddsaShape,
+  isSppShape,
+  isTransactShape,
+  selectConfidentialEddsaShape,
+  selectSppShape,
+  validateSppShape,
+} from "./shape.js";
 export type { Shape } from "./shape.js";
 export {
   CACHE_ACCOUNT_SIZE,

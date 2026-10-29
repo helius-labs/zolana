@@ -202,14 +202,16 @@ impl<R, I> AsyncZolanaClient<R, I> {
 
     /// The transfer proof of a transfer off the indexed route.
     async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.prove_request(crate::prover::requests::transfer(inputs)?)
+            .await
+    }
+
+    /// A proof from the client's prover, server or custom.
+    async fn prove_request(&self, request: CircuitRequest) -> Result<Proof, ClientError> {
         match &self.prover {
-            ProverBackend::Server(prover) => prover.prove_transfer(inputs).await,
+            ProverBackend::Server(prover) => prover.prove(&request).await,
             ProverBackend::Custom(prover) => {
-                prove_on_blocking_pool(
-                    Arc::clone(prover),
-                    crate::prover::requests::transfer(inputs)?,
-                )
-                .await
+                prove_on_blocking_pool(Arc::clone(prover), request).await
             }
         }
     }

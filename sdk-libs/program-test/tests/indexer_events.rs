@@ -178,7 +178,7 @@ fn sample_transact_instruction_data() -> Vec<u8> {
     let ix = TransactIxData {
         expiry_unix_ts: 0,
         private_tx_hash: [0u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(1, 2, 0),
+        circuit: CircuitId::ConfidentialSigner(1, 2, 0),
         tx_viewing_pk: event.tx_viewing_pk,
         salt: event.salt,
         proof: TransactProof::zeroed(),

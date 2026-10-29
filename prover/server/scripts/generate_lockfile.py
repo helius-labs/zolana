@@ -16,6 +16,12 @@ preserved within each version folder.
 Usage:
     generate_lockfile.py <keys-dir> --prover <light-prover> [--out <lockfile>] [--prefix <base-prefix>]
     generate_lockfile.py <keys-dir> --release <name>... --only-release
+    generate_lockfile.py <keys-dir> --add
+
+`--add` pins the `*.key` files in keys-dir on top of the existing lockfile,
+keeping every other entry as it is, and derives the new version prefix from the
+whole set. It is for adding a circuit without rotating the keys that exist: the
+unchanged keys are copied server side from the previous version folder.
 
 Defaults: keys-dir positional,
 out=prover/server/prover/provingkeys/proving-keys.lock (the file the Go
@@ -66,6 +72,11 @@ def main() -> int:
         action="store_true",
         help="repin the --release entries of the existing lockfile, keep the rest and the prefix",
     )
+    parser.add_argument(
+        "--add",
+        action="store_true",
+        help="pin the keys in keys-dir on top of the existing lockfile and derive a new prefix",
+    )
     args = parser.parse_args()
 
     keys_dir = os.path.abspath(args.keys_dir)
@@ -100,6 +111,9 @@ def main() -> int:
         return 1
 
     keys = {}
+    if args.add:
+        with open(out) as f:
+            keys = json.load(f)["keys"]
     for name in names:
         path = os.path.join(keys_dir, name)
         size = os.path.getsize(path)
@@ -122,7 +136,7 @@ def main() -> int:
     version = hashlib.sha256(canonical).hexdigest()[:16]
     prefix = f"{args.prefix.rstrip('/')}/{version}"
 
-    manifest = {"prefix": prefix, "keys": keys}
+    manifest = {"prefix": prefix, "keys": dict(sorted(keys.items()))}
     with open(out, "w") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
         f.write("\n")

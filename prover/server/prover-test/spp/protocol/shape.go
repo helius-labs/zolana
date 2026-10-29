@@ -78,6 +78,24 @@ var SupportedShapes = []Shape{
 	{NInputs: 49, NOutputs: 2},
 }
 
+// ConfidentialEddsaShapes lists the shapes of the confidential transfer
+// authorized by an in-circuit Ed25519 signature, cheapest first. Mirrors
+// CONFIDENTIAL_EDDSA_SHAPES in program-libs/interface/src/shape.rs.
+var ConfidentialEddsaShapes = []Shape{
+	{NInputs: 2, NOutputs: 8},
+	{NInputs: 2, NOutputs: 16},
+	{NInputs: 4, NOutputs: 8},
+	{NInputs: 4, NOutputs: 16},
+	{NInputs: 8, NOutputs: 8},
+	{NInputs: 8, NOutputs: 16},
+	{NInputs: 16, NOutputs: 8},
+	{NInputs: 16, NOutputs: 16},
+	{NInputs: 24, NOutputs: 8},
+	{NInputs: 24, NOutputs: 16},
+	{NInputs: 48, NOutputs: 8},
+	{NInputs: 48, NOutputs: 16},
+}
+
 // AutoShapes is the smallest-fit search order. Every supported shape is
 // reachable by automatic selection, so it is the full SupportedShapes list.
 var AutoShapes = SupportedShapes

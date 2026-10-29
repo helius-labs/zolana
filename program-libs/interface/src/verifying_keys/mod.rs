@@ -5,7 +5,7 @@
 mod circuit;
 pub use circuit::{
     valid_cache_writes, AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CacheWrite,
-    CircuitId, OutputOwnerMode, MAX_CACHE_WRITES,
+    CircuitId, EddsaProofData, OutputOwnerMode, MAX_CACHE_WRITES,
 };
 
 #[cfg(feature = "verifying-keys")]
@@ -96,6 +96,30 @@ pub mod transfer_confidential_8_2;
 pub mod transfer_confidential_8_4;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_8_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_16_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_16_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_24_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_24_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_2_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_2_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_48_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_48_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_4_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_4_8;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_8_16;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_eddsa_8_8;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_eddsa_ring_12_2;
 #[cfg(feature = "verifying-keys")]
@@ -429,6 +453,54 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     (
         "transfer_confidential_8_8.key",
         transfer_confidential_8_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_16_16.key",
+        transfer_confidential_eddsa_16_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_16_8.key",
+        transfer_confidential_eddsa_16_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_24_16.key",
+        transfer_confidential_eddsa_24_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_24_8.key",
+        transfer_confidential_eddsa_24_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_2_16.key",
+        transfer_confidential_eddsa_2_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_2_8.key",
+        transfer_confidential_eddsa_2_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_48_16.key",
+        transfer_confidential_eddsa_48_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_48_8.key",
+        transfer_confidential_eddsa_48_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_4_16.key",
+        transfer_confidential_eddsa_4_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_4_8.key",
+        transfer_confidential_eddsa_4_8::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_8_16.key",
+        transfer_confidential_eddsa_8_16::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_confidential_eddsa_8_8.key",
+        transfer_confidential_eddsa_8_8::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     (
         "transfer_eddsa_ring_12_2.key",

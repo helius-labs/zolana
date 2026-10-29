@@ -9,7 +9,10 @@ use crate::{
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
         proof::Proof,
         requests,
-        transact::witness::{assemble_with_dummy_policy, SpendProof},
+        transact::{
+            confidential_eddsa::ConfidentialEddsaTransferInputs,
+            witness::{assemble_with_dummy_policy, SpendProof},
+        },
     },
     rpc::NonInclusionProof,
 };
@@ -53,6 +56,15 @@ pub trait ProverExt: Prover {
     /// [`ProofCompressed::try_from`](crate::ProofCompressed) for the wire format.
     fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::transfer(inputs)?)
+    }
+
+    /// Prove a default-ring transfer one owner authorizes in-circuit
+    /// (`transfer-confidential-eddsa`).
+    fn prove_transfer_confidential_eddsa(
+        &self,
+        inputs: &ConfidentialEddsaTransferInputs,
+    ) -> Result<Proof, ClientError> {
+        self.prove(inputs)
     }
 
     /// Prove an 8-in/1-out merge.

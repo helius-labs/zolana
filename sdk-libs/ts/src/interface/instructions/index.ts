@@ -32,6 +32,7 @@ import {
   type TransactWithdrawal,
   type TreeFeeSchedule,
 } from "../types.js";
+import { circuitCacheAccess } from "../types.js";
 import { writesCache } from "../cache.js";
 import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
@@ -390,10 +391,7 @@ export function checkTransactCacheAccounts(
   circuit: CircuitId,
   cache: TransactCacheAccounts | undefined,
 ): void {
-  const access =
-    circuit.kind === "confidentialEddsaCached" || circuit.kind === "confidentialRingEddsaCached"
-      ? circuit.cacheAccess
-      : undefined;
+  const access = circuitCacheAccess(circuit);
   const expected = cacheRoles(
     access !== undefined && access.readBitmap !== 0n,
     access !== undefined && writesCache(access),
