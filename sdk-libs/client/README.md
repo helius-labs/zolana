@@ -118,6 +118,36 @@ anyone holding the proof can submit it. The proof request carries the
 owner's nullifier secret, so a prover other than this process learns it and
 every merged amount; `MergeSubmission::with_prover` keeps it in process.
 
+For a sponsored cache round, resolve the planned inputs with
+`spr_transaction::select_by_commitments(spendable.utxos(), &ordered_ids, &reserved)`.
+It preserves the supplied order and rejects missing, duplicate or reserved notes;
+it never substitutes a newly arrived note. Keep the first input stable across
+retries because it determines the merged output's blinding.
+
+Set `MergeSubmission::with_cache(MergeCacheTarget { address, slot })`, then use
+`prove_sync` and `proved.instruction(sponsor)` alongside `CreateCache::instruction()`.
+The sponsor must be the cache writer as well as the payer. The output commitment
+is written to both the cache and the tree. Before spending cached outputs,
+`cache::verify_cache` checks the derived account, authorities, tree, expiry and
+expected slot commitments. The caller still authenticates the private openings
+and owns run limits, reservations, persistence and retry policy.
+
+## Reading one transaction
+
+With the `client` feature, `lookup::TransactionReader::new(&keys, &assets)` reads
+one signature through `fetch(&client, signature)`. It fetches indexed events and
+the confirmed Solana transaction without scanning history or polling. A `Ready`
+result contains verified activity rows. `PendingIndexing`, `NotFound` and
+`Incomplete` describe missing activity evidence, not transaction confirmation.
+
+Use `with_asset_discovery()` to resolve registered assets, and
+`with_padding_openings(&openings)` when saved `DummyOutputOpening` values are
+available. The reader verifies padding commitments and trees before skipping
+them. Exact-balance private sends can otherwise remain `Incomplete` because a
+cold reader cannot distinguish recipient-tagged dummy ciphertext from an
+unreadable payment. Callers own storage of these private openings and any
+confirmation/retry loop.
+
 ## In process: litesvm
 
 Any indexer serves a client. A blocking one answers the indexer half of

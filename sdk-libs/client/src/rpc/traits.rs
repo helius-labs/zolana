@@ -7,7 +7,9 @@ use solana_keypair::Signer;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_status_client_types::TransactionStatus;
+use solana_transaction_status_client_types::{
+    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus,
+};
 use spr_transaction::{instructions::transact::SppProofInputs, utxo::SppProofInputUtxo};
 
 use crate::{authority::ProofAuthority, error::ClientError, prover::transact::witness::SpendProof};
@@ -79,6 +81,15 @@ pub trait Rpc {
 
     fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
         Err(unsupported("get_transaction_slot"))
+    }
+
+    /// One confirmed transaction read. Missing or pruned signatures return
+    /// `None`; this method never polls. Network errors remain errors.
+    fn get_confirmed_transaction(
+        &self,
+        signature: Signature,
+    ) -> Result<Option<EncodedConfirmedTransactionWithStatusMeta>, ClientError> {
+        Err(unsupported("get_confirmed_transaction"))
     }
 
     fn get_signature_statuses(
@@ -314,6 +325,14 @@ pub trait AsyncRpc: Send + Sync {
 
     async fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
         Err(unsupported("get_transaction_slot"))
+    }
+
+    /// See [`Rpc::get_confirmed_transaction`].
+    async fn get_confirmed_transaction(
+        &self,
+        signature: Signature,
+    ) -> Result<Option<EncodedConfirmedTransactionWithStatusMeta>, ClientError> {
+        Err(unsupported("get_confirmed_transaction"))
     }
 
     async fn get_signature_statuses(

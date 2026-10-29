@@ -18,9 +18,12 @@
 //! - `client`: `solana-rpc`, the set the CLI and the examples enable
 
 pub mod authority;
+pub mod cache;
 pub mod client;
 pub mod error;
 pub mod indexer;
+#[cfg(feature = "solana-rpc")]
+pub mod lookup;
 pub mod prover;
 pub mod rpc;
 pub mod scan;

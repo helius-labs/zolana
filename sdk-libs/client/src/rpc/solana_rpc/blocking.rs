@@ -245,6 +245,18 @@ impl Rpc for SolanaRpc {
             .map_err(|err| ClientError::Rpc(format!("get_slot: {err}")))
     }
 
+    fn get_confirmed_transaction(
+        &self,
+        signature: Signature,
+    ) -> Result<Option<EncodedConfirmedTransactionWithStatusMeta>, ClientError> {
+        self.client.send(
+            solana_rpc_client_api::request::RpcRequest::GetTransaction,
+            serde_json::json!([signature.to_string(), {
+                "encoding": "json", "commitment": "confirmed", "maxSupportedTransactionVersion": 1
+            }]),
+        ).map_err(|error| ClientError::Rpc(error.to_string()))
+    }
+
     fn get_signature_statuses(
         &self,
         signatures: Vec<Signature>,

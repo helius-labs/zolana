@@ -11,7 +11,9 @@ use solana_hash::Hash;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_status_client_types::TransactionStatus;
+use solana_transaction_status_client_types::{
+    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus,
+};
 use spr_transaction::utxo::SppProofInputUtxo;
 
 use crate::prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
@@ -113,6 +115,14 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
 
     async fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
         self.run(move |rpc| rpc.get_transaction_slot(signature))
+            .await
+    }
+
+    async fn get_confirmed_transaction(
+        &self,
+        signature: Signature,
+    ) -> Result<Option<EncodedConfirmedTransactionWithStatusMeta>, ClientError> {
+        self.run(move |rpc| rpc.get_confirmed_transaction(signature))
             .await
     }
 

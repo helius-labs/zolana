@@ -249,3 +249,28 @@ fn a_merge_is_reported_even_when_excluded_utxos_would_cover_the_amount() {
         })
     );
 }
+
+#[test]
+fn exact_commitments_keep_order_across_rescans_and_refuse_substitutions() {
+    use spr_transaction::select_by_commitments;
+    let owner = keypair(1);
+    let first = wallet_utxo(&owner, Mint::SOL, 20, 0, 1);
+    let second = wallet_utxo(&owner, Mint::SOL, 20, 0, 2);
+    let small = wallet_utxo(&owner, Mint::SOL, 1, 0, 3);
+    let ids = [first.utxo_hash, second.utxo_hash];
+    let scan = [small, second.clone(), first.clone()];
+    let selected = select_by_commitments(&scan, &ids, &HashSet::new()).unwrap();
+    assert_eq!(selected, [first.clone(), second.clone()]);
+    assert_eq!(
+        select_by_commitments(&scan, &[ids[0], ids[0]], &HashSet::new()),
+        Err(TransactionError::DuplicateInputCommitment { index: 1 })
+    );
+    assert_eq!(
+        select_by_commitments(&scan[..2], &ids, &HashSet::new()),
+        Err(TransactionError::InputCommitmentUnavailable { index: 0 })
+    );
+    assert_eq!(
+        select_by_commitments(&scan, &ids, &HashSet::from([second.nullifier])),
+        Err(TransactionError::SpendNeedsExcludedUtxos { amount: 20 })
+    );
+}

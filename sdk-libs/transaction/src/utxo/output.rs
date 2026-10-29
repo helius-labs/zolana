@@ -13,6 +13,21 @@ use crate::{
     Mint,
 };
 
+/// Private opening of a published dummy output. Keep it with the prepared
+/// transaction, never in logs. A matching commitment proves the slot carries
+/// no value; an unreadable ciphertext alone does not establish that.
+#[derive(Clone, Copy)]
+pub struct DummyOutputOpening {
+    pub blinding: Blinding,
+    pub tree_id: u16,
+}
+
+impl DummyOutputOpening {
+    pub fn commitment(&self) -> Result<[u8; 32], TransactionError> {
+        dummy_utxo_hash(&self.blinding, self.tree_id)
+    }
+}
+
 /// Canonical ordering key for data records: `RingData` < `UtxoData` < `Memo`,
 /// matching `Data::validate`.
 fn canonical_data_order(record: &DataRecord) -> u8 {

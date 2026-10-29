@@ -9,7 +9,7 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
 use solana_signature::Signature;
-use spr_instruction::instruction::MergeTransact;
+use spr_instruction::instruction::{CacheWriteAccounts, MergeTransact};
 use spr_interface::{instruction::instruction_data::merge_transact::MergeTransactIxData, pda};
 use spr_keypair::{NullifierKey, ShieldedAddress};
 use spr_transaction::instructions::merge::MergeProofInputs;
@@ -18,7 +18,7 @@ use spr_user_registry_interface::{user_record_pda, MergeEncryptionScheme, UserRe
 use crate::{
     error::ClientError,
     prover::{
-        merge::{MergeProofResult, MergeProver},
+        merge::{MergeCacheTarget, MergeProofResult, MergeProver},
         requests,
         verify::MergeProofStatement,
         witness::InputWitnesses,
@@ -61,6 +61,8 @@ pub struct MergeSubmission<'a> {
     pub nullifier_key: &'a NullifierKey,
     /// Proves this merge in place of the client's prover.
     pub prover: Option<Arc<dyn Prover>>,
+    /// Optional cache slot receiving the same output commitment as the tree.
+    pub cache: Option<MergeCacheTarget>,
 }
 
 /// A merge proved and verified against its owner's record, ready for any fee
@@ -74,11 +76,13 @@ pub struct ProvedMerge {
     pub data: MergeTransactIxData,
     /// The UTXO the merge appends to the output tree.
     pub output_hash: [u8; 32],
+    pub cache: Option<MergeCacheTarget>,
 }
 
 impl ProvedMerge {
     /// The `merge_transact` `payer` pays for and signs. It verifies a Groth16
-    /// proof: give its transaction [`MERGE_CU_LIMIT`].
+    /// proof: give its transaction [`MERGE_CU_LIMIT`]. For a cached merge,
+    /// `payer` is also the cache writer. Create the cache separately if needed.
     pub fn instruction(&self, payer: Address) -> Instruction {
         MergeTransact {
             input_tree: pda::tree(self.input_tree_id),
@@ -86,7 +90,10 @@ impl ProvedMerge {
             payer,
             user_record: self.user_record,
             data: self.data.clone(),
-            cache: None,
+            cache: self.cache.map(|target| CacheWriteAccounts {
+                cache: target.address,
+                writer: payer,
+            }),
         }
         .instruction()
     }
@@ -105,12 +112,21 @@ impl<'a> MergeSubmission<'a> {
             address,
             nullifier_key,
             prover: None,
+            cache: None,
         }
     }
 
     #[must_use]
     pub fn with_prover(mut self, prover: Arc<dyn Prover>) -> Self {
         self.prover = Some(prover);
+        self
+    }
+
+    /// Prove a write to this cache slot as well as the output tree. The payer
+    /// supplied to the resulting instruction must be the cache's writer.
+    #[must_use]
+    pub fn with_cache(mut self, target: MergeCacheTarget) -> Self {
+        self.cache = Some(target);
         self
     }
 
@@ -140,7 +156,7 @@ impl<'a> MergeSubmission<'a> {
             nullifier_key: self.nullifier_key.clone(),
             proofs: witnesses.spend_proofs,
             dummy_nullifier_proofs: witnesses.dummy_nullifier_proofs,
-            cache: None,
+            cache: self.cache,
         }
         .build()?;
         let proof = match &self.prover {
@@ -156,6 +172,7 @@ impl<'a> MergeSubmission<'a> {
             user_record,
             data: result.instruction_data(ProofCompressed::try_from(proof)?.to_merge_proof()?),
             output_hash: result.output_hash,
+            cache: self.cache,
         })
     }
 

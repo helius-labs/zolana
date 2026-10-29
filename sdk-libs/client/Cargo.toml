@@ -24,6 +24,7 @@ client = ["solana-rpc"]
 proofs = ["reqwest"]
 
 [dependencies]
+bytemuck = { workspace = true }
 spr-interface = { workspace = true }
 spr-instruction = { workspace = true }
 spr-indexer-api = { workspace = true }

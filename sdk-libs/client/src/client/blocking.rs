@@ -4,7 +4,9 @@ use solana_hash::Hash;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_status_client_types::TransactionStatus;
+use solana_transaction_status_client_types::{
+    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus,
+};
 use spr_transaction::{instructions::transact::SppProofInputs, utxo::SppProofInputUtxo};
 
 use crate::{
@@ -71,6 +73,13 @@ impl<R: BlockingRpc, I: BlockingIndexer> Rpc for ZolanaClient<R, I> {
 
     fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
         self.block_on(self.client.get_transaction_slot(signature))
+    }
+
+    fn get_confirmed_transaction(
+        &self,
+        signature: Signature,
+    ) -> Result<Option<EncodedConfirmedTransactionWithStatusMeta>, ClientError> {
+        self.block_on(self.client.get_confirmed_transaction(signature))
     }
 
     fn get_signature_statuses(

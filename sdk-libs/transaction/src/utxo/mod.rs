@@ -17,7 +17,7 @@ pub use input::SppProofInputUtxo;
 pub(crate) use note::resolve_ring_program_id;
 // TODO: rename Utxo to CircuitUtxo, then WalletUtxo to Utxo, in its own PR (TS SDK too)
 pub use note::Utxo;
-pub use output::SppProofOutputUtxo;
+pub use output::{DummyOutputOpening, SppProofOutputUtxo};
 pub use proof_input::ProofInputUtxo;
 pub use spr_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};
 pub use wallet::WalletUtxo;

@@ -37,6 +37,10 @@ pub enum AddressInputError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TransactionError {
+    #[error("input commitment {index} is repeated")]
+    DuplicateInputCommitment { index: usize },
+    #[error("input commitment {index} is no longer available")]
+    InputCommitmentUnavailable { index: usize },
     #[error("invalid address input: {0}")]
     InvalidAddressInput(AddressInputError),
     #[error(

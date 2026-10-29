@@ -8,7 +8,7 @@
 
 use std::{
     cmp::Reverse,
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
 };
 
 use solana_address::Address;
@@ -19,6 +19,40 @@ use crate::{
     instructions::{merge::MAX_MERGE_INPUTS, transact::MAX_SPEND_INPUTS},
     utxo::WalletUtxo,
 };
+
+/// Resolve exactly these commitments in caller order, without substitutions.
+/// The caller supplies verified available notes and any reserved nullifiers.
+/// Transaction builders still enforce ownership, asset, tree and circuit rules.
+/// Keeping the first input stable is essential to deterministic merge outputs.
+pub fn select_by_commitments<'a>(
+    utxos: impl IntoIterator<Item = &'a WalletUtxo>,
+    commitments: &[[u8; 32]],
+    excluded: &HashSet<[u8; 32]>,
+) -> Result<Vec<WalletUtxo>, TransactionError> {
+    let by_hash: HashMap<_, _> = utxos
+        .into_iter()
+        .map(|note| (note.utxo_hash, note))
+        .collect();
+    let mut seen = HashSet::new();
+    commitments
+        .iter()
+        .enumerate()
+        .map(|(index, hash)| {
+            if !seen.insert(hash) {
+                return Err(TransactionError::DuplicateInputCommitment { index });
+            }
+            let note = by_hash
+                .get(hash)
+                .ok_or(TransactionError::InputCommitmentUnavailable { index })?;
+            if excluded.contains(&note.nullifier) {
+                return Err(TransactionError::SpendNeedsExcludedUtxos {
+                    amount: note.utxo.amount,
+                });
+            }
+            Ok((*note).clone())
+        })
+        .collect()
+}
 
 /// The UTXOs a default-ring spend of `amount` of `asset` takes from `utxos`:
 /// the largest first, until they cover `amount`. Zero-amount UTXOs are left

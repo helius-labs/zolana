@@ -8,7 +8,9 @@ use solana_hash::Hash;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use solana_transaction_status_client_types::TransactionStatus;
+use solana_transaction_status_client_types::{
+    EncodedConfirmedTransactionWithStatusMeta, TransactionStatus,
+};
 use spr_transaction::{instructions::transact::SppProofInputs, utxo::SppProofInputUtxo};
 
 use crate::{
@@ -76,6 +78,13 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
 
     async fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
         self.rpc.get_transaction_slot(signature).await
+    }
+
+    async fn get_confirmed_transaction(
+        &self,
+        signature: Signature,
+    ) -> Result<Option<EncodedConfirmedTransactionWithStatusMeta>, ClientError> {
+        self.rpc.get_confirmed_transaction(signature).await
     }
 
     async fn get_signature_statuses(

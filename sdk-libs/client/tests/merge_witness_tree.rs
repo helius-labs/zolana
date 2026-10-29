@@ -147,12 +147,22 @@ fn a_witness_proof_from_another_tree_than_the_inputs_is_refused() {
             Witnesses(witness),
             ProverClient::new("http://unused.invalid".to_string()),
         );
-        let proved = MergeSubmission::new(&merge, owner, &address, &sender.nullifier_key)
-            .prove_sync(&client);
-        assert!(matches!(
-            proved,
-            Err(ClientError::MergeInputTreeMismatch { proof_tree, input_tree })
-                if proof_tree == other.to_bytes() && input_tree == tree.to_bytes()
-        ));
+        for cached in [false, true] {
+            let submission = MergeSubmission::new(&merge, owner, &address, &sender.nullifier_key);
+            let submission = if cached {
+                submission.with_cache(spr_client::prover::MergeCacheTarget {
+                    address: Address::new_from_array([3; 32]),
+                    slot: 2,
+                })
+            } else {
+                submission
+            };
+            let proved = submission.prove_sync(&client);
+            assert!(matches!(
+                proved,
+                Err(ClientError::MergeInputTreeMismatch { proof_tree, input_tree })
+                    if proof_tree == other.to_bytes() && input_tree == tree.to_bytes()
+            ));
+        }
     }
 }
