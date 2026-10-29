@@ -148,11 +148,11 @@ export interface ZolanaClientConfig {
   readonly indexerUrl?: string | URL | undefined;
   readonly proverUrl?: string | URL | undefined;
   /**
-   * An in-process prover (`prove` / `proveMerge`) instead of `proverUrl`. No
-   * HTTP, no attestation. Requires `proofDataSource: "client"` (the default
-   * when this is set). Indexed and custom-ring proof methods on the client
-   * then fail with `CLIENT_INVALID_CONFIG`. Build one with
-   * `createLocalProofService` around a local `/prove` handler.
+   * Runs proving in-process with client-fetched proof data (the default when
+   * set). Cannot be combined with `proverUrl`, `proverTee`, `proverAsyncPoll`,
+   * or `proofDataSource: "prover"`. HTTP-only health, key-catalog and attestation
+   * methods fail with `CLIENT_INVALID_CONFIG`. Adapt a local JSON handler with
+   * `createLocalProofService`.
    */
   readonly prover?: ProofService;
   /** Sent by the indexer client. A URL that already carries a key needs none. */

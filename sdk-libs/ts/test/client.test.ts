@@ -403,7 +403,14 @@ describe("ZolanaClient", () => {
     const local = createLocalProofService(async (body) => proofFor(body));
     const cases: readonly Readonly<{ field: string; config: Partial<ZolanaClientConfig> }>[] = [
       { field: "proverUrl", config: { proverUrl: "http://127.0.0.1:3001" } },
-      { field: "proverTee", config: { proverTee: readTeePolicy() } },
+      {
+        field: "proverTee",
+        config: {
+          proverTee: readTeePolicy(
+            new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
+          ),
+        },
+      },
       {
         field: "proverAsyncPoll",
         config: { proverAsyncPoll: { pollIntervalCapMs: 1_000, maxWaitMs: 60_000 } },

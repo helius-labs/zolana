@@ -10,6 +10,7 @@ in-process prover with client-fetched proof data.
 
 Breaking
 
+- `ZolanaClient.proofService` exposes only `ProofService` → use the client's proof methods with `proofDataSource: "prover"` for indexed proving.
 - `ZolanaClient` now defaults to `proofDataSource: "prover"` for Helius API URLs too → configure indexed proving on the upstream or set `proofDataSource: "client"` to retain SDK-fetched proof data.
 - `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
 - `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
@@ -37,14 +38,9 @@ Added
   `senderViewTag`, `recipientRequestViewTag`, `sendSharedViewTags` and
   `recipientSharedViewTags`, and a `SharedViewTags` derives the shared tag of
   every transfer index from one key agreement.
-
-- `ZolanaClientConfig.prover` takes a `ProofService` (`prove` / `proveMerge`)
-  instead of `proverUrl`; proof data stays `client`, and HTTP-only methods
-  (`proverHealth`, `checkProverProvingKeys`, `attestProver`) fail with
-  `CLIENT_INVALID_CONFIG`.
-- `createLocalProofService(prove)` builds that service from a handler that
-  receives the same `/prove` JSON body `ProverClient` would post and returns
-  the prover's JSON response.
+- `createLocalProofService(prove)` adapts a local JSON proof handler for
+  `ZolanaClientConfig.prover`, using client-fetched proof data and enforcing
+  cancellation and deadlines even when the handler ignores its signal.
 
 Changed
 

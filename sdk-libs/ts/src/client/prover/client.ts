@@ -606,10 +606,9 @@ export function mergeProverRequestBody(inputs: MergeInputs): ProverRequestBody {
 }
 
 /**
- * A `ProofService` that proves by posting the same JSON body `ProverClient`
- * would send to `/prove`, without HTTP. `prove` receives that body and must
- * return the prover's JSON response (the object with `proof` and
- * `provingKeySha256`). Used by an in-page wasm prover.
+ * Adapts a local handler of the prover's JSON request and response format.
+ * Cancellation and deadlines reject the wait even if the handler ignores the
+ * supplied signal; stopping synchronous WASM requires handler or worker support.
  */
 export function createLocalProofService(
   prove: (body: string, context?: RequestContext) => Promise<unknown>,
@@ -617,6 +616,37 @@ export function createLocalProofService(
   if (typeof prove !== "function") {
     throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "prove" } });
   }
+  const run = async (
+    body: string,
+    key: ExpectedProvingKey,
+    context?: RequestContext,
+  ): Promise<Proof> => {
+    const request = composeSignal(context, "prove");
+    const checkActive = (): void => {
+      if (request.signal.aborted || request.timedOut()) throw requestError("prove", request);
+    };
+    let rejectAborted: ((error: ClientError) => void) | undefined;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectAborted = reject;
+    });
+    const abort = (): void => rejectAborted?.(requestError("prove", request));
+    request.signal.addEventListener("abort", abort, { once: true });
+    try {
+      const pending = Promise.resolve().then(() => {
+        checkActive();
+        return prove(body, { ...context, signal: request.signal });
+      });
+      const result = await Promise.race([pending, aborted]);
+      checkActive();
+      return parseCheckedProof(result, key);
+    } catch (cause) {
+      checkActive();
+      throw cause;
+    } finally {
+      request.signal.removeEventListener("abort", abort);
+      request.cleanup();
+    }
+  };
   return Object.freeze({
     async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
       const body = JSON.stringify(proverRequest(inputs, completeSecret));
@@ -625,12 +655,12 @@ export function createLocalProofService(
         nInputs: inputs.payload.inputs.length,
         nOutputs: inputs.payload.outputs.length,
       });
-      return parseCheckedProof(await prove(body, context), key);
+      return run(body, key, context);
     },
     async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
       const body = JSON.stringify(mergeProverRequest(inputs, completeSecret));
       const key = provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length });
-      return parseCheckedProof(await prove(body, context), key);
+      return run(body, key, context);
     },
   });
 }
