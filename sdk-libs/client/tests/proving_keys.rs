@@ -1,19 +1,14 @@
 //! Compatibility checks use the gnark artifact; downloads retain both formats.
-use serde_json::Value;
 use spr_client::{
     prover::{ProverKeyStatus, ProverKeys, ProvingKeyFormat},
     ClientError,
 };
 
-fn vectors() -> Value {
+fn matching_prover() -> ProverKeys {
     serde_json::from_str(include_str!(
         "../../../test-vectors/proving_key_catalog.json"
     ))
     .unwrap()
-}
-
-fn matching_prover() -> ProverKeys {
-    serde_json::from_value(vectors()["catalog"].clone()).unwrap()
 }
 
 fn status_mut<'a>(prover: &'a mut ProverKeys, name: &str) -> &'a mut ProverKeyStatus {
@@ -64,10 +59,36 @@ fn zopro_file_checksum_is_not_compared_to_the_gnark_pin() {
 }
 
 #[test]
-fn shared_malformed_catalogs_are_rejected() {
-    for case in vectors()["invalidCatalogs"].as_array().unwrap() {
-        let result = serde_json::from_value::<ProverKeys>(case["catalog"].clone());
-        let accepted = result.map(|keys| keys.check().is_ok()).unwrap_or(false);
-        assert!(!accepted, "accepted {}", case["description"]);
+fn known_keys_require_one_gnark_artifact() {
+    for duplicate in [false, true] {
+        let mut prover = matching_prover();
+        let artifacts = &mut prover.keys[0].artifacts;
+        if duplicate {
+            artifacts.push(artifacts[0].clone());
+        } else {
+            artifacts.clear();
+        }
+        assert!(matches!(prover.check(), Err(ClientError::ProverServer(_))));
     }
+}
+
+#[test]
+fn every_listed_copy_of_a_known_key_is_checked() {
+    let mut prover = matching_prover();
+    let mut duplicate = prover.keys[0].clone();
+    duplicate.artifacts[0].sha256 = "wrong".into();
+    prover.keys.push(duplicate);
+    assert!(matches!(
+        prover.check(),
+        Err(ClientError::ProverProvingKeysMismatch { .. })
+    ));
+}
+
+#[test]
+fn download_metadata_does_not_affect_key_compatibility() {
+    let mut prover = matching_prover();
+    let artifact = &mut prover.keys[0].artifacts[0];
+    artifact.url = "ipfs://example/key".into();
+    artifact.size = 0;
+    assert_eq!(prover.check().unwrap().keys, prover.keys);
 }

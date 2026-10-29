@@ -43,8 +43,6 @@ struct KeyStatus {
 struct Artifact {
     format: String,
     sha256: String,
-    size: u64,
-    url: String,
 }
 #[derive(Deserialize)]
 struct Keys {
@@ -52,53 +50,26 @@ struct Keys {
 }
 pub(crate) fn check_report(value: serde_json::Value) -> Result<ProvingKeyReport> {
     let report: Keys = serde_json::from_value(value)?;
-    let invalid = || Error::Prover("invalid /proving-keys catalog".into());
-    let mut names = std::collections::HashSet::new();
     let mut mismatches = Vec::new();
     for key in &report.keys {
-        if !names.insert(&key.name)
-            || key.name.len() <= 4
-            || !key.name.ends_with(".key")
-            || key.name.contains("..")
-            || !key
-                .name
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"_-.".contains(&b))
-        {
-            return Err(invalid());
-        }
-        let mut formats = std::collections::HashSet::new();
-        let mut gnark = None;
-        for artifact in &key.artifacts {
-            let url = url::Url::parse(&artifact.url).map_err(|_| invalid())?;
-            if !matches!(artifact.format.as_str(), "gnark" | "zopro")
-                || !formats.insert(&artifact.format)
-                || artifact.sha256.len() != 64
-                || !artifact
-                    .sha256
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                || artifact.size == 0
-                || artifact.size > 9_007_199_254_740_991
-                || !matches!(url.scheme(), "http" | "https")
-                || url.host_str().is_none()
-                || !url.username().is_empty()
-                || url.password().is_some()
-                || url.fragment().is_some()
-            {
-                return Err(invalid());
-            }
-            if artifact.format == "gnark" {
-                gnark = Some(&artifact.sha256);
-            }
-        }
-        let gnark = gnark.ok_or_else(invalid)?;
-        if let Some((_, digest)) = PROVING_KEY_SHA256S
+        let Some((_, digest)) = PROVING_KEY_SHA256S
             .iter()
             .find(|(name, _)| *name == key.name)
-        {
-            if *gnark != hex::encode(digest) {
-                mismatches.push(key.name.clone());
+        else {
+            continue;
+        };
+        let mut gnark = key.artifacts.iter().filter(|a| a.format == "gnark");
+        match (gnark.next(), gnark.next()) {
+            (Some(artifact), None) => {
+                if artifact.sha256 != hex::encode(digest) {
+                    mismatches.push(key.name.clone());
+                }
+            }
+            _ => {
+                return Err(Error::Prover(format!(
+                    "{} must have exactly one gnark artifact",
+                    key.name
+                )))
             }
         }
     }
@@ -113,19 +84,30 @@ pub(crate) fn check_report(value: serde_json::Value) -> Result<ProvingKeyReport>
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn shared_catalog_contract() {
-        let vectors: serde_json::Value = serde_json::from_str(include_str!(
+    fn reads_the_shared_catalog() {
+        let catalog = serde_json::from_str(include_str!(
             "../../../test-vectors/proving_key_catalog.json"
         ))
         .unwrap();
-        assert_eq!(check_report(vectors["catalog"].clone()).unwrap().keys, 2);
-        for case in vectors["invalidCatalogs"].as_array().unwrap() {
-            assert!(
-                check_report(case["catalog"].clone()).is_err(),
-                "accepted {}",
-                case["description"]
-            );
+        assert_eq!(check_report(catalog).unwrap().keys, 2);
+    }
+
+    #[test]
+    fn known_keys_require_one_gnark_artifact() {
+        for artifacts in [
+            serde_json::json!([]),
+            serde_json::json!([
+                {"format":"gnark", "sha256":"a"}, {"format":"gnark", "sha256":"b"}
+            ]),
+        ] {
+            assert!(matches!(
+                check_report(serde_json::json!({"keys":[{
+                    "name":"batch_address-append_40_10.key", "artifacts":artifacts
+                }]})),
+                Err(Error::Prover(_))
+            ));
         }
     }
 }

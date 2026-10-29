@@ -51,79 +51,39 @@ pub struct ProverKeys {
 /// A key in the checked download catalog.
 pub type ProvingKeyCheck = ProverKeyStatus;
 
-/// A download catalog whose gnark digests match every client-known key listed.
-/// Keys absent from the catalog remain absent; this does not describe routing.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProvingKeyReport {
-    pub keys: Vec<ProvingKeyCheck>,
-}
+/// The catalog returned after checking known gnark hashes.
+pub type ProvingKeyReport = ProverKeys;
 
 impl ProverKeys {
-    /// Validate the catalog and compare gnark hashes with the verifying-key pins.
-    /// A missing key is permitted, but every listed key needs one gnark artifact.
+    /// Compare the gnark artifact of each known key with its verifying-key pin.
     pub fn check(&self) -> Result<ProvingKeyReport, ClientError> {
-        let invalid = || ClientError::ProverServer("invalid /proving-keys catalog".into());
-        let mut names = std::collections::HashSet::new();
         let mut mismatches = Vec::new();
-        for status in &self.keys {
-            if !names.insert(&status.name)
-                || status.name.len() <= 4
-                || !status.name.ends_with(".key")
-                || !status
-                    .name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b"_-.".contains(&b))
-                || status.name.contains("..")
-            {
-                return Err(invalid());
-            }
-            let mut gnark = None;
-            let mut zopro = false;
-            for artifact in &status.artifacts {
-                let digest = parse_sha256_hex(&artifact.sha256).ok_or_else(invalid)?;
-                let url = url::Url::parse(&artifact.url).map_err(|_| invalid())?;
-                if artifact.size == 0
-                    || artifact.size > 9_007_199_254_740_991
-                    || !matches!(url.scheme(), "https" | "http")
-                    || url.host_str().is_none()
-                    || !url.username().is_empty()
-                    || url.password().is_some()
-                    || url.fragment().is_some()
-                {
-                    return Err(invalid());
-                }
-                match artifact.format {
-                    ProvingKeyFormat::Gnark => {
-                        if gnark.replace(digest).is_some() {
-                            return Err(invalid());
-                        }
-                    }
-                    ProvingKeyFormat::Zopro => {
-                        if zopro {
-                            return Err(invalid());
-                        }
-                        zopro = true;
+        for key in &self.keys {
+            let Some((_, pinned)) = known_proving_keys().find(|(name, _)| *name == key.name) else {
+                continue;
+            };
+            let mut gnark = key
+                .artifacts
+                .iter()
+                .filter(|a| a.format == ProvingKeyFormat::Gnark);
+            match (gnark.next(), gnark.next()) {
+                (Some(artifact), None) => {
+                    if artifact.sha256 != hex(&pinned) {
+                        mismatches.push(key.name.clone());
                     }
                 }
-            }
-            let gnark = gnark.ok_or_else(invalid)?;
-            if let Some((_, pinned)) = known_proving_keys().find(|(name, _)| *name == status.name) {
-                if gnark != pinned {
-                    mismatches.push(format!(
-                        "{} gnark {}, verifying key pins {}",
-                        status.name,
-                        hex(&gnark),
-                        hex(&pinned)
-                    ));
+                _ => {
+                    return Err(ClientError::ProverServer(format!(
+                        "{} must have exactly one gnark artifact",
+                        key.name
+                    )))
                 }
             }
         }
         if !mismatches.is_empty() {
             return Err(ClientError::ProverProvingKeysMismatch { mismatches });
         }
-        Ok(ProvingKeyReport {
-            keys: self.keys.clone(),
-        })
+        Ok(self.clone())
     }
 }
 

@@ -15,10 +15,8 @@ func TestProvingKeyDownloadsMatchSharedCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var vectors struct {
-		Catalog ProvingKeysReport `json:"catalog"`
-	}
-	if err := json.Unmarshal(data, &vectors); err != nil {
+	var expected ProvingKeysReport
+	if err := json.Unmarshal(data, &expected); err != nil {
 		t.Fatal(err)
 	}
 	report, err := ProvingKeyDownloads()
@@ -27,13 +25,13 @@ func TestProvingKeyDownloadsMatchSharedCatalog(t *testing.T) {
 	}
 	var selected []ProvingKeyStatus
 	for _, key := range report.Keys {
-		for _, want := range vectors.Catalog.Keys {
+		for _, want := range expected.Keys {
 			if key.Name == want.Name {
 				selected = append(selected, key)
 			}
 		}
 	}
-	if !reflect.DeepEqual(selected, vectors.Catalog.Keys) {
+	if !reflect.DeepEqual(selected, expected.Keys) {
 		t.Fatalf("catalog differs: %+v", selected)
 	}
 }

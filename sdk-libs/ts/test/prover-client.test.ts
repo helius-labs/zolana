@@ -800,33 +800,57 @@ describe("prover proving keys check", () => {
     expect(await check(report)).toEqual(report);
   });
 
-  it("uses the shared catalog contract and rejects every malformed variant", async () => {
-    const raw: unknown = JSON.parse(
+  it("reads the shared catalog", async () => {
+    const catalog: unknown = JSON.parse(
       readFileSync(
         new URL("../../../test-vectors/proving_key_catalog.json", import.meta.url),
         "utf8",
       ),
     );
-    // Fixture shape is decoded without trusting the catalogs it contains.
-    if (
-      typeof raw !== "object" ||
-      raw === null ||
-      !("catalog" in raw) ||
-      !("invalidCatalogs" in raw) ||
-      !Array.isArray(raw.invalidCatalogs)
-    ) {
-      throw new Error("invalid test vectors");
+    expect(await check(catalog)).toEqual(catalog);
+  });
+
+  it("requires one gnark artifact for each known key", async () => {
+    for (const duplicate of [false, true]) {
+      const report = matchingReport();
+      const key = report.keys[0]!;
+      key.artifacts = duplicate ? [...key.artifacts, ...key.artifacts] : [];
+      expect(await check(report)).toMatchObject({ code: "CLIENT_PROVER_JSON" });
     }
-    expect(await check(raw.catalog)).toEqual(raw.catalog);
-    for (const entry of raw.invalidCatalogs) {
-      const value: unknown = entry;
-      if (typeof value !== "object" || value === null || !("catalog" in value))
-        throw new Error("invalid test case");
-      expect(await check(value.catalog)).toMatchObject({ code: "CLIENT_PROVER_JSON" });
-    }
-    for (const body of [[], {}, { keys: {} }]) {
+  });
+
+  it("checks every listed copy of a known key", async () => {
+    const report = matchingReport();
+    const key = report.keys[0]!;
+    report.keys.push({ ...key, artifacts: key.artifacts.map((a) => ({ ...a, sha256: "wrong" })) });
+    expect(await check(report)).toMatchObject({ code: "CLIENT_PROVER_PROVING_KEYS_MISMATCH" });
+  });
+
+  it("passes download metadata through without treating it as a compatibility check", async () => {
+    const report = matchingReport();
+    const download = artifact(report, "merge_24_1.key");
+    download.url = "ipfs://example/key";
+    download.size = 0;
+    expect(await check(report)).toEqual(report);
+  });
+
+  it("rejects malformed field types and the old schema", async () => {
+    for (const body of [
+      [],
+      {},
+      { keys: {} },
+      { keys: [{ name: "test.key", expectedSha256: "old" }] },
+    ]) {
       expect(await check(body)).toMatchObject({ code: "CLIENT_PROVER_JSON" });
     }
+    const report = matchingReport();
+    expect(
+      await check({
+        keys: [
+          { ...report.keys[0], artifacts: [{ format: "gnark", sha256: 7, size: 1, url: "test" }] },
+        ],
+      }),
+    ).toMatchObject({ code: "CLIENT_PROVER_JSON" });
   });
 
   it("fails on a prover without the endpoint", async () => {

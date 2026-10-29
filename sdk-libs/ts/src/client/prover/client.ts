@@ -128,7 +128,7 @@ export interface ProvingKeyArtifact {
   readonly url: string;
 }
 
-/** A manifest-backed key with exactly one gnark and at most one zopro download. */
+/** A key and its published downloads. */
 export interface ProvingKeyCheck {
   readonly name: string;
   readonly artifacts: readonly ProvingKeyArtifact[];
@@ -536,53 +536,29 @@ export class ProverClient {
 
 const invalidProverJson = (): ClientError => new ClientError("CLIENT_PROVER_JSON");
 const proverJsonDecoder = wireDecoder(invalidProverJson);
-const SHA256_HEX = /^[0-9a-f]{64}$/u;
-
-/** Strict decode of the download catalog; ambiguous formats and names fail. */
+/** Decode the catalog's field types; downloads retain their supplied metadata. */
 function decodeProverKeys(value: unknown): ProvingKeyReport {
   const body = proverJsonDecoder.record(value, "$");
-  const names = new Set<string>();
   const keys = proverJsonDecoder.list(body["keys"], "$.keys").map((raw) => {
     const entry = proverJsonDecoder.record(raw, "$.keys[]");
     const name = proverJsonDecoder.string(entry["name"], "$.keys[].name");
-    if (!/^[a-zA-Z0-9_.-]+\.key$/u.test(name) || name.includes("..") || names.has(name)) {
-      throw invalidProverJson();
-    }
-    names.add(name);
-    const formats = new Set<string>();
     const artifacts = proverJsonDecoder
       .list(entry["artifacts"], "$.keys[].artifacts")
       .map((rawArtifact): ProvingKeyArtifact => {
         const artifact = proverJsonDecoder.record(rawArtifact, "$.keys[].artifacts[]");
         const format = proverJsonDecoder.string(artifact["format"], "$.artifacts[].format");
-        if ((format !== "gnark" && format !== "zopro") || formats.has(format)) {
-          throw invalidProverJson();
-        }
-        formats.add(format);
-        const sha256 = proverJsonDecoder.string(artifact["sha256"], "$.artifacts[].sha256");
-        if (!SHA256_HEX.test(sha256)) throw invalidProverJson();
+        if (format !== "gnark" && format !== "zopro") throw invalidProverJson();
         const size = artifact["size"];
-        if (typeof size !== "number" || !Number.isSafeInteger(size) || size <= 0) {
+        if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
           throw invalidProverJson();
         }
-        const url = proverJsonDecoder.string(artifact["url"], "$.artifacts[].url");
-        let parsed: URL;
-        try {
-          parsed = new URL(url);
-        } catch {
-          throw invalidProverJson();
-        }
-        if (
-          (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
-          parsed.hostname.length === 0 ||
-          parsed.username.length > 0 ||
-          parsed.password.length > 0 ||
-          parsed.hash.length > 0
-        )
-          throw invalidProverJson();
-        return Object.freeze({ format, sha256, size, url });
+        return Object.freeze({
+          format,
+          sha256: proverJsonDecoder.string(artifact["sha256"], "$.artifacts[].sha256"),
+          size,
+          url: proverJsonDecoder.string(artifact["url"], "$.artifacts[].url"),
+        });
       });
-    if (!formats.has("gnark")) throw invalidProverJson();
     return Object.freeze({ name, artifacts: Object.freeze(artifacts) });
   });
   return Object.freeze({ keys: Object.freeze(keys) });
@@ -594,12 +570,11 @@ function checkProverKeys(
   pins: Readonly<Record<string, string>>,
 ): ProvingKeyReport {
   const mismatched: string[] = [];
-  for (const [name, pinned] of Object.entries(pins)) {
-    const key = prover.keys.find((entry) => entry.name === name);
-    if (key === undefined) continue;
-    const gnark = key.artifacts.find((artifact) => artifact.format === "gnark");
-    if (gnark === undefined) throw invalidProverJson();
-    if (gnark.sha256 !== pinned) mismatched.push(name);
+  for (const key of prover.keys) {
+    if (!Object.hasOwn(pins, key.name)) continue;
+    const gnark = key.artifacts.filter((artifact) => artifact.format === "gnark");
+    if (gnark.length !== 1) throw invalidProverJson();
+    if (gnark[0]?.sha256 !== pins[key.name]) mismatched.push(key.name);
   }
   if (mismatched.length > 0) {
     throw new ClientError("CLIENT_PROVER_PROVING_KEYS_MISMATCH", {

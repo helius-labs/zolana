@@ -20,35 +20,22 @@ served keys.
 
 ## Proving-key downloads
 
-`GET /proving-keys` (also `/v1/zolana/proving-keys`) returns a public download
-catalog. Each `keys` entry has a `name` matching the original `.key` filename
-and an `artifacts` array. Every key has one `gnark` artifact; a published
-conversion adds one `zopro` artifact. Each artifact contains `format`,
-`sha256`, `size` in bytes, and a complete `url`. Artifact filenames are not
-separate fields, and the response has no top-level version prefix.
+`GET /proving-keys` (also `/v1/zolana/proving-keys`) returns `keys`, each with
+`name` and `artifacts`. Every artifact has `format` (`gnark` or `zopro`),
+`sha256`, `size` in bytes, and a complete `url`. Each key has one gnark
+artifact and, when published, a zopro conversion.
 
-Compatibility checks compare the `gnark` artifact's SHA-256 with the client's
-verifying-key pin. Downloaders choose a format and verify that artifact's
-own size and SHA-256; the zopro file has a different checksum from its source
-gnark file. Unknown local files and server loading state are not part of the
-catalog. The catalog does not describe which proof routes a deployment serves.
+Clients compare the gnark checksum with their verifying-key pin. Downloaders
+verify the chosen artifact's bytes against its own checksum. The catalog
+lists manifest keys, independently of the deployment's enabled proof routes.
 
-The endpoint embeds `provingkeys/proving-keys.lock` and
-`provingkeys/zopro-keys.lock`. The latter records the published conversions,
-their original-key checksums, and their own object-store prefix. Updating or
-rotating source keys requires updating the conversion manifest too: a
-conversion whose source checksum no longer matches is rejected. The current
-conversion manifest comes from `zolana-mobile-sdk`'s
-`packages/zolana_mobile/native/zolana-mobile/zopro-keys.lock`.
+`provingkeys/zopro-keys.lock`, copied from the mobile SDK's native package,
+pins each conversion to its gnark source checksum. Update it when source keys
+change. Each manifest keeps its own download prefix; standard URLs use
+`ZOLANA_PROVING_KEYS_URL`, and extension keys use their registered release URL.
 
-Standard download URLs use `ZOLANA_PROVING_KEYS_URL` (the public CloudFront
-host by default), each artifact manifest's prefix, and its filename. Extension
-keys retain the release URLs registered by their extension manifest.
-
-This schema replaces `expectedSha256`, `loadedSha256`, `available`, and the
-top-level `prefix`. Upgrade the server and clients together; old clients do
-not decode the download catalog. Key-file verification during loading and
-the `provingKeySha256` on proof responses are unchanged.
+This replaces `expectedSha256`, `loadedSha256`, `available`, and the response's
+`prefix`. Upgrade server and clients together.
 
 ## Delivery
 

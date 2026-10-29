@@ -4,8 +4,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"regexp"
-	"strings"
 	"sync"
 )
 
@@ -27,23 +25,16 @@ type ZoproManifest struct {
 	Keys   map[string]ZoproEntry `json:"keys"`
 }
 
-var (
-	zoproOnce     sync.Once
-	zoproManifest *ZoproManifest
-	zoproErr      error
-	zoproPrefix   = regexp.MustCompile(`^proving-keys/[a-zA-Z0-9_-]+$`)
-)
+var loadZopro = sync.OnceValues(func() (*ZoproManifest, error) {
+	keys, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	return parseZopro(embeddedZoproLockfile, keys)
+})
 
 func LoadZopro() (*ZoproManifest, error) {
-	zoproOnce.Do(func() {
-		keys, err := Load()
-		if err != nil {
-			zoproErr = err
-			return
-		}
-		zoproManifest, zoproErr = parseZopro(embeddedZoproLockfile, keys)
-	})
-	return zoproManifest, zoproErr
+	return loadZopro()
 }
 
 func parseZopro(data []byte, keys *Manifest) (*ZoproManifest, error) {
@@ -51,16 +42,10 @@ func parseZopro(data []byte, keys *Manifest) (*ZoproManifest, error) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, fmt.Errorf("invalid zopro lockfile: %w", err)
 	}
-	if !zoproPrefix.MatchString(manifest.Prefix) || manifest.Keys == nil {
-		return nil, fmt.Errorf("invalid zopro manifest prefix or keys")
-	}
 	for name, entry := range manifest.Keys {
 		key, ok := keys.Keys[name]
 		if !ok || entry.KeySha256 != key.Sha256 {
 			return nil, fmt.Errorf("zopro artifact %s does not match its pinned gnark key", name)
-		}
-		if entry.File != strings.TrimSuffix(name, ".key")+".zopro" || !sha256Hex.MatchString(entry.Sha256) || entry.Size <= 0 {
-			return nil, fmt.Errorf("invalid zopro artifact %s", name)
 		}
 	}
 	return &manifest, nil
