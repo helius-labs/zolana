@@ -41,7 +41,12 @@ export type {
   TreeContext,
   WalletKeys,
 } from "@heliuslabs/zolana/client";
-export { LocalKeys, NullifierKeyProofAuthority } from "@heliuslabs/zolana/client";
+export {
+  LocalKeys,
+  NullifierKeyProofAuthority,
+  MAINNET_TEE_PROVER_ENDPOINT,
+  defaultTeePolicy,
+} from "@heliuslabs/zolana/client";
 export type {
   DecryptRequest,
   DeriveRequest,

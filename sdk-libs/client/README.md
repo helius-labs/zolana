@@ -66,13 +66,21 @@ client builds one that proves every submission that way. Either prover only
 proves what the client hands it, so the client fetches the proof data itself
 and nothing reaches a prover server.
 
-A prover server client attests every remote prover, the Helius gateway
-included, to the deployment the SDK pins, `tee::DEFAULT_PROVER_URL`, and
+A prover server client selects the separate mainnet pin for
+`tee::MAINNET_PROVER_URL`, and the devnet pin for other remote URLs, and
 encrypts every call to it. Only a loopback prover without a proxy gets
 plaintext. `with_tee(policy)` takes another policy. `for_tree_batches()`
 sends nullifier-tree batch proofs in plaintext to any prover, as they carry
 only public tree data, and refuses every other proof. Pass the prover client to
 `ZolanaClient::new`.
+
+For mainnet, use Photon at `https://dgcj4pjarvo65.cloudfront.net` and
+`tee::MAINNET_PROVER_URL` at `https://d3ky2kt0ntqxt1.cloudfront.net`.
+`ProverClient::new` and `AsyncProverClient::new` select the measured
+`mainnet-tee-2` PCR0–PCR2 and HPKE key automatically. To use the same reviewed
+policy through a different URL, pass `TeePolicy::mainnet_deployment()?` to
+`with_tee`. The mainnet policy and its measured build are recorded in the
+[TEE deployment guide](../../prover/tee/README.md#mainnet-v060-alpha).
 
 For the current devnet deployment, use Photon at
 `https://d34xe1hqb2ibg2.cloudfront.net` and `tee::DEFAULT_PROVER_URL` at

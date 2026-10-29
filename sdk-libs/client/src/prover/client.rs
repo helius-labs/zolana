@@ -257,7 +257,12 @@ fn default_tee(endpoint: &ProverEndpoint) -> Tee {
     if endpoint.is_loopback() {
         return Tee::Off;
     }
-    match TeePolicy::default_deployment() {
+    let policy = if endpoint.is_mainnet_tee() {
+        TeePolicy::mainnet_deployment()
+    } else {
+        TeePolicy::default_deployment()
+    };
+    match policy {
         Ok(policy) => Tee::On(Box::new(TeeSession::new(policy))),
         Err(error) => Tee::Broken(error),
     }

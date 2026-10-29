@@ -28,6 +28,8 @@ use thiserror::Error;
 
 /// The devnet Nitro Enclave prover that `policy.json`, the default deployment, pins.
 pub const DEFAULT_PROVER_URL: &str = "https://dd73hh473h6ha.cloudfront.net";
+/// The mainnet Nitro Enclave prover pinned by [`TeePolicy::mainnet_deployment`].
+pub const MAINNET_PROVER_URL: &str = "https://d3ky2kt0ntqxt1.cloudfront.net";
 pub const ATTESTATION_PATH: &str = "/tee/v1/attestation";
 pub const HEADER_VERSION: &str = "Zolana-Tee";
 pub const HEADER_ENC: &str = "Zolana-Tee-Enc";

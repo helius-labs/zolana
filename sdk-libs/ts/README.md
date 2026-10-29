@@ -140,7 +140,7 @@ price per compute unit. The RPC and the validator must accept version 1.
 A client needs a
 [Helius API key](https://dashboard.helius.dev/).
 
-The Solana RPC, Photon indexer, and prover must target the same devnet release.
+The Solana RPC, Photon indexer, and prover must target the same network and release.
 The public dashboard reports protocol and service health.
 
 **Devnet:**
@@ -152,6 +152,13 @@ The public dashboard reports protocol and service health.
 | Prover     | `https://dd73hh473h6ha.cloudfront.net`             | Generates ZK proofs in a Nitro Enclave the SDK attests and encrypts every request to.     |
 | Dashboard  | `https://djq45ljnl16bl.cloudfront.net`             | Shows public protocol and service health.                                                 |
 
+**Mainnet:** Photon RPC is `https://dgcj4pjarvo65.cloudfront.net` and the
+Nitro prover is `https://d3ky2kt0ntqxt1.cloudfront.net`
+(`MAINNET_TEE_PROVER_ENDPOINT`). Set `indexerUrl` to that Photon endpoint and
+`proverUrl` to that prover endpoint. A Helius mainnet RPC URL also selects this
+prover when `proverUrl` is omitted. The SDK selects its separately pinned mainnet
+measurements and HPKE key automatically; no `proverTee` override is needed.
+
 ```ts
 const client = await createZolanaClient({
   solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
@@ -160,13 +167,13 @@ const client = await createZolanaClient({
 });
 ```
 
-Every remote prover must attest to `defaultTeePolicy()` before it receives a
+Every remote prover must attest to `defaultTeePolicy(new URL(proverUrl))` before it receives a
 witness, and `proverTee` names another policy. A new prover image or key fails
 attestation until the client takes the new pins from an SDK release or a
 reviewed policy, never from the prover's own answer.
 
-The SDK's default policy pins the indexed `devnet-e-tee-1` enclave measurements and
-attested HPKE public key. No `proverTee` policy override is needed for these
+With no URL argument, `defaultTeePolicy()` pins the indexed `devnet-e-tee-1`
+enclave measurements and attested HPKE public key. No `proverTee` policy override is needed for these
 endpoints. See the [TEE deployment pin](../../prover/tee/README.md#building-on-it)
 for the measured build and verified policy source. Attestation, certificate,
 nonce, freshness and HPKE-key verification remain required.

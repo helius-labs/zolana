@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_TEE_PROVER_ENDPOINT,
+  MAINNET_TEE_PROVER_ENDPOINT,
   ZolanaClient,
   compressProof,
   defaultTeePolicy,
@@ -119,12 +120,25 @@ function inputs(): ProverInputs {
   };
 }
 
-describe("default devnet TEE prover", () => {
+describe.each([
+  [
+    "devnet-e",
+    "https://devnet.helius-rpc.com",
+    "https://d34xe1hqb2ibg2.cloudfront.net",
+    DEFAULT_TEE_PROVER_ENDPOINT,
+  ],
+  [
+    "mainnet",
+    "https://mainnet.helius-rpc.com",
+    "https://dgcj4pjarvo65.cloudfront.net",
+    MAINNET_TEE_PROVER_ENDPOINT,
+  ],
+])("%s TEE prover", (_network, rpc, photon, endpoint) => {
   it("attests and returns an encrypted valid proof without a caller policy", async () => {
     let encryptedProofCalls = 0;
     const observedFetch: typeof globalThis.fetch = async (resource, init) => {
       const url = new URL(resource instanceof Request ? resource.url : resource);
-      expect(url.origin).toBe(DEFAULT_TEE_PROVER_ENDPOINT);
+      expect(url.origin).toBe(endpoint);
       if (url.pathname.startsWith("/prove/")) {
         const headers = new Headers(init?.headers);
         expect(headers.get("Zolana-Tee")).toBe("v1");
@@ -142,12 +156,12 @@ describe("default devnet TEE prover", () => {
     // Omitting `tee` exercises the SDK default, including its nonce, certificate,
     // freshness, measurements, HPKE pin and encrypted-response authentication.
     const client = new ZolanaClient({
-      solanaRpcUrl: "https://devnet.helius-rpc.com",
-      indexerUrl: "https://d34xe1hqb2ibg2.cloudfront.net",
+      solanaRpcUrl: rpc,
+      indexerUrl: photon,
       fetch: observedFetch,
     });
     const attested = await client.attestProver({ timeoutMs: 120_000 });
-    const policy = defaultTeePolicy();
+    const policy = defaultTeePolicy(new URL(endpoint));
     expect(attested.platform).toBe("aws-nitro");
     expect(bytesToHex(attested.hpkePublicKey)).toBe(policy.hpkePublicKey);
     const proof = await client.proofService.prove(inputs(), { timeoutMs: 180_000 });

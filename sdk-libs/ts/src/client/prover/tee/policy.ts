@@ -1,5 +1,7 @@
 import { ClientError } from "../../error.js";
 import { DEFAULT_TEE_POLICY_FILE } from "./default.js";
+import { MAINNET_TEE_POLICY_FILE } from "./mainnet.js";
+import { isMainnetTeeProver } from "../../../endpoint.js";
 import { PolicyFields, invalidPolicy } from "./platform.js";
 import {
   PLATFORMS,
@@ -11,9 +13,12 @@ import {
 
 export type { GpuRequirement } from "./platform.js";
 
-/** The deployment pinned in the SDK release, mirroring the Rust SDK `policy.json`. */
-export function defaultTeePolicy(): TeePolicy {
-  const deployment = DEFAULT_TEE_POLICY_FILE.deployment;
+/** Mainnet pins for its exact prover endpoint; devnet pins when omitted or for another URL. */
+export function defaultTeePolicy(proverUrl?: URL): TeePolicy {
+  const deployment =
+    proverUrl !== undefined && isMainnetTeeProver(proverUrl)
+      ? MAINNET_TEE_POLICY_FILE.deployment
+      : DEFAULT_TEE_POLICY_FILE.deployment;
   if (deployment === null) {
     throw new ClientError("CLIENT_PROVER_TEE_ATTESTATION", {
       details: { check: "no_default_deployment" },

@@ -23,6 +23,13 @@ pub(crate) struct ProverEndpoint {
 }
 
 impl ProverEndpoint {
+    pub(crate) fn is_mainnet_tee(&self) -> bool {
+        self.base.as_ref().is_some_and(|url| {
+            url.origin().ascii_serialization() == super::tee::MAINNET_PROVER_URL
+                && url.path().trim_end_matches('/').is_empty()
+        })
+    }
+
     pub(crate) fn parse(url: &str) -> Self {
         Self {
             base: Url::parse(url).ok(),
@@ -235,6 +242,22 @@ mod tests {
         assert!(!gateway("https://evilhelius-rpc.com/v1/zolana"));
         assert!(!gateway("https://helius-rpc.com.evil.invalid/v1/zolana"));
         assert!(!gateway("https://beta-devnet.helius-rpc.com/?api-key=k"));
+    }
+
+    #[test]
+    fn only_the_mainnet_https_origin_and_base_path_select_mainnet_pins() {
+        let matches = |url: &str| ProverEndpoint::parse(url).is_mainnet_tee();
+        assert!(matches(super::super::tee::MAINNET_PROVER_URL));
+        assert!(matches("https://d3ky2kt0ntqxt1.cloudfront.net/?api-key=k"));
+        for url in [
+            "http://d3ky2kt0ntqxt1.cloudfront.net",
+            "https://d3ky2kt0ntqxt1.cloudfront.net:8443",
+            "https://d3ky2kt0ntqxt1.cloudfront.net/other",
+            "https://d3ky2kt0ntqxt1.cloudfront.net.evil.example",
+            super::super::tee::DEFAULT_PROVER_URL,
+        ] {
+            assert!(!matches(url), "{url}");
+        }
     }
 
     #[test]

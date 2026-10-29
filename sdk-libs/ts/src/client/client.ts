@@ -169,7 +169,7 @@ export interface ZolanaClientConfig {
   readonly proverAsyncPoll?: AsyncPollConfig;
   /**
    * Encrypts every prover call to a prover that attests to the policy. Left
-   * out, a remote prover gets `defaultTeePolicy()`.
+   * out, a remote prover gets `defaultTeePolicy()` for its resolved prover URL.
    */
   readonly proverTee?: TeePolicy;
   /**

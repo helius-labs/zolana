@@ -70,6 +70,11 @@ impl TeePolicy {
         file.deployment.ok_or(TeeError::NoDefaultDeployment)
     }
 
+    /// The mainnet deployment measured in publisher run 40780091744.
+    pub fn mainnet_deployment() -> Result<Self, TeeError> {
+        Self::from_file_json(include_str!("mainnet-policy.json"))
+    }
+
     pub fn from_json(json: &str) -> Result<Self, TeeError> {
         serde_json::from_str(json).map_err(|e| TeeError::Policy(e.to_string()))
     }

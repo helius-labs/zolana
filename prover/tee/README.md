@@ -34,8 +34,8 @@ In TypeScript, `tee` on `ProverClient` and `proverTee` on `ZolanaClient` take an
 The `zolana` commands that prove take `--prover-tee` to require the pin from a loopback prover too, and `--prover-tee-policy <file>` for another pin.
 `zolana vks check --prover-url <url>` attests a TEE prover before it checks its proving keys.
 
-The SDK pins `devnet-e-tee-1`, the indexed devnet Nitro Enclave prover at `https://dd73hh473h6ha.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript), in `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoint is `https://d34xe1hqb2ibg2.cloudfront.net`.
-The enclave was built from prover source commit `8ae430a154e22bafa819a570d383d04e2046e802` in the [measured build](https://github.com/helius-labs/zolana/actions/runs/40784786893). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key in the bundled default policy. Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
+The SDK pins two deployments separately. `mainnet-tee-2` at `https://d3ky2kt0ntqxt1.cloudfront.net` uses `sdk-libs/prover-tee/src/mainnet-policy.json` and its TypeScript mirror `mainnet.ts`. `devnet-e-tee-1` at `https://dd73hh473h6ha.cloudfront.net` (`DEFAULT_PROVER_URL` in Rust, `DEFAULT_TEE_PROVER_ENDPOINT` in TypeScript) uses `sdk-libs/prover-tee/src/policy.json` and its TypeScript mirror `default.ts`. The matching Photon endpoints are listed below. Both clients choose the mainnet policy for the exact mainnet HTTPS origin and base path; other remote URLs retain the devnet policy unless the caller supplies another reviewed policy.
+The devnet enclave was built from prover source commit `8ae430a154e22bafa819a570d383d04e2046e802` in the [measured build](https://github.com/helius-labs/zolana/actions/runs/40784786893). Both SDKs pin its PCR0–PCR2 measurements and attested HPKE public key in the bundled default policy. Clients use this policy automatically; no caller-supplied policy is needed for this deployment.
 A TEE client calls the prover at its own URL, because attestation needs its `/tee/v1/attestation` route and encrypted calls need its `Zolana-Tee` headers.
 
 A TypeScript client given a Helius devnet RPC URL and no `proverUrl` proves through the pinned prover without forwarding the RPC API key.
@@ -45,11 +45,68 @@ A server started with `--tee` rejects a plaintext request before reading its bod
 
 ### Updating pins
 
-The bundled policy pins the measurements and the HPKE key of one deployment.
+Each bundled policy pins the measurements and the HPKE key of one deployment.
 A new image changes the measurements, a key rotation changes the key pin, and a client refuses the changed prover until its policy carries the new pins.
 Take new pins from a reviewed release, as an SDK release or an explicit policy, never from the prover's own answer.
 `xtask tee-policy` writes both SDK policy files, and a test fails when they differ.
+That command updates the devnet default; the separate mainnet policy and its
+TypeScript mirror must be updated together with reviewed mainnet measurements.
 The [Nitro guide](../../tools/nitro/README.md) measures a deployment before it pins it.
+
+## Mainnet: v0.6.0-alpha
+
+| Network | Photon RPC | Nitro prover |
+| --- | --- | --- |
+| Mainnet | `https://dgcj4pjarvo65.cloudfront.net` | `https://d3ky2kt0ntqxt1.cloudfront.net` |
+| Devnet-e | `https://d34xe1hqb2ibg2.cloudfront.net` | `https://dd73hh473h6ha.cloudfront.net` |
+
+[mainnet-v0.6.0-alpha.json](deployments/mainnet-v0.6.0-alpha.json) contains the
+mainnet PCR0–PCR2 and HPKE key. The measurements come from
+[publisher run 40780091744](https://github.com/helius-labs/zolana/actions/runs/40780091744),
+job `publish / mainnet-tee-2`, rather than the prover response. The exact
+[measurement record](deployments/mainnet-v0.6.0-alpha-measurements.json) includes
+the image digest, EIF SHA256, measured Photon endpoint and build settings.
+The publisher also created
+[build provenance](https://github.com/helius-labs/zolana/attestations/61035258)
+for the EIF and measurement record. Its source and build-tooling commit is
+`8ae430a154e22bafa819a570d383d04e2046e802` (`v0.6.0-alpha`), using Aeglos CPU
+with concurrency 8. The EIF SHA256 is
+`be011b1ec314abd5fa4838bc43bdda8abe03fae261e3ecb7259d1db05a2505f7`.
+
+Verify the checked-in measurement file against the publisher's signed
+provenance with:
+
+```sh
+gh attestation verify prover/tee/deployments/mainnet-v0.6.0-alpha-measurements.json \
+  --repo helius-labs/zolana \
+  --signer-workflow helius-labs/zolana/.github/workflows/publish-nitro.yml
+```
+
+The HPKE key was taken from AWS-signed attestation only after verifying the
+certificate chain, fresh nonce, key binding and independently measured PCRs.
+The recorded attestation in `testdata/mainnet_tee_2_attestation.json` lets both
+SDKs check those bindings offline. Live tests also attest and generate an
+encrypted synthetic transfer proof through each network's default policy.
+
+In TypeScript, explicit `proverUrl: MAINNET_TEE_PROVER_ENDPOINT` selects the
+mainnet policy automatically. A Helius mainnet RPC URL also selects this prover
+when `proverUrl` is absent, without forwarding the RPC API key. Set `indexerUrl`
+to the mainnet Photon endpoint. `defaultTeePolicy(new URL(MAINNET_TEE_PROVER_ENDPOINT))`
+returns the same policy for an explicit `proverTee` override, including when
+using a proxy URL. `defaultTeePolicy()` without an argument remains devnet.
+
+In Rust, `ProverClient::new(MAINNET_PROVER_URL.into())` and
+`AsyncProverClient::new(MAINNET_PROVER_URL.into())` select the mainnet policy.
+`TeePolicy::mainnet_deployment()` returns it for an explicit `with_tee` override.
+The two policies do not accept each other's enclave measurements or keys.
+
+For source pinning, the core program release artifacts are recorded by
+[`v0.6.0-alpha`](https://github.com/helius-labs/zolana/releases/tag/v0.6.0-alpha)
+at `8ae430a154e22bafa819a570d383d04e2046e802`; their sizes and SHA256 digests
+are in that release's manifest. `ts-sdk-v0.6.0-alpha` at
+`62e8a4ac11362d7af6c308eabb38d58baa9b3e3f` identifies the TypeScript SDK source.
+Publishing either release does not establish which program binary is deployed;
+that requires comparing the deployed program to the release artifact.
 
 ## devnet-e: v0.6.0-alpha
 
