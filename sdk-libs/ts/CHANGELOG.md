@@ -41,6 +41,10 @@ Changed
 
 - `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` select the indexed `devnet-e-tee-1` prover and its measured enclave and HPKE key; the previous devnet deployment requires an explicit policy and endpoint.
 
+Fixed
+
+- `ZolanaClient` and `ProverClient` select the measured mainnet enclave and HPKE key at `MAINNET_TEE_PROVER_ENDPOINT` instead of applying the devnet pin, `defaultTeePolicy(url)` returns the endpoint's policy, and a Helius mainnet RPC URL selects the mainnet prover without forwarding its API key.
+
 ## 0.5.0-alpha — 2026-10-23
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet

@@ -38,6 +38,8 @@ import { TeeSession, encryptedInit, type ProverCall } from "../src/client/prover
 import { composeSignal } from "../src/client/internal.js";
 import { attestationRetryDelayMs } from "../src/client/prover/retry.js";
 import { DEFAULT_TEE_POLICY_FILE } from "../src/client/prover/tee/default.js";
+import { MAINNET_TEE_POLICY_FILE } from "../src/client/prover/tee/mainnet.js";
+import { MAINNET_TEE_PROVER_ENDPOINT } from "../src/endpoint.js";
 import {
   checkedTeePolicy,
   defaultTeePolicy,
@@ -102,6 +104,64 @@ describe("TEE policy", () => {
 
   it("mirrors the Rust SDK's pinned policy file", () => {
     expect(DEFAULT_TEE_POLICY_FILE).toEqual(json("../../prover-tee/src/policy.json"));
+    expect(MAINNET_TEE_POLICY_FILE).toEqual(json("../../prover-tee/src/mainnet-policy.json"));
+    expect(MAINNET_TEE_POLICY_FILE).toEqual(
+      json("../../../prover/tee/deployments/mainnet-v0.6.0-alpha.json"),
+    );
+  });
+
+  it("authenticates mainnet-tee-2 with its own pin and refuses devnet and changed bindings", () => {
+    const live = decode.record(
+      json("../../../prover/tee/testdata/mainnet_tee_2_attestation.json"),
+      "live",
+    );
+    const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
+    const at = Number(decode.integer(live["captured_at"], "captured_at"));
+    const policy = defaultTeePolicy(new URL(MAINNET_TEE_PROVER_ENDPOINT));
+    expect(
+      bytesToHex(verifyAttestation(live["attestation"], policy, nonce, at).hpkePublicKey),
+    ).toBe(policy.hpkePublicKey);
+    expect(check(() => verifyAttestation(live["attestation"], defaultTeePolicy(), nonce, at))).toBe(
+      "measurement",
+    );
+    expect(
+      check(() =>
+        verifyAttestation(
+          live["attestation"],
+          { ...policy, hpkePublicKey: "00".repeat(32) },
+          nonce,
+          at,
+        ),
+      ),
+    ).toBe("hpke_key");
+    expect(
+      check(() => verifyAttestation(live["attestation"], policy, new Uint8Array(32), at)),
+    ).toBe("nonce");
+    expect(
+      check(() => verifyAttestation(live["attestation"], policy, nonce, at + 2 * 86_400)),
+    ).toBe("certificate_validity");
+    const devnet = decode.record(
+      json("../../../prover/tee/testdata/devnet_e_tee_1_attestation.json"),
+      "devnet",
+    );
+    expect(
+      check(() =>
+        verifyAttestation(
+          devnet["attestation"],
+          policy,
+          hexToBytes(decode.string(devnet["nonce"], "nonce")),
+          Number(decode.integer(devnet["captured_at"], "captured_at")),
+        ),
+      ),
+    ).toBe("measurement");
+    const measurement = decode.record(
+      json("../../../prover/tee/deployments/mainnet-v0.6.0-alpha-measurements.json"),
+      "measurement",
+    );
+    if (policy.platform !== "aws-nitro") throw new Error("expected Nitro policy");
+    expect(policy.measurements).toEqual([
+      { pcr0: measurement["PCR0"], pcr1: measurement["PCR1"], pcr2: measurement["PCR2"] },
+    ]);
   });
 
   it("authenticates devnet-e-tee-1 with the default pin and refuses changed bindings", () => {

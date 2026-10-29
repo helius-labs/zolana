@@ -1,0 +1,21 @@
+{
+  "PCR0": "89cde9fcf78ed0fe2e80c25554ad38b4022a3372e5f8bf4b1ab6b4b69e721699a5d022d7370bbc8854c2c4f46d630097",
+  "PCR1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+  "PCR2": "8265ae7a12c74695e4484aa5f085f730df8c5a4741fb2a334ef88f306f47d39ae0137a9bec2e8a495ce7c6db3841e1ee",
+  "HashAlgorithm": "Sha512_48 { .. }",
+  "image": "558215002830.dkr.ecr.eu-north-1.amazonaws.com/zolana-prover-nitro@sha256:0e19ba40e1594b92b6f89cc36b278bed022178a0bafe4136d02d58a7b2dbfe96",
+  "nitro_cli": "1.5.0-0.amzn2023",
+  "kms_key": "arn:aws:kms:eu-north-1:558215002830:key/18d79ba8-973c-4eb6-83bd-70afe2a7080c",
+  "backend": "aeglos-cpu",
+  "concurrency": 8,
+  "source_commit": "8ae430a154e22bafa819a570d383d04e2046e802",
+  "build_tools_commit": "8ae430a154e22bafa819a570d383d04e2046e802",
+  "indexer_url": "https://dgcj4pjarvo65.cloudfront.net",
+  "routes": [
+    "127.0.0.2 d3gbdb0egjwcw9.cloudfront.net 443 8001",
+    "127.0.0.3 dgcj4pjarvo65.cloudfront.net 443 8002",
+    "127.0.0.4 kms.eu-north-1.amazonaws.com 443 8003"
+  ],
+  "eif_sha256": "be011b1ec314abd5fa4838bc43bdda8abe03fae261e3ecb7259d1db05a2505f7",
+  "source": "measure"
+}

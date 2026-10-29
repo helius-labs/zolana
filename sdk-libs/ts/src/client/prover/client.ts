@@ -155,7 +155,7 @@ export class ProverClient {
       allowInsecureHttp?: boolean;
       /**
        * Encrypts every call, health and key checks included, to a prover that
-       * attests to the policy. Left out, a remote prover gets `defaultTeePolicy()`.
+       * attests to the policy. Left out, a remote prover gets `defaultTeePolicy(url)`.
        */
       tee?: TeePolicy;
     }>,
@@ -178,7 +178,7 @@ export class ProverClient {
     }
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
     const policy =
-      input.tee === undefined && !isLoopbackHost(url.hostname) ? defaultTeePolicy() : input.tee;
+      input.tee === undefined && !isLoopbackHost(url.hostname) ? defaultTeePolicy(url) : input.tee;
     this.#tee = policy === undefined ? undefined : new TeeSession(policy);
   }
 

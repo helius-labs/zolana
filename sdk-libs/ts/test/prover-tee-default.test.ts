@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { ZolanaClient } from "../src/client/client.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import { DEFAULT_TEE_PROVER_ENDPOINT } from "../src/endpoint.js";
+import { MAINNET_TEE_PROVER_ENDPOINT } from "../src/endpoint.js";
+import { readFileSync } from "node:fs";
+import { hexToBytes } from "@noble/hashes/utils.js";
+import { wireDecoder } from "../src/interface/decode.js";
+import { defaultTeePolicy } from "../src/client/prover/tee/policy.js";
 
 /** Records every request and fails it, so `attest()` shows where it would go. */
 function recordingFetch(): { fetch: typeof globalThis.fetch; urls: string[] } {
@@ -23,6 +28,62 @@ async function attestationRequest(
 }
 
 describe("default TEE", () => {
+  it("selects the mainnet policy for explicit and inherited endpoints before sending encrypted requests", async () => {
+    const decode = wireDecoder((path) => new Error(`fixture ${path}`));
+    const value: unknown = JSON.parse(
+      readFileSync(
+        new URL("../../../prover/tee/testdata/mainnet_tee_2_attestation.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    const fixture = decode.record(value, "fixture");
+    const nonce = hexToBytes(decode.string(fixture["nonce"], "nonce"));
+    const at = Number(decode.integer(fixture["captured_at"], "captured_at"));
+    const now = vi.spyOn(Date, "now").mockReturnValue(at * 1000);
+    const random = vi.spyOn(globalThis.crypto, "getRandomValues").mockImplementation((bytes) => {
+      if (!(bytes instanceof Uint8Array)) throw new Error("unexpected nonce buffer");
+      bytes.set(nonce);
+      return bytes;
+    });
+    try {
+      for (const inherited of [false, true]) {
+        const sent: string[] = [];
+        const fetch: typeof globalThis.fetch = async (input, init) => {
+          const url = new URL(String(input));
+          sent.push(url.pathname);
+          expect(url.origin).toBe(MAINNET_TEE_PROVER_ENDPOINT);
+          expect(url.searchParams.has("api-key")).toBe(false);
+          if (url.pathname === "/tee/v1/attestation") return Response.json(fixture["attestation"]);
+          expect(new Headers(init?.headers).get("Zolana-Tee")).toBe("v1");
+          return new Response(null, { status: 404 });
+        };
+        const client = new ZolanaClient({
+          solanaRpcUrl: "https://mainnet.helius-rpc.com/?api-key=rpc-secret",
+          ...(inherited ? {} : { proverUrl: MAINNET_TEE_PROVER_ENDPOINT }),
+          fetch,
+        });
+        expect(client.proofDataSource).toBe("prover");
+        await expect(client.attestProver()).resolves.toMatchObject({ platform: "aws-nitro" });
+        const prover = new ProverClient({ url: MAINNET_TEE_PROVER_ENDPOINT, fetch });
+        await expect(prover.checkProvingKeys()).rejects.toThrow();
+        expect(sent).toEqual(["/tee/v1/attestation", "/tee/v1/attestation", "/proving-keys"]);
+        sent.length = 0;
+        const overridden = new ProverClient({
+          url: MAINNET_TEE_PROVER_ENDPOINT,
+          tee: defaultTeePolicy(),
+          fetch,
+        });
+        await expect(overridden.checkProvingKeys()).rejects.toMatchObject({
+          code: "CLIENT_PROVER_TEE_ATTESTATION",
+          details: expect.objectContaining({ check: "measurement" }),
+        });
+        expect(sent).toEqual(["/tee/v1/attestation"]);
+      }
+    } finally {
+      now.mockRestore();
+      random.mockRestore();
+    }
+  });
   it("attests a remote prover to the pinned deployment by default", async () => {
     const remote = recordingFetch();
     const prover = new ProverClient({

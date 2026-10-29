@@ -10,6 +10,7 @@ use spr_client::{
         known_proving_keys,
         tee::{
             verify, Attestation, Platform, PlatformPolicy, TeeError, TeePolicy, DEFAULT_PROVER_URL,
+            MAINNET_PROVER_URL,
         },
         verify_proof_statement, Delivery, ExpectedProvingKey, ProveRequest, ProverClient,
     },
@@ -138,8 +139,17 @@ impl ProveRequest for TransferFixture {
 #[test]
 #[ignore = "contacts the default devnet TEE and generates one synthetic transfer proof"]
 fn the_default_deployment_attests_and_verifies_an_encrypted_fixture_proof() {
-    let prover =
-        ProverClient::new(DEFAULT_PROVER_URL.into()).with_proof_timeout(Duration::from_secs(180));
+    assert_encrypted_fixture_proof(DEFAULT_PROVER_URL);
+}
+
+#[test]
+#[ignore = "contacts the mainnet TEE and generates one synthetic transfer proof"]
+fn the_mainnet_deployment_attests_and_verifies_an_encrypted_fixture_proof() {
+    assert_encrypted_fixture_proof(MAINNET_PROVER_URL);
+}
+
+fn assert_encrypted_fixture_proof(url: &str) {
+    let prover = ProverClient::new(url.into()).with_proof_timeout(Duration::from_secs(180));
     assert!(prover.has_tee());
     let attested = prover
         .attest()

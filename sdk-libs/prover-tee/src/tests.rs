@@ -320,12 +320,89 @@ fn the_published_deployment_pins_load() {
         include_str!("../../../prover/tee/deployments/nitro-c7a.json"),
         include_str!("../../../prover/tee/deployments/devnet-d-v0.5.0-alpha.json"),
         include_str!("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json"),
+        include_str!("../../../prover/tee/deployments/mainnet-v0.6.0-alpha.json"),
     ] {
         assert_eq!(
             TeePolicy::from_file_json(pin).unwrap().platform(),
             Platform::AwsNitro
         );
     }
+}
+
+#[test]
+fn mainnet_evidence_matches_the_measured_build_and_refuses_devnet_and_changed_bindings() {
+    let fixture: LiveFixture = serde_json::from_str(include_str!(
+        "../../../prover/tee/testdata/mainnet_tee_2_attestation.json"
+    ))
+    .unwrap();
+    let nonce = bytes::<32>(&fixture.nonce);
+    let attestation =
+        || serde_json::from_value::<Attestation>(fixture.attestation.clone()).unwrap();
+    let policy = TeePolicy::mainnet_deployment().unwrap();
+    let attested = verify(attestation(), &policy, &nonce, fixture.captured_at).unwrap();
+    assert_eq!(attested.platform, Platform::AwsNitro);
+    assert!(matches!(
+        verify(
+            attestation(),
+            &TeePolicy::default_deployment().unwrap(),
+            &nonce,
+            fixture.captured_at
+        ),
+        Err(TeeError::EnclaveMeasurementNotAllowed)
+    ));
+    let mut changed = policy.clone();
+    let PlatformPolicy::AwsNitro(pins) = &mut changed.pins else {
+        panic!("mainnet must use Nitro")
+    };
+    pins.hpke_public_key = Some([0; 32]);
+    assert!(matches!(
+        verify(attestation(), &changed, &nonce, fixture.captured_at),
+        Err(TeeError::HpkeKeyMismatch)
+    ));
+    assert!(matches!(
+        verify(attestation(), &policy, &[0; 32], fixture.captured_at),
+        Err(TeeError::NitroDocument(_))
+    ));
+    assert!(verify(
+        attestation(),
+        &policy,
+        &nonce,
+        fixture.captured_at + 2 * 86_400
+    )
+    .is_err());
+    let published = TeePolicy::from_file_json(include_str!(
+        "../../../prover/tee/deployments/mainnet-v0.6.0-alpha.json"
+    ))
+    .unwrap();
+    assert_eq!(policy, published);
+    let measured: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../prover/tee/deployments/mainnet-v0.6.0-alpha-measurements.json"
+    ))
+    .unwrap();
+    let PlatformPolicy::AwsNitro(pins) = policy.pins() else {
+        panic!("mainnet must use Nitro")
+    };
+    assert_eq!(
+        pins.measurements,
+        vec![super::NitroMeasurement {
+            pcr0: bytes::<48>(measured["PCR0"].as_str().unwrap()),
+            pcr1: bytes::<48>(measured["PCR1"].as_str().unwrap()),
+            pcr2: bytes::<48>(measured["PCR2"].as_str().unwrap())
+        }]
+    );
+    let devnet: LiveFixture = serde_json::from_str(include_str!(
+        "../../../prover/tee/testdata/devnet_e_tee_1_attestation.json"
+    ))
+    .unwrap();
+    assert!(matches!(
+        verify(
+            serde_json::from_value(devnet.attestation).unwrap(),
+            &policy,
+            &bytes::<32>(&devnet.nonce),
+            devnet.captured_at
+        ),
+        Err(TeeError::EnclaveMeasurementNotAllowed)
+    ));
 }
 
 #[derive(Deserialize)]

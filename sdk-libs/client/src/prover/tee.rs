@@ -9,7 +9,7 @@ pub use spr_prover_tee::{
     DstackIdentity, DstackPolicy, EncryptedRequest, GpuRequirement, KeyProvider, NitroIdentity,
     NitroMeasurement, NitroPolicy, Platform, PlatformIdentity, PlatformPolicy, TdxMeasurement,
     TeeError, TeePolicy, TeePolicyFile, ATTESTATION_PATH, DEFAULT_PROVER_URL, HEADER_CIPHERTEXT,
-    HEADER_ENC, HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
+    HEADER_ENC, HEADER_VERSION, MAINNET_PROVER_URL, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
 };
 
 pub(crate) use session::TeeSession;
