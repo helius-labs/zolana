@@ -417,20 +417,19 @@ describe("ZolanaClient", () => {
     }
   });
 
-  it("fetches proof data on the client for a prover on the Helius gateway", () => {
+  it("lets callers choose either proof data source for Helius and other prover URLs", () => {
     for (const config of [
       {
         solanaRpcUrl: RPC_URL,
         proverUrl: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
       },
     ]) {
-      expect(new ZolanaClient(config).proofDataSource).toBe("client");
-      expect(() => new ZolanaClient({ ...config, proofDataSource: "prover" })).toThrow(
-        expect.objectContaining({
-          code: "CLIENT_INVALID_CONFIG",
-          details: { field: "proofDataSource" },
-        }),
-      );
+      expect(new ZolanaClient(config).proofDataSource).toBe("prover");
+      for (const proofDataSource of ["client", "prover"] as const) {
+        expect(new ZolanaClient({ ...config, proofDataSource }).proofDataSource).toBe(
+          proofDataSource,
+        );
+      }
     }
     expect(new ZolanaClient({ solanaRpcUrl: RPC_URL }).proofDataSource).toBe("prover");
   });
@@ -794,14 +793,10 @@ describe("ZolanaClient", () => {
     const keys = LocalKeys.fromKeypair(fixture.keypair, prover);
 
     await expect(keys.prove(proverInputs)).rejects.toMatchObject({
-      code: "CLIENT_PROVER_TEE_ATTESTATION",
-      details: { check: "unavailable" },
+      code: "CLIENT_INVALID_CONFIG",
+      details: { field: "tee" },
     });
-    expect(fetch).toHaveBeenCalledTimes(1);
-    const [url, init] = fetch.mock.calls[0] ?? [];
-    expect(String(url)).toContain("/tee/v1/attestation?nonce=");
-    expect(new Request(String(url), init).method).toBe("GET");
-    expect(init?.body).toBeUndefined();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("fetches state and nullifier proofs once and in parallel", async () => {

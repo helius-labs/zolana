@@ -2,25 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import { checkedServiceUrl } from "../src/client/internal.js";
 import {
-  DEFAULT_TEE_PROVER_ENDPOINT,
-  MAINNET_TEE_PROVER_ENDPOINT,
-  isMainnetTeeProver,
   LOCALNET_PHOTON_ENDPOINT,
   LOCALNET_PROVER_ENDPOINT,
   LOCALNET_SOLANA_ENDPOINT,
-  isDefaultTeeProver,
-  isZolanaGateway,
   resolveClientEndpoints,
 } from "../src/endpoint.js";
 
 const HELIUS = "https://devnet.helius-rpc.com?api-key=k";
 
 describe("resolveClientEndpoints", () => {
-  it("pins the devnet-e-tee-1 prover endpoint", () => {
-    expect(DEFAULT_TEE_PROVER_ENDPOINT).toBe("https://dd73hh473h6ha.cloudfront.net");
-    expect(isDefaultTeeProver(new URL("https://d55y5ksdsm1vw.cloudfront.net"))).toBe(false);
-  });
-
   it("serves every service from one url", () => {
     const rpc = "https://rpc.example?api-key=k";
     const resolved = resolveClientEndpoints({ solanaRpcUrl: rpc });
@@ -32,61 +22,28 @@ describe("resolveClientEndpoints", () => {
     const resolved = resolveClientEndpoints({ solanaRpcUrl: HELIUS });
     expect(resolved.solana).toBe(HELIUS);
     expect(String(resolved.photon)).toBe("https://devnet.helius-rpc.com/v1/zolana?api-key=k");
-    expect(isZolanaGateway(new URL(resolved.photon))).toBe(true);
     const custom = resolveClientEndpoints({ solanaRpcUrl: "https://devnet.helius-rpc.com/custom" });
     expect(custom.photon).toBe("https://devnet.helius-rpc.com/custom");
-    expect(isZolanaGateway(new URL("https://prover.example/v1/zolana"))).toBe(false);
   });
 
-  it("sends a Helius devnet RPC URL's proofs to the default TEE prover, without its api key", () => {
-    for (const rpc of [HELIUS, "https://beta-devnet.helius-rpc.com/?api-key=k"]) {
+  it("keeps all Helius services on the caller's supplied gateway and retains its key", () => {
+    for (const host of [
+      "devnet.helius-rpc.com",
+      "mainnet.helius-rpc.com",
+      "beta-devnet.helius-rpc.com",
+    ]) {
+      const rpc = `https://${host}/?api-key=k`;
       const resolved = resolveClientEndpoints({ solanaRpcUrl: rpc });
-      expect(resolved.prover).toBe(DEFAULT_TEE_PROVER_ENDPOINT);
-      expect(resolved.proverField).toBe("solanaRpcUrl");
-      expect(isDefaultTeeProver(new URL(resolved.prover))).toBe(true);
+      const gateway = `https://${host}/v1/zolana?api-key=k`;
+      expect([String(resolved.solana), String(resolved.photon), String(resolved.prover)]).toEqual([
+        rpc,
+        gateway,
+        gateway,
+      ]);
+      expect(
+        resolveClientEndpoints({ solanaRpcUrl: rpc, proverUrl: "https://provided.example" }).prover,
+      ).toBe("https://provided.example");
     }
-    const named = resolveClientEndpoints({
-      solanaRpcUrl: HELIUS,
-      proverUrl: "https://prover.example",
-    });
-    expect(named.prover).toBe("https://prover.example");
-  });
-
-  it("recognizes only the default deployment origin and base path", () => {
-    expect(isDefaultTeeProver(new URL(`${DEFAULT_TEE_PROVER_ENDPOINT}/?api-key=k`))).toBe(true);
-    for (const url of [
-      `${DEFAULT_TEE_PROVER_ENDPOINT}/other`,
-      `${DEFAULT_TEE_PROVER_ENDPOINT}:8443`,
-      DEFAULT_TEE_PROVER_ENDPOINT.replace("https:", "http:"),
-      `${DEFAULT_TEE_PROVER_ENDPOINT}.evil.example`,
-    ])
-      expect(isDefaultTeeProver(new URL(url))).toBe(false);
-  });
-
-  it("sends mainnet proofs to the mainnet enclave without forwarding the RPC key", () => {
-    const resolved = resolveClientEndpoints({
-      solanaRpcUrl: "https://mainnet.helius-rpc.com/?api-key=k",
-    });
-    expect(resolved.prover).toBe(MAINNET_TEE_PROVER_ENDPOINT);
-    expect(isDefaultTeeProver(new URL(resolved.prover))).toBe(true);
-    expect(
-      resolveClientEndpoints({
-        solanaRpcUrl: "https://mainnet.helius-rpc.com/?api-key=k",
-        proverUrl: "https://custom.example",
-      }).prover,
-    ).toBe("https://custom.example");
-  });
-
-  it("recognizes the mainnet deployment only at its exact HTTPS origin and base path", () => {
-    expect(isMainnetTeeProver(new URL(`${MAINNET_TEE_PROVER_ENDPOINT}/?api-key=k`))).toBe(true);
-    for (const url of [
-      DEFAULT_TEE_PROVER_ENDPOINT,
-      `${MAINNET_TEE_PROVER_ENDPOINT}/other`,
-      `${MAINNET_TEE_PROVER_ENDPOINT}:8443`,
-      MAINNET_TEE_PROVER_ENDPOINT.replace("https:", "http:"),
-      `${MAINNET_TEE_PROVER_ENDPOINT}.evil.example`,
-    ])
-      expect(isMainnetTeeProver(new URL(url))).toBe(false);
   });
 
   it("resolves localnet to accepted service urls", () => {

@@ -192,7 +192,7 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
    `--plan` validates the stack without creating it and does not need `--expect-pcrs`.
    Repeat the command with the same arguments to resume a failed deployment.
 
-6. Pin the live enclave into the SDKs.
+6. Write a standalone policy for the live enclave.
    `tee-policy` reads the key from `PROVER_API_KEY`, which keeps it out of the process list.
    With `--expect-pcrs` it refuses a live enclave whose PCRs differ from `pcrs.json`.
    This step locks in the measurements every client accepts.
@@ -201,10 +201,12 @@ Log in with `aws sso login --profile AdministratorAccess-558215002830` when the 
    ```sh
    PROVER_API_KEY=$(aws secretsmanager get-secret-value --profile AdministratorAccess-558215002830 \
      --region eu-central-1 --secret-id SECRET_ARN --query SecretString --output text) \
-     cargo run -p xtask -- tee-policy https://DISTRIBUTION.cloudfront.net --replace --expect-pcrs pcrs.json
+     cargo run -p xtask -- tee-policy https://DISTRIBUTION.cloudfront.net --policy prover-policy.json --replace --expect-pcrs pcrs.json
    ```
 
-7. Commit the policy files with the release.
+7. Review and commit the policy, then publish the versioned JSON and checksum
+   on the deployment release. Applications supply that policy and their URL to
+   the SDK; SDK code contains no deployment defaults.
 
 ## Limits
 

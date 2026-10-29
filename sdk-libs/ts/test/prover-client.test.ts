@@ -1,3 +1,4 @@
+import gatewayContract from "../../../test-vectors/prover_gateway_routes.json" with { type: "json" };
 import { readFileSync } from "node:fs";
 import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +21,7 @@ import {
   type ProverRefusal,
 } from "../src/client/prover/client.js";
 import { TeeSession } from "../src/client/prover/tee/session.js";
+import { readTeePolicy } from "./helpers/tee-policy.js";
 import { proofFor } from "./helpers/proofs.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
@@ -603,33 +605,83 @@ describe("prover request routing", () => {
     expect(urls[0]?.search).toBe("?tenant=alpha&flag&x=a%20b&y=~&api-key=k%2B1");
     expect(urls[1]?.search).toBe("?tenant=alpha&flag&x=a%20b&y=~&api-key=k%2B1&jobId=job-123");
   });
-  it("sends a proof and its poll through the TEE session to the Helius gateway's key-less paths", async () => {
-    const urls: URL[] = [];
-    const send = vi.spyOn(TeeSession.prototype, "send").mockImplementation(async (call) => {
-      urls.push(new URL(call.url));
-      return urls.length === 1
-        ? Response.json({ jobId: "job-123" }, { status: 202 })
-        : Response.json({ status: "completed", result: TRANSFER_PROOF });
-    });
-    const fetch = vi.fn<typeof globalThis.fetch>();
-    try {
-      const prover = new ProverClient({
-        url: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
-        fetch,
+  it.each(gatewayContract.base_urls)(
+    "routes complete proofs and polls through the TEE session at %s",
+    async (base) => {
+      const urls: URL[] = [];
+      const send = vi.spyOn(TeeSession.prototype, "send").mockImplementation(async (call) => {
+        urls.push(new URL(call.url));
+        return urls.length === 1
+          ? Response.json({ jobId: "job-123" }, { status: 202 })
+          : Response.json({ status: "completed", result: TRANSFER_PROOF });
       });
-      await prover.prove(transferInputs());
-    } finally {
-      send.mockRestore();
-    }
+      const fetch = vi.fn<typeof globalThis.fetch>();
+      try {
+        const prover = new ProverClient({
+          url: base,
+          tee: readTeePolicy(
+            new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
+          ),
+          fetch,
+        });
+        await prover.prove(transferInputs());
+      } finally {
+        send.mockRestore();
+      }
 
-    expect(fetch).not.toHaveBeenCalled();
-    expect(urls.map((url) => url.pathname)).toEqual([
-      "/v1/zolana/prove",
-      "/v1/zolana/prove/status",
-    ]);
-    expect(urls.map((url) => url.searchParams.get("api-key"))).toEqual(["k", "k"]);
-    expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");
-  });
+      expect(fetch).not.toHaveBeenCalled();
+      expect(urls.map((url) => url.pathname)).toEqual([
+        gatewayContract.routes.complete,
+        gatewayContract.routes.status,
+      ]);
+      expect(urls.map((url) => url.searchParams.get("api-key"))).toEqual([
+        "fixture-key",
+        "fixture-key",
+      ]);
+      expect(urls[1]?.searchParams.get("jobId")).toBe("job-123");
+    },
+  );
+
+  it.each(gatewayContract.base_urls)(
+    "routes indexed proofs and their polls through %s",
+    async (base) => {
+      const calls: { path: string; method: string; query: string | null }[] = [];
+      const send = vi.spyOn(TeeSession.prototype, "send").mockImplementation(async (call) => {
+        calls.push({
+          path: call.url.pathname,
+          method: call.method,
+          query: call.url.searchParams.get("api-key"),
+        });
+        return calls.length === 1
+          ? Response.json({ jobId: "indexed-job" }, { status: 202 })
+          : Response.json({ status: "completed", result: TRANSFER_PROOF });
+      });
+      const fetch = vi.fn<typeof globalThis.fetch>();
+      try {
+        const prover = new ProverClient({
+          url: base,
+          tee: readTeePolicy(
+            new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
+          ),
+          fetch,
+        });
+        const key = expectedProvingKey({
+          circuit: "transfer-confidential",
+          nInputs: 2,
+          nOutputs: 2,
+        });
+        expect(key.name).toBe(gatewayContract.key);
+        await expect(prover.send("{}", "indexed", key)).resolves.toEqual(TRANSFER_PROOF);
+      } finally {
+        send.mockRestore();
+      }
+      expect(calls).toEqual([
+        { path: gatewayContract.routes.indexed, method: "POST", query: "fixture-key" },
+        { path: gatewayContract.routes.status, method: "GET", query: "fixture-key" },
+      ]);
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it("attests the Helius gateway before any proof traffic", async () => {
     const fetch = vi
@@ -637,6 +689,9 @@ describe("prover request routing", () => {
       .mockResolvedValue(new Response(null, { status: 404 }));
     const prover = new ProverClient({
       url: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
+      tee: readTeePolicy(
+        new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
+      ),
       fetch,
     });
     await expect(prover.prove(transferInputs())).rejects.toMatchObject({

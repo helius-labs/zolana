@@ -1,7 +1,3 @@
-import { ClientError } from "../../error.js";
-import { DEFAULT_TEE_POLICY_FILE } from "./default.js";
-import { MAINNET_TEE_POLICY_FILE } from "./mainnet.js";
-import { isMainnetTeeProver } from "../../../endpoint.js";
 import { PolicyFields, invalidPolicy } from "./platform.js";
 import {
   PLATFORMS,
@@ -13,22 +9,13 @@ import {
 
 export type { GpuRequirement } from "./platform.js";
 
-/** Mainnet pins for its exact prover endpoint; devnet pins when omitted or for another URL. */
-export function defaultTeePolicy(proverUrl?: URL): TeePolicy {
-  const deployment =
-    proverUrl !== undefined && isMainnetTeeProver(proverUrl)
-      ? MAINNET_TEE_POLICY_FILE.deployment
-      : DEFAULT_TEE_POLICY_FILE.deployment;
-  if (deployment === null) {
-    throw new ClientError("CLIENT_PROVER_TEE_ATTESTATION", {
-      details: { check: "no_default_deployment" },
-    });
-  }
-  return teePolicyFromJson(deployment);
-}
-
-/** Parses the snake_case JSON form the Rust SDK and the release script share. */
+/** Parses a bare policy or its `{ deployment: ... }` JSON file wrapper. No I/O is performed. */
 export function teePolicyFromJson(json: unknown): TeePolicy {
+  if (typeof json === "object" && json !== null && Object.hasOwn(json, "deployment")) {
+    const file = new PolicyFields(json);
+    json = file.get("deployment");
+    file.finish();
+  }
   const fields = new PolicyFields(json);
   const gpu = fields.get("gpu");
   if (gpu !== "optional" && gpu !== "required") throw invalidPolicy("gpu");

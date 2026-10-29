@@ -9,9 +9,6 @@ use crate::{
 
 const API_KEY: &str = "api-key";
 const REDACTED: &str = "redacted";
-/// Where a Helius RPC host serves the indexer and the prover.
-const ZOLANA_GATEWAY_PATH: &str = "/v1/zolana";
-const HELIUS_RPC_DOMAIN: &str = "helius-rpc.com";
 
 /// A prover base URL. Request paths go before its query, so every query
 /// parameter, a gateway `api-key` among them, rides on every request.
@@ -23,30 +20,10 @@ pub(crate) struct ProverEndpoint {
 }
 
 impl ProverEndpoint {
-    pub(crate) fn is_mainnet_tee(&self) -> bool {
-        self.base.as_ref().is_some_and(|url| {
-            url.origin().ascii_serialization() == super::tee::MAINNET_PROVER_URL
-                && url.path().trim_end_matches('/').is_empty()
-        })
-    }
-
     pub(crate) fn parse(url: &str) -> Self {
         Self {
             base: Url::parse(url).ok(),
         }
-    }
-
-    /// Whether this is the Helius gateway's zolana namespace on a
-    /// `*.helius-rpc.com` host, which routes proofs only to the key-less
-    /// `/prove` and `/prove/status` and has no indexed route.
-    pub(crate) fn is_gateway(&self) -> bool {
-        self.base.as_ref().is_some_and(|url| {
-            let helius = url.host_str().is_some_and(|host| {
-                host.strip_suffix(HELIUS_RPC_DOMAIN)
-                    .is_some_and(|subdomain| subdomain.is_empty() || subdomain.ends_with('.'))
-            });
-            helius && url.path().trim_end_matches('/') == ZOLANA_GATEWAY_PATH
-        })
     }
 
     /// Whether the prover runs on this machine, where its requests never leave
@@ -75,17 +52,13 @@ impl ProverEndpoint {
     }
 
     /// Where a queued proof of `key` is polled, so the poll reaches the pool
-    /// that queued it; the key-less `/prove/status` on the gateway.
+    /// that queued it.
     pub(crate) fn status_url(
         &self,
         key: &ExpectedProvingKey,
         job_id: &str,
     ) -> Result<Url, ClientError> {
-        let path = if self.is_gateway() {
-            "/prove".to_owned()
-        } else {
-            key.prove_path()
-        };
+        let path = key.prove_path();
         let mut url = self.url(&format!("{path}/status"))?;
         url.query_pairs_mut().append_pair("jobId", job_id);
         Ok(url)
@@ -233,34 +206,6 @@ mod tests {
     }
 
     #[test]
-    fn only_a_helius_rpc_host_is_the_gateway() {
-        let gateway = |url: &str| ProverEndpoint::parse(url).is_gateway();
-        assert!(gateway("https://helius-rpc.com/v1/zolana"));
-        assert!(gateway(
-            "https://beta-devnet.helius-rpc.com/v1/zolana/?api-key=k"
-        ));
-        assert!(!gateway("https://evilhelius-rpc.com/v1/zolana"));
-        assert!(!gateway("https://helius-rpc.com.evil.invalid/v1/zolana"));
-        assert!(!gateway("https://beta-devnet.helius-rpc.com/?api-key=k"));
-    }
-
-    #[test]
-    fn only_the_mainnet_https_origin_and_base_path_select_mainnet_pins() {
-        let matches = |url: &str| ProverEndpoint::parse(url).is_mainnet_tee();
-        assert!(matches(super::super::tee::MAINNET_PROVER_URL));
-        assert!(matches("https://d3ky2kt0ntqxt1.cloudfront.net/?api-key=k"));
-        for url in [
-            "http://d3ky2kt0ntqxt1.cloudfront.net",
-            "https://d3ky2kt0ntqxt1.cloudfront.net:8443",
-            "https://d3ky2kt0ntqxt1.cloudfront.net/other",
-            "https://d3ky2kt0ntqxt1.cloudfront.net.evil.example",
-            super::super::tee::DEFAULT_PROVER_URL,
-        ] {
-            assert!(!matches(url), "{url}");
-        }
-    }
-
-    #[test]
     fn the_job_id_is_encoded_and_the_key_kept() {
         let endpoint = ProverEndpoint::parse("https://gateway.invalid/zolana?api-key=k");
         let key = ExpectedProvingKey {
@@ -271,13 +216,12 @@ mod tests {
             String::from(endpoint.status_url(&key, "job-1").unwrap()),
             "https://gateway.invalid/zolana/prove/merge_52_1/status?api-key=k&jobId=job-1"
         );
-        // The Helius gateway polls every proof at the key-less path; another
-        // host's `/v1/zolana` keeps key paths.
+        // The gateway hostname does not change the key-specific poll route.
         let helius =
             ProverEndpoint::parse("https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k");
         assert_eq!(
             String::from(helius.status_url(&key, "job-1").unwrap()),
-            "https://beta-devnet.helius-rpc.com/v1/zolana/prove/status?api-key=k&jobId=job-1"
+            "https://beta-devnet.helius-rpc.com/v1/zolana/prove/merge_52_1/status?api-key=k&jobId=job-1"
         );
         let other = ProverEndpoint::parse("https://gateway.invalid/v1/zolana?api-key=k");
         assert_eq!(

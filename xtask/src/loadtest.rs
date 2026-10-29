@@ -34,7 +34,10 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 // `Rpc` is in scope for send_transaction_with_config, which is a
 // trait method rather than an inherent one on SolanaRpc.
-use spr_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
+use spr_client::{
+    prover::{tee::TeePolicy, AsyncProverClient},
+    Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient,
+};
 use spr_keypair::ShieldedKeypair;
 use spr_test_utils::wallet::{
     create_transfer_sync, sign_private_transaction_sync, sync_wallet, KeypairWalletAuthority,
@@ -80,6 +83,7 @@ pub struct Options {
     pub rpc_url: String,
     pub indexer_url: String,
     pub prover_url: String,
+    pub prover_tee: Option<TeePolicy>,
     pub tree: String,
     pub keypairs: PathBuf,
     pub duration: Duration,
@@ -98,6 +102,7 @@ impl Options {
         let mut rpc_url = None;
         let mut indexer_url = None;
         let mut prover_url = None;
+        let mut prover_tee_policy = None;
         let mut tree = None;
         let mut keypairs = None;
         let mut json_out = None;
@@ -113,6 +118,7 @@ impl Options {
                 "--rpc" => rpc_url = Some(value()?),
                 "--indexer" => indexer_url = Some(value()?),
                 "--prover" => prover_url = Some(value()?),
+                "--prover-tee-policy" => prover_tee_policy = Some(PathBuf::from(value()?)),
                 "--tree" => tree = Some(value()?),
                 "--keypairs" => keypairs = Some(PathBuf::from(value()?)),
                 "--duration" => duration = value()?.parse().context("--duration")?,
@@ -124,10 +130,26 @@ impl Options {
             }
         }
 
+        let prover_url = prover_url.context("--prover is required")?;
+        let prover_tee = match prover_tee_policy {
+            Some(path) => {
+                let json = fs::read_to_string(&path)
+                    .with_context(|| format!("reading --prover-tee-policy {}", path.display()))?;
+                Some(TeePolicy::from_file_json(&json).context("--prover-tee-policy")?)
+            }
+            None => {
+                if AsyncProverClient::new(prover_url.clone()).has_tee() {
+                    bail!("--prover-tee-policy <file> is required for a remote prover");
+                }
+                None
+            }
+        };
+
         Ok(Self {
             rpc_url: rpc_url.context("--rpc is required")?,
             indexer_url: indexer_url.context("--indexer is required")?,
-            prover_url: prover_url.context("--prover is required")?,
+            prover_url,
+            prover_tee,
             tree: tree.context("--tree is required")?,
             keypairs: keypairs.context("--keypairs <dir> is required")?,
             json_out,
@@ -452,15 +474,13 @@ fn worker(
     let shielded = ShieldedKeypair::from_keypair(funding)?;
     let mut wallet = Wallet::new(shielded.shielded_address()?, AssetRegistry::default())?;
 
-    // Explicitly insecure: devnet's ALB has no certificate yet, so the indexer
-    // and prover are plain http. That is a real exposure -- the wallet's UTXO
-    // set and every proof witness cross the network in the clear -- and it is
-    // spelled out here rather than defaulted, so it disappears the moment the
-    // certificate is issued.
+    // Retains support for private HTTP indexers. Prover attestation and
+    // encryption still apply whenever a policy is supplied.
     let client = ZolanaClient::from_urls_allowing_insecure_http(
         SolanaRpc::new(options.rpc_url.clone()),
         options.indexer_url.clone(),
         options.prover_url.clone(),
+        options.prover_tee.clone(),
     );
     // KeypairWalletAuthority is the canonical implementation of the signing and
     // viewing surface the sync and transfer paths need. The CLI wraps it in its
@@ -573,3 +593,7 @@ fn classify(message: &str, stats: &mut Stats, backoff: &mut Duration) {
         thread::sleep(Duration::from_millis(250));
     }
 }
+
+#[cfg(test)]
+#[path = "loadtest_test.rs"]
+mod tests;

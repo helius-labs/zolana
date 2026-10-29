@@ -21,8 +21,11 @@ use spr_client::{
     client::{AsyncZolanaClient, SignedPrivateTransaction, Submission, ZolanaClient},
     indexer::{AsyncZolanaIndexer, ZolanaIndexer},
     prover::{
-        transact::assemble, witness::WitnessReader, AsyncProverClient, Proof, ProofCompressed,
-        ProveRequest, Prover, ProverClient, TransferInput, TransferInputs,
+        tee::{TeeError, TeePolicy},
+        transact::assemble,
+        witness::WitnessReader,
+        AsyncProverClient, Proof, ProofCompressed, ProveRequest, Prover, ProverClient,
+        TransferInput, TransferInputs,
     },
     rpc::{
         compile_message, sign_transaction, AsyncRpc, IndexerPollConfig, IndexerRpcConfig, Rpc,
@@ -66,7 +69,7 @@ fn from_urls_requires_https_off_loopback() {
     ] {
         assert!(
             matches!(
-                ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover),
+                ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover, None),
                 Err(ClientError::InsecureServiceUrl { field: rejected, .. }) if rejected == field
             ),
             "expected {indexer} / {prover} to be rejected for {field}"
@@ -77,6 +80,7 @@ fn from_urls_requires_https_off_loopback() {
         (),
         "https://indexer.example.com",
         "https://prover.example.com",
+        None,
     )
     .is_ok());
 }
@@ -92,7 +96,7 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
         "http://svc.localhost:8784",
     ] {
         assert!(
-            ZolanaClient::<(), ZolanaIndexer>::from_urls((), url, url).is_ok(),
+            ZolanaClient::<(), ZolanaIndexer>::from_urls((), url, url, None).is_ok(),
             "expected {url} to be allowed"
         );
     }
@@ -102,7 +106,7 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
         "http://notlocalhost:8784",
     ] {
         assert!(
-            ZolanaClient::<(), ZolanaIndexer>::from_urls((), url, url).is_err(),
+            ZolanaClient::<(), ZolanaIndexer>::from_urls((), url, url, None).is_err(),
             "expected {url} to be rejected"
         );
     }
@@ -115,12 +119,16 @@ fn the_insecure_escape_hatch_is_explicit() {
     let indexer = "http://indexer.internal:8784";
     let prover = "http://prover.internal:3001";
     assert!(matches!(
-        ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover),
+        ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover, None),
         Err(ClientError::InsecureServiceUrl { .. })
     ));
 
-    let client =
-        ZolanaClient::<(), ZolanaIndexer>::from_urls_allowing_insecure_http((), indexer, prover);
+    let client = ZolanaClient::<(), ZolanaIndexer>::from_urls_allowing_insecure_http(
+        (),
+        indexer,
+        prover,
+        None,
+    );
     assert_eq!(client.indexer().api().base_path(), indexer);
 }
 
@@ -129,8 +137,106 @@ fn the_insecure_escape_hatch_is_explicit() {
 #[tokio::test]
 async fn clients_of_either_mode_are_built_inside_an_async_runtime() {
     let (indexer, prover) = ("http://127.0.0.1:8784", "http://127.0.0.1:3001");
-    drop(AsyncZolanaClient::from_urls((), indexer, prover).expect("loopback http is allowed"));
-    drop(ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover).expect("loopback"));
+    drop(
+        AsyncZolanaClient::from_urls((), indexer, prover, None).expect("loopback http is allowed"),
+    );
+    drop(
+        ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover, None).expect("loopback"),
+    );
+}
+
+#[test]
+fn url_constructors_apply_the_supplied_policy_before_proving() {
+    for insecure_http in [false, true] {
+        let payer = Keypair::new();
+        let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
+        let transaction =
+            ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
+                .unwrap()
+                .encrypt(&owner)
+                .unwrap();
+        let policy = TeePolicy::from_file_json(include_str!(
+            "../../../prover/tee/testdata/probe_policy.json"
+        ))
+        .unwrap();
+        let server = MockIndexerServer::respond_with(vec![json!({})]);
+        let prover_url = format!("{}/v1/zolana?api-key=fixture", server.url());
+        let rpc = MockSubmitRpc::new(Signature::default());
+        let client = if insecure_http {
+            ZolanaClient::from_urls_allowing_insecure_http(
+                rpc,
+                server.url(),
+                prover_url,
+                Some(policy),
+            )
+        } else {
+            ZolanaClient::from_urls(rpc, server.url(), prover_url, Some(policy)).unwrap()
+        };
+        assert!(matches!(
+            Rpc::prove(&client, transaction, &owner),
+            Err(ClientError::Tee(TeeError::MalformedAttestation(_)))
+        ));
+        assert_constructor_attested_only(server);
+    }
+}
+
+#[tokio::test]
+async fn async_url_constructors_apply_the_supplied_policy_before_proving() {
+    for insecure_http in [false, true] {
+        let payer = Keypair::new();
+        let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
+        let transaction =
+            ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
+                .unwrap()
+                .encrypt(&owner)
+                .unwrap();
+        let policy = TeePolicy::from_file_json(include_str!(
+            "../../../prover/tee/testdata/probe_policy.json"
+        ))
+        .unwrap();
+        let server = MockIndexerServer::respond_with(vec![json!({})]);
+        let prover_url = format!("{}/v1/zolana?api-key=fixture", server.url());
+        let rpc = MockSubmitRpc::new(Signature::default());
+        let client = if insecure_http {
+            AsyncZolanaClient::from_urls_allowing_insecure_http(
+                rpc,
+                server.url(),
+                prover_url,
+                Some(policy),
+            )
+        } else {
+            AsyncZolanaClient::from_urls(rpc, server.url(), prover_url, Some(policy)).unwrap()
+        };
+        assert!(matches!(
+            AsyncRpc::prove(&client, transaction, &owner).await,
+            Err(ClientError::Tee(TeeError::MalformedAttestation(_)))
+        ));
+        assert_constructor_attested_only(server);
+    }
+}
+
+fn assert_constructor_attested_only(server: MockIndexerServer) {
+    let requests = server.requests();
+    let urls = requests
+        .iter()
+        .map(|path| url::Url::parse(&format!("http://fixture{path}")).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        urls.iter().map(url::Url::path).collect::<Vec<_>>(),
+        ["/v1/zolana/tee/v1/attestation"],
+        "a rejected attestation must prevent proof and indexer requests"
+    );
+    let url = urls.first().unwrap();
+    assert_eq!(
+        url.query_pairs().find(|(name, _)| name == "api-key"),
+        Some(("api-key".into(), "fixture".into()))
+    );
+    assert_eq!(
+        url.query_pairs()
+            .find(|(name, _)| name == "nonce")
+            .map(|(_, value)| value.len()),
+        Some(64)
+    );
 }
 
 /// Inside a multi-thread runtime a blocking call leaves the worker first.
@@ -465,6 +571,7 @@ fn a_prover_given_for_one_submission_replaces_the_clients() {
             MockSubmitRpc::new(Signature::default()),
             server.url(),
             server.url(),
+            None,
         )
         .expect("loopback urls")
     };
@@ -1206,6 +1313,7 @@ fn default_transfer_routes_skip_client_indexer_reads() {
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
+        None,
     )
     .unwrap();
     assert!(matches!(
@@ -1247,6 +1355,7 @@ async fn default_async_transfer_routes_skip_client_indexer_reads() {
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
+        None,
     )
     .unwrap();
     assert!(matches!(
@@ -1286,6 +1395,7 @@ fn client_proof_data_opt_in_fetches_paths_before_proving() {
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
+        None,
     )
     .unwrap()
     .with_proof_data_source(spr_client::ProofDataSource::Client);
@@ -1310,6 +1420,7 @@ async fn client_proof_data_opt_in_fetches_paths_before_proving_async() {
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
+        None,
     )
     .unwrap()
     .with_proof_data_source(spr_client::ProofDataSource::Client);

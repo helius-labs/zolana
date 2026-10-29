@@ -11,14 +11,18 @@ client for blocking callers, run on a Tokio runtime it owns, over a blocking
 implementation of everything; the blocking client runs it to completion.
 
 ```rust
-let client = ZolanaClient::from_urls(rpc, indexer_url, prover_url)?;
-let client = AsyncZolanaClient::from_urls(rpc, indexer_url, prover_url)?;
+let policy = TeePolicy::from_file_json(&std::fs::read_to_string(policy_path)?)?;
+let client = ZolanaClient::from_urls(rpc, indexer_url, prover_url, Some(policy))?;
+// AsyncZolanaClient::from_urls takes the same arguments.
 ```
 
 or from the services: `ZolanaClient::new(rpc, indexer, prover)` with a
 `ZolanaIndexer` and a `ProverClient`, `AsyncZolanaClient::new` with their
 `async` counterparts. `from_urls` accepts https, or http to loopback only;
 `check_service_url` is that check for a caller building its own services.
+The fourth argument to both URL constructors (including
+`from_urls_allowing_insecure_http`) is the prover's policy. Pass `None` for
+loopback development; remote proving without a policy fails before HTTP.
 
 Use the blocking client from plain threads or inside a multi-thread runtime,
 as `solana_rpc_client`'s blocking client. Inside a `current_thread` runtime
@@ -66,30 +70,29 @@ client builds one that proves every submission that way. Either prover only
 proves what the client hands it, so the client fetches the proof data itself
 and nothing reaches a prover server.
 
-A prover server client selects the separate mainnet pin for
-`tee::MAINNET_PROVER_URL`, and the devnet pin for other remote URLs, and
-encrypts every call to it. Only a loopback prover without a proxy gets
-plaintext. `with_tee(policy)` takes another policy. `for_tree_batches()`
-sends nullifier-tree batch proofs in plaintext to any prover, as they carry
-only public tree data, and refuses every other proof. Pass the prover client to
-`ZolanaClient::new`.
+A remote prover requires a caller-supplied URL and policy. Load a reviewed
+policy JSON from a deployment release with `TeePolicy::from_file_json`, then
+pass it to `ProverClient::with_tee` or `AsyncProverClient::with_tee`:
 
-For mainnet, use Photon at `https://dgcj4pjarvo65.cloudfront.net` and
-`tee::MAINNET_PROVER_URL` at `https://d3ky2kt0ntqxt1.cloudfront.net`.
-`ProverClient::new` and `AsyncProverClient::new` select the measured
-`mainnet-tee-2` PCR0–PCR2 and HPKE key automatically. To use the same reviewed
-policy through a different URL, pass `TeePolicy::mainnet_deployment()?` to
-`with_tee`. The mainnet policy and its measured build are recorded in the
-[TEE deployment guide](../../prover/tee/README.md#mainnet-v060-alpha).
+```rust
+let policy = TeePolicy::from_file_json(&std::fs::read_to_string(policy_path)?)?;
+let prover = ProverClient::new(prover_url).with_tee(policy);
+```
 
-For the current devnet deployment, use Photon at
-`https://d34xe1hqb2ibg2.cloudfront.net` and `tee::DEFAULT_PROVER_URL` at
-`https://dd73hh473h6ha.cloudfront.net`. The default policy pins the PCR0–PCR2
-measurements and attested HPKE key of indexed `devnet-e-tee-1`; no caller-supplied
-policy is needed. See the [TEE deployment pin](../../prover/tee/README.md#building-on-it)
-for its measured-build and policy provenance. Verification still checks the
-attestation signature and certificate chain, nonce, freshness, measurements and
-HPKE key before encrypting a request.
+The SDK embeds no deployment URLs or policies. The same policy parameter works
+with a direct prover URL, a unified Helius API URL or a proxy path. Remote calls
+without a policy fail before HTTP. Only loopback development without a proxy
+permits plaintext. The explicit `for_tree_batches()` mode permits public
+nullifier-tree batch proofs in plaintext and refuses every other proof.
+
+The [TEE deployment guide](../../prover/tee/README.md) records the reviewed
+policies and measured-build provenance. An older SDK can use a new deployment
+policy when its schema, attestation protocol and circuits remain supported.
+Image rebuilds and key rotations alone do not require an SDK release.
+
+For readiness through the Helius API, use attestation and proving-key checks.
+`check_indexed` and `check_setup(IndexerRequirement::Required)` also call the
+operator `/health` route, which is not part of the public gateway API.
 
 ## Merging
 
@@ -144,11 +147,12 @@ the prover. The indexer must serve the same network. A prover without an
 indexer refuses indexed requests with `ClientError::ProverIndexerUnconfigured`.
 
 Opt into client fetching with
-`with_proof_data_source(ProofDataSource::Client)`. A prover URL on a
-`*.helius-rpc.com` host's `/v1/zolana` path, the Helius gateway, defaults to
-client fetching, sends every proof to the key-less `/v1/zolana/prove`, polls
-`/v1/zolana/prove/status`, and refuses indexed requests, which the gateway
-does not route. The setting lives on
+`with_proof_data_source(ProofDataSource::Client)`. Every prover URL, including
+the Helius API, submits to `/prove/<key>`, polls `/prove/<key>/status`, and
+uses `/prove/<key>/indexed` for prover-fetched data. Prover fetching remains
+the default for every host. The Helius deployment must activate these REST
+routes, pools and TEE header forwarding; the SDK does not infer capabilities
+from the hostname. The setting lives on
 `ProverClient` and `AsyncProverClient`. The `ZolanaClient` method sets it on
 the prover client it holds; a prover given with `with_prover` is handed the
 data by the client. Custom-ring proof environments read it from the prover

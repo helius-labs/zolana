@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum};
-use spr_client::prover::{tee::TeePolicy, ProverClient, PROVER_INDEXER_URL_ENV};
+use spr_client::prover::{
+    tee::{TeeError, TeePolicy},
+    ProverClient, PROVER_INDEXER_URL_ENV,
+};
 
 use crate::config::{
     DEFAULT_GOSSIP_HOST, DEFAULT_LIMIT_LEDGER_SIZE, DEFAULT_LOG_DIR, DEFAULT_PHOTON_PORT,
@@ -436,7 +439,7 @@ pub(crate) struct ProverTeeOptions {
     #[arg(
         long = "prover-tee",
         env = "ZOLANA_PROVER_TEE",
-        help = "Require the prover to attest to the TEE deployment this release pins, a loopback prover included (other provers require it by default)"
+        help = "Require attestation even for a loopback prover; supply --prover-tee-policy (remote provers always require a policy)"
     )]
     pub(crate) prover_tee: bool,
 
@@ -444,7 +447,7 @@ pub(crate) struct ProverTeeOptions {
         long = "prover-tee-policy",
         value_name = "FILE",
         env = "ZOLANA_PROVER_TEE_POLICY",
-        help = "Require the prover to attest to the TEE policy in FILE, bare or as a {\"deployment\": ...} pin file (implies --prover-tee, wins over the release pin)"
+        help = "Require the prover to attest to the supplied TEE policy in FILE, bare or as a {\"deployment\": ...} pin file (implies --prover-tee)"
     )]
     pub(crate) prover_tee_policy: Option<std::path::PathBuf>,
 }
@@ -467,7 +470,7 @@ impl ProverTeeOptions {
                     .map(Some)
                     .with_context(|| format!("policy {}", path.display()))
             }
-            None if self.prover_tee => Ok(Some(TeePolicy::default_deployment()?)),
+            None if self.prover_tee => Err(TeeError::NoPolicy.into()),
             None => Ok(None),
         }
     }
@@ -2192,23 +2195,15 @@ mod tests {
     }
 
     #[test]
-    fn prover_tee_alone_takes_only_the_release_pin() {
+    fn prover_tee_without_a_supplied_policy_fails() {
         let tee = ProverTeeOptions {
             prover_tee: true,
             prover_tee_policy: None,
         };
-        match TeePolicy::default_deployment() {
-            Err(TeeError::NoDefaultDeployment) => {
-                let error = tee.policy().expect_err("unpinned release");
-                assert!(
-                    matches!(
-                        error.downcast_ref::<TeeError>(),
-                        Some(TeeError::NoDefaultDeployment)
-                    ),
-                    "{error:#}"
-                );
-            }
-            pinned => assert_eq!(tee.policy().expect("pinned release"), pinned.ok()),
-        }
+        let error = tee.policy().expect_err("a policy file is required");
+        assert!(matches!(
+            error.downcast_ref::<TeeError>(),
+            Some(TeeError::NoPolicy)
+        ));
     }
 }

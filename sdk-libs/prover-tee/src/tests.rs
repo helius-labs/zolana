@@ -338,13 +338,19 @@ fn mainnet_evidence_matches_the_measured_build_and_refuses_devnet_and_changed_bi
     let nonce = bytes::<32>(&fixture.nonce);
     let attestation =
         || serde_json::from_value::<Attestation>(fixture.attestation.clone()).unwrap();
-    let policy = TeePolicy::mainnet_deployment().unwrap();
+    let policy = TeePolicy::from_file_json(include_str!(
+        "../../../prover/tee/deployments/mainnet-v0.6.0-alpha.json"
+    ))
+    .unwrap();
     let attested = verify(attestation(), &policy, &nonce, fixture.captured_at).unwrap();
     assert_eq!(attested.platform, Platform::AwsNitro);
     assert!(matches!(
         verify(
             attestation(),
-            &TeePolicy::default_deployment().unwrap(),
+            &TeePolicy::from_file_json(include_str!(
+                "../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json"
+            ))
+            .unwrap(),
             &nonce,
             fixture.captured_at
         ),
@@ -548,16 +554,4 @@ fn encrypted_responses_reject_tampering_and_truncation() {
     let mut wrong_key = key;
     wrong_key[0] ^= 1;
     assert!(decrypt_response(&wrong_key, &encrypted).is_err());
-}
-
-#[test]
-fn the_release_policy_matches_its_pin_file() {
-    let file: TeePolicyFile = serde_json::from_str(include_str!("policy.json")).unwrap();
-    match file.deployment {
-        None => assert!(matches!(
-            TeePolicy::default_deployment(),
-            Err(TeeError::NoDefaultDeployment)
-        )),
-        Some(expected) => assert_eq!(TeePolicy::default_deployment().unwrap(), expected),
-    }
 }

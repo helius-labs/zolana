@@ -21,7 +21,6 @@ import {
   type ProvingKeyCircuit,
 } from "../../interface/proving-keys.js";
 import type { RequestContext } from "../../interface/types.js";
-import { isZolanaGateway } from "../../endpoint.js";
 
 import { ClientError } from "../error.js";
 import {
@@ -45,7 +44,6 @@ import {
 } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
-import { defaultTeePolicy } from "./tee/policy.js";
 import type { TeePolicy } from "./tee/registry.js";
 import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
@@ -143,11 +141,9 @@ export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
   readonly #apiKey: string | undefined;
-  /** The Helius gateway routes only the key-less `/prove` and `/prove/status`. */
-  readonly #keyless: boolean;
-  readonly #indexed: boolean;
   readonly #asyncPoll: AsyncPollConfig;
   readonly #tee: TeeSession | undefined;
+  readonly #requiresTee: boolean;
 
   constructor(
     input: Readonly<{
@@ -158,7 +154,7 @@ export class ProverClient {
       allowInsecureHttp?: boolean;
       /**
        * Encrypts every call, health and key checks included, to a prover that
-       * attests to the policy. Left out, a remote prover gets `defaultTeePolicy(url)`.
+       * attests to the supplied policy. Required for every remote prover.
        */
       tee?: TeePolicy;
     }>,
@@ -168,8 +164,6 @@ export class ProverClient {
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
     const url = checkedServiceUrl(input.url, "url", input.allowInsecureHttp ?? false);
-    this.#keyless = isZolanaGateway(url);
-    this.#indexed = !this.#keyless;
     try {
       const keyed = checkedApiKey(url, undefined);
       this.#url = keyed.endpoint;
@@ -180,17 +174,8 @@ export class ProverClient {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: error.facts });
     }
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
-    const policy =
-      input.tee === undefined && !isLoopbackHost(url.hostname) ? defaultTeePolicy(url) : input.tee;
-    this.#tee = policy === undefined ? undefined : new TeeSession(policy);
-  }
-
-  /**
-   * Whether the prover reads proof data from its own indexer. The Helius
-   * gateway has no `/indexed` route.
-   */
-  get hasIndexedRoute(): boolean {
-    return this.#indexed;
+    this.#requiresTee = !isLoopbackHost(url.hostname);
+    this.#tee = input.tee === undefined ? undefined : new TeeSession(input.tee);
   }
 
   /** Attests the prover now against the `tee` policy. */
@@ -215,6 +200,9 @@ export class ProverClient {
     signal: ComposedSignal,
     post?: Readonly<{ headers: Readonly<Record<string, string>>; body: string }>,
   ): ProverCall {
+    if (this.#requiresTee && this.#tee === undefined) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "tee" } });
+    }
     return {
       fetch: this.#fetch,
       attestationUrl: this.#routeUrl(ATTESTATION_PATH),
@@ -346,9 +334,6 @@ export class ProverClient {
     context?: RequestContext,
     refusal?: ProverRefusal,
   ): Promise<unknown> {
-    if (route === "indexed" && !this.#indexed) {
-      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
-    }
     const url = this.#keyUrl(key, route === "indexed" ? INDEXED_PATH : "");
     let delivery: Delivery = route === "queued" ? "queued" : "inResponse";
     const signal = composeSignal(context, "prove");
@@ -428,12 +413,9 @@ export class ProverClient {
   /**
    * `/prove/<key>`: every proof and its status poll go to its proving key's
    * path, so a gateway sends both to the prover pool that serves the key.
-   * On the Helius gateway, `/prove`, where the prover reads the key from the body.
    */
   #keyUrl(key: ExpectedProvingKey, suffix = ""): URL {
-    const path = this.#keyless
-      ? PROVE_PATH
-      : `${PROVE_PATH}/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
+    const path = `${PROVE_PATH}/${encodeURIComponent(key.name.replace(/\.key$/u, ""))}`;
     return this.#routeUrl(`${path}${suffix}`);
   }
 

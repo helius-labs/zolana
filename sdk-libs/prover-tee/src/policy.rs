@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{Platform, PlatformPolicy, TeeError};
 
-/// Pinned per SDK release by `cargo xtask tee-policy`.
-const DEFAULT_POLICY: &str = include_str!("policy.json");
 const DEFAULT_MAX_AGE_SECS: u64 = 600;
 
 /// What a prover must prove before it sees a request.
@@ -61,18 +59,6 @@ impl TeePolicy {
     pub fn with_max_age(mut self, max_age: Duration) -> Self {
         self.max_age_secs = max_age.as_secs();
         self
-    }
-
-    /// The deployment pinned in the SDK release.
-    pub fn default_deployment() -> Result<Self, TeeError> {
-        let file: TeePolicyFile =
-            serde_json::from_str(DEFAULT_POLICY).map_err(|e| TeeError::Policy(e.to_string()))?;
-        file.deployment.ok_or(TeeError::NoDefaultDeployment)
-    }
-
-    /// The mainnet deployment measured in publisher run 40780091744.
-    pub fn mainnet_deployment() -> Result<Self, TeeError> {
-        Self::from_file_json(include_str!("mainnet-policy.json"))
     }
 
     pub fn from_json(json: &str) -> Result<Self, TeeError> {
