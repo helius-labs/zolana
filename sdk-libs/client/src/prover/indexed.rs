@@ -24,9 +24,7 @@ use spr_interface::{
 };
 use zeroize::Zeroizing;
 
-use super::{
-    endpoint::ProverEndpoint, field::right_align_slice, Delivery, ExpectedProvingKey, Proof, Shape,
-};
+use super::{field::right_align_slice, Delivery, ExpectedProvingKey, Proof, Shape};
 use crate::ClientError;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -34,18 +32,6 @@ pub enum ProofDataSource {
     Client,
     #[default]
     Prover,
-}
-
-impl ProofDataSource {
-    /// Prover-side proof data, except on the Helius gateway, which has no
-    /// indexed route.
-    pub(crate) fn for_endpoint(endpoint: &ProverEndpoint) -> Self {
-        if endpoint.is_gateway() {
-            Self::Client
-        } else {
-            Self::default()
-        }
-    }
 }
 
 pub trait Request {

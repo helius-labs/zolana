@@ -86,6 +86,10 @@ policies and measured-build provenance. An older SDK can use a new deployment
 policy when its schema, attestation protocol and circuits remain supported.
 Image rebuilds and key rotations alone do not require an SDK release.
 
+For readiness through the Helius API, use attestation and proving-key checks.
+`check_indexed` and `check_setup(IndexerRequirement::Required)` also call the
+operator `/health` route, which is not part of the public gateway API.
+
 ## Merging
 
 A merge turns up to 52 plain UTXOs of one asset on one tree into one. The
@@ -139,11 +143,12 @@ the prover. The indexer must serve the same network. A prover without an
 indexer refuses indexed requests with `ClientError::ProverIndexerUnconfigured`.
 
 Opt into client fetching with
-`with_proof_data_source(ProofDataSource::Client)`. A prover URL on a
-`*.helius-rpc.com` host's `/v1/zolana` path, the Helius gateway, defaults to
-client fetching, sends every proof to the key-less `/v1/zolana/prove`, polls
-`/v1/zolana/prove/status`, and refuses indexed requests, which the gateway
-does not route. The setting lives on
+`with_proof_data_source(ProofDataSource::Client)`. Every prover URL, including
+the Helius API, submits to `/prove/<key>`, polls `/prove/<key>/status`, and
+uses `/prove/<key>/indexed` for prover-fetched data. Prover fetching remains
+the default for every host. The Helius deployment must activate these REST
+routes, pools and TEE header forwarding; the SDK does not infer capabilities
+from the hostname. The setting lives on
 `ProverClient` and `AsyncProverClient`. The `ZolanaClient` method sets it on
 the prover client it holds; a prover given with `with_prover` is handed the
 data by the client. Custom-ring proof environments read it from the prover

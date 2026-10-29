@@ -188,15 +188,23 @@ endpoint configuration.
 const client = await createZolanaClient({});
 ```
 
-The Helius gateway takes client-fetched proof data. Other provers, including
-the default Nitro deployment, fetch Merkle data by default. Configure their
-`PROVER_INDEXER_URL` for the same network. Set `proofDataSource: "client"` to fetch proof data in
-the SDK instead. Both routes support ring transfers, merges and caches.
+Every prover URL, including a unified Helius API URL, uses key-specific
+`/prove/<key>`, `/prove/<key>/status` and `/prove/<key>/indexed` routes.
+`proofDataSource` defaults to `"prover"` for every host. Configure the upstream's
+`PROVER_INDEXER_URL` for the same network, or set `proofDataSource: "client"`
+to fetch proof data in the SDK instead. Both modes support ring transfers, merges and caches.
 `LocalKeys` supports both modes. A remote key holder must implement
 `IndexedProofAuthority.proveIndexed` for prover fetching. Returned roots
 must reproduce the requested public statement before transaction assembly. A
 prover started without an indexer refuses these requests with
 `CLIENT_PROVER_INDEXER_UNCONFIGURED`.
+
+The Helius deployment must activate the corresponding REST routes, prover
+pools and TEE header forwarding before these calls can succeed. The SDK
+does not infer those capabilities from the hostname.
+
+Use `attestProver` and `checkProverProvingKeys` for gateway readiness;
+the operator `/health` route is not part of the public Helius API.
 
 ## Common transactions
 

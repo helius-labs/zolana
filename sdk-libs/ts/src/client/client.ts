@@ -299,11 +299,7 @@ export class ZolanaClient
         cause,
       });
     }
-    const clientData = !prover.hasIndexedRoute;
-    if (input.proofDataSource === "prover" && clientData) {
-      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
-    }
-    this.#proofDataSource = input.proofDataSource ?? (clientData ? "client" : "prover");
+    this.#proofDataSource = input.proofDataSource ?? "prover";
 
     this.#computeUnitLimit = checkedComputeUnitLimit(
       input.computeUnitLimit ?? DEFAULT_TRANSACT_CU_LIMIT,

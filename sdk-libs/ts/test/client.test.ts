@@ -417,20 +417,19 @@ describe("ZolanaClient", () => {
     }
   });
 
-  it("fetches proof data on the client for a prover on the Helius gateway", () => {
+  it("lets callers choose either proof data source for Helius and other prover URLs", () => {
     for (const config of [
       {
         solanaRpcUrl: RPC_URL,
         proverUrl: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
       },
     ]) {
-      expect(new ZolanaClient(config).proofDataSource).toBe("client");
-      expect(() => new ZolanaClient({ ...config, proofDataSource: "prover" })).toThrow(
-        expect.objectContaining({
-          code: "CLIENT_INVALID_CONFIG",
-          details: { field: "proofDataSource" },
-        }),
-      );
+      expect(new ZolanaClient(config).proofDataSource).toBe("prover");
+      for (const proofDataSource of ["client", "prover"] as const) {
+        expect(new ZolanaClient({ ...config, proofDataSource }).proofDataSource).toBe(
+          proofDataSource,
+        );
+      }
     }
     expect(new ZolanaClient({ solanaRpcUrl: RPC_URL }).proofDataSource).toBe("prover");
   });

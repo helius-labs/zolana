@@ -5,7 +5,6 @@ import {
   LOCALNET_PHOTON_ENDPOINT,
   LOCALNET_PROVER_ENDPOINT,
   LOCALNET_SOLANA_ENDPOINT,
-  isZolanaGateway,
   resolveClientEndpoints,
 } from "../src/endpoint.js";
 
@@ -23,10 +22,8 @@ describe("resolveClientEndpoints", () => {
     const resolved = resolveClientEndpoints({ solanaRpcUrl: HELIUS });
     expect(resolved.solana).toBe(HELIUS);
     expect(String(resolved.photon)).toBe("https://devnet.helius-rpc.com/v1/zolana?api-key=k");
-    expect(isZolanaGateway(new URL(resolved.photon))).toBe(true);
     const custom = resolveClientEndpoints({ solanaRpcUrl: "https://devnet.helius-rpc.com/custom" });
     expect(custom.photon).toBe("https://devnet.helius-rpc.com/custom");
-    expect(isZolanaGateway(new URL("https://prover.example/v1/zolana"))).toBe(false);
   });
 
   it("keeps all Helius services on the caller's supplied gateway and retains its key", () => {
