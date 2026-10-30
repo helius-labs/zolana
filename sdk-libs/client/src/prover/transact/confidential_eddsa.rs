@@ -11,7 +11,7 @@ use spr_interface::{
     verifying_keys::{Bsb22Commitment, CacheAccess, CircuitId, EddsaProofData},
     N_PUBLIC_SLOTS,
 };
-use spr_keypair::SigningKey;
+use spr_keypair::PublicKey;
 use spr_transaction::{
     instructions::transact::{CacheAccounts, PublicTransfers, SppProofInputs},
     ExternalData, SppProofOutputUtxo,
@@ -27,11 +27,11 @@ use crate::{
         json::to_json,
         proving_key::ExpectedProvingKey,
         transact::{
-            anonymous_ring_eddsa::sign_transact_digest,
             assembly::{
                 assemble_transaction, AssembledTransaction, OwnerMode, PublicInputs,
                 TransferInputUtxo,
             },
+            OwnerAuthorization,
         },
         Shape, TransferInputs, TreeSlotFields,
     },
@@ -51,7 +51,7 @@ pub struct ConfidentialEddsaProver<'a> {
     pub signer_pk_hashes: Vec<[u8; 32]>,
     pub allow_dummy_inputs: bool,
     /// The owner whose signature the proof verifies.
-    pub owner: &'a SigningKey,
+    pub owner: OwnerAuthorization<'a>,
     pub shape: Shape,
     pub cache_accounts: CacheAccounts,
 }
@@ -127,7 +127,7 @@ impl ConfidentialEddsaProver<'_> {
             &OwnerMode::SolanaEddsa,
             self.allow_dummy_inputs,
         )?;
-        let authorization = EddsaAuthorization::sign(self.owner, &private_tx, &external_data_hash)?;
+        let authorization = self.owner.authorize(&private_tx, &external_data_hash)?;
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,
@@ -187,12 +187,12 @@ impl ConfidentialEddsaProver<'_> {
 /// but the in-circuit owner, which authorizes only inside the proof.
 pub fn confidential_eddsa_signer_pk_hashes(
     transaction: &SppProofInputs,
-    owner: &SigningKey,
+    owner: &PublicKey,
 ) -> Result<Vec<[u8; 32]>, ClientError> {
     let width = transaction
         .check_shape_for(spr_transaction::instructions::transact::TransactRail::ConfidentialEddsa)?
         .signer_width();
-    let in_circuit = owner.pubkey().owner_proof_input_hash()?;
+    let in_circuit = owner.owner_proof_input_hash()?;
     let mut signers = transaction
         .owner_signer_pubkeys()?
         .iter()
@@ -210,19 +210,6 @@ pub fn confidential_eddsa_signer_pk_hashes(
 }
 
 impl EddsaAuthorization {
-    pub(crate) fn sign(
-        owner: &SigningKey,
-        private_tx: &[u8; 32],
-        external_data_hash: &[u8; 32],
-    ) -> Result<Self, ClientError> {
-        let signed = sign_transact_digest(owner, private_tx, external_data_hash)?;
-        Ok(Self {
-            owner_public_key: signed.owner_public_key,
-            owner_signature: signed.owner_signature,
-            message_digest: signed.message_digest,
-        })
-    }
-
     /// The public input hash fields that follow `private_tx_hash`: the message
     /// hash and the chain of the verified owner identities, which for the one
     /// owner the selector carries is that identity.
@@ -300,6 +287,7 @@ impl ProveRequest for ConfidentialEddsaTransferInputs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use spr_keypair::SigningKey;
 
     fn external_data() -> ExternalData {
         ExternalData {
@@ -345,7 +333,7 @@ mod tests {
                 public_transfers: Default::default(),
                 signer_pk_hashes: Vec::new(),
                 allow_dummy_inputs: true,
-                owner: &owner,
+                owner: OwnerAuthorization::SigningKey(&owner),
                 shape,
                 cache_accounts: Default::default(),
             }
@@ -404,12 +392,12 @@ mod tests {
             .map(|keypair| keypair.signing_pubkey().owner_proof_input_hash().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(
-            confidential_eddsa_signer_pk_hashes(&transaction, &owner).unwrap(),
+            confidential_eddsa_signer_pk_hashes(&transaction, &owner.pubkey()).unwrap(),
             expected
         );
         transaction.output_utxos[4] = outputs[4].clone();
         assert!(matches!(
-            confidential_eddsa_signer_pk_hashes(&transaction, &owner),
+            confidential_eddsa_signer_pk_hashes(&transaction, &owner.pubkey()),
             Err(ClientError::UnsupportedShape { n_in: 2, n_out: 8 })
         ));
     }
