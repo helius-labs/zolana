@@ -78,14 +78,15 @@ type observed struct {
 	headers     http.Header
 }
 type fixture struct {
-	server   *httptest.Server
-	key      []byte
-	ready    atomic.Bool
-	wrongKey atomic.Bool
-	plain    atomic.Bool
-	drop     atomic.Bool
-	quotes   atomic.Uint64
-	calls    chan observed
+	server      *httptest.Server
+	key         []byte
+	ready       atomic.Bool
+	wrongKey    atomic.Bool
+	plain       atomic.Bool
+	drop        atomic.Bool
+	unavailable atomic.Bool
+	quotes      atomic.Uint64
+	calls       chan observed
 }
 
 func newFixture(t *testing.T, index byte) *fixture {
@@ -116,6 +117,14 @@ func newFixture(t *testing.T, index byte) *fixture {
 		}
 		body, _ := io.ReadAll(r.Body)
 		f.calls <- observed{method: r.Method, uri: r.RequestURI, body: body, headers: r.Header.Clone()}
+		if f.unavailable.Load() {
+			if !f.plain.Load() {
+				w.Header().Set(tee.HeaderVersion, tee.Version)
+			}
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"code":"tee_generation_unavailable"}`)
+			return
+		}
 		if f.drop.Load() {
 			connection, _, err := w.(http.Hijacker).Hijack()
 			if err == nil {
@@ -333,6 +342,25 @@ func TestNoReplayAfterOriginConsumesProof(t *testing.T) {
 	}
 	if call(r, http.MethodPost, "/prove/transfer_2_2", config.Generations[0].RecipientID, strings.NewReader("next request")).Code != 503 || len(fixtures[0].calls) != 1 {
 		t.Fatal("failed origin stayed eligible")
+	}
+}
+
+func TestOriginCannotEmitTheReservedPreForwardFailureAfterConsumption(t *testing.T) {
+	r, _, config, fixtures := setup(t)
+	fixtures[0].plain.Store(true)
+	fixtures[0].unavailable.Store(true)
+	response := call(r, http.MethodPost, "/prove/transfer_2_2", config.Generations[0].RecipientID, strings.NewReader("opaque proof request"))
+	if response.Code != 502 || !strings.Contains(response.Body.String(), "tee_upstream_unavailable") || len(fixtures[0].calls) != 1 {
+		t.Fatal("consumed origin request masqueraded as pre-forward recipient loss")
+	}
+}
+
+func TestEncryptedOrigin503RetainsItsProtocolMarkerAndStatus(t *testing.T) {
+	r, _, config, fixtures := setup(t)
+	fixtures[0].unavailable.Store(true)
+	response := call(r, http.MethodPost, "/prove/transfer_2_2", config.Generations[0].RecipientID, strings.NewReader("opaque proof request"))
+	if response.Code != 503 || response.Header().Get(tee.HeaderVersion) != tee.Version || len(fixtures[0].calls) != 1 {
+		t.Fatal("marked origin response was changed or replayed")
 	}
 }
 

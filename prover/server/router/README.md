@@ -31,6 +31,9 @@ operator's inventory. An unavailable key gets pre-forward
 `502 tee_upstream_unavailable`; proof submissions are never replayed. Router
 overload has a separate bounded-admission error and does not request re-keying.
 Plaintext origin successes on encrypted routes are refused.
+An unmarked origin `503` also becomes `502 tee_upstream_unavailable`, so an
+already forwarded request cannot impersonate pre-forward recipient loss.
+Protocol-marked origin errors retain their status and opaque body.
 
 ## Run
 

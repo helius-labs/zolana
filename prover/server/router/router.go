@@ -462,8 +462,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 			proxy.Out.Header.Set("X-API-Key", target.key)
 		},
 		ModifyResponse: func(response *http.Response) error {
-			if !isAttestation && response.StatusCode >= 200 && response.StatusCode < 300 && response.Header.Get(tee.HeaderVersion) != tee.Version {
-				return errors.New("unauthenticated prover success")
+			// An origin has already received this request. A plaintext 503 must
+			// not masquerade as the router's pre-forward recipient-loss signal.
+			if !isAttestation && response.Header.Get(tee.HeaderVersion) != tee.Version &&
+				((response.StatusCode >= 200 && response.StatusCode < 300) || response.StatusCode == http.StatusServiceUnavailable) {
+				return errors.New("unauthenticated prover response")
 			}
 			headers := make(http.Header)
 			for _, header := range responseHeaders {
