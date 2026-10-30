@@ -22,6 +22,7 @@ import type {
   ProofResolution,
 } from "../ports.js";
 import { ClientError } from "../error.js";
+import { solanaOwnerIdentity } from "../../hasher/index.js";
 import {
   BN254_MODULUS,
   bigintToBytes,
@@ -30,6 +31,7 @@ import {
   hasIndexedMethod,
 } from "../internal.js";
 import {
+  anonymousPublicFields,
   asField,
   checkedAuthorization,
   eddsaPublicFields,
@@ -79,6 +81,7 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     circuit !== "transferRing" &&
     circuit !== "transferRingAuthority" &&
     circuit !== "transferConfidentialEddsa" &&
+    circuit !== "transferAnonymousRingEddsa" &&
     circuit !== "merge"
   )
     throw invalid();
@@ -136,8 +139,13 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     cacheReadIndex: fields("cacheReadIndex"),
     publishedOutputOwnerPublicKeyHashes: fields("publishedOutputOwnerPublicKeyHashes"),
   });
-  // Only the in-circuit owner rail carries an authorization.
-  if ((payload["ownerAuthorization"] !== undefined) !== (circuit === "transferConfidentialEddsa"))
+  // Only the in-circuit owner rails carry an authorization.
+  if (
+    (payload["ownerAuthorization"] !== undefined) !==
+      (circuit === "transferConfidentialEddsa" || circuit === "transferAnonymousRingEddsa") ||
+    (payload["defaultOwnerPublicKeyHash"] !== undefined) !==
+      (circuit === "transferAnonymousRingEddsa")
+  )
     throw invalid();
   const result: IndexedProofInputs =
     circuit === "merge"
@@ -167,7 +175,17 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
               ownerAuthorization: decodeOwnerAuthorization(payload["ownerAuthorization"]),
             },
           }
-        : { ...envelope, circuit, payload: transfer() };
+        : circuit === "transferAnonymousRingEddsa"
+          ? {
+              ...envelope,
+              circuit,
+              payload: {
+                ...transfer(),
+                ownerAuthorization: decodeOwnerAuthorization(payload["ownerAuthorization"]),
+                defaultOwnerPublicKeyHash: field("defaultOwnerPublicKeyHash"),
+              },
+            }
+          : { ...envelope, circuit, payload: transfer() };
   checkStatement(result);
   return result;
 }
@@ -319,7 +337,10 @@ function statementLength(inputs: IndexedProofInputs): number {
   if (inputs.circuit === "merge") return BigInt(inputs.payload.ringProgramId) === 0n ? 12 : 8;
   if (inputs.circuit === "transferRingAuthority") return 14;
   // The confidential layout plus the message hash and the verified owner.
-  return inputs.circuit === "transferConfidentialEddsa" ? 19 : 17;
+  return inputs.circuit === "transferConfidentialEddsa" ||
+    inputs.circuit === "transferAnonymousRingEddsa"
+    ? 19
+    : 17;
 }
 
 /** Rejects a request the prover would refuse or resolve against other trees. */
@@ -346,13 +367,16 @@ function checkStatement(inputs: IndexedProofInputs): void {
         : !isSppShape(shape)
     )
       throw invalid();
-    const externalDataHashIndex = inputs.circuit === "transferConfidentialEddsa" ? 6 : 4;
+    const inCircuitOwner =
+      inputs.circuit === "transferConfidentialEddsa" ||
+      inputs.circuit === "transferAnonymousRingEddsa";
+    const externalDataHashIndex = inCircuitOwner ? 6 : 4;
     if (
       inputs.publicInputs[3] !== inputs.payload.privateTxHash ||
       inputs.publicInputs[externalDataHashIndex] !== inputs.payload.externalDataHash
     )
       throw invalid();
-    if (inputs.circuit === "transferConfidentialEddsa") {
+    if (inCircuitOwner) {
       // The signed digest is the statement's, and the statement publishes it
       // and the owner right after the private tx hash.
       const { ownerAuthorization } = inputs.payload;
@@ -361,7 +385,13 @@ function checkStatement(inputs: IndexedProofInputs): void {
         inputs.payload.externalDataHash,
       );
       checkedAuthorization(ownerAuthorization, expected);
-      const published = eddsaPublicFields(ownerAuthorization);
+      const published =
+        inputs.circuit === "transferAnonymousRingEddsa"
+          ? anonymousPublicFields(
+              ownerAuthorization,
+              checkedDefaultOwner(ownerAuthorization, inputs.payload.defaultOwnerPublicKeyHash),
+            )
+          : eddsaPublicFields(ownerAuthorization);
       if (
         bytesToBigInt(ownerAuthorization.messageDigest) !== bytesToBigInt(expected) ||
         inputs.publicInputs[4] !== published[0] ||
@@ -396,7 +426,8 @@ function checkStatement(inputs: IndexedProofInputs): void {
       address &&
       inputs.circuit !== "transfer" &&
       inputs.circuit !== "transferRing" &&
-      inputs.circuit !== "transferConfidentialEddsa"
+      inputs.circuit !== "transferConfidentialEddsa" &&
+      inputs.circuit !== "transferAnonymousRingEddsa"
     ) {
       throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index } });
     }
@@ -425,6 +456,16 @@ function checkStatement(inputs: IndexedProofInputs): void {
     used.add(lookup.treeSlot);
   });
   if (used.size !== inputs.trees.length) throw invalid();
+}
+
+/** The hidden owner's identity or zero. */
+function checkedDefaultOwner(authorization: EddsaOwnerAuthorization, defaultOwner: Field): bigint {
+  if (
+    defaultOwner !== 0n &&
+    defaultOwner !== bytesToBigInt(solanaOwnerIdentity(authorization.ownerPublicKey))
+  )
+    throw invalid();
+  return defaultOwner;
 }
 
 /** The requested trees in order, their slots reproducing the statement the caller authorized. */

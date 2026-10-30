@@ -58,3 +58,15 @@ fn ring_transfer_proofs_cover_real_multi_input_consolidation() {
     }
     .prove_and_verify();
 }
+
+#[test]
+#[serial_test::serial]
+fn anonymous_ring_spend_with_hidden_address_proves() {
+    RingTransferHarness {
+        plan: Plan {
+            mode: Mode::AnonymousWithAddress,
+            ..Default::default()
+        },
+    }
+    .prove_and_verify();
+}

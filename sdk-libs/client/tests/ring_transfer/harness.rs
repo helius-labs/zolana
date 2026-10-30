@@ -12,6 +12,8 @@ pub(crate) enum Mode {
     /// multiple real inputs, a real recipient, and value conservation on the eddsa
     /// rail.
     EddsaMultiReal,
+    /// A hidden ring spend and a hidden address slot on the anonymous rail.
+    AnonymousWithAddress,
 }
 
 #[derive(Debug, Default)]

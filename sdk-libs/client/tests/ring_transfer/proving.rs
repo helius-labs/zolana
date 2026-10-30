@@ -3,14 +3,15 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use spr_client::{
-    ProverClient, ProverExt, PublicTransfers, RingTransferProver, Rpc, Shape, TransferInputUtxo,
+    prover::verify_proof_statement, AnonymousRingEddsaProver, Prover, ProverClient, ProverExt,
+    PublicTransfers, RingTransferProver, Rpc, Shape, TransferInputUtxo,
 };
 use spr_interface::{
     instruction::{
         instruction_data::transact::{OwnerTag, TransactOutput},
         tag::RING_TRANSACT,
     },
-    verifying_keys::CircuitId,
+    verifying_keys::{transfer_eddsa_ring_2_2, CircuitId},
     N_PUBLIC_SLOTS,
 };
 use spr_keypair::{random_blinding, NullifierKey, ShieldedKeypair, SigningKey};
@@ -36,6 +37,7 @@ impl RingTransferHarness {
         match mode {
             Mode::Eddsa => prove_and_verify_eddsa(eddsa_prover(n_in, n_out), n_in, n_out),
             Mode::EddsaMultiReal => prove_and_verify_eddsa(eddsa_multi_real(), n_in, n_out),
+            Mode::AnonymousWithAddress => prove_and_verify_anonymous_with_address(),
         }
     }
 }
@@ -130,6 +132,55 @@ fn eddsa_multi_real() -> (RingTransferProver, Vec<NullifierKey>) {
         },
         keys,
     )
+}
+
+/// A hidden ring spend next to a hidden address slot publishes no owner identity.
+fn prove_and_verify_anonymous_with_address() {
+    let mut indexer = TestIndexer::new();
+    let owner = ed25519_keypair();
+    let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(owner.clone(), 0)]);
+    let address =
+        SppProofInputUtxo::new_address(owner.signing_pubkey(), [7u8; 32], TEST_TREE_ID).unwrap();
+    let nullifier_proof = Some(indexer.dummy_nullifier_proof(address.nullifier));
+    inputs.push(TransferInputUtxo {
+        utxo: address,
+        proof: None,
+        nullifier_proof,
+    });
+    let mut outputs = vec![dummy_output(&owner), dummy_output(&owner)];
+    let blinding_seed = [46u8; 32];
+    assign_output_blindings(
+        &inputs.first().unwrap().utxo.nullifier,
+        &mut outputs,
+        &blinding_seed,
+    );
+    let shape = Shape::new(2, 2);
+    let mut result = AnonymousRingEddsaProver {
+        inputs,
+        outputs,
+        blinding_seed,
+        output_tree_id: TEST_TREE_ID,
+        external_data: ring_external_data(2),
+        public_transfers: PublicTransfers::default(),
+        signer_pk_hashes: vec![[0u8; 32]; shape.signer_width()],
+        allow_dummy_inputs: true,
+        owner: &owner.signing_key,
+        ring_program_id: Some(ring_program()),
+        shape,
+    }
+    .build()
+    .expect("build anonymous ring witness");
+    assert_eq!(result.default_owner_tag, None);
+    complete_inputs(&mut result.inputs.transfer.inputs, &keys);
+    let proof = ProverClient::local()
+        .prove(&result.inputs)
+        .expect("prove anonymous ring transfer");
+    verify_proof_statement(
+        &proof,
+        result.public_input_hash,
+        &transfer_eddsa_ring_2_2::VERIFYINGKEY,
+    )
+    .expect("anonymous ring proof verifies");
 }
 
 // ---- shared helpers -----------------------------------------------------------

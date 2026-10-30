@@ -38,9 +38,11 @@ Breaking
 - `EncryptedScheme.ringAnonymous` is removed and `encryptedSchemeFromByte(9)` throws `TRANSACTION_BAD_DISCRIMINATOR` → decode anonymous ring transfers with `@heliuslabs/zolana-custom-rings`.
 - `encryptAnonymousTransfer`, `decodeAnonymousRecipient`, `decodeAnonymousSender`, `anonymousRecipientFromUtxos`, `anonymousSenderFromUtxos`, `AnonymousRecipientPlaintext` and `AnonymousSenderPlaintext` are removed from `@heliuslabs/zolana/transaction`, `AnonymousRecipientSlot` from it and `@heliuslabs/zolana/wallet`, and the anonymous and ring deposit plaintext codecs from `@heliuslabs/zolana/internal` → encode and open anonymous transfers and ring deposits with `@heliuslabs/zolana-custom-rings`.
 - `syncWallet` and `decryptTransactions` no longer open anonymous transfer or ring deposit outputs, and `SyncWalletConfig.depositPayloadDecoder` and the `DepositPayloadDecoder` export of `@heliuslabs/zolana/wallet` are removed → sync those outputs with `@heliuslabs/zolana-custom-rings`.
+- `Prover` requires `proveAnonymousRingTransact`, and `ProverInputs`, `IndexedProofInputs` and `CircuitId` gain anonymous ring variants → implement the method on a custom `Prover` and forward the new variants in a custom `ProofService` or `ProofAuthority`.
 
 Added
 
+- `ZolanaClient.proveAnonymousRingTransact(input)` proves a custom-ring transfer whose hidden owner signs only inside the proof, from a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `ShieldedPoolError.CircuitFeatureDisabled` identifies a circuit disabled by the deployed program's compile-time features.
 - `ZolanaClient.proveConfidentialEddsaTransact` authorizes one owner inside the proof and returns the remaining transaction signers, while `signTransactMessage` and `transactMessageDigest` expose the signed statement.
 - `PrivateTransactionParams.owner` lets transfer, withdrawal and split builders accept an owner signature inside the proof while another account pays the transaction fee.

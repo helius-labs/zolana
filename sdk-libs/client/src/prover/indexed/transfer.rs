@@ -906,6 +906,41 @@ mod tests {
     }
 
     #[test]
+    fn anonymous_hidden_address_slots_publish_no_owner_identity() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let ring = Address::new_from_array([9; 32]);
+        let address_only = address_only_transaction(&owner);
+        let mut ring_spend_with_address = fixture(&owner, Some(ring), 2);
+        ring_spend_with_address.input_utxos[1] = address_only.input_utxos[0].clone();
+        for transaction in [address_only, ring_spend_with_address] {
+            let prepared = IndexedTransferPreparation {
+                transaction,
+                rail: IndexedTransferRail::AnonymousRingEddsa {
+                    ring,
+                    owner: &owner.signing_key,
+                },
+            }
+            .prepare(&owner)
+            .unwrap();
+            assert!(matches!(
+                prepared.data.circuit,
+                CircuitId::AnonymousRingEddsa(
+                    _,
+                    _,
+                    _,
+                    spr_interface::verifying_keys::AnonymousRingEddsaProofData {
+                        default_owner_tag: None,
+                        ..
+                    },
+                )
+            ));
+            let witness: serde_json::Value =
+                serde_json::from_str(&prepared.request.data.witness).unwrap();
+            assert_eq!(witness["defaultOwnerPkHash"], "0x0");
+        }
+    }
+
+    #[test]
     fn anonymous_signature_binds_cache_write_address_and_slot() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let ring = Address::new_from_array([9; 32]);
