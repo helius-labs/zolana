@@ -29,8 +29,15 @@ var ErrRegistry = errors.New("routing registry rejected")
 // Source is an operator-authenticated registry and origin-credential source.
 // It confers no client trust in a prover, image, or recipient key.
 type Source interface {
-	Registry(context.Context) ([]byte, error)
+	Registry(context.Context) (RegistryDocument, error)
 	Secret(context.Context, string) (string, error)
+}
+
+// RegistryDocument retains the selected operator source for private diagnostics.
+type RegistryDocument struct {
+	Data    []byte
+	Region  string
+	Version string
 }
 
 type Registry struct {

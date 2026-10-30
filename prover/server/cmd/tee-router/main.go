@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +23,15 @@ func run() error {
 	region := flag.String("registry-region", "", "AWS region hosting the registry")
 	owner := flag.String("registry-owner", "", "AWS account owning the registry and regional origin secrets")
 	preferred := flag.String("preferred-region", "", "prefer healthy generations in this region for new attestations")
+	var mirrors []router.RegistryMirror
+	flag.Func("registry-mirror", "additional region/bucket for the same registry key; repeat for up to two mirrors", func(value string) error {
+		region, bucket, ok := strings.Cut(value, "/")
+		if !ok || region == "" || bucket == "" {
+			return errors.New("registry mirror must be region/bucket")
+		}
+		mirrors = append(mirrors, router.RegistryMirror{Region: region, Bucket: bucket})
+		return nil
+	})
 	listen := flag.String("listen", "127.0.0.1:3001", "private gateway-facing listener")
 	admin := flag.String("admin-listen", "127.0.0.1:9998", "private health/status listener")
 	flag.Parse()
@@ -36,7 +46,7 @@ func run() error {
 	if err != nil {
 		return errors.New("AWS credential initialization failed")
 	}
-	source, err := router.NewAWSSource(cfg, *bucket, *key, *owner)
+	source, err := router.NewAWSSource(cfg, *bucket, *key, *owner, mirrors...)
 	if err != nil {
 		return err
 	}

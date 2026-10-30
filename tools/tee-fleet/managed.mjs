@@ -1,4 +1,4 @@
-// Operator-only qualification of two independently running routers with one private S3 registry.
+// Operator-only qualification of independent routers with mirrored private S3 inventory.
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -7,11 +7,16 @@ import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
+import { runtimeRole } from "./role.mjs";
 
 const execute = promisify(execFile);
-const bucket = "zolana-pri285-test-routing-558215002830";
 const owner = "558215002830";
-const region = "us-east-1";
+const registries = [
+  { region: "us-east-1", bucket: "zolana-pri285-test-routing-558215002830" },
+  { region: "eu-north-1", bucket: "zolana-pri285-test-routing-eu-558215002830" },
+  { region: "ap-southeast-1", bucket: "zolana-pri285-test-routing-ap-558215002830" },
+];
+const { bucket, region } = registries[0];
 
 export async function managedRouter({ deployments, binary, output }) {
   const key = `qualification/${randomBytes(12).toString("hex")}/registry.json`;
@@ -34,7 +39,11 @@ export async function managedRouter({ deployments, binary, output }) {
   const outages = [];
   const observations = [];
   const realOutage = process.env.ZOLANA_TEE_REAL_OUTAGE === "1";
-  let etag;
+  const etags = new Map();
+  const versions = new Map();
+  const publications = [];
+  const controlPlane = [];
+  let role;
 
   async function service(id, action) {
     const entry = deployments.find((item) => item.id === id);
@@ -100,16 +109,17 @@ export async function managedRouter({ deployments, binary, output }) {
     config.revision++;
     const path = resolve(output, "routing-registry.json");
     await writeFile(path, JSON.stringify(config, null, 2) + "\n");
-    try {
+    const results = await Promise.allSettled(registries.map(async (registry) => {
+      const etag = etags.get(registry.bucket);
       const { stdout } = await execute(
         "aws",
         [
           "--region",
-          region,
+          registry.region,
           "s3api",
           "put-object",
           "--bucket",
-          bucket,
+          registry.bucket,
           "--key",
           key,
           "--expected-bucket-owner",
@@ -127,10 +137,13 @@ export async function managedRouter({ deployments, binary, output }) {
       const result = JSON.parse(stdout);
       assert.equal(typeof result.VersionId, "string");
       assert.equal(typeof result.ETag, "string");
-      etag = result.ETag;
-    } catch {
-      throw new Error("conditional test routing publication failed");
-    }
+      etags.set(registry.bucket, result.ETag);
+      versions.set(registry.region, result.VersionId);
+      return { ...registry, version: result.VersionId, etag: result.ETag };
+    }));
+    assert.ok(results.every((result) => result.status === "fulfilled"), "conditional mirrored routing publication failed");
+    publications.push({ revision: config.revision, mirrors: results.map((result) => result.value) });
+    await writeFile(resolve(output, "registry-publications.json"), JSON.stringify(publications, null, 2) + "\n");
   }
 
   async function status(process) {
@@ -189,6 +202,7 @@ export async function managedRouter({ deployments, binary, output }) {
   }
 
   async function start(index) {
+    const previous = processes[index];
     const child = spawn(
       binary,
       [
@@ -200,20 +214,21 @@ export async function managedRouter({ deployments, binary, output }) {
         owner,
         "--registry-region",
         region,
+        ...registries.slice(1).flatMap((registry) => ["--registry-mirror", `${registry.region}/${registry.bucket}`]),
         "--preferred-region",
         deployments[index % deployments.length].region,
         "--listen",
-        "127.0.0.1:0",
+        previous ? new URL(previous.url).host : "127.0.0.1:0",
         "--admin-listen",
-        "127.0.0.1:0",
+        previous ? new URL(previous.admin).host : "127.0.0.1:0",
       ],
       {
-        env: { ...process.env, ZOLANA_ROUTER_ORIGIN_KEY: originApiKey },
+        env: { ...role.environment, ZOLANA_ROUTER_ORIGIN_KEY: originApiKey },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
     const processState = { child, url: undefined, admin: undefined };
-    processes.push(processState);
+    processes[index] = processState;
     // The command emits only fixed startup/errors. Do not expose inherited AWS diagnostics.
     child.stderr.resume();
     await new Promise((resolveStart, rejectStart) => {
@@ -245,6 +260,13 @@ export async function managedRouter({ deployments, binary, output }) {
     });
   }
 
+  async function stop({ child }) {
+    if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
+    const closed = once(child, "close");
+    child.kill("SIGTERM");
+    await closed;
+  }
+
   async function close() {
     let restoreError;
     try {
@@ -255,19 +277,14 @@ export async function managedRouter({ deployments, binary, output }) {
     } catch (error) {
       restoreError = error;
     }
-    await Promise.all(
-      processes.map(async ({ child }) => {
-        if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
-        const stopped = once(child, "close");
-        child.kill("SIGTERM");
-        await stopped;
-      }),
-    );
+    await Promise.all(processes.map(stop));
+    try { await role?.close(); } catch (error) { restoreError ??= error; }
     if (restoreError) throw restoreError;
   }
 
   try {
     await publish();
+    role = await runtimeRole({ registries, key, deployments, output });
     await Promise.all([start(0), start(1)]);
     await synchronize();
   } catch (error) {
@@ -286,10 +303,13 @@ export async function managedRouter({ deployments, binary, output }) {
     metadata: {
       source: "private versioned S3",
       bucket,
+      registries,
       key,
       replicas: processes.length,
       realOutage,
       outages,
+      runtimeRole: role.metadata.arn,
+      controlPlane,
     },
     setAvailable(id, available) {
       generation(id).disabled = !available;
@@ -299,6 +319,61 @@ export async function managedRouter({ deployments, binary, output }) {
     },
     sync: synchronize,
     restore: synchronize,
+    async failControlPlane(failedRegion) {
+      const deployment = deployments.find((entry) => entry.region === failedRegion);
+      assert.ok(deployment && deployments.length === 3);
+      for (const entry of config.generations) entry.disabled = false;
+      await synchronize();
+      await role.failRegion(failedRegion);
+      const started = Date.now();
+      const deadline = started + 360000;
+      console.log(JSON.stringify({ phase: "control-plane-fault", region: failedRegion, waitingFor: "bounded credential expiry" }));
+      const converged = (states) => states.every((state) =>
+        state.registry_fresh && state.revision === config.revision &&
+        state.registry_region !== failedRegion &&
+        state.registry_object_version === versions.get(state.registry_region) &&
+        config.generations.every((entry) => {
+          const backend = state.backends.find((item) => item.id === entry.id);
+          return backend && !backend.disabled && (entry.id === deployment.id
+            ? !backend.credentials_ready && !backend.healthy
+            : backend.credentials_ready && backend.healthy);
+        }));
+      for (;;) {
+        const states = await Promise.all(processes.map(status));
+        if (converged(states)) {
+          assert.ok(Date.now() - started > 60000, "fault did not outlive registry cache freshness");
+          controlPlane.push({ action: "regional-reads-unavailable", region: failedRegion, elapsedMs: Date.now() - started, states });
+          break;
+        }
+        assert.ok(Date.now() < deadline, "regional control-plane fault did not converge");
+        await delay(1000);
+      }
+      await stop(processes[1]);
+      await start(1);
+      const restartDeadline = Date.now() + 45000;
+      for (;;) {
+        const states = await Promise.all(processes.map(status));
+        if (converged(states)) {
+          controlPlane.push({ action: "cold-router-recovered-during-fault", region: failedRegion, states });
+          return;
+        }
+        assert.ok(Date.now() < restartDeadline, "cold router could not use regional mirrors and remaining credentials");
+        await delay(250);
+      }
+    },
+    async restoreControlPlane() {
+      await role.restore();
+      const deadline = Date.now() + 60000;
+      for (;;) {
+        const states = await Promise.all(processes.map(status));
+        if (states.every((state) => state.registry_fresh && state.registry_region === region && state.registry_object_version === versions.get(region) && state.backends.every((entry) => entry.credentials_ready && entry.healthy))) {
+          controlPlane.push({ action: "regional-access-restored", states });
+          return;
+        }
+        assert.ok(Date.now() < deadline, "regional access did not recover");
+        await delay(250);
+      }
+    },
     async failGeneration(id) {
       if (!realOutage) {
         generation(id).disabled = true;

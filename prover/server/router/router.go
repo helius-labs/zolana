@@ -24,13 +24,15 @@ import (
 )
 
 const (
-	maxBody        = 64*1024*1024 + 1024
-	registryMaxAge = time.Minute
-	healthMaxAge   = 20 * time.Second
-	probeTimeout   = 5 * time.Second
-	loadTimeout    = 20 * time.Second
-	requestTimeout = 10 * time.Minute
-	attestation    = "/tee/v1/attestation"
+	maxBody           = 64*1024*1024 + 1024
+	registryMaxAge    = time.Minute
+	healthMaxAge      = 20 * time.Second
+	probeTimeout      = 5 * time.Second
+	loadTimeout       = 20 * time.Second
+	credentialTimeout = 3 * time.Second
+	credentialMaxAge  = 5 * time.Minute
+	requestTimeout    = 10 * time.Minute
+	attestation       = "/tee/v1/attestation"
 )
 
 var keyPath = regexp.MustCompile(`^/prove/[A-Za-z0-9_-]{1,128}(/indexed|/status)?$`)
@@ -38,11 +40,12 @@ var requestHeaders = []string{"Content-Type", tee.HeaderVersion, tee.HeaderEnc, 
 var responseHeaders = []string{"Content-Type", tee.HeaderVersion, "Retry-After", "Server-Timing", "X-Prover-Timing", "X-Request-Id"}
 
 type backend struct {
-	id, region, recipientID, key string
-	origin                       *url.URL
-	healthy                      bool
-	checked                      time.Time
-	forwarded                    atomic.Uint64
+	id, region, recipientID, arn, key string
+	origin                            *url.URL
+	credentialAt                      time.Time
+	healthy                           bool
+	checked                           time.Time
+	forwarded                         atomic.Uint64
 }
 
 type generation struct {
@@ -52,31 +55,33 @@ type generation struct {
 }
 
 type snapshot struct {
-	revision uint64
-	digest   string
-	expires  time.Time
-	loaded   time.Time
-	keys     map[string]generation
-	order    []string
+	revision                    uint64
+	digest                      string
+	expires                     time.Time
+	loaded                      time.Time
+	keys                        map[string]generation
+	order                       []string
+	sourceRegion, sourceVersion string
 }
 
 // Router has no enclave key or client-policy authority. Source and ingressKey
 // belong to the operator; the SDK still verifies every selected recipient.
 type Router struct {
-	source          Source
-	region          string
-	auth            [32]byte
-	transport       *http.Transport
-	client          *http.Client
-	mu              sync.RWMutex
-	current         *snapshot
-	next            atomic.Uint64
-	admitted        atomic.Uint64
-	refreshFailures atomic.Uint64
-	probeFailures   atomic.Uint64
-	forwardFailures atomic.Uint64
-	unavailable     atomic.Uint64
-	slots           chan struct{}
+	source             Source
+	region             string
+	auth               [32]byte
+	transport          *http.Transport
+	client             *http.Client
+	mu                 sync.RWMutex
+	current            *snapshot
+	next               atomic.Uint64
+	admitted           atomic.Uint64
+	refreshFailures    atomic.Uint64
+	credentialFailures atomic.Uint64
+	probeFailures      atomic.Uint64
+	forwardFailures    atomic.Uint64
+	unavailable        atomic.Uint64
+	slots              chan struct{}
 }
 
 func New(source Source, ingressKey, preferredRegion string) (*Router, error) {
@@ -132,37 +137,30 @@ func (r *Router) Run(ctx context.Context) {
 func (r *Router) Refresh(parent context.Context) error {
 	ctx, cancel := context.WithTimeout(parent, loadTimeout)
 	defer cancel()
-	data, err := r.source.Registry(ctx)
+	document, err := r.source.Registry(ctx)
 	if err != nil {
 		return ErrRegistry
 	}
 	now := time.Now()
-	config, err := decodeRegistry(data, now)
+	config, err := decodeRegistry(document.Data, now)
 	if err != nil {
 		return ErrRegistry
 	}
-	digest := registryDigest(data)
+	digest := registryDigest(document.Data)
 	r.mu.RLock()
 	previous := r.current
 	r.mu.RUnlock()
 	if previous != nil && (config.Revision < previous.revision || (config.Revision == previous.revision && digest != previous.digest)) {
 		return ErrRegistry
 	}
-	candidate := &snapshot{revision: config.Revision, digest: digest, expires: time.Unix(config.ExpiresAt, 0), loaded: now, keys: make(map[string]generation)}
-	secrets := map[string]string{}
+	candidate := &snapshot{revision: config.Revision, digest: digest, expires: time.Unix(config.ExpiresAt, 0), loaded: now, keys: make(map[string]generation), sourceRegion: document.Region, sourceVersion: document.Version}
+	secrets := r.credentials(ctx, config)
 	for _, entry := range config.Generations {
 		group := generation{draining: entry.Draining, disabled: entry.Disabled}
 		for _, destination := range entry.Backends {
-			key, ok := secrets[destination.APIKeyARN]
-			if !ok {
-				key, err = r.source.Secret(ctx, destination.APIKeyARN)
-				if err != nil || !validAPIKey(key) {
-					return ErrRegistry
-				}
-				secrets[destination.APIKeyARN] = key
-			}
+			credential := secrets[destination.APIKeyARN]
 			origin, _ := originURL(destination.Origin) // decodeRegistry already proved this invariant.
-			group.backends = append(group.backends, &backend{id: destination.ID, region: entry.Region, recipientID: entry.RecipientID, origin: origin, key: key})
+			group.backends = append(group.backends, &backend{id: destination.ID, region: entry.Region, recipientID: entry.RecipientID, arn: destination.APIKeyARN, origin: origin, key: credential.key, credentialAt: credential.at})
 		}
 		candidate.keys[entry.RecipientID] = group
 		candidate.order = append(candidate.order, entry.RecipientID)
@@ -172,7 +170,8 @@ func (r *Router) Refresh(parent context.Context) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	// Preserve observations only for an unchanged endpoint, key and recipient.
+	// Preserve observations and bounded cached credentials only for the same
+	// endpoint, secret ARN and recipient. A failed secret read never renews its age.
 	if r.current != nil {
 		if candidate.revision < r.current.revision || (candidate.revision == r.current.revision && candidate.digest != r.current.digest) {
 			return ErrRegistry
@@ -180,8 +179,13 @@ func (r *Router) Refresh(parent context.Context) error {
 		for id, group := range candidate.keys {
 			for index, next := range group.backends {
 				for _, old := range r.current.keys[id].backends {
-					if next.id == old.id && next.origin.String() == old.origin.String() && next.key == old.key {
-						group.backends[index] = old
+					if next.id == old.id && next.origin.String() == old.origin.String() && next.arn == old.arn {
+						if next.key != "" && next.key == old.key {
+							old.credentialAt = next.credentialAt
+							group.backends[index] = old
+						} else if next.key == "" {
+							group.backends[index] = old
+						}
 					}
 				}
 			}
@@ -192,6 +196,42 @@ func (r *Router) Refresh(parent context.Context) error {
 	candidate.loaded = time.Now().UTC()
 	r.current = candidate
 	return nil
+}
+
+type credential struct {
+	key string
+	at  time.Time
+}
+
+func (r *Router) credentials(parent context.Context, config Registry) map[string]credential {
+	arns := map[string]bool{}
+	for _, generation := range config.Generations {
+		for _, target := range generation.Backends {
+			arns[target.APIKeyARN] = true
+		}
+	}
+	// The registry caps unique credentials at 64. Resolve them independently so
+	// an unavailable region cannot hold up all other credential reads.
+	values := map[string]credential{}
+	var mu sync.Mutex
+	var workers sync.WaitGroup
+	for arn := range arns {
+		workers.Go(func() {
+			ctx, cancel := context.WithTimeout(parent, credentialTimeout)
+			defer cancel()
+			key, err := r.source.Secret(ctx, arn)
+			if err != nil || !validAPIKey(key) {
+				r.credentialFailures.Add(1)
+				return
+			}
+			value := credential{key: key, at: time.Now().UTC()}
+			mu.Lock()
+			values[arn] = value
+			mu.Unlock()
+		})
+	}
+	workers.Wait()
+	return values
 }
 
 // Probe checks readiness and observed recipient identity, not vendor trust.
@@ -210,6 +250,12 @@ func (r *Router) Probe(parent context.Context) {
 		}
 		for _, target := range group.backends {
 			workers.Go(func() {
+				r.mu.RLock()
+				hasCredential := credentialFresh(target, time.Now())
+				r.mu.RUnlock()
+				if !hasCredential {
+					return
+				}
 				// The validated registry caps fan-out at 64 endpoints. Slow or dead
 				// endpoints must not prevent healthy regions from being checked.
 				ctx, cancel := context.WithTimeout(parent, probeTimeout)
@@ -284,7 +330,11 @@ func (r *Router) available(current *snapshot, now time.Time) bool {
 }
 
 func healthy(target *backend, now time.Time) bool {
-	return target.healthy && !now.Before(target.checked) && now.Sub(target.checked) < healthMaxAge
+	return credentialFresh(target, now) && target.healthy && !now.Before(target.checked) && now.Sub(target.checked) < healthMaxAge
+}
+
+func credentialFresh(target *backend, now time.Time) bool {
+	return target.key != "" && !now.Before(target.credentialAt) && now.Sub(target.credentialAt) < credentialMaxAge
 }
 
 func (r *Router) choose(key string) *backend {
@@ -340,32 +390,37 @@ func (r *Router) Status(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	type endpoint struct {
-		ID        string `json:"id"`
-		Region    string `json:"region"`
-		Healthy   bool   `json:"healthy"`
-		Draining  bool   `json:"draining"`
-		Disabled  bool   `json:"disabled"`
-		Forwarded uint64 `json:"forwarded"`
+		ID               string `json:"id"`
+		Region           string `json:"region"`
+		Healthy          bool   `json:"healthy"`
+		Draining         bool   `json:"draining"`
+		Disabled         bool   `json:"disabled"`
+		Forwarded        uint64 `json:"forwarded"`
+		CredentialsReady bool   `json:"credentials_ready"`
 	}
 	value := struct {
-		Revision        uint64     `json:"revision"`
-		Fresh           bool       `json:"registry_fresh"`
-		Backends        []endpoint `json:"backends"`
-		Admitted        uint64     `json:"admitted"`
-		RefreshFailures uint64     `json:"refresh_failures"`
-		ProbeFailures   uint64     `json:"probe_failures"`
-		ForwardFailures uint64     `json:"forward_failures"`
-		Unavailable     uint64     `json:"unavailable"`
-	}{Admitted: r.admitted.Load(), RefreshFailures: r.refreshFailures.Load(), ProbeFailures: r.probeFailures.Load(), ForwardFailures: r.forwardFailures.Load()}
+		Revision           uint64     `json:"revision"`
+		SourceRegion       string     `json:"registry_region,omitempty"`
+		SourceVersion      string     `json:"registry_object_version,omitempty"`
+		Fresh              bool       `json:"registry_fresh"`
+		Backends           []endpoint `json:"backends"`
+		Admitted           uint64     `json:"admitted"`
+		RefreshFailures    uint64     `json:"refresh_failures"`
+		CredentialFailures uint64     `json:"credential_failures"`
+		ProbeFailures      uint64     `json:"probe_failures"`
+		ForwardFailures    uint64     `json:"forward_failures"`
+		Unavailable        uint64     `json:"unavailable"`
+	}{Admitted: r.admitted.Load(), RefreshFailures: r.refreshFailures.Load(), CredentialFailures: r.credentialFailures.Load(), ProbeFailures: r.probeFailures.Load(), ForwardFailures: r.forwardFailures.Load()}
 	value.Backends = []endpoint{}
 	value.Unavailable = r.unavailable.Load()
 	r.mu.RLock()
 	if r.current != nil {
 		value.Revision, value.Fresh = r.current.revision, r.available(r.current, time.Now())
+		value.SourceRegion, value.SourceVersion = r.current.sourceRegion, r.current.sourceVersion
 		for _, id := range r.current.order {
 			group := r.current.keys[id]
 			for _, target := range group.backends {
-				value.Backends = append(value.Backends, endpoint{ID: target.id, Region: target.region, Healthy: !group.disabled && healthy(target, time.Now()), Draining: group.draining, Disabled: group.disabled, Forwarded: target.forwarded.Load()})
+				value.Backends = append(value.Backends, endpoint{ID: target.id, Region: target.region, Healthy: !group.disabled && healthy(target, time.Now()), Draining: group.draining, Disabled: group.disabled, Forwarded: target.forwarded.Load(), CredentialsReady: credentialFresh(target, time.Now())})
 			}
 		}
 	}

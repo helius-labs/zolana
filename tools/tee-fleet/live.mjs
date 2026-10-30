@@ -367,6 +367,39 @@ try {
     );
     report.restoredGeneration = { id: restored.id, recipientUnchanged: true, proofVerified: true };
   }
+  if (process.env.ZOLANA_TEE_CONTROL_PLANE_OUTAGE === "1") {
+    assert.ok(managedBinary, "control-plane qualification requires the managed router");
+    const affected = deployments.find((entry) => entry.region === "us-east-1");
+    assert.ok(affected);
+    await only(affected.id);
+    const nodeQuote = await nodeClient.attest();
+    const browserQuote = await page.evaluate(async () => await window.liveClient.attest());
+    for (const quote of [nodeQuote, browserQuote])
+      assert.equal(recipientId(Buffer.from(quote.key, "hex")), affected.recipientId);
+    await saveProof("node-before-control-plane", await nodeClient.prove());
+    await saveProof("browser-before-control-plane", await page.evaluate(async () => await window.liveClient.prove()));
+    await router.failControlPlane(affected.region);
+    const before = (await router.readStats()).forwarded[affected.id];
+    await saveProof("node-control-plane-failover", await nodeClient.prove());
+    await saveProof("browser-control-plane-failover", await page.evaluate(async () => await window.liveClient.prove()));
+    await nativeProof("rust-control-plane-failover");
+    assert.equal((await router.readStats()).forwarded[affected.id], before);
+    await router.restoreControlPlane();
+    await only(affected.id);
+    const restored = await nodeClient.attest();
+    assert.equal(recipientId(Buffer.from(restored.key, "hex")), affected.recipientId);
+    await saveProof("node-control-plane-restored", await nodeClient.prove());
+    await writeFile(join(output, "node-control-plane-restored-attestation.json"), JSON.stringify(nodeClient.evidence(), null, 2) + "\n");
+    report.controlPlane = {
+      affectedRegion: affected.region,
+      nodeVerified: true,
+      browserVerified: true,
+      rustVerified: true,
+      coldRouterRecovered: true,
+      staleRecipientForwarded: false,
+      restoredRecipientUnchanged: true,
+    };
+  }
   if (process.argv.includes("--lifecycle")) {
     report.lifecycle = [];
     const commands = createInterface({ input: process.stdin });

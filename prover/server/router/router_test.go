@@ -39,27 +39,114 @@ func TestStatusIsWellFormedBeforeRegistryLoads(t *testing.T) {
 }
 
 type memorySource struct {
-	mu     sync.Mutex
-	data   []byte
-	err    bool
-	secret string
+	mu      sync.Mutex
+	data    []byte
+	err     bool
+	secret  string
+	blocked map[string]bool
 }
 
-func (s *memorySource) Registry(context.Context) ([]byte, error) {
+func (s *memorySource) Registry(context.Context) (RegistryDocument, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.err {
-		return nil, errors.New("private source error")
+		return RegistryDocument{}, errors.New("private source error")
 	}
-	return bytes.Clone(s.data), nil
+	return RegistryDocument{Data: bytes.Clone(s.data)}, nil
 }
-func (s *memorySource) Secret(context.Context, string) (string, error) {
+func (s *memorySource) Secret(_ context.Context, arn string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.err {
+	if s.err || s.blocked[arn] {
 		return "", errors.New("private credential error")
 	}
 	return s.secret, nil
+}
+
+func TestColdStartSurvivesOneUnavailableRegionalCredential(t *testing.T) {
+	_, source, config, fixtures := setup(t)
+	source.blocked = map[string]bool{config.Generations[0].Backends[0].APIKeyARN: true}
+	r, err := New(source, ingress, "us-east-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(r.transport.CloseIdleConnections)
+	if err := r.Refresh(t.Context()); err != nil {
+		t.Fatal("one unavailable regional credential rejected the entire registry")
+	}
+	r.Probe(t.Context())
+	if response := call(r, http.MethodGet, "/health", config.Generations[0].RecipientID, nil); response.Code != 503 || len(fixtures[0].calls) != 0 {
+		t.Fatal("endpoint with no resolved credential received a request")
+	}
+	for _, entry := range config.Generations[1:] {
+		if response := call(r, http.MethodGet, "/health", entry.RecipientID, nil); response.Code != 200 {
+			t.Fatal("healthy region depended on another region's secret service")
+		}
+	}
+}
+
+func TestUnavailableCredentialDoesNotRenewItsLifetimeOrBlockOtherRegions(t *testing.T) {
+	r, source, config, fixtures := setup(t)
+	id := config.Generations[0].RecipientID
+	arn := config.Generations[0].Backends[0].APIKeyARN
+	target := r.current.keys[id].backends[0]
+	accepted := target.credentialAt
+	source.blocked = map[string]bool{arn: true}
+	if err := r.Refresh(t.Context()); err != nil || target.credentialAt != accepted {
+		t.Fatal("failed credential read changed its lifetime or rejected the registry")
+	}
+	if response := call(r, http.MethodGet, "/health", id, nil); response.Code != 200 {
+		t.Fatal("still-valid endpoint-bound credential was not usable")
+	}
+	<-fixtures[0].calls
+	target.credentialAt = time.Now().UTC().Add(-credentialMaxAge - time.Second)
+	if err := r.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	quotes := fixtures[0].quotes.Load()
+	r.Probe(t.Context())
+	if fixtures[0].quotes.Load() != quotes {
+		t.Fatal("expired credential was used for a health probe")
+	}
+	if response := call(r, http.MethodGet, "/health", id, nil); response.Code != 503 || len(fixtures[0].calls) != 0 {
+		t.Fatal("expired credential reached an origin")
+	}
+	if response := call(r, http.MethodGet, "/health", config.Generations[1].RecipientID, nil); response.Code != 200 {
+		t.Fatal("another region's credential expiry stopped a healthy recipient")
+	}
+	delete(source.blocked, arn)
+	if err := r.Refresh(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.Probe(t.Context())
+	if response := call(r, http.MethodGet, "/health", id, nil); response.Code != 200 {
+		t.Fatal("restored credential did not recover its recipient")
+	}
+}
+
+func TestCachedCredentialsNeverMoveToAnotherDestinationOrSecretReference(t *testing.T) {
+	for _, change := range []string{"origin", "secret"} {
+		t.Run(change, func(t *testing.T) {
+			r, source, config, fixtures := setup(t)
+			entry := &config.Generations[0]
+			oldARN := entry.Backends[0].APIKeyARN
+			if change == "origin" {
+				entry.Backends[0].Origin = "https://credential-destination.invalid"
+			} else {
+				entry.Backends[0].APIKeyARN += "-replacement"
+			}
+			source.blocked = map[string]bool{oldARN: true, entry.Backends[0].APIKeyARN: true}
+			config.Revision++
+			source.set(t, config)
+			if err := r.Refresh(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			r.Probe(t.Context())
+			if response := call(r, http.MethodGet, "/health", entry.RecipientID, nil); response.Code != 503 || len(fixtures[0].calls) != 0 {
+				t.Fatal("cached credential crossed a destination or secret-reference change")
+			}
+		})
+	}
 }
 func (s *memorySource) set(t *testing.T, value Registry) {
 	t.Helper()
@@ -317,6 +404,10 @@ func TestFreshnessBudgetsRejectBeforeForwarding(t *testing.T) {
 	}{
 		{"health-expired", func(_ *snapshot, b *backend, now time.Time) { b.checked = now.Add(-healthMaxAge - time.Second) }},
 		{"health-clock-backward", func(_ *snapshot, b *backend, now time.Time) { b.checked = now.Add(time.Minute) }},
+		{"credential-expired", func(_ *snapshot, b *backend, now time.Time) {
+			b.credentialAt = now.Add(-credentialMaxAge - time.Second)
+		}},
+		{"credential-clock-backward", func(_ *snapshot, b *backend, now time.Time) { b.credentialAt = now.Add(time.Minute) }},
 		{"registry-stale", func(s *snapshot, _ *backend, now time.Time) { s.loaded = now.Add(-registryMaxAge - time.Second) }},
 		{"registry-expired", func(s *snapshot, _ *backend, now time.Time) { s.expires = now.Add(-time.Second) }},
 		{"registry-clock-backward", func(s *snapshot, _ *backend, now time.Time) { s.loaded = now.Add(time.Minute) }},
@@ -330,6 +421,37 @@ func TestFreshnessBudgetsRejectBeforeForwarding(t *testing.T) {
 				t.Fatal("invalid freshness allowed forwarding")
 			}
 		})
+	}
+}
+
+type delayedCredentialSource struct {
+	*memorySource
+	blockedARN string
+}
+
+func (s delayedCredentialSource) Secret(ctx context.Context, arn string) (string, error) {
+	if arn == s.blockedARN {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	return s.memorySource.Secret(ctx, arn)
+}
+
+func TestAHangingCredentialReadDoesNotConsumeTheGlobalLoadBudget(t *testing.T) {
+	_, source, config, _ := setup(t)
+	r, err := New(delayedCredentialSource{memorySource: source, blockedARN: config.Generations[0].Backends[0].APIKeyARN}, ingress, "eu-north-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(r.transport.CloseIdleConnections)
+	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Second)
+	defer cancel()
+	if err := r.Refresh(ctx); err != nil || ctx.Err() != nil {
+		t.Fatal("one hanging regional credential consumed the global registry deadline")
+	}
+	r.Probe(t.Context())
+	if response := call(r, http.MethodGet, "/health", config.Generations[1].RecipientID, nil); response.Code != 200 {
+		t.Fatal("healthy region was unavailable after another credential timed out")
 	}
 }
 

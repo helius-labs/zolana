@@ -14,6 +14,7 @@ import (
 )
 
 func TestAWSSourceRequiresVersionedBoundedS3AndRegionalSecret(t *testing.T) {
+	document := registryJSON(t, 1)
 	var versioned, oversized, secretError atomic.Bool
 	versioned.Store(true)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -34,7 +35,7 @@ func TestAWSSourceRequiresVersionedBoundedS3AndRegionalSecret(t *testing.T) {
 				_, _ = w.Write([]byte(strings.Repeat("x", maxRegistryBytes+1)))
 				return
 			}
-			_, _ = w.Write([]byte(`{"schema_version":1}`))
+			_, _ = w.Write(document)
 			return
 		}
 		if !strings.Contains(r.Header.Get("Authorization"), "/ap-southeast-1/secretsmanager/") {
@@ -85,6 +86,19 @@ func TestAWSSourceRequiresVersionedBoundedS3AndRegionalSecret(t *testing.T) {
 	if _, err := source.Secret(t.Context(), arn); err != ErrRegistry {
 		t.Fatal("AWS error was not sanitized")
 	}
+}
+
+func registryJSON(t *testing.T, revision uint64) []byte {
+	t.Helper()
+	value := Registry{SchemaVersion: 1, Revision: revision, ExpiresAt: time.Now().Add(time.Hour).Unix(), Generations: []Generation{{
+		ID: "us-1", Region: "us-east-1", RecipientID: strings.Repeat("a", 64),
+		Backends: []Backend{{ID: "us-1", Origin: "https://prover.invalid", APIKeyARN: "arn:aws:secretsmanager:us-east-1:558215002830:secret:test-key"}},
+	}}}
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }
 
 func TestAWSLoadCancellationIsBounded(t *testing.T) {

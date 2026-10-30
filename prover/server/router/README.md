@@ -5,13 +5,25 @@ It forwards the existing `/v1/zolana` prover routes without decrypting proof
 inputs. Clients still verify the independently signed fleet policy and vendor
 attestation; the routing registry cannot approve a prover key.
 
-Each process reads the same private, versioned S3 object through its IAM role.
+Each process reads the same private, versioned registry through its IAM role.
+Up to three regions may hold byte-identical copies under the same object key.
+Reads run independently with three-second deadlines. The highest valid reachable
+revision wins; conflicting bytes at that revision reject the reload. A running
+router never downgrades to an older mirror or renews freshness with a rollback.
 Registry reloads are atomic and reject older revisions, changed bytes under
 the same revision, duplicate/unknown JSON members and invalid destinations.
-After a restart S3's current object is authoritative; there is no claim of a
-local durable rollback floor. Use conditional publication, version history and
+After a restart the highest valid reachable copy is authoritative; there is no
+local durable rollback floor or cross-region consensus protocol. Use conditional publication, version history and
 restricted operator access. A failed reload cannot renew the previous map's
 one-minute freshness budget. Registry expiry closes admission too.
+
+Regional origin credentials load independently with three-second deadlines.
+An unavailable secret makes its endpoint ineligible rather than rejecting the
+complete inventory. An unchanged endpoint may use its cached credential for
+at most five minutes after the last successful read. Failure never renews that
+age; a changed origin, secret ARN or recipient never receives a cached value.
+Expired or unresolved credentials are used for neither health probes nor
+forwarding. Other regions continue with fresh inventory and credentials.
 
 Each replica checks readiness and the observed recipient public key every
 five seconds. These observations expire after twenty seconds and do not replace
@@ -49,6 +61,8 @@ export ZOLANA_ROUTER_ORIGIN_KEY='<operator-injected credential>'
   --registry-bucket '<private registry bucket>' \
   --registry-key registry.json \
   --registry-region us-east-1 \
+  --registry-mirror eu-north-1/'<EU registry bucket>' \
+  --registry-mirror ap-southeast-1/'<AP registry bucket>' \
   --registry-owner '<12-digit account ID>' \
   --preferred-region eu-north-1
 ```
@@ -57,11 +71,12 @@ Both listeners default to loopback. Explicitly bind the gateway listener when
 running behind a private load balancer and restrict network ingress to that
 gateway. The separate admin listener serves `/ready` and `/status`; do not expose
 it through the public route map. Status includes only operator IDs, freshness,
-health/drain state and counters. It contains no API keys, raw AWS failures,
+health/drain/credential readiness, selected registry region/object version and
+counters. It contains no API keys, raw AWS failures,
 request bodies or query strings. SIGTERM stops admission and permits admitted
 requests to finish within the configured ten-minute request budget.
 
-The runtime role needs only `s3:GetObject` for the exact registry object and
+The runtime role needs only `s3:GetObject` for the exact object in each mirror and
 `secretsmanager:GetSecretValue` for its approved origin credential ARNs. S3
 requests bind the expected bucket owner; origin secrets must belong to the same
 account and their generation's region. No KMS seed/key, signing, S3 write or SSM
@@ -102,6 +117,15 @@ it is separate from TUF policy approval. Prepare the complete new map, increase
 its revision and use `If-Match` with the previous S3 ETag (`If-None-Match: *` for
 bootstrap). Preserve object versions. Never restore an old revision in place:
 publish the reviewed recovery configuration under a higher revision.
+
+Write identical bytes to every mirror and verify convergence before selecting
+new generations or publishing their client approvals. Cross-region publication
+is not atomic: a partial publication must be repaired under the same bytes or a
+higher reviewed revision. A stale mirror cannot override a newer running floor;
+if no sufficiently new copy is reachable, that router closes admission. Preserve
+old generation routes throughout staged rollout. Mirror availability does not
+establish availability of the separate public signed-policy CDN or IAM control
+plane; qualify those dependencies separately before a full-region rollout.
 
 Register and qualify a new generation before selecting it. Keep the old
 generation's exact-key routes while it drains, then disable it after admitted
