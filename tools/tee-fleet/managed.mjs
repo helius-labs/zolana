@@ -308,8 +308,10 @@ export async function managedRouter({ deployments, binary, output }) {
       }
       for (const entry of config.generations) entry.disabled = false;
       await synchronize();
-      await service(id, "stop");
+      // A lost SSM acknowledgement can follow a successful stop. Always
+      // attempt restoration once the stop may have been dispatched.
       stopped.add(id);
+      await service(id, "stop");
       const deadline = Date.now() + 30000;
       for (;;) {
         const states = await Promise.all(processes.map(status));

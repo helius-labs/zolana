@@ -20,6 +20,10 @@ checks. New attestations prefer healthy generations in the process's configured
 region. Ciphertext routes only to healthy endpoints registered for its exact
 `Zolana-Tee-Key-Id`, regardless of connection or router replica changes.
 
+Freshness uses wall-clock observation timestamps so suspension counts against
+both budgets; backward clock movement rejects admission until a new valid
+observation. Go's elapsed-time clock can pause during host sleep.
+
 `draining` excludes a generation from new attestations while keeping its
 ciphertext route. `disabled` removes it from both paths without losing the
 operator's inventory. An unavailable key gets pre-forward

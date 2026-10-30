@@ -301,6 +301,29 @@ func TestRollbackAndSameRevisionSubstitution(t *testing.T) {
 	}
 }
 
+func TestFreshnessBudgetsRejectBeforeForwarding(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*snapshot, *backend, time.Time)
+	}{
+		{"health-expired", func(_ *snapshot, b *backend, now time.Time) { b.checked = now.Add(-healthMaxAge - time.Second) }},
+		{"health-clock-backward", func(_ *snapshot, b *backend, now time.Time) { b.checked = now.Add(time.Minute) }},
+		{"registry-stale", func(s *snapshot, _ *backend, now time.Time) { s.loaded = now.Add(-registryMaxAge - time.Second) }},
+		{"registry-expired", func(s *snapshot, _ *backend, now time.Time) { s.expires = now.Add(-time.Second) }},
+		{"registry-clock-backward", func(s *snapshot, _ *backend, now time.Time) { s.loaded = now.Add(time.Minute) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			r, _, config, fixtures := setup(t)
+			id := config.Generations[0].RecipientID
+			test.change(r.current, r.current.keys[id].backends[0], time.Now().UTC())
+			response := call(r, http.MethodPost, "/prove/transfer_2_2", id, strings.NewReader("opaque proof request"))
+			if response.Code != 503 || !strings.Contains(response.Body.String(), "tee_generation_unavailable") || len(fixtures[0].calls) != 0 {
+				t.Fatal("invalid freshness allowed forwarding")
+			}
+		})
+	}
+}
+
 func TestNoReplayAfterOriginConsumesProof(t *testing.T) {
 	r, _, config, fixtures := setup(t)
 	fixtures[0].drop.Store(true)

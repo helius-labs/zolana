@@ -87,8 +87,8 @@ production API key. The CLI logs neither the key nor request contents.
 Fault controls are JavaScript objects returned to the test runner, never
 public HTTP endpoints. `gateway.faults.dropRequest` and `dropResponse` drop a
 named header; `router.setAvailable(id, false)` removes a generation from both
-attestation selection and ciphertext routing. The harness has no active health
-discovery or shared routing state; a production router still needs those.
+attestation selection and ciphertext routing. This in-process router uses
+operator fault controls. The shared Go router is qualified separately below.
 
 Real GK qualification must check the deployed route map, request allowlist
 (including the new `Zolana-Tee-Key-Id`), response marker forwarding, browser
@@ -144,3 +144,36 @@ policy revocation rather than outage recovery: stale ciphertext could still
 be served, and the test asserts that none is forwarded there. Successful
 qualification also archives the public nonce, capture time and complete AWS
 evidence beside each region's verified proof.
+
+## Qualify shared routing and physical outages
+
+Build the Go router and set `ZOLANA_TEE_ROUTER_BINARY` to its absolute path to
+run two independent router processes behind round-robin mock GK. Both read one
+private versioned object in the isolated test routing bucket provisioned by
+`zolana-infra/infra/routing-registry`. The driver publishes complete revisions
+conditionally and waits for both processes to observe them. Origin credentials
+are resolved inside the Go processes. The driver archives per-replica
+convergence observations, counters and the public routing configuration.
+
+```sh
+go -C prover/server build -o /absolute/tee-router ./cmd/tee-router
+ZOLANA_TEE_ROUTER_BINARY=/absolute/tee-router \
+ZOLANA_TEE_PROOF_VERIFIER="$PWD/target/debug/examples/tee_policy_prove" \
+ZOLANA_TEE_REAL_OUTAGE=1 \
+  node tools/tee-fleet/live.mjs manifest.json /absolute/qualification-output
+```
+
+`ZOLANA_TEE_REAL_OUTAGE=1` requires the separate operator identity's SSM access.
+It stops and starts only `zolana-enclave@0.service` on the owned test stack's
+instance. Both routers must observe health loss while its registry entry
+remains enabled; Node, Rust and browser clients must recover without forwarding
+to that unavailable recipient. The driver restores the service, checks its
+sealed recipient key is unchanged, and verifies another proof. Cleanup restores
+any stopped service. Production runtime identities must not receive SSM access.
+
+Keep the qualification host awake. On macOS, wrap the Node invocation with
+`caffeinate -i node tools/tee-fleet/live.mjs ...`; its assertion ends with that
+command and changes no system sleep settings. Idle sleep suspends both routers
+and the driver, invalidating wall-clock convergence deadlines. Preserve a
+failed trace and correlate it with host sleep/wake events before attributing
+such a timeout to S3 or routing. Choose an output directory per run and engine.

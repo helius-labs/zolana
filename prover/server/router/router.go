@@ -187,7 +187,9 @@ func (r *Router) Refresh(parent context.Context) error {
 			}
 		}
 	}
-	candidate.loaded = time.Now()
+	// Freshness includes host suspension; UTC strips Go's monotonic reading,
+	// which can pause during sleep. Backward wall-clock movement fails closed.
+	candidate.loaded = time.Now().UTC()
 	r.current = candidate
 	return nil
 }
@@ -217,7 +219,7 @@ func (r *Router) Probe(parent context.Context) {
 					r.probeFailures.Add(1)
 				}
 				r.mu.Lock()
-				target.healthy, target.checked = ready, time.Now()
+				target.healthy, target.checked = ready, time.Now().UTC()
 				r.mu.Unlock()
 			})
 		}
