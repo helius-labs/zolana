@@ -9,6 +9,7 @@ use photon_indexer::common::{
 use photon_indexer::ingester::fetchers::BlockStreamConfig;
 use photon_indexer::snapshot::{
     get_snapshot_files_with_metadata, load_byte_stream_from_directory_adapter, DirectoryAdapter,
+    SnapshotFileWithSlots,
 };
 use std::future::pending;
 use std::io;
@@ -64,6 +65,16 @@ struct Args {
     /// R2 prefix. All snapshots will be stored under this prefix in the R2 bucket.
     #[arg(long, default_value = "")]
     r2_prefix: String,
+
+    /// S3 bucket name. The bucket must already exist. The region comes from AWS_REGION
+    /// (with AWS_ENDPOINT for an S3-compatible store), credentials from the environment, a
+    /// profile, or the ECS task or instance role.
+    #[arg(long)]
+    s3_bucket: Option<String>,
+
+    /// S3 prefix. All snapshots will be stored under this prefix in the S3 bucket.
+    #[arg(long, default_value = "")]
+    s3_prefix: String,
 
     /// GCS bucket name. The bucket must already exist. The credentials must be provided
     /// via Application Default Credentials (ADC) or environment variables.
@@ -249,16 +260,21 @@ async fn main() -> Result<()> {
     let directory_adapter = match (
         args.snapshot_dir.clone(),
         args.r2_bucket.clone(),
+        args.s3_bucket.clone(),
         args.gcs_bucket.clone(),
     ) {
-        (Some(snapshot_dir), None, None) => {
+        (Some(snapshot_dir), None, None, None) => {
             Arc::new(DirectoryAdapter::from_local_directory(snapshot_dir))
         }
-        (None, Some(r2_bucket), None) => Arc::new(
+        (None, Some(r2_bucket), None, None) => Arc::new(
             DirectoryAdapter::from_r2_bucket_and_prefix_and_env(r2_bucket, args.r2_prefix.clone())
                 .await?,
         ),
-        (None, None, Some(gcs_bucket)) => Arc::new(
+        (None, None, Some(s3_bucket), None) => Arc::new(
+            DirectoryAdapter::from_s3_bucket_and_prefix_and_env(s3_bucket, args.s3_prefix.clone())
+                .await?,
+        ),
+        (None, None, None, Some(gcs_bucket)) => Arc::new(
             DirectoryAdapter::from_gcs_bucket_and_prefix_and_env(
                 gcs_bucket,
                 args.gcs_prefix.clone(),
@@ -266,7 +282,9 @@ async fn main() -> Result<()> {
             .await?,
         ),
         _ => {
-            bail!("Exactly one of snapshot_dir, r2_bucket, or gcs_bucket must be provided");
+            bail!(
+                "Exactly one of snapshot_dir, r2_bucket, s3_bucket, or gcs_bucket must be provided"
+            );
         }
     };
     let snapshotter_handle = if args.disable_snapshot_generation {
@@ -277,32 +295,36 @@ async fn main() -> Result<()> {
             .await
             .context("Failed to inspect snapshot source")?;
 
-        let last_indexed_slot = match args.start_slot {
-            Some(start_slot) => {
-                if !snapshot_files.is_empty() {
-                    bail!("Cannot specify start_slot when snapshot files are present");
+        // A start slot only places an empty store. With files present it must
+        // be where they began, so a service can pass the same flag on every
+        // restart and resume.
+        let last_indexed_slot = match (args.start_slot, snapshot_files.first()) {
+            (Some(start_slot), None) => match start_slot.as_str() {
+                "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
+                _ => {
+                    let start_slot = start_slot
+                        .parse::<u64>()
+                        .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
+                    fetch_block_parent_slot(&rpc_client, start_slot).await?
                 }
-                let start_slot = match start_slot.as_str() {
-                    "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
-                    _ => {
-                        let start_slot = start_slot
-                            .parse::<u64>()
-                            .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
-                        fetch_block_parent_slot(&rpc_client, start_slot).await?
+            },
+            (Some(start_slot), Some(first)) => {
+                if start_slot != "latest" {
+                    let slot = start_slot
+                        .parse::<u64>()
+                        .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
+                    let begins = fetch_block_parent_slot(&rpc_client, slot).await? + 1;
+                    if first.start_slot != begins {
+                        bail!(
+                            "The stored snapshots start at slot {}, not at slot {begins} where --start-slot {slot} begins",
+                            first.start_slot
+                        );
                     }
-                };
-                start_slot
-            }
-            None => {
-                if snapshot_files.is_empty() {
-                    get_network_start_slot(&rpc_client).await
-                } else {
-                    snapshot_files
-                        .last()
-                        .context("Snapshot list became empty unexpectedly")?
-                        .end_slot
                 }
+                last_snapshot_slot(&snapshot_files)?
             }
+            (None, None) => get_network_start_slot(&rpc_client).await,
+            (None, Some(_)) => last_snapshot_slot(&snapshot_files)?,
         };
         info!("Starting from slot: {}", last_indexed_slot + 1);
         Some(
@@ -361,4 +383,11 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn last_snapshot_slot(snapshot_files: &[SnapshotFileWithSlots]) -> Result<u64> {
+    Ok(snapshot_files
+        .last()
+        .context("Snapshot list became empty unexpectedly")?
+        .end_slot)
 }
