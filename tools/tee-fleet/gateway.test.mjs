@@ -206,6 +206,19 @@ test(
         },
       );
       await t.test(
+        "draining skips new attestations while serving the generation's cached recipients",
+        async () => {
+          router.setDraining(deployments[0].id, true);
+          try {
+            assert.equal((await clients[0].health()).status, "fixture-region-0");
+            const fresh = new sdk.ProverClient({ url, tee: fleet });
+            assert.notEqual((await fresh.health()).status, "fixture-region-0");
+          } finally {
+            router.setDraining(deployments[0].id, false);
+          }
+        },
+      );
+      await t.test(
         "generation loss triggers fresh attestation and encryption without forwarding stale ciphertext",
         async () => {
           const before = provers[0].stats.decrypted;

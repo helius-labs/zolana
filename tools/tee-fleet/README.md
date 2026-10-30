@@ -124,7 +124,7 @@ For persistent-client checks, add `--lifecycle`. After the `ready` line,
 publish a higher signed policy and send an operator command on stdin:
 
 ```json
-{"action":"policy","revision":2,"available":["us-east-1"],"retired":"ap-southeast-1"}
+{"action":"policy","revision":2,"available":["us-east-1","ap-southeast-1"],"retired":"ap-southeast-1"}
 ```
 
 The manifest must already contain every backend needed for the exercise.
@@ -136,3 +136,11 @@ Publish renewed higher metadata and use another `policy` command to verify
 recovery. Send `{"action":"finish"}` to close the browser and servers.
 Control commands are available only on the operator's stdin, never as HTTP
 routes. Publication still uses the separate reviewed conditional publisher.
+
+`router.setDraining(id, true)` excludes a generation from new attestation
+selection while retaining its ciphertext route. A lifecycle command's
+`retired` entry is drained automatically. Keeping it in `available` proves
+policy revocation rather than outage recovery: stale ciphertext could still
+be served, and the test asserts that none is forwarded there. Successful
+qualification also archives the public nonce, capture time and complete AWS
+evidence beside each region's verified proof.

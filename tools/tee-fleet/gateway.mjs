@@ -262,7 +262,7 @@ export function createRecipientRouter({ deployments, timeoutMs = 600_000 }) {
         (typeof entry.apiKey !== "string" || !/^[\x21-\x7e]{1,4096}$/u.test(entry.apiKey)))
     )
       throw new Error("invalid deployment");
-    return { ...entry, origin: endpoint(entry.origin), available: true };
+    return { ...entry, origin: endpoint(entry.origin), available: true, draining: false };
   });
   if (
     new Set(entries.map((e) => e.id)).size !== entries.length ||
@@ -300,7 +300,7 @@ export function createRecipientRouter({ deployments, timeoutMs = 600_000 }) {
         fail(response, 400, "tee_required");
         return;
       }
-      const available = entries.filter((e) => e.available);
+      const available = entries.filter((e) => e.available && !e.draining);
       entry = available[next++ % available.length];
       if (matched.bare === ATTESTATION) stats.attestations++;
     }
@@ -327,6 +327,12 @@ export function createRecipientRouter({ deployments, timeoutMs = 600_000 }) {
       if (!entry || typeof available !== "boolean")
         throw new Error("unknown deployment or availability");
       entry.available = available;
+    },
+    setDraining(id, draining) {
+      const entry = entries.find((e) => e.id === id);
+      if (!entry || typeof draining !== "boolean")
+        throw new Error("unknown deployment or drain state");
+      entry.draining = draining;
     },
   };
 }

@@ -96,9 +96,11 @@ async function bundle(platform, outfile) {
       import { tufTeePolicy } from ${JSON.stringify(join(dist, "client/prover/tee", provider))};
       import { transferFixtureInputs, transferFixturePublicInputHash } from ${JSON.stringify(join(repository, "sdk-libs/ts/test/helpers/transfer-fixture.ts"))};
       import { bytesToHex } from "@noble/hashes/utils.js";
+      import { readBoundedBody } from ${JSON.stringify(join(dist, "services/transport.js"))};
       export async function client(options) {
         const source = tufTeePolicy(options.policy);
         const observed = { encrypted: 0, attestations: 0 };
+        let evidence;
         const fetch = async (input, init) => {
           const url = new URL(input instanceof Request ? input.url : String(input));
           if (url.origin !== new URL(options.proverUrl).origin) throw new Error("unexpected fixture client endpoint");
@@ -108,11 +110,18 @@ async function bundle(platform, outfile) {
             if (headers.get("Zolana-Tee") !== "v1" || !/^[0-9a-f]{64}$/.test(headers.get("Zolana-Tee-Key-Id") ?? "")) throw new Error("unencrypted fixture request");
             observed.encrypted++;
           }
-          return globalThis.fetch(input, init);
+          const response = await globalThis.fetch(input, init);
+          if (url.pathname.endsWith("/tee/v1/attestation") && response.ok) {
+            const bytes = await readBoundedBody(response, 1 << 20);
+            evidence = { captured_at: Math.floor(Date.now() / 1000), nonce: url.searchParams.get("nonce"), attestation: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) };
+            return new Response(bytes.slice(), { status: response.status, headers: response.headers });
+          }
+          return response;
         };
         const value = await createZolanaClient({ solanaRpcUrl: "http://127.0.0.1:8899", indexerUrl: undefined, proverUrl: options.proverUrl, proverTee: source, fetch });
         return {
           observed,
+          evidence() { return evidence; },
           async policy() { const p = await source.resolve({ timeoutMs: 30000 }); return { revision: p.revision, expiresAt: p.expiresAt, deployments: p.deployments.map(d => d.id) }; },
           async attest() { const p = await value.attestProver({ timeoutMs: 120000 }); return { platform: p.platform, key: bytesToHex(p.hpkePublicKey) }; },
           async prove() {
@@ -228,6 +237,10 @@ try {
     assert.equal(attestation.platform, "aws-nitro");
     assert.equal(recipientId(Buffer.from(attestation.key, "hex")), entry.recipientId);
     await saveProof(`node-${entry.id}`, await client.prove());
+    await writeFile(
+      join(output, `node-${entry.id}-attestation.json`),
+      JSON.stringify(client.evidence(), null, 2) + "\n",
+    );
     report.node.push({ id: entry.id, region: entry.region, ...client.observed, verified: true });
     await nativeProof(`rust-${entry.id}`);
     report.rust.push({ id: entry.id, region: entry.region, verified: true });
@@ -249,6 +262,10 @@ try {
     assert.equal(recipientId(Buffer.from(attestation.key, "hex")), entry.recipientId);
     const proof = await page.evaluate(async () => await window.liveClient.prove());
     await saveProof(`browser-${entry.id}`, proof);
+    await writeFile(
+      join(output, `browser-${entry.id}-attestation.json`),
+      JSON.stringify(await page.evaluate(() => window.liveClient.evidence()), null, 2) + "\n",
+    );
     report.browser.push({ id: entry.id, region: entry.region, verified: true });
   }
   if (deployments.length > 1) {
@@ -319,6 +336,7 @@ try {
     report.lifecycle = [];
     const commands = createInterface({ input: process.stdin });
     let approvedPolicy = await nodeClient.policy();
+    await writeFile(join(output, "qualification.json"), JSON.stringify(report, null, 2) + "\n");
     console.log(JSON.stringify({ phase: "ready", policy: approvedPolicy }));
     try {
       for await (const line of commands) {
@@ -331,9 +349,21 @@ try {
             assert.ok(deployments.some((entry) => entry.id === id));
           for (const entry of deployments)
             router.setAvailable(entry.id, command.available.includes(entry.id));
+          for (const entry of deployments)
+            router.setDraining(entry.id, entry.id === command.retired);
           const deadline = Date.now() + 30000;
           while ((await nodeClient.policy()).revision !== command.revision) {
             assert.ok(Date.now() < deadline, "published policy revision was not observed");
+            await delay(250);
+          }
+          while (
+            (await page.evaluate(async () => await window.liveClient.policy())).revision !==
+            command.revision
+          ) {
+            assert.ok(
+              Date.now() < deadline,
+              "browser did not observe the published policy revision",
+            );
             await delay(250);
           }
           approvedPolicy = await nodeClient.policy();
