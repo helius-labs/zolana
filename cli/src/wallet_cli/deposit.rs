@@ -46,9 +46,8 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
             token_program: resolve_spl_token_program(&rpc, &mint)?,
         })
     };
-    // The recipient's viewing key tags a deposit: it is how the recipient's
-    // wallet finds the output without knowing the sender.
-    let view_tag = recipient.address.viewing_pubkey.u();
+    // Wallet scans discover default-ring outputs by the recipient's signing key.
+    let view_tag = recipient.address.confidential_view_tag()?;
     let deposit = Deposit {
         tree,
         depositor: material.funding.pubkey(),
