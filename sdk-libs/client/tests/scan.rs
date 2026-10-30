@@ -16,7 +16,7 @@ use spr_client::{
     GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig,
     OutputContext, OutputSlot, ProgramAccountsFilter, Rpc, ShieldedTransaction, UtxoScan,
 };
-use spr_event::{encode_merge_output_data, MergeOutputDataRef};
+use spr_event::{encode_merge_output_data, MergeOutputDataRef, OutputDataEncoding};
 use spr_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
 use spr_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use spr_transaction::{
@@ -33,6 +33,128 @@ use spr_transaction::{
 };
 
 const TREE: u16 = 2;
+
+#[test]
+fn scanners_can_reuse_a_registry_after_the_caller_extends_it() {
+    let owner = keypair(7);
+    let (deposit, deposited) = asset_deposit(&owner, Mint::new(MINT, 2), 30, 1);
+    let indexer = Indexer {
+        deposits: vec![deposit],
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let scanner = UtxoScan::new(&owner).disable_asset_discovery();
+    let mut assets = AssetRegistry::default();
+    let first = scanner.fetch(&indexer, &assets).unwrap();
+    assert!(matches!(
+        first.unresolved_outputs.as_slice(),
+        [spr_client::UnresolvedOutput {
+            reason: spr_client::UnresolvedOutputReason::UnknownMint { mint: MINT },
+            ..
+        }]
+    ));
+    assets
+        .extend(&AssetRegistry::new([(2, MINT)]).unwrap())
+        .unwrap();
+    let resolved = scanner.fetch(&indexer, &assets).unwrap();
+    assert!(resolved.unresolved_outputs.is_empty());
+    assert_eq!(
+        resolved
+            .spendable
+            .utxos()
+            .map(|utxo| utxo.utxo_hash)
+            .collect::<Vec<_>>(),
+        vec![deposited.hash]
+    );
+    assert_eq!(*indexer.registry_reads.borrow(), 0);
+}
+
+#[test]
+fn scan_diagnostics_distinguish_framing_encoding_decryption_and_commitment_failures() {
+    use spr_client::{UnresolvedOutput, UnresolvedOutputReason};
+    let owner = keypair(7);
+    let (mut transaction, _) = confidential(&owner, Mint::SOL, 1);
+    transaction.event_index = Some(4);
+    let original = transaction.output_slots.first().unwrap().clone();
+    for bytes in [
+        vec![255],
+        borsh::to_vec(&OutputDataEncoding::Encrypted(vec![255])).unwrap(),
+        confidential(&keypair(8), Mint::SOL, 1)
+            .0
+            .output_slots
+            .first()
+            .unwrap()
+            .payload
+            .clone(),
+    ] {
+        let mut slot = original.clone();
+        slot.payload = bytes;
+        transaction.output_slots.push(slot);
+    }
+    let mut changed = transaction.clone();
+    changed.tx_signature = Signature::from([3; 64]);
+    changed.event_index = Some(8);
+    changed.output_slots.truncate(1);
+    changed
+        .output_slots
+        .first_mut()
+        .unwrap()
+        .output_context
+        .hash = [1; 32];
+    let expected: Vec<_> = [
+        (&transaction, 1, UnresolvedOutputReason::InvalidFraming),
+        (&transaction, 2, UnresolvedOutputReason::UnsupportedEncoding),
+        (&transaction, 3, UnresolvedOutputReason::NotDecryptable),
+        (&changed, 0, UnresolvedOutputReason::CommitmentMismatch),
+    ]
+    .into_iter()
+    .map(|(tx, slot_index, reason)| UnresolvedOutput {
+        tx_signature: tx.tx_signature,
+        event_index: tx.event_index,
+        slot_index,
+        output_context: tx
+            .output_slots
+            .get(slot_index as usize)
+            .unwrap()
+            .output_context
+            .clone(),
+        reason,
+    })
+    .collect();
+    let indexer = Indexer {
+        tagged: vec![transaction, changed],
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let scan = UtxoScan::new(&owner)
+        .fetch(&indexer, &AssetRegistry::default())
+        .unwrap();
+    assert_eq!(scan.unresolved_outputs, expected);
+    assert_eq!(scan.spendable.utxos().count(), 1);
+}
+
+#[test]
+fn an_owned_zero_value_output_is_resolved_as_a_real_output() {
+    let owner = keypair(7);
+    let (deposit, deposited) = deposit(&owner, 0, 1);
+    let indexer = Indexer {
+        deposits: vec![deposit],
+        page_size: 100,
+        ..Indexer::default()
+    };
+    let scan = UtxoScan::new(&owner)
+        .fetch(&indexer, &AssetRegistry::default())
+        .unwrap();
+    assert!(scan.unresolved_outputs.is_empty());
+    assert_eq!(
+        scan.history
+            .utxos
+            .iter()
+            .map(|utxo| utxo.utxo_hash)
+            .collect::<Vec<_>>(),
+        vec![deposited.hash]
+    );
+}
 
 #[derive(Default)]
 struct Indexer {
@@ -435,8 +557,8 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
     };
 
     let assets = AssetRegistry::default();
-    let spendable = UtxoScan::new(&owner, &assets)
-        .fetch(&indexer)
+    let spendable = UtxoScan::new(&owner)
+        .fetch(&indexer, &assets)
         .unwrap()
         .spendable;
 
@@ -507,7 +629,7 @@ fn a_stream_ends_at_a_page_short_of_the_page_size() {
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    let scan = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
+    let scan = UtxoScan::new(&owner).fetch(&indexer, &assets).unwrap();
     assert_eq!(scan.spendable.utxos().count(), 3);
 
     // A full page is followed to the empty page that ends the stream; a
@@ -534,7 +656,7 @@ fn a_cursor_that_does_not_advance_fails_instead_of_paging_forever() {
     let assets = AssetRegistry::default();
 
     assert!(matches!(
-        UtxoScan::new(&owner, &assets).fetch(&indexer),
+        UtxoScan::new(&owner).fetch(&indexer, &assets),
         Err(ClientError::IndexerCursorNotAdvanced)
     ));
 }
@@ -550,12 +672,12 @@ fn every_read_requires_the_slot_of_the_indexer_config() {
     };
     let assets = AssetRegistry::default();
 
-    UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
+    UtxoScan::new(&owner).fetch(&indexer, &assets).unwrap();
     assert!(indexer.required_slots.take().iter().all(Option::is_none));
 
-    let spendable = UtxoScan::new(&owner, &assets)
+    let spendable = UtxoScan::new(&owner)
         .with_indexer_config(IndexerRpcConfig::at_slot(42))
-        .fetch(&indexer)
+        .fetch(&indexer, &assets)
         .unwrap()
         .spendable;
     assert_eq!(spendable.utxos().count(), 0);
@@ -589,7 +711,7 @@ fn fetch_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    let scan = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
+    let scan = UtxoScan::new(&owner).fetch(&indexer, &assets).unwrap();
     let (spendable, history) = (scan.spendable, scan.history);
 
     assert_eq!(
@@ -656,8 +778,8 @@ fn a_merge_found_before_one_of_its_inputs_decrypts_from_its_own_transaction() {
     };
 
     let assets = AssetRegistry::default();
-    let spendable = UtxoScan::new(&owner, &assets)
-        .fetch(&indexer)
+    let spendable = UtxoScan::new(&owner)
+        .fetch(&indexer, &assets)
         .unwrap()
         .spendable;
 
@@ -760,10 +882,9 @@ fn discovery_reuses_pages_and_follows_newly_resolved_nullifiers() {
         ..Indexer::default()
     };
     let original = AssetRegistry::default();
-    let scan = UtxoScan::new(&owner, &original)
+    let scan = UtxoScan::new(&owner)
         .with_indexer_config(IndexerRpcConfig::at_slot(42))
-        .with_asset_discovery()
-        .fetch(&indexer)
+        .fetch(&indexer, &original)
         .unwrap();
     assert!(
         scan.spendable.utxos().next().is_none(),
@@ -773,6 +894,7 @@ fn discovery_reuses_pages_and_follows_newly_resolved_nullifiers() {
     assert_eq!(scan.history.transactions.len(), 3);
     assert!(scan.history.unknown_asset_ids.is_empty());
     assert!(scan.history.unknown_mints.is_empty());
+    assert!(scan.unresolved_outputs.is_empty());
     assert_eq!(scan.asset_registry.asset_id(&MINT).unwrap(), 2);
     assert_eq!(scan.asset_registry.asset_id(&OTHER_PROGRAM).unwrap(), 3);
     assert!(
@@ -792,9 +914,8 @@ fn discovery_reuses_pages_and_follows_newly_resolved_nullifiers() {
         .borrow()
         .iter()
         .all(|slot| *slot == Some(42)));
-    UtxoScan::new(&owner, &scan.asset_registry)
-        .with_asset_discovery()
-        .fetch(&indexer)
+    UtxoScan::new(&owner)
+        .fetch(&indexer, &scan.asset_registry)
         .unwrap();
     assert_eq!(
         *indexer.registry_reads.borrow(),
@@ -820,12 +941,12 @@ fn discovery_requires_the_scan_slot_and_all_fetched_transaction_slots() {
             ..Indexer::default()
         };
         let assets = AssetRegistry::default();
-        let scan = UtxoScan::new(&owner, &assets).with_asset_discovery();
+        let scan = UtxoScan::new(&owner);
         let scan = match required_slot {
             Some(slot) => scan.with_indexer_config(IndexerRpcConfig::at_slot(slot)),
             None => scan,
         }
-        .fetch(&indexer)
+        .fetch(&indexer, &assets)
         .unwrap();
         assert_eq!(
             *indexer.registry_required_slots.borrow(),
@@ -863,10 +984,9 @@ fn discovery_in_a_nullifier_round_requires_that_transactions_slot() {
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    let scan = UtxoScan::new(&owner, &assets)
+    let scan = UtxoScan::new(&owner)
         .with_indexer_config(IndexerRpcConfig::at_slot(42))
-        .with_asset_discovery()
-        .fetch(&indexer)
+        .fetch(&indexer, &assets)
         .unwrap();
     assert_eq!(*indexer.registry_required_slots.borrow(), vec![Some(97)]);
     assert_eq!(
@@ -891,7 +1011,7 @@ fn a_lagging_registry_node_cannot_return_a_successful_partial_scan() {
     };
     let assets = AssetRegistry::default();
     assert!(matches!(
-        UtxoScan::new(&owner, &assets).with_asset_discovery().fetch(&indexer),
+        UtxoScan::new(&owner).fetch(&indexer, &assets),
         Err(ClientError::Rpc(message)) if message == "minimum context slot has not been reached"
     ));
     assert_eq!(*indexer.registry_required_slots.borrow(), vec![Some(90)]);
@@ -919,10 +1039,7 @@ fn discovery_reports_unresolved_assets_without_hiding_known_balances_or_spends()
         ..Indexer::default()
     };
     let original = AssetRegistry::default();
-    let scan = UtxoScan::new(&owner, &original)
-        .with_asset_discovery()
-        .fetch(&indexer)
-        .unwrap();
+    let scan = UtxoScan::new(&owner).fetch(&indexer, &original).unwrap();
     assert_eq!(scan.history.unknown_asset_ids, BTreeSet::from([2]));
     assert_eq!(scan.history.unknown_mints, BTreeSet::from([MINT]));
     assert_eq!(scan.spendable.unknown_asset_ids, BTreeSet::from([2]));
@@ -964,7 +1081,7 @@ fn a_registry_failure_is_not_a_successful_partial_scan() {
     };
     let original = AssetRegistry::default();
     assert!(
-        matches!(UtxoScan::new(&owner, &original).with_asset_discovery().fetch(&indexer), Err(ClientError::Rpc(message)) if message == "registry unavailable")
+        matches!(UtxoScan::new(&owner).fetch(&indexer, &original), Err(ClientError::Rpc(message)) if message == "registry unavailable")
     );
 }
 
@@ -986,10 +1103,7 @@ fn an_unknown_asset_in_a_later_round_does_not_stop_following_known_nullifiers() 
         ..Indexer::default()
     };
     let assets = AssetRegistry::default();
-    let scan = UtxoScan::new(&owner, &assets)
-        .with_asset_discovery()
-        .fetch(&indexer)
-        .unwrap();
+    let scan = UtxoScan::new(&owner).fetch(&indexer, &assets).unwrap();
     assert_eq!(scan.history.unknown_asset_ids, BTreeSet::from([3]));
     assert!(scan.history.unknown_mints.is_empty());
     assert_eq!(scan.spendable.unknown_asset_ids, BTreeSet::from([3]));
@@ -1020,7 +1134,7 @@ fn discovery_does_not_overwrite_a_conflicting_cached_mapping() {
     };
     let assets = AssetRegistry::new([(4, MINT)]).unwrap();
     assert!(matches!(
-        UtxoScan::new(&owner, &assets).with_asset_discovery().fetch(&indexer),
+        UtxoScan::new(&owner).fetch(&indexer, &assets),
         Err(ClientError::InvalidSplAssetRegistry { mint }) if mint == MINT
     ));
     assert_eq!(assets.asset_id(&MINT).unwrap(), 4);
@@ -1036,15 +1150,15 @@ fn explicit_assets_stay_an_allowlist_and_known_assets_need_no_lookup() {
         ..Indexer::default()
     };
     let original = AssetRegistry::default();
-    let scan = UtxoScan::new(&owner, &original).fetch(&indexer).unwrap();
+    let scan = UtxoScan::new(&owner)
+        .disable_asset_discovery()
+        .fetch(&indexer, &original)
+        .unwrap();
     assert_eq!(scan.history.unknown_mints, BTreeSet::from([MINT]));
     assert!(scan.spendable.utxos().next().is_none());
     assert_eq!(*indexer.registry_reads.borrow(), 0);
     let known = AssetRegistry::new([(2, MINT)]).unwrap();
-    let scan = UtxoScan::new(&owner, &known)
-        .with_asset_discovery()
-        .fetch(&indexer)
-        .unwrap();
+    let scan = UtxoScan::new(&owner).fetch(&indexer, &known).unwrap();
     assert_eq!(
         scan.spendable.balances.get_balance(MINT).unwrap().amount,
         30

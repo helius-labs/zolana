@@ -26,10 +26,10 @@ pub mod rpc;
 pub mod scan;
 pub mod user_registry;
 
-pub use authority::ProofAuthority;
+pub use authority::{LocalMergeKeys, MergeKeys, ProofAuthority};
 pub use client::{
     check_merge_record, check_service_url, AsyncIndexer, AsyncZolanaClient, BlockingIndexer,
-    BlockingRpc, MergeSubmission, ProvedMerge, SignedPrivateTransaction, Submission,
+    BlockingRpc, MergeProofRequest, ProvedMerge, ProvedTransaction, TransactionProofRequest,
     UnsignedMessage, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
 };
 pub use error::ClientError;
@@ -69,12 +69,15 @@ pub use rpc::{
     GetMerkleProofsResponse, GetNonInclusionProofsResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
-    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions, Rpc,
-    ShieldedTransaction, ShieldedTransactionStream, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE,
-    MAX_USER_RECORD_OWNERS, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    NonInclusionProof, OutputContext, OutputSlot, RingHistoryOptions, Rpc, ShieldedTransaction,
+    ShieldedTransactionStream, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE, MAX_USER_RECORD_OWNERS,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
-pub use scan::{fetch_asset_id, fetch_spl_asset_registrations, UtxoScan, UtxoScanResult};
+pub use scan::{
+    fetch_asset_id, fetch_spl_asset_registrations, UnresolvedOutput, UnresolvedOutputReason,
+    UtxoScan, UtxoScanResult,
+};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

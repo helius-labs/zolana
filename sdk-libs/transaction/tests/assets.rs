@@ -50,3 +50,31 @@ fn rejected_registry_insertions_are_atomic() {
     assert_eq!(registry.asset_id(&b).unwrap(), 3);
     assert_eq!(registry.asset_id(&a).unwrap(), 2);
 }
+
+#[test]
+fn extending_a_registry_accepts_identical_mappings_and_adds_unknown_ones() {
+    let first_mint = Address::new_from_array([7; 32]);
+    let second_mint = Address::new_from_array([8; 32]);
+    let mut registry = AssetRegistry::new([(2, first_mint)]).unwrap();
+    let discoveries = AssetRegistry::new([(2, first_mint), (3, second_mint)]).unwrap();
+    registry.extend(&discoveries).unwrap();
+    registry.extend(&discoveries).unwrap();
+    assert_eq!(registry, discoveries);
+}
+
+#[test]
+fn conflicting_registry_extensions_leave_every_mapping_unchanged() {
+    let first_mint = Address::new_from_array([7; 32]);
+    let second_mint = Address::new_from_array([8; 32]);
+    let third_mint = Address::new_from_array([9; 32]);
+    for (conflict, expected) in [
+        ((2, third_mint), TransactionError::DuplicateAssetId(2)),
+        ((4, first_mint), TransactionError::DuplicateMint(first_mint)),
+    ] {
+        let mut registry = AssetRegistry::new([(2, first_mint)]).unwrap();
+        let before = registry.clone();
+        let discoveries = AssetRegistry::new([(3, second_mint), conflict]).unwrap();
+        assert_eq!(registry.extend(&discoveries), Err(expected));
+        assert_eq!(registry, before);
+    }
+}

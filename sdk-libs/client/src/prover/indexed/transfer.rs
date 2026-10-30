@@ -73,6 +73,14 @@ impl IndexedTransferPreparation<'_> {
         authority: &dyn ProofAuthority,
         allow_dummy_inputs: bool,
     ) -> Result<PreparedIndexedTransfer, ClientError> {
+        self.prepare_with_authorities(&[authority], allow_dummy_inputs)
+    }
+
+    pub(crate) fn prepare_with_authorities(
+        self,
+        authorities: &[&dyn ProofAuthority],
+        allow_dummy_inputs: bool,
+    ) -> Result<PreparedIndexedTransfer, ClientError> {
         let Self { transaction, rail } = self;
         if !allow_dummy_inputs {
             if let Some(index) = transaction
@@ -220,7 +228,11 @@ impl IndexedTransferPreparation<'_> {
             address_nullifiers.push(input.private_tx_address_nullifier());
             nullifiers.push(nullifier);
         }
-        authority.complete_inputs(&mut local_inputs)?;
+        crate::authority::complete_with_authorities(
+            &mut local_inputs,
+            &transaction.input_utxos,
+            authorities,
+        )?;
         let first = nullifiers.first().ok_or(ClientError::NoInputs)?;
         let seed = derive_output_blinding_seed(first, &transaction.blinding_seed)?;
         for (index, output) in transaction.output_utxos.iter().enumerate() {
@@ -737,7 +749,7 @@ mod tests {
                         ring_program_id: ring,
                         shape,
                     }
-                    .build()
+                    .assemble()
                     .unwrap();
                     (
                         IndexedTransferRail::Ring(ring.unwrap()),
@@ -757,7 +769,7 @@ mod tests {
                         ring_program_id: ring,
                         shape,
                     }
-                    .build()
+                    .assemble()
                     .unwrap();
                     (
                         IndexedTransferRail::RingAuthority(ring.unwrap()),
@@ -779,7 +791,7 @@ mod tests {
                         ring_program_id: ring,
                         shape,
                     }
-                    .build()
+                    .assemble()
                     .unwrap();
                     (
                         IndexedTransferRail::AnonymousRingEddsa {

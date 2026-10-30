@@ -23,6 +23,6 @@ pub use types::{
     GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
-    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,
-    ShieldedTransaction, ShieldedTransactionStream, UserRecord, MAX_USER_RECORD_OWNERS,
+    NonInclusionProof, OutputContext, OutputSlot, RingHistoryOptions, ShieldedTransaction,
+    ShieldedTransactionStream, UserRecord, MAX_USER_RECORD_OWNERS,
 };

@@ -42,14 +42,14 @@ impl ZolanaProgramTest {
     }
 
     /// A client whose RPC and indexer are this harness, proving through
-    /// `prover`. [`ZolanaClient::with_prover`] over two clones of
+    /// `prover`. [`ZolanaClient::from_parts`] over two clones of
     /// [`Self::into_handle`] gives one with a custom prover.
     pub fn into_client(
         self,
         prover: ProverClient,
     ) -> ZolanaClient<ProgramTestHandle, ProgramTestHandle> {
         let handle = self.into_handle();
-        ZolanaClient::new(handle.clone(), handle, prover)
+        ZolanaClient::from_parts(handle.clone(), handle, prover)
     }
 }
 

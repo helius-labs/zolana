@@ -61,8 +61,6 @@ impl<T: Send + Sync + 'static> Blocking<T> {
     }
 }
 
-/// [`Rpc::prove`] is not lifted: it borrows an authority for the call, which
-/// cannot move to the pool. A `ZolanaClient` proves with its own prover.
 #[async_trait]
 impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     async fn get_program_accounts_filtered(

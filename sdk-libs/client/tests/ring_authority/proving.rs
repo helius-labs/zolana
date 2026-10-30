@@ -2,8 +2,9 @@
 
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
+use spr_client::Prover as _;
 use spr_client::{
-    ProverClient, ProverExt, PublicTransfers, RingAuthorityProver, Rpc, Shape, TransferInputUtxo,
+    ProverClient, PublicTransfers, RingAuthorityProver, Rpc, Shape, TransferInputUtxo,
 };
 use spr_interface::{
     instruction::{
@@ -111,10 +112,13 @@ fn prove_and_verify(
     n_in: usize,
     n_out: usize,
 ) {
-    let mut result = prover.build().expect("build ring-authority witness");
+    let mut result = prover.assemble().expect("build ring-authority witness");
     complete_inputs(&mut result.inputs.inputs, &keys);
     let proof = ProverClient::local()
-        .prove_ring_authority(&result.inputs)
+        .prove(
+            &spr_client::prover::requests::ring_authority(&result.inputs)
+                .expect("encode ring proof request"),
+        )
         .expect("prove ring-authority");
     let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
     let mut verifier = Groth16Verifier::new(

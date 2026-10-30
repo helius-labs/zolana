@@ -71,7 +71,7 @@ pub struct RingAuthorityProofResult {
 }
 
 impl RingAuthorityProver {
-    pub fn build(self) -> Result<RingAuthorityProofResult, ClientError> {
+    pub fn assemble(self) -> Result<RingAuthorityProofResult, ClientError> {
         validate_shape(self.shape, self.inputs.len(), self.outputs.len())?;
 
         let AssembledTransaction {

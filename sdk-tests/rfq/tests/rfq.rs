@@ -81,17 +81,13 @@ fn cosigned_rfq_settlement() -> Result<()> {
     // Both owners sign, in input order: the maker pays too, but paying alone
     // authorizes no spend.
     let owner_signers = proof_inputs.owner_signer_pubkeys()?;
-    let data = localnet
-        .client
-        .prove_transact(
-            proof_inputs,
-            None,
-            &spr_test_utils::utxo::ProofKeys(&[
-                &maker.keypair.nullifier_key,
-                &taker.keypair.nullifier_key,
-            ]),
-        )
-        .map_err(|e| anyhow!("prove transact: {e:?}"))?;
+    let data = spr_client::TransactionProofRequest::new(
+        proof_inputs,
+        &[&maker.keypair.nullifier_key, &taker.keypair.nullifier_key],
+    )?
+    .prove_sync(&localnet.client)
+    .map(|proved| proved.instruction_data().clone())
+    .map_err(|e| anyhow!("prove transact: {e:?}"))?;
     let ix = Transact {
         payer: maker_solana.pubkey(),
         input_trees: vec![localnet.tree],

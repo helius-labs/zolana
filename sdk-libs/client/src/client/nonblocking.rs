@@ -9,24 +9,20 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
-use spr_transaction::{instructions::transact::SppProofInputs, utxo::SppProofInputUtxo};
+use spr_transaction::utxo::SppProofInputUtxo;
 
 use crate::{
-    authority::ProofAuthority,
     error::ClientError,
-    prover::{
-        transact::witness::{assemble, SpendProof},
-        verify_confidential_transfer_inputs, ProofCompressed,
-    },
+    prover::transact::witness::SpendProof,
     rpc::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexerRpcConfig,
-        ProgramAccountsFilter, ProveResult, RingHistoryOptions, ShieldedTransactionStream,
+        ProgramAccountsFilter, RingHistoryOptions, ShieldedTransactionStream,
     },
 };
 
-use super::{AsyncIndexer, AsyncZolanaClient, TransferPreparation};
+use super::{AsyncIndexer, AsyncZolanaClient};
 
 #[async_trait]
 impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
@@ -268,46 +264,5 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
         self.indexer
             .get_user_records(owners, Some(config.unwrap_or(self.indexer_config)))
             .await
-    }
-
-    async fn prove(
-        &self,
-        transaction: SppProofInputs,
-        authority: &dyn ProofAuthority,
-    ) -> Result<ProveResult, ClientError> {
-        if let Some(server) = self.indexed_prover() {
-            let proved = server
-                .prove_indexed(
-                    &TransferPreparation {
-                        transaction,
-                        config: self.indexer_config,
-                    }
-                    .prepare(authority)?,
-                )
-                .await?;
-            return Ok(ProveResult {
-                proof: proved.proof,
-                public_inputs: vec![proved.public_input_hash],
-                circuit_id: 0,
-            });
-        }
-        let witnesses =
-            AsyncWitnessReader::transaction_proofs(&self.indexer, &transaction.input_utxos, None)
-                .await?;
-        let mut assembled = assemble(
-            transaction,
-            &witnesses.spend_proofs,
-            &witnesses.dummy_nullifier_proofs,
-        )?;
-        let inputs = &mut assembled.prover_inputs;
-        authority.complete_inputs(&mut inputs.inputs)?;
-        let proof = self.prove_transfer(inputs).await?;
-        verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
-        let circuit_id = 0;
-        Ok(ProveResult {
-            proof: ProofCompressed::try_from(proof)?,
-            public_inputs: vec![assembled.public_input_hash],
-            circuit_id,
-        })
     }
 }

@@ -2,12 +2,13 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
 use spr_event::{split_merge_output_body, OutputDataEncoding};
+use spr_hasher::primitives::is_canonical_bn254_scalar_be;
 use spr_keypair::{shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, KeypairError};
 
 use crate::{
     asset::{AssetBalance, AssetRegistry, Balances, Mint},
     error::TransactionError,
-    indexer_types::{OutputSlot, ShieldedTransaction},
+    indexer_types::{OutputContext, OutputSlot, ShieldedTransaction},
     instructions::merge::MergeOutputPlaintext,
     keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::{
@@ -30,6 +31,48 @@ pub struct DecryptionResult {
     /// that the asset registry has no id for. Those outputs are left out;
     /// register the mints and decrypt again.
     pub unknown_mints: BTreeSet<Address>,
+    pub unresolved_outputs: Vec<UnresolvedOutput>,
+}
+
+/// A candidate output that could not be resolved. This does not establish ownership.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnresolvedOutput {
+    pub tx_signature: solana_signature::Signature,
+    pub event_index: Option<u16>,
+    pub slot_index: u32,
+    pub output_context: OutputContext,
+    pub reason: UnresolvedOutputReason,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UnresolvedOutputReason {
+    UnknownAssetId { asset_id: u64 },
+    UnknownMint { mint: Address },
+    NotDecryptable,
+    InvalidFraming,
+    UnsupportedEncoding,
+    CommitmentMismatch,
+}
+
+enum DecodeError {
+    Transaction(TransactionError),
+    Unresolved(UnresolvedOutputReason),
+}
+
+impl From<TransactionError> for DecodeError {
+    fn from(error: TransactionError) -> Self {
+        Self::Transaction(error)
+    }
+}
+
+impl From<KeypairError> for DecodeError {
+    fn from(error: KeypairError) -> Self {
+        Self::Transaction(error.into())
+    }
+}
+
+fn unresolved(reason: UnresolvedOutputReason) -> DecodeError {
+    DecodeError::Unresolved(reason)
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -146,30 +189,76 @@ impl DecryptionResult {
         let mut found = Vec::new();
         let mut unknown_asset_ids = BTreeSet::new();
         let mut unknown_mints = BTreeSet::new();
+        let mut unresolved_outputs = Vec::new();
         for tx in transactions {
             for (position, slot) in tx.output_slots.iter().enumerate() {
                 let slot_index =
                     u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?;
+                let diagnostic = |reason| UnresolvedOutput {
+                    tx_signature: tx.tx_signature,
+                    event_index: tx.event_index,
+                    slot_index,
+                    output_context: slot.output_context.clone(),
+                    reason,
+                };
                 let decoded =
                     match decode_slot(shielded_keys, &address, tx, slot, slot_index, assets) {
                         Ok(Some(decoded)) => decoded,
-                        Ok(None) => continue,
+                        Ok(None) => {
+                            if !matches!(slot.output_data(), Some(OutputDataEncoding::Plaintext(_)))
+                            {
+                                unresolved_outputs
+                                    .push(diagnostic(UnresolvedOutputReason::NotDecryptable));
+                            }
+                            continue;
+                        }
                         // An asset the registry lacks leaves one output out and
                         // is reported, rather than failing the whole scan.
                         // Deposits and merges name their mint; every other
                         // output carries a registry id.
-                        Err(TransactionError::UnknownAsset(asset_id)) => {
+                        Err(DecodeError::Transaction(TransactionError::UnknownAsset(asset_id))) => {
                             unknown_asset_ids.insert(asset_id);
+                            unresolved_outputs.push(diagnostic(
+                                UnresolvedOutputReason::UnknownAssetId { asset_id },
+                            ));
                             continue;
                         }
-                        Err(TransactionError::UnknownMint(mint)) => {
+                        Err(DecodeError::Transaction(TransactionError::UnknownMint(mint))) => {
                             unknown_mints.insert(mint);
+                            unresolved_outputs
+                                .push(diagnostic(UnresolvedOutputReason::UnknownMint { mint }));
                             continue;
                         }
-                        Err(error) => return Err(error),
+                        Err(DecodeError::Unresolved(reason)) => {
+                            unresolved_outputs.push(diagnostic(reason));
+                            continue;
+                        }
+                        Err(DecodeError::Transaction(error)) => return Err(error),
                     };
+                let mut commitment_failed = false;
+                let mut resolved_owned_output = false;
                 for utxo in decoded.utxos {
                     let hash = slot.output_context.hash;
+                    if !is_canonical_bn254_scalar_be(&hash) {
+                        commitment_failed = true;
+                        continue;
+                    }
+                    if utxo.owner == address.signing_pubkey {
+                        let computed_hash = utxo.hash(
+                            &address.nullifier_pubkey,
+                            &decoded.data_hash.unwrap_or_default(),
+                            &decoded.ring_data_hash.unwrap_or_default(),
+                            slot.output_context.tree_id,
+                        );
+                        match computed_hash {
+                            Ok(computed) if computed == hash => resolved_owned_output = true,
+                            Ok(_) => commitment_failed = true,
+                            Err(_) => {
+                                commitment_failed = true;
+                                continue;
+                            }
+                        }
+                    }
                     found.push(WalletUtxo {
                         utxo,
                         nullifier_pubkey: address.nullifier_pubkey,
@@ -185,6 +274,9 @@ impl DecryptionResult {
                         tx_signature: tx.tx_signature,
                         slot_index,
                     });
+                }
+                if commitment_failed && !resolved_owned_output {
+                    unresolved_outputs.push(diagnostic(UnresolvedOutputReason::CommitmentMismatch));
                 }
             }
         }
@@ -206,6 +298,7 @@ impl DecryptionResult {
         );
         self.unknown_asset_ids.extend(unknown_asset_ids);
         self.unknown_mints.extend(unknown_mints);
+        self.unresolved_outputs.extend(unresolved_outputs);
         Ok(())
     }
 }
@@ -350,9 +443,9 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
     slot: &OutputSlot,
     slot_index: u32,
     assets: &AssetRegistry,
-) -> Result<Option<DecodedSlot>, TransactionError> {
+) -> Result<Option<DecodedSlot>, DecodeError> {
     let Some(output_data) = slot.output_data() else {
-        return Ok(None);
+        return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
     };
     let owner_cx = OwnerCx {
         owner: address.signing_pubkey,
@@ -364,34 +457,48 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
     match output_data {
         OutputDataEncoding::Plaintext(blob) => {
             let Some((&scheme_byte, body)) = blob.split_first() else {
-                return Ok(None);
+                return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
             };
             let Ok(scheme) = EncryptedScheme::from_byte(scheme_byte) else {
-                return Ok(None);
+                return Err(unresolved(UnresolvedOutputReason::UnsupportedEncoding));
             };
             match scheme {
                 EncryptedScheme::Proofless => {
                     let Ok(plaintext) = Proofless::deserialize(body) else {
-                        return Ok(None);
+                        return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
                     };
                     if plaintext.owner != address.owner_hash()? {
                         return Ok(None);
                     }
                     let data_hash = plaintext.data_hash;
                     let ring_data_hash = plaintext.ring_data_hash;
-                    Ok(
-                        rebuilt(Proofless::into_utxos(plaintext, &owner_cx))?.map(|utxos| {
-                            DecodedSlot {
-                                utxos,
-                                data_hash,
-                                ring_data_hash,
-                            }
-                        }),
-                    )
+                    let mint = Address::new_from_array(plaintext.asset);
+                    // The mint address enters the commitment; its compact ID is
+                    // resolved only after the commitment authenticates the output.
+                    let mut utxo =
+                        Proofless::into_utxo(plaintext, address.signing_pubkey, Mint::new(mint, 0));
+                    if utxo
+                        .hash(
+                            &address.nullifier_pubkey,
+                            &data_hash.unwrap_or_default(),
+                            &ring_data_hash.unwrap_or_default(),
+                            slot.output_context.tree_id,
+                        )
+                        .ok()
+                        != Some(slot.output_context.hash)
+                    {
+                        return Err(unresolved(UnresolvedOutputReason::CommitmentMismatch));
+                    }
+                    utxo.asset = assets.mint(&mint)?;
+                    Ok(Some(DecodedSlot {
+                        utxos: vec![utxo],
+                        data_hash,
+                        ring_data_hash,
+                    }))
                 }
                 EncryptedScheme::PlaintextTransfer => {
                     let Ok(plaintext) = PlaintextTransfer::deserialize(body) else {
-                        return Ok(None);
+                        return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
                     };
                     Ok(
                         rebuilt(PlaintextTransfer::into_utxos(plaintext, &owner_cx))?.map(
@@ -403,15 +510,15 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                         ),
                     )
                 }
-                _ => Ok(None),
+                _ => Err(unresolved(UnresolvedOutputReason::UnsupportedEncoding)),
             }
         }
         OutputDataEncoding::Encrypted(blob) => {
             let Some((&scheme_byte, body)) = blob.split_first() else {
-                return Ok(None);
+                return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
             };
             let Ok(scheme) = EncryptedScheme::from_byte(scheme_byte) else {
-                return Ok(None);
+                return Err(unresolved(UnresolvedOutputReason::UnsupportedEncoding));
             };
             // A ring merge publishes its ciphertext unverified: the ring merge
             // proof does not bind it, so only the commitment check accepts it.
@@ -421,7 +528,7 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             let (ciphertext, viewing_pubkeys) = match scheme {
                 EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
                     let Ok(viewing_pubkey) = Confidential::embedded_viewing_pk(body) else {
-                        return Ok(None);
+                        return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
                     };
                     if !shielded_keys
                         .viewing_public_keys()
@@ -430,14 +537,14 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                         return Ok(None);
                     }
                     let Some((_, ciphertext)) = body.split_at_checked(X25519_PUBKEY_LEN) else {
-                        return Ok(None);
+                        return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
                     };
                     (ciphertext, vec![viewing_pubkey])
                 }
-                _ => return Ok(None),
+                _ => return Err(unresolved(UnresolvedOutputReason::UnsupportedEncoding)),
             };
             let (Some(tx_viewing_pubkey), Some(salt)) = (tx.tx_viewing_pk, tx.salt) else {
-                return Ok(None);
+                return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
             };
             let requests: Vec<_> = viewing_pubkeys
                 .into_iter()
@@ -453,6 +560,8 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             let Some(plaintexts) = trial_decrypt(shielded_keys, &requests)? else {
                 return Ok(None);
             };
+            let mut candidate = None;
+            let mut unknown_asset = None;
             for bytes in plaintexts {
                 let utxos = match scheme {
                     EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
@@ -463,16 +572,42 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     }
                     _ => return Ok(None),
                 };
-                let Some(utxos) = rebuilt(utxos)? else {
-                    continue;
+                let utxos = match rebuilt(utxos) {
+                    Ok(Some(utxos)) => utxos,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        unknown_asset = Some(error);
+                        continue;
+                    }
                 };
-                return Ok(Some(DecodedSlot {
+                let resolves_output = utxos.iter().any(|utxo| {
+                    utxo.owner == address.signing_pubkey
+                        && utxo
+                            .hash(
+                                &address.nullifier_pubkey,
+                                &[0; 32],
+                                &[0; 32],
+                                slot.output_context.tree_id,
+                            )
+                            .ok()
+                            == Some(slot.output_context.hash)
+                });
+                let decoded = DecodedSlot {
                     utxos,
                     data_hash: None,
                     ring_data_hash: None,
-                }));
+                };
+                if resolves_output {
+                    return Ok(Some(decoded));
+                }
+                if candidate.is_none() {
+                    candidate = Some(decoded);
+                }
             }
-            Ok(None)
+            match unknown_asset {
+                Some(error) => Err(error.into()),
+                None => Ok(candidate),
+            }
         }
         OutputDataEncoding::VerifiablyEncrypted(blob) => {
             decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx, false)
@@ -495,25 +630,28 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     blob: &[u8],
     owner_cx: OwnerCx,
     ring: bool,
-) -> Result<Option<DecodedSlot>, TransactionError> {
+) -> Result<Option<DecodedSlot>, DecodeError> {
     let Some((&scheme_byte, body)) = blob.split_first() else {
-        return Ok(None);
+        return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
     };
     if EncryptedScheme::from_byte(scheme_byte).ok() != Some(EncryptedScheme::Merge) {
-        return Ok(None);
+        return Err(unresolved(UnresolvedOutputReason::UnsupportedEncoding));
     }
     let Some((ring_data_hash, encrypted)) = split_merge_output_body(body) else {
-        return Ok(None);
+        return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
     };
     // A ring merge leads with its output ring data hash, names its ring program
     // and is published unverified; a slot missing any of these is not a merge
     // output.
     if ring_data_hash.is_some() != ring || tx.ring_program_id.is_some() != ring {
-        return Ok(None);
+        return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
     }
     let Some(&first_nullifier) = tx.nullifiers.first() else {
-        return Ok(None);
+        return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
     };
+    if !is_canonical_bn254_scalar_be(&first_nullifier) {
+        return Err(unresolved(UnresolvedOutputReason::InvalidFraming));
+    }
     let requests = [
         DeriveRequest::MergeOutputKey { first_nullifier },
         DeriveRequest::MergeOutputBlinding { first_nullifier },
@@ -544,7 +682,7 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
         context.tree_id,
     )?;
     if hash != context.hash {
-        return Ok(None);
+        return Err(unresolved(UnresolvedOutputReason::CommitmentMismatch));
     }
     utxo.asset = owner_cx.assets.mint(&plaintext.mint)?;
     Ok(Some(DecodedSlot {

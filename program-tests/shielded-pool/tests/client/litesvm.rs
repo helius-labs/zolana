@@ -12,8 +12,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
-    IndexerRequirement, MergeSubmission, ProofDataSource, ProverClient, Rpc,
-    SignedPrivateTransaction, Submission,
+    IndexerRequirement, MergeProofRequest, ProofDataSource, ProverClient, Rpc,
+    TransactionProofRequest,
 };
 use spr_interface::{instruction::instruction_data::transact::OwnerTag, state::read_tree_id};
 use spr_keypair::ShieldedKeypair;
@@ -146,12 +146,10 @@ fn a_client_over_the_harness_sends_a_transfer_with_account_tagged_padding() {
     let client = harness
         .into_client(ProverClient::local())
         .with_proof_data_source(ProofDataSource::Client);
-    let signed = SignedPrivateTransaction {
-        transaction,
-        settlement_transfers: Vec::new(),
-    };
-    let signature = Submission::new(&signed, payer.pubkey(), &sender)
-        .send_sync(&client, &[&payer])
+    let signed = transaction;
+    let signature = TransactionProofRequest::new(signed, &[&sender])
+        .expect("request")
+        .prove_and_send_sync(&client, &[&payer])
         .expect("proved, sent, confirmed and indexed");
     assert!(client.confirm_transaction(signature).expect("confirmed"));
     assert!(client
@@ -161,7 +159,7 @@ fn a_client_over_the_harness_sends_a_transfer_with_account_tagged_padding() {
         .is_nullifier_spent(&nullifier));
 }
 
-/// The high-level builder selects the EdDSA shape before encryption; Submission
+/// The high-level builder selects the EdDSA shape before encryption; the request
 /// proves that rail and sends a message signed only by the relayer.
 #[test]
 fn a_client_submission_proves_the_owner_authorization_for_a_relayer() {
@@ -191,24 +189,28 @@ fn a_client_submission_proves_the_owner_authorization_for_a_relayer() {
         ),
         (2, 8)
     );
-    let signed = SignedPrivateTransaction {
-        transaction,
-        settlement_transfers: Vec::new(),
-    };
     let client = harness
         .into_client(ProverClient::local())
         .with_proof_data_source(ProofDataSource::Client);
     // A missing EdDSA capability keeps the default rail's owner signature
     // requirement. Having only the payer must never authorize the sender.
-    let default = Submission::new(&signed, payer.pubkey(), &sender)
-        .finish_unsigned_sync(&client)
+    let default = TransactionProofRequest::new(transaction.clone(), &[&sender])
+        .expect("request")
+        .prove_sync(&client)
         .expect("prove signer transfer");
+    let (blockhash, height) = client.get_latest_blockhash().expect("blockhash");
+    let default = default
+        .build_solana_message(blockhash, height, client.compute_budget())
+        .expect("signer message");
     assert!(spr_client::sign_transaction(default.message, &[&payer]).is_err());
-    let submission = Submission::new(&signed, payer.pubkey(), &sender)
+    let request = TransactionProofRequest::new(transaction, &[&sender])
+        .expect("request")
         .with_confidential_eddsa_owner(&sender.signing_key);
-    let unsigned = submission
-        .finish_unsigned_sync(&client)
-        .expect("prove relayed transfer");
+    let proved = request.prove_sync(&client).expect("prove relayed transfer");
+    let (blockhash, height) = client.get_latest_blockhash().expect("blockhash");
+    let unsigned = proved
+        .build_solana_message(blockhash, height, client.compute_budget())
+        .expect("relayed message");
     assert_eq!(unsigned.message.header().num_required_signatures, 1);
     assert!(!unsigned.message.static_account_keys().contains(
         &solana_pubkey::Pubkey::new_from_array(
@@ -258,7 +260,7 @@ fn a_client_over_the_harness_merges_a_wallets_utxos() {
         .encrypt(&wallet)
         .expect("encrypt");
     assert_eq!(merge.output_utxo.amount, 1_300_000);
-    let submission = MergeSubmission::new(&merge, owner.pubkey(), &address, &wallet.nullifier_key);
+    let submission = MergeProofRequest::new(merge.clone(), &wallet).expect("merge request");
     // The proof binds no payer: any account can send the instruction.
     let proved = submission.prove_sync(&client).expect("proved");
     assert_eq!(
@@ -272,7 +274,7 @@ fn a_client_over_the_harness_merges_a_wallets_utxos() {
         .iter()
         .any(|account| account.pubkey == relayer.pubkey() && account.is_signer));
     let signature = submission
-        .send_sync(&client, &payer)
+        .prove_and_send_sync(&client, &payer)
         .expect("proved, sent, confirmed and indexed");
     assert!(client.confirm_transaction(signature).expect("confirmed"));
     let indexer = client.indexer().lock();

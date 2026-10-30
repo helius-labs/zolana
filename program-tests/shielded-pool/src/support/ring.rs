@@ -5,7 +5,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use spr_client::{
     prover::{field::be, transact::AnonymousEddsaAuthorization},
-    AnonymousEddsaTransferInputs, ProofCompressed, Prover, ProverClient, ProverExt, TransferOutput,
+    AnonymousEddsaTransferInputs, ProofCompressed, Prover, ProverClient, TransferOutput,
 };
 use spr_hasher::{
     hash_chain::{
@@ -303,7 +303,10 @@ impl RealRingTransact {
         let (proof, circuit) = match authorization {
             None => {
                 let proof = ProverClient::local()
-                    .prove_transfer_ring(&prover_inputs)
+                    .prove(
+                        &spr_client::prover::requests::transfer_ring(&prover_inputs)
+                            .expect("encode ring proof request"),
+                    )
                     .unwrap_or_else(|error| {
                         panic!("prove ring transfer {n_inputs}x{n_outputs}: {error}")
                     });

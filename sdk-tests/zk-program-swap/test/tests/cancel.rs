@@ -139,14 +139,13 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             cache_accounts: Default::default(),
         };
 
-        let spp_proof = localnet
-            .client
-            .indexer()
-            .prove_transact(
-                spp_proof_inputs.clone(),
-                &spr_keypair::NullifierKey::from_secret([0; 31]),
-            )
-            .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
+        let spp_proof = spr_client::TransactionProofRequest::new(
+            spp_proof_inputs.clone(),
+            &[&spr_keypair::NullifierKey::from_secret([0; 31])],
+        )?
+        .prove_sync(&localnet.client)
+        .map(|proved| proved.instruction_data().clone())
+        .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
         let make_proof_inputs = MakeProofInputParams {
             order_utxo,
@@ -235,14 +234,13 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             output_tree_id: localnet.tree_id,
         };
 
-        let spp_proof = localnet
-            .client
-            .indexer()
-            .prove_transact(
-                cancel_spp_proof_inputs,
-                &spr_keypair::NullifierKey::from_secret([0; 31]),
-            )
-            .map_err(|e| anyhow!("cancel transact proof: {e:?}"))?;
+        let spp_proof = spr_client::TransactionProofRequest::new(
+            cancel_spp_proof_inputs,
+            &[&spr_keypair::NullifierKey::from_secret([0; 31])],
+        )?
+        .prove_sync(&localnet.client)
+        .map(|proved| proved.instruction_data().clone())
+        .map_err(|e| anyhow!("cancel transact proof: {e:?}"))?;
 
         let cancel_proof = swap_prover_client
             .prove_cancel(&cancel_proof_inputs.to_proof_inputs()?)

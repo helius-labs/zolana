@@ -6,6 +6,7 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use spr_client::Prover as _;
 use spr_client::{
     prover::MergeCacheTarget, MergeProver, MerkleContext, MerkleProof, NonInclusionProof,
     ProofCompressed, ProverClient, ProverExt, SpendProof, STATE_TREE_HEIGHT,
@@ -664,7 +665,10 @@ impl RealRingMergeProof {
         );
 
         let proof = ProverClient::local()
-            .prove_merge_ring(&result.inputs)
+            .prove(
+                &spr_client::prover::requests::merge_ring(&result.inputs)
+                    .expect("encode ring proof request"),
+            )
             .expect("prove ring merge");
         let merge_proof = ProofCompressed::try_from(proof)
             .expect("compress ring merge proof")
@@ -672,7 +676,10 @@ impl RealRingMergeProof {
             .expect("merge rail proof");
 
         RealRingMerge {
-            data: result.ring_instruction_data(merge_proof),
+            data: spr_interface::instruction::instruction_data::merge_ring::MergeRingIxData {
+                output_ring_data_hash: result.output_ring_data_hash,
+                merge: result.instruction_data(merge_proof),
+            },
             nullifiers: result.nullifiers.clone(),
             ring_program_id,
             cache: cache.map(|target| target.address),

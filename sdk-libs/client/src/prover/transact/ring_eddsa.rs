@@ -61,7 +61,7 @@ pub struct RingTransferProofResult {
 }
 
 impl RingTransferProver {
-    pub fn build(self) -> Result<RingTransferProofResult, ClientError> {
+    pub fn assemble(self) -> Result<RingTransferProofResult, ClientError> {
         let shape = self.shape;
         validate_shape(shape, self.inputs.len(), self.outputs.len())?;
         if self.signer_pk_hashes.len() != shape.signer_width() {

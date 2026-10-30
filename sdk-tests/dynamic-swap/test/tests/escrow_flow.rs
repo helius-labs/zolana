@@ -140,12 +140,11 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             let owner_signers = spp_proof_inputs
                 .owner_signer_pubkeys()
                 .map_err(|e| anyhow!("owner signers: {e:?}"))?;
-            let split_transact = env
-                .localnet
-                .client
-                .indexer()
-                .prove_transact(spp_proof_inputs, &env.user.keypair)
-                .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+            let split_transact =
+                spr_client::TransactionProofRequest::new(spp_proof_inputs, &[&env.user.keypair])?
+                    .prove_sync(&env.localnet.client)
+                    .map(|proved| proved.instruction_data().clone())
+                    .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
 
             let split_ix = Transact {
                 payer: user_solana.pubkey(),
@@ -359,18 +358,13 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 output_tree_id: env.localnet.tree_id,
                 cache_accounts: Default::default(),
             };
-            let transact = env
-                .localnet
-                .client
-                .indexer()
-                .prove_transact(
-                    spp_proof_inputs,
-                    &spr_test_utils::utxo::ProofKeys(&[
-                        &env.user.keypair.nullifier_key,
-                        escrow_owner.as_ref(),
-                    ]),
-                )
-                .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+            let transact = spr_client::TransactionProofRequest::new(
+                spp_proof_inputs,
+                &[&env.user.keypair.nullifier_key, escrow_owner.as_ref()],
+            )?
+            .prove_sync(&env.localnet.client)
+            .map(|proved| proved.instruction_data().clone())
+            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
 
             let escrow_authority_owner_hash = escrow_owner
                 .shielded_address()?
@@ -675,12 +669,11 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             output_tree_id: env.localnet.tree_id,
             cache_accounts: Default::default(),
         };
-        let transact = env
-            .localnet
-            .client
-            .indexer()
-            .prove_transact(spp_proof_inputs, escrow_owner.as_ref())
-            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+        let transact =
+            spr_client::TransactionProofRequest::new(spp_proof_inputs, &[escrow_owner.as_ref()])?
+                .prove_sync(&env.localnet.client)
+                .map(|proved| proved.instruction_data().clone())
+                .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
 
         let authority_owner_hash = env
             .authority

@@ -24,6 +24,7 @@ client = ["solana-rpc"]
 proofs = ["reqwest"]
 
 [dependencies]
+spl-token-2022-interface = { workspace = true }
 spr-interface = { workspace = true }
 spr-instruction = { workspace = true }
 spr-indexer-api = { workspace = true }
@@ -73,6 +74,7 @@ solana-transaction-status-client-types = { workspace = true }
 tokio = { workspace = true, features = ["time", "rt", "macros", "sync"] }
 
 [dev-dependencies]
+solana-program-pack = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 spr-prover-tee = { path = "../prover-tee", features = ["test-fixtures"] }
 aes-gcm = { workspace = true }

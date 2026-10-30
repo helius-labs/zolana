@@ -8,9 +8,9 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
-use spr_transaction::{instructions::transact::SppProofInputs, utxo::SppProofInputUtxo};
+use spr_transaction::utxo::SppProofInputUtxo;
 
-use crate::{authority::ProofAuthority, error::ClientError, prover::transact::witness::SpendProof};
+use crate::{error::ClientError, prover::transact::witness::SpendProof};
 
 use super::{
     compute_budget::ComputeBudgetConfig,
@@ -19,13 +19,13 @@ use super::{
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, ProveResult,
-        RingHistoryOptions, ShieldedTransactionStream,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, RingHistoryOptions,
+        ShieldedTransactionStream,
     },
     ProgramAccountsFilter,
 };
 
-/// Combined Solana RPC, SPP indexer, and proving surface used by clients.
+/// Combined Solana RPC and SPP indexer surface used by clients.
 #[allow(unused_variables)]
 pub trait Rpc {
     // ===== Accounts =====
@@ -248,25 +248,9 @@ pub trait Rpc {
     }
 
     // ===== Proving =====
-
-    /// Build the SPP proof for a signed transaction (server-side proving).
-    ///
-    /// `authority` completes the assembled witness: it carries no nullifier
-    /// secret until the owner fills in the inputs it holds.
-    fn prove(
-        &self,
-        proof_inputs: SppProofInputs,
-        authority: &dyn ProofAuthority,
-    ) -> Result<ProveResult, ClientError> {
-        Err(unsupported("prove"))
-    }
-
-    fn send_and_prove(&self, proof_inputs: SppProofInputs) -> Result<Signature, ClientError> {
-        Err(unsupported("send_and_prove"))
-    }
 }
 
-/// Async combined Solana RPC, SPP indexer, and proving surface for production clients.
+/// Async combined Solana RPC and SPP indexer surface for production clients.
 #[async_trait]
 #[allow(unused_variables)]
 pub trait AsyncRpc: Send + Sync {
@@ -454,15 +438,6 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
         Err(unsupported("get_input_merkle_proofs"))
-    }
-
-    /// See [`Rpc::prove`].
-    async fn prove(
-        &self,
-        proof_inputs: SppProofInputs,
-        authority: &dyn ProofAuthority,
-    ) -> Result<ProveResult, ClientError> {
-        Err(unsupported("prove"))
     }
 }
 

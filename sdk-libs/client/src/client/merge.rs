@@ -6,31 +6,29 @@
 use std::sync::Arc;
 
 use solana_address::Address;
+use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
 use solana_signature::Signature;
 use spr_instruction::instruction::MergeTransact;
 use spr_interface::{instruction::instruction_data::merge_transact::MergeTransactIxData, pda};
-use spr_keypair::{NullifierKey, ShieldedAddress};
+use spr_keypair::ShieldedAddress;
 use spr_transaction::instructions::merge::MergeProofInputs;
 use spr_user_registry_interface::{user_record_pda, MergeEncryptionScheme, UserRecord};
 
 use crate::{
     error::ClientError,
     prover::{
-        merge::{MergeProofResult, MergeProver},
-        requests,
-        verify::MergeProofStatement,
-        witness::InputWitnesses,
+        merge::MergeProofResult, requests, verify::MergeProofStatement, witness::InputWitnesses,
         ProofCompressed, Prover,
     },
-    rpc::{compile_message, sign_transaction, AsyncRpc},
+    rpc::{compile_message, sign_transaction, AsyncRpc, ComputeBudgetConfig},
     user_registry::fetch_user_record_optional_checked_async,
 };
 
 use super::{
-    prove_on_blocking_pool, transaction::prove_with_blockhash, AsyncIndexer, AsyncZolanaClient,
-    BlockingIndexer, BlockingRpc, UnsignedMessage, ZolanaClient,
+    prove_on_blocking_pool, AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc,
+    UnsignedMessage, ZolanaClient,
 };
 
 /// Compute-unit ceiling of a `merge_transact`. The widest shape, "Merge 52x1"
@@ -38,29 +36,11 @@ use super::{
 /// ceiling is the transaction-wide maximum.
 pub const MERGE_CU_LIMIT: u32 = 1_400_000;
 
-/// A prepared merge on its way to the chain: whose record authorizes it, the
-/// keys that prove it, and what proves it. The proof does not bind the fee
-/// payer, so [`Self::prove`] stops at a [`ProvedMerge`] any payer can send;
-/// [`Self::finish_unsigned`] builds the message a given payer signs, and
-/// [`Self::send`] signs, sends and confirms it.
-pub struct MergeSubmission<'a> {
-    /// From [`MergeTransaction::encrypt`]. Give it an expiry
-    /// ([`MergeTransaction::with_expiry`]): until it expires, anyone who holds
-    /// the proof can submit it.
-    ///
-    /// [`MergeTransaction::encrypt`]: spr_transaction::instructions::merge::MergeTransaction::encrypt
-    /// [`MergeTransaction::with_expiry`]: spr_transaction::instructions::merge::MergeTransaction::with_expiry
-    pub merge: &'a MergeProofInputs,
-    /// The Solana account whose user record enables merging.
-    pub owner: Address,
-    /// The owner's shielded address, checked against the record before
-    /// proving.
-    pub address: &'a ShieldedAddress,
-    /// Proves the merge. The proof request carries it: a prover other than
-    /// this process learns it, and with it every merged amount.
-    pub nullifier_key: &'a NullifierKey,
-    /// Proves this merge in place of the client's prover.
-    pub prover: Option<Arc<dyn Prover>>,
+/// Encrypted merge inputs and the capability that prepares their proof.
+pub struct MergeProofRequest<'a> {
+    merge: MergeProofInputs,
+    keys: &'a dyn crate::authority::MergeKeys,
+    prover: Option<Arc<dyn Prover>>,
 }
 
 /// A merge proved and verified against its owner's record, ready for any fee
@@ -77,6 +57,25 @@ pub struct ProvedMerge {
 }
 
 impl ProvedMerge {
+    /// Build a message without RPC access. The payer can change without reproving.
+    pub fn build_solana_message(
+        &self,
+        fee_payer: Address,
+        blockhash: Hash,
+        last_valid_block_height: u64,
+        compute_budget: ComputeBudgetConfig,
+    ) -> Result<UnsignedMessage, ClientError> {
+        Ok(UnsignedMessage {
+            message: compile_message(
+                &fee_payer,
+                &[self.instruction(fee_payer)],
+                blockhash,
+                compute_budget,
+            )?,
+            last_valid_block_height,
+        })
+    }
+
     /// The `merge_transact` `payer` pays for and signs. It verifies a Groth16
     /// proof: give its transaction [`MERGE_CU_LIMIT`].
     pub fn instruction(&self, payer: Address) -> Instruction {
@@ -92,20 +91,21 @@ impl ProvedMerge {
     }
 }
 
-impl<'a> MergeSubmission<'a> {
+impl<'a> MergeProofRequest<'a> {
     pub fn new(
-        merge: &'a MergeProofInputs,
-        owner: Address,
-        address: &'a ShieldedAddress,
-        nullifier_key: &'a NullifierKey,
-    ) -> Self {
-        Self {
-            merge,
-            owner,
-            address,
-            nullifier_key,
-            prover: None,
+        merge: MergeProofInputs,
+        keys: &'a dyn crate::authority::MergeKeys,
+    ) -> Result<Self, ClientError> {
+        let address = keys.address()?;
+        if merge.signing_pubkey != address.signing_pubkey {
+            return Err(ClientError::MergeSigningKeyMismatch);
         }
+        input_tree_id(&merge)?;
+        Ok(Self {
+            merge,
+            keys,
+            prover: None,
+        })
     }
 
     #[must_use]
@@ -120,29 +120,37 @@ impl<'a> MergeSubmission<'a> {
         &self,
         client: &AsyncZolanaClient<R, I>,
     ) -> Result<ProvedMerge, ClientError> {
-        let user_record = user_record_pda(&self.owner).0;
-        let record = fetch_user_record_optional_checked_async(client.rpc(), self.owner)
+        let address = self.keys.address()?;
+        if address.signing_pubkey != self.merge.signing_pubkey {
+            return Err(ClientError::MergeSigningKeyMismatch);
+        }
+        let owner = Address::new_from_array(address.signing_pubkey.confidential_view_tag()?);
+        let user_record = user_record_pda(&owner).0;
+        let record = fetch_user_record_optional_checked_async(client.rpc(), owner)
             .await?
             .ok_or(ClientError::UserRegistryRecordNotFound {
-                owner: self.owner,
+                owner,
                 record: user_record,
             })?;
-        check_merge_record(&record, self.owner, self.address)?;
-        let input_tree_id = input_tree_id(self.merge)?;
+        check_merge_record(&record, owner, &address)?;
+        let input_tree_id = input_tree_id(&self.merge)?;
         let commitments = self.merge.input_utxo_hashes()?;
         let witnesses = client
             .indexer
-            .input_witnesses(&commitments, &self.merge.dummy_nullifiers(), None)
+            .input_witnesses(
+                &commitments,
+                &self.merge.dummy_nullifiers(),
+                Some(client.indexer_config),
+            )
             .await?;
         ensure_on_tree(&witnesses, pda::tree(input_tree_id))?;
-        let result = MergeProver {
-            transaction: self.merge.clone(),
-            nullifier_key: self.nullifier_key.clone(),
-            proofs: witnesses.spend_proofs,
-            dummy_nullifier_proofs: witnesses.dummy_nullifier_proofs,
-            cache: None,
-        }
-        .build()?;
+        let result = crate::prover::merge::assemble_merge(
+            self.merge.clone(),
+            self.keys,
+            witnesses.spend_proofs,
+            witnesses.dummy_nullifier_proofs,
+            None,
+        )?;
         let proof = match &self.prover {
             Some(prover) => {
                 prove_on_blocking_pool(Arc::clone(prover), requests::merge(&result.inputs)?).await?
@@ -159,41 +167,25 @@ impl<'a> MergeSubmission<'a> {
         })
     }
 
-    /// The unsigned v1 message of this merge, which `fee_payer` pays for and
-    /// signs alone, and the last block height it can land at. The blockhash
-    /// is fetched beside the proof and retried after proving if that request
-    /// is still pending, failed, or began more than ten seconds ago, including
-    /// RPC latency.
-    /// Proof errors return without waiting for the blockhash request.
-    pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
-        &self,
-        client: &AsyncZolanaClient<R, I>,
-        fee_payer: Address,
-    ) -> Result<UnsignedMessage, ClientError> {
-        let (proved, (recent_blockhash, last_valid_block_height)) =
-            prove_with_blockhash(client.rpc(), self.prove(client)).await?;
-        let merge = proved.instruction(fee_payer);
-        let mut compute_budget = client.compute_budget();
-        compute_budget.cu_limit = MERGE_CU_LIMIT;
-        Ok(UnsignedMessage {
-            message: compile_message(
-                &fee_payer,
-                core::slice::from_ref(&merge),
-                recent_blockhash,
-                compute_budget,
-            )?,
-            last_valid_block_height,
-        })
-    }
-
     /// Prove, sign with `fee_payer`, send through `client` and wait until the
     /// merge is confirmed and indexed.
-    pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
+    pub async fn prove_and_send<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncZolanaClient<R, I>,
         fee_payer: &dyn Signer,
     ) -> Result<Signature, ClientError> {
-        let unsigned = self.finish_unsigned(client, fee_payer.pubkey()).await?;
+        let proved = self.prove(client).await?;
+        let (blockhash, last_valid_block_height) = client.get_latest_blockhash().await?;
+        let mut compute_budget = client.compute_budget();
+        compute_budget.cu_limit = MERGE_CU_LIMIT;
+        let unsigned = proved.build_solana_message(
+            fee_payer
+                .try_pubkey()
+                .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))?,
+            blockhash,
+            last_valid_block_height,
+            compute_budget,
+        )?;
         let signature = client
             .process_transaction(sign_transaction(unsigned.message, &[fee_payer])?)
             .await?;
@@ -209,22 +201,13 @@ impl<'a> MergeSubmission<'a> {
         client.block_on(self.prove(&client.client))
     }
 
-    /// See [`Self::finish_unsigned`].
-    pub fn finish_unsigned_sync<R: BlockingRpc, I: BlockingIndexer>(
-        &self,
-        client: &ZolanaClient<R, I>,
-        fee_payer: Address,
-    ) -> Result<UnsignedMessage, ClientError> {
-        client.block_on(self.finish_unsigned(&client.client, fee_payer))
-    }
-
-    /// See [`Self::send`].
-    pub fn send_sync<R: BlockingRpc, I: BlockingIndexer>(
+    /// See [`Self::prove_and_send`].
+    pub fn prove_and_send_sync<R: BlockingRpc, I: BlockingIndexer>(
         &self,
         client: &ZolanaClient<R, I>,
         fee_payer: &dyn Signer,
     ) -> Result<Signature, ClientError> {
-        client.block_on(self.send(&client.client, fee_payer))
+        client.block_on(self.prove_and_send(&client.client, fee_payer))
     }
 }
 

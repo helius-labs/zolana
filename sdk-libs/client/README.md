@@ -12,13 +12,15 @@ implementation of everything; the blocking client runs it to completion.
 
 ```rust
 let policy = TeePolicy::from_file_json(&std::fs::read_to_string(policy_path)?)?;
-let client = ZolanaClient::from_urls(rpc, indexer_url, prover_url, Some(policy))?;
-// AsyncZolanaClient::from_urls takes the same arguments.
+let client = ZolanaClient::from_urls(rpc_url, indexer_url, prover_url, Some(policy))?;
+// AsyncZolanaClient::from_urls takes an RPC adapter as its first argument.
 ```
 
-or from the services: `ZolanaClient::new(rpc, indexer, prover)` with a
+or from the services: `ZolanaClient::from_parts(rpc, indexer, prover)` with a
 `ZolanaIndexer` and a `ProverClient`, `AsyncZolanaClient::new` with their
-`async` counterparts. `from_urls` accepts https, or http to loopback only;
+`async` counterparts. `ZolanaClient::new(url, Some(policy))?` uses the same gateway URL for
+RPC, indexer and prover requests. The blocking URL constructors require
+`reqwest` and `solana-rpc`. `from_urls` accepts https, or http to loopback only;
 `check_service_url` is that check for a caller building its own services.
 The fourth argument to both URL constructors (including
 `from_urls_allowing_insecure_http`) is the prover's policy. Pass `None` for
@@ -49,26 +51,46 @@ Without the `reqwest` feature neither crate links reqwest and only
 ## Proving and submitting
 
 ```rust
-let signature = Submission::new(&signed, fee_payer, &authority)
-    .send_sync(&client, &[&fee_payer_keypair])?;   // async: .send(&client, ..).await
+let proof_inputs = transaction.encrypt(&sender)?;
+let request = TransactionProofRequest::new(proof_inputs, &[&sender])?;
+let signature = request.prove_and_send_sync(&client, &[&fee_payer_keypair, &sender])?;
 ```
 
-proves, signs, sends and waits until the transaction is confirmed and
-indexed. `finish_unsigned_sync` / `finish_unsigned` stop at the unsigned
-message, for a fee payer whose key lives elsewhere. The message carries a
-blockhash fetched beside the proof. If that request is still pending when proving
-succeeds, the client cancels it and fetches again immediately. A completed request
-is reused only if it succeeded and began at most ten seconds ago, including RPC
-response latency. A proof error returns immediately without waiting for the
-blockhash request. Merge submissions use the same rule.
-The ten-second limit controls prefetch reuse; blockhash expiration follows chain
-state and the returned `last_valid_block_height`.
+The request proves and verifies, obtains a fresh blockhash, signs, submits, and
+waits for confirmation and indexing. The async counterpart is `prove_and_send`.
 
-`Submission::with_prover(Arc<dyn Prover>)` proves one submission with a
-prover of the caller's, such as one on the device; `with_prover` on either
-client builds one that proves every submission that way. Either prover only
-proves what the client hands it, so the client fetches the proof data itself
-and nothing reaches a prover server.
+For external signing or custom instructions, separate the stages:
+
+```rust
+let proved = request.prove_sync(&client)?;
+let (blockhash, last_valid_block_height) = client.get_latest_blockhash()?;
+let unsigned = proved.build_solana_message(
+    blockhash,
+    last_valid_block_height,
+    client.compute_budget(),
+)?;
+```
+
+`prove` is the async proving stage. Message construction is synchronous and
+uses the supplied blockhash and height; a proved result can build another
+message when that blockhash expires. `proved.instruction()?` supports custom
+messages. Cache-write proofs expose `instruction_data()` for a custom
+`Transact` builder that supplies the cache writer.
+
+Requests own their proof inputs and derive SOL settlement accounts from the
+public transfers. SPL settlement resolves the mint's token program and the
+deposit token account's authority through the Solana RPC. The SDK checks the
+token account's program and mint before using those accounts.
+
+Transactions with several nullifier keys pass a slice of authorities. The SDK
+matches inputs to authorities by nullifier public key, rejects missing or
+ambiguous matches, and returns provider errors.
+
+`TransactionProofRequest::with_prover(Arc<dyn Prover>)` selects a prover for
+one request. `ZolanaClient::from_parts` and
+`AsyncZolanaClient::with_prover` accept a custom prover for the client.
+In-process provers receive proof data fetched by the client; a supplied
+`ProverClient` retains its server transport and indexed route.
 
 A remote prover requires a caller-supplied URL and policy. Load a reviewed
 policy JSON from a deployment release with `TeePolicy::from_file_json`, then
@@ -104,13 +126,13 @@ signature.
 
 ```rust
 let inputs = select_merge(spendable.utxos(), asset, MERGE_DEFAULT_INPUT_COUNT, &reserved)?;
-let tree_id = inputs[0].tree_id();
+let tree_id = inputs.first().ok_or(ClientError::NoInputs)?.tree_id();
 let merge = MergeTransaction::new(inputs)?
     .with_output_tree_id(tree_id)
     .with_expiry(now + 600)
     .encrypt(&keys)?;
-let submission = MergeSubmission::new(&merge, owner, &address, &nullifier_key);
-let signature = submission.send_sync(&client, &fee_payer)?;
+let request = MergeProofRequest::new(merge, &keys)?;
+let signature = request.prove_and_send_sync(&client, &fee_payer)?;
 ```
 
 `with_output_tree_id` is required in practice: without it the merged UTXO is
@@ -121,13 +143,17 @@ new outputs when that one is full or paused.
 the witness, proves and verifies the proof. The proof binds no fee payer, so
 the `ProvedMerge` it returns is for any payer: `proved.instruction(payer)` is
 the `merge_transact` to put in any message, for example a relayer's.
-`finish_unsigned_sync(&client, fee_payer)` builds the message the payer signs
-alone; `send_sync` signs, sends and waits as `Submission` does. As for
-`Submission`, the generics and the blocking or async choice sit on these
-methods, so `MergeSubmission` itself is a plain borrow. Set an expiry: until it passes,
-anyone holding the proof can submit it. The proof request carries the
-owner's nullifier secret, so a prover other than this process learns it and
-every merged amount; `MergeSubmission::with_prover` keeps it in process.
+`proved.build_solana_message(fee_payer, blockhash, last_valid_block_height,
+compute_budget)` builds the message for external signing. Use a compute-unit
+limit of `MERGE_CU_LIMIT`; the complete-flow convenience methods set that limit.
+
+`MergeKeys` provides the shielded address, derivations, and proof-input
+completion needed for merging. `ShieldedKeypair` implements it directly.
+`LocalMergeKeys::new(address, nullifier_key)?` validates callers' separate
+keys. The registry owner is derived from the address's signing public key.
+Set an expiry: anyone holding the proof can submit it until then.
+`MergeProofRequest::with_prover` selects an in-process prover when the merge
+inputs should stay on the device.
 
 ## In process: litesvm
 
@@ -154,8 +180,8 @@ the default for every host. The Helius deployment must activate these REST
 routes, pools and TEE header forwarding; the SDK does not infer capabilities
 from the hostname. The setting lives on
 `ProverClient` and `AsyncProverClient`. The `ZolanaClient` method sets it on
-the prover client it holds; a prover given with `with_prover` is handed the
-data by the client. Custom-ring proof environments read it from the prover
+the requests it makes; a custom in-process prover receives the data
+fetched by the client. Custom-ring proof environments read it from the prover
 client they are given.
 Both modes support cached spends and merge outputs. The forester selects
 client fetching with `--client-proof-data`.
@@ -175,17 +201,19 @@ context slot for `ZolanaClient` transactions; `UtxoScan::with_indexer_config`
 applies it to wallet discovery, so a spend another client just made is read.
 Wallet discovery and chain account reads still use the SDK's configured services.
 
-`UtxoScan` scans the assets in the supplied `AssetRegistry` by default and
-reports other asset ids and mints as unknown. Opt into on-chain SPL asset
-discovery when the wallet should hold every registered asset:
+`UtxoScan` discovers registered SPL assets by default. The caller supplies
+its registry on each fetch and can reuse the scanner after extending it:
 
 ```rust
-let scan = UtxoScan::new(&keys, &assets)
-    .with_indexer_config(IndexerRpcConfig::at_slot(confirmed_slot))
-    .with_asset_discovery()
-    .fetch(&client)?;
-assets = scan.asset_registry;
+let scanner = UtxoScan::new(&keys)
+    .with_indexer_config(IndexerRpcConfig::at_slot(confirmed_slot));
+let scan = scanner.fetch(&client, &assets)?;
+assets.extend(&scan.asset_registry)?;
 ```
+
+Use `disable_asset_discovery()` to restrict scanning to the supplied registry.
+`AssetRegistry::extend` accepts identical mappings and rejects conflicts
+atomically.
 
 An unknown asset triggers one filtered `getProgramAccounts` read of the
 pool's SPL registrations, validated by owner, layout and mint PDA. The lookup
@@ -204,7 +232,15 @@ ids and mints through `unknown_asset_ids` and `unknown_mints` in both `spendable
 and `history`. These fields indicate outputs omitted from the balances and
 history; an unknown id is sender-provided and is not evidence of a valid asset
 or balance. RPC failures and invalid or conflicting registrations still fail
-the scan. Leave discovery disabled for an explicit asset allowlist.
+the scan.
+`unresolved_outputs` identifies each unresolved output by transaction,
+event index, output slot and output context. Reasons distinguish unknown asset
+IDs or mints, decryption failures, framing errors, unsupported encodings and
+commitment mismatches. Discovery reprocesses the diagnostics, so resolved
+outputs disappear from them. An undecryptable candidate may be another
+recipient's output or published padding; it does not establish ownership.
+Key-provider failures remain scan errors.
+
 Custom `Rpc` implementations must support
 `get_program_accounts_filtered`, including its minimum context slot; discovery
 never falls back to an unfiltered or stale program listing.
@@ -214,6 +250,9 @@ anonymous EdDSA authorization. `IndexedMergePreparation` supports both merge rai
 cache outputs. Pass the prepared request to `prove_indexed`, which checks the
 returned roots, verifies the proof and returns transaction data. A ring merge
 returns `ProvenIndexedMerge::Ring`.
+
+Ring proof builders expose `assemble`; the encoders in `prover::requests`
+produce requests accepted by `Prover::prove` or `AsyncProverClient::prove`.
 
 Transfer, merge and indexed ring policy requests prefer a proof in the HTTP
 response. A capacity rejection can retry through the queue when Redis is
