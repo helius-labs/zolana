@@ -352,6 +352,10 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     Reusable calls inherit the caller's event.
 
+    In repository Settings → Pages, set the build and deployment source to
+    **GitHub Actions**; otherwise `actions/deploy-pages` fails with HTTP 404.
+    The `github-pages` environment must allow the `ts-sdk-v*` tag pattern.
+
 17. [PR-only enforcement](workflows/enforce-pr-only.yml)
 
     **Triggered by:**
