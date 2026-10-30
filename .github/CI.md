@@ -132,7 +132,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     1. `@heliuslabs/zolana`: `npm run check:ts`.
     2. API documentation: `npm run docs:ts`.
-    3. Package smoke test: `npm pack`, `tsc`, `node`.
+    3. Package smoke test: `npm pack`, installed-tarball `tsc --skipLibCheck false` including the browser factory, `node` public exports/source identity, and `esbuild` with the browser platform and no external imports.
     4. SDK e2e: `just test-ts-e2e`.
     5. Escrow e2e: `just test-escrow-ts`.
     6. `spr-program-wasm-test-program`: `cargo test`.
