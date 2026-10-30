@@ -164,8 +164,14 @@ function forward(request, response, origin, path, options) {
   request.pipe(limit).pipe(upstream);
 }
 
-/** Small GK stand-in: fixed origin, API-key authentication and header/CORS policy. */
-export function createMockGateway({ apiKey, origin, allowedOrigins = [], timeoutMs = 600_000 }) {
+/** Small GK stand-in: configured origins, API-key authentication and header/CORS policy. */
+export function createMockGateway({
+  apiKey,
+  origin,
+  originApiKey,
+  allowedOrigins = [],
+  timeoutMs = 600_000,
+}) {
   if (typeof apiKey !== "string" || !apiKey) throw new Error("a test API key is required");
   checkedTimeout(timeoutMs);
   if (
@@ -180,7 +186,15 @@ export function createMockGateway({ apiKey, origin, allowedOrigins = [], timeout
     })
   )
     throw new Error("expected exact HTTP(S) browser origins");
-  const target = endpoint(origin);
+  const targets = (Array.isArray(origin) ? origin : [origin]).map(endpoint);
+  if (
+    targets.length < 1 ||
+    targets.length > 8 ||
+    (originApiKey !== undefined &&
+      (typeof originApiKey !== "string" || !/^[\x21-\x7e]{16,4096}$/u.test(originApiKey)))
+  )
+    throw new Error("invalid mock gateway origins");
+  let next = 0;
   const expected = createHash("sha256").update(apiKey).digest();
   const origins = new Set(allowedOrigins);
   const faults = { dropRequest: new Set(), dropResponse: new Set() };
@@ -238,10 +252,17 @@ export function createMockGateway({ apiKey, origin, allowedOrigins = [], timeout
       .filter((pair) => pair && !new URLSearchParams(pair).has("api-key"))
       .join("&");
     stats.forwarded++;
-    forward(request, response, target, matched.path + (query ? `?${query}` : ""), {
-      ...faults,
-      timeoutMs,
-    });
+    forward(
+      request,
+      response,
+      targets[next++ % targets.length],
+      matched.path + (query ? `?${query}` : ""),
+      {
+        ...faults,
+        timeoutMs,
+        apiKey: originApiKey,
+      },
+    );
   };
   return { handler, stats, faults };
 }

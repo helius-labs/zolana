@@ -1450,7 +1450,7 @@ prover-server-test:
     # The whole `server` package, unfiltered, so a new or renamed test cannot
     # drop out of CI. Its tests bring their own in-process miniredis and need no
     # Redis server or proving keys.
-    go test ./server/ ./tee/
+    go test ./server/ ./tee/ ./router/ ./cmd/tee-router/
     python3 scripts/test_release_tee.py
 
 [private]

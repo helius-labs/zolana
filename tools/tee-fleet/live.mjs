@@ -10,12 +10,14 @@ import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { build } from "esbuild";
 import { launchBrowser } from "./browser.mjs";
+import { managedRouter } from "./managed.mjs";
 import { createMockGateway, createRecipientRouter, listen, recipientId } from "./gateway.mjs";
 
 const repository = new URL("../../", import.meta.url).pathname;
 const execute = promisify(execFile);
 const dist = join(repository, "sdk-libs/ts/dist");
 const verifier = process.env.ZOLANA_TEE_PROOF_VERIFIER;
+const managedBinary = process.env.ZOLANA_TEE_ROUTER_BINARY;
 const manifestPath = process.argv[2];
 const output = process.argv[3];
 if (!manifestPath || !output || !verifier)
@@ -71,18 +73,17 @@ function backend(entry) {
     !outputs.ApiKeySecret.startsWith(`arn:aws:secretsmanager:${entry.region}:558215002830:secret:`)
   )
     throw new Error("unexpected origin credential reference");
-  const apiKey = aws(
-    entry.region,
-    "secretsmanager",
-    "get-secret-value",
-    "--secret-id",
-    outputs.ApiKeySecret,
-  ).SecretString;
+  const apiKey = managedBinary
+    ? undefined
+    : aws(entry.region, "secretsmanager", "get-secret-value", "--secret-id", outputs.ApiKeySecret)
+        .SecretString;
   return {
     id: entry.id,
     region: entry.region,
     origin: outputs.Url,
     recipientId: entry.recipientId,
+    apiKeyARN: outputs.ApiKeySecret,
+    instanceId: outputs.InstanceId,
     apiKey,
   };
 }
@@ -157,9 +158,27 @@ async function saveProof(name, proof) {
 
 try {
   const deployments = manifest.deployments.map(backend);
-  const router = createRecipientRouter({ deployments });
-  const routerServer = await listen(router.handler);
-  servers.push(routerServer);
+  let router;
+  let origin;
+  if (managedBinary) {
+    router = await managedRouter({ deployments, binary: managedBinary, output });
+    servers.push({ close: router.close });
+    origin = router.origin;
+  } else {
+    const local = createRecipientRouter({ deployments });
+    router = {
+      ...local,
+      sync: async () => {},
+      restore: async () => {},
+      readStats: async () => local.stats,
+      failGeneration: async (id) => {
+        for (const entry of deployments) local.setAvailable(entry.id, entry.id !== id);
+      },
+    };
+    const server = await listen(router.handler);
+    servers.push(server);
+    origin = server.url;
+  }
   const browserFile = join(staging, "browser.mjs");
   const nodeFile = join(staging, "node.mjs");
   await bundle("node", nodeFile);
@@ -180,7 +199,8 @@ try {
   const apiKey = randomBytes(24).toString("hex");
   const front = createMockGateway({
     apiKey,
-    origin: routerServer.url,
+    origin,
+    originApiKey: router.originApiKey,
     allowedOrigins: [assets.url],
   });
   const publicServer = await listen(front.handler);
@@ -195,6 +215,7 @@ try {
   };
   const report = {
     network: manifest.network,
+    managedRouter: router.metadata,
     node: [],
     rust: [],
     browser: [],
@@ -202,8 +223,9 @@ try {
     proofVerification: "committed on-chain Groth16 verifying key",
     vendorAnchors: "production AWS Nitro root",
   };
-  const only = (id) => {
+  const only = async (id) => {
     for (const entry of deployments) router.setAvailable(entry.id, entry.id === id);
+    await router.sync();
   };
   const nativeArgs = [
     resolve(dirname(manifestPath), manifest.rootFile),
@@ -227,7 +249,7 @@ try {
   };
   let nodeClient;
   for (const entry of deployments) {
-    only(entry.id);
+    await only(entry.id);
     const client = await sdk.client({
       proverUrl,
       policy: { ...policy, cacheDirectory: resolve(output, "node-cache") },
@@ -250,7 +272,7 @@ try {
   await page.goto(assets.url);
   await page.waitForFunction(() => Boolean(window.sdk));
   for (const entry of deployments) {
-    only(entry.id);
+    await only(entry.id);
     const attestation = await page.evaluate(
       async (options) => {
         window.liveClient = await window.sdk.client(options);
@@ -270,14 +292,14 @@ try {
   }
   if (deployments.length > 1) {
     const previous = deployments.at(-1);
-    const before = router.stats.forwarded[previous.id];
-    for (const entry of deployments) router.setAvailable(entry.id, entry.id !== previous.id);
+    const before = (await router.readStats()).forwarded[previous.id];
+    await router.failGeneration(previous.id);
     const proof = await page.evaluate(async () => await window.liveClient.prove());
     await saveProof("browser-failover", proof);
     await saveProof("node-failover", await nodeClient.prove());
-    assert.equal(router.stats.forwarded[previous.id], before);
-    assert.ok(router.stats.unavailable > 0);
-    only(previous.id);
+    assert.equal((await router.readStats()).forwarded[previous.id], before);
+    assert.ok((await router.readStats()).unavailable > 0);
+    await only(previous.id);
     const rustProof = resolve(output, "rust-failover.json");
     let attested = false;
     let afterAttestation;
@@ -299,16 +321,16 @@ try {
         },
       );
       let pending = "";
-      child.stdout.on("data", (chunk) => {
+      child.stdout.on("data", async (chunk) => {
         pending += chunk.toString();
         if (attested || !pending.includes("\n")) return;
+        attested = true;
         try {
           const phase = JSON.parse(pending.slice(0, pending.indexOf("\n")));
           assert.equal(phase.phase, "attested");
           assert.equal(phase.recipientId, previous.recipientId);
-          afterAttestation = router.stats.forwarded[previous.id];
-          for (const entry of deployments) router.setAvailable(entry.id, entry.id !== previous.id);
-          attested = true;
+          afterAttestation = (await router.readStats()).forwarded[previous.id];
+          await router.failGeneration(previous.id);
           child.stdin.end("continue\n");
         } catch {
           child.kill();
@@ -323,7 +345,7 @@ try {
       );
     });
     await saveProof("rust-failover", JSON.parse(await readFile(rustProof, "utf8")));
-    assert.equal(router.stats.forwarded[previous.id], afterAttestation);
+    assert.equal((await router.readStats()).forwarded[previous.id], afterAttestation);
     report.failover = {
       removed: previous.id,
       nodeVerified: true,
@@ -331,6 +353,19 @@ try {
       rustVerified: true,
       staleRecipientForwarded: false,
     };
+  }
+  if (router.metadata?.realOutage) {
+    await router.restore();
+    const restored = deployments.at(-1);
+    await only(restored.id);
+    const attested = await nodeClient.attest();
+    assert.equal(recipientId(Buffer.from(attested.key, "hex")), restored.recipientId);
+    await saveProof("node-restored-generation", await nodeClient.prove());
+    await writeFile(
+      join(output, "node-restored-generation-attestation.json"),
+      JSON.stringify(nodeClient.evidence(), null, 2) + "\n",
+    );
+    report.restoredGeneration = { id: restored.id, recipientUnchanged: true, proofVerified: true };
   }
   if (process.argv.includes("--lifecycle")) {
     report.lifecycle = [];
@@ -351,6 +386,7 @@ try {
             router.setAvailable(entry.id, command.available.includes(entry.id));
           for (const entry of deployments)
             router.setDraining(entry.id, entry.id === command.retired);
+          await router.sync();
           const deadline = Date.now() + 30000;
           while ((await nodeClient.policy()).revision !== command.revision) {
             assert.ok(Date.now() < deadline, "published policy revision was not observed");
@@ -367,7 +403,7 @@ try {
             await delay(250);
           }
           approvedPolicy = await nodeClient.policy();
-          const before = { ...router.stats.forwarded };
+          const before = { ...(await router.readStats()).forwarded };
           await saveProof(`node-policy-${command.revision}`, await nodeClient.prove());
           await saveProof(
             `browser-policy-${command.revision}`,
@@ -375,7 +411,10 @@ try {
           );
           await nativeProof(`rust-policy-${command.revision}`);
           if (command.retired) {
-            assert.equal(router.stats.forwarded[command.retired], before[command.retired]);
+            assert.equal(
+              (await router.readStats()).forwarded[command.retired],
+              before[command.retired],
+            );
           }
           report.lifecycle.push({
             action: "policy",
@@ -402,7 +441,7 @@ try {
             "published timestamp has not expired",
           );
           await writeFile(join(output, "expired-timestamp.json"), timestampBytes);
-          const before = JSON.stringify(router.stats.forwarded);
+          const before = JSON.stringify((await router.readStats()).forwarded);
           await assert.rejects(nodeClient.prove());
           assert.equal(
             await page.evaluate(async () => {
@@ -417,7 +456,7 @@ try {
           );
           await assert.rejects(nativeProof("expired"));
           assert.equal(
-            JSON.stringify(router.stats.forwarded),
+            JSON.stringify((await router.readStats()).forwarded),
             before,
             "expired policy forwarded a request",
           );
