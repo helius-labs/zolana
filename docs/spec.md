@@ -859,7 +859,9 @@ On the `ConfidentialRingEddsa` and `AnonymousRingEddsa` rails the scheme byte of
 hash for every real default-ring output and zero for every real policy-ring
 output (see [SPP Proof](#spp-proof---solana-privacy-zk-proof)). Every exit to the
 default ring on these rails therefore carries its own scheme-3 ciphertext. A
-covered exit publishes zero, and the proof fails.
+covered exit publishes zero, and the proof fails. A real policy-ring output on
+these rails must not carry a scheme-3 ciphertext, or SPP publishes a nonzero
+owner hash and the proof fails.
 
 The logged [`GeneralEvent`](#general-event) keeps one entry per output, 1:1 with
 `outputs`; a covered position publishes an empty `data` under the covering output's
@@ -1124,8 +1126,10 @@ slots count as neither kind of spend.
 
 Among transaction accounts, the proof keeps the hidden owner apart only from
 the owner signers. A fee payer, another co-signer, or a withdrawal destination
-equal to the hidden owner makes it public. A ring program on this rail must
-reject each of them.
+equal to the hidden owner makes it public. While the hidden identity stays
+private, SPP's public inputs do not carry it. A ring program keeps these
+accounts apart from the hidden owner only through its own proof that binds the
+hidden owner.
 
 <a id="tree-slot-chain"></a>
 **Tree slot chain.** Each of the `INPUT_TREES = 5` slots is
