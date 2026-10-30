@@ -186,6 +186,9 @@ The driver records the public resource policy and IAM
 simulation denials for writes, KMS, SSM and role passing, then removes the role
 and its policies during cleanup. This operator exercise requires permission to
 create and remove its tagged `zolana-pri285-router-*` roles.
+Setup identity/permission reads retry a client timeout or rejected temporary
+token once and record the attempt; persistent failures and access denials stop
+the run. This does not change runtime refresh or outage deadlines.
 
 Add `ZOLANA_TEE_CONTROL_PLANE_OUTAGE=1` to disconnect the routers from US S3
 and Secrets Manager after warming clients on that recipient. A loopback CONNECT

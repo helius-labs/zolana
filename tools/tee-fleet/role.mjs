@@ -9,6 +9,19 @@ import { promisify } from "node:util";
 const execute = promisify(execFile);
 const owner = "558215002830";
 
+// Only identity/permission reads during temporary-role setup use this retry.
+// Runtime refreshes, publications, faults and proof requests keep their limits.
+export async function retryInitializationRead(read, onRetry) {
+  try {
+    return await read();
+  } catch (error) {
+    if (!["ClientTimeout", "InvalidClientTokenId"].includes(error.awsCode)) throw error;
+    await onRetry(error);
+    await delay(1000);
+    return read();
+  }
+}
+
 async function aws(args, env = process.env) {
   try {
     const { stdout } = await execute("aws", [...args, "--output", "json"], {
@@ -56,8 +69,15 @@ export async function runtimeRole({ registries, key, deployments, output }) {
       { Effect: "Allow", Action: ["secretsmanager:GetSecretValue"], Resource: secrets },
     ],
   };
-  const metadata = { name, arn: `arn:aws:iam::${owner}:role/${name}`, principal, policy };
+  const metadata = { name, arn: `arn:aws:iam::${owner}:role/${name}`, principal, policy, initialization_retries: [] };
   const record = () => writeFile(resolve(output, "runtime-role.json"), JSON.stringify(metadata, null, 2) + "\n");
+  const initializeRead = (args, environment) => retryInitializationRead(
+    () => aws(args, environment),
+    async (error) => {
+      metadata.initialization_retries.push({ operation: error.operation, code: error.awsCode, at: new Date().toISOString() });
+      await record();
+    },
+  );
   await record();
   let created = false;
   async function removePolicy(policyName) {
@@ -100,6 +120,10 @@ export async function runtimeRole({ registries, key, deployments, output }) {
     }
     // Credentials live only in child-process environments. Reports contain the
     // public role, exact resource policy and expiry, never credential values.
+    assert.ok(["AccessKeyId", "SecretAccessKey", "SessionToken"].every((key) => typeof credentials[key] === "string" && credentials[key].length > 0));
+    assert.ok(Date.parse(credentials.Expiration) > Date.now());
+    metadata.session_expires = credentials.Expiration;
+    await record();
     const environment = {
       ...process.env,
       AWS_ACCESS_KEY_ID: credentials.AccessKeyId,
@@ -108,11 +132,10 @@ export async function runtimeRole({ registries, key, deployments, output }) {
     };
     delete environment.AWS_PROFILE;
     delete environment.AWS_DEFAULT_PROFILE;
-    const identity = await aws(["sts", "get-caller-identity"], environment);
+    const identity = await initializeRead(["sts", "get-caller-identity"], environment);
     assert.equal(identity.Arn, `arn:aws:sts::${owner}:assumed-role/${name}/pri285-router`);
-    metadata.session_expires = credentials.Expiration;
     const actions = ["s3:PutObject", "s3:ListBucket", "secretsmanager:PutSecretValue", "kms:Decrypt", "kms:Sign", "ssm:SendCommand", "iam:PassRole"];
-    const evaluated = await aws(["iam", "simulate-principal-policy", "--policy-source-arn", metadata.arn, "--action-names", ...actions]);
+    const evaluated = await initializeRead(["iam", "simulate-principal-policy", "--policy-source-arn", metadata.arn, "--action-names", ...actions]);
     assert.equal(evaluated.EvaluationResults.length, actions.length);
     assert.ok(evaluated.EvaluationResults.every((entry) => ["implicitDeny", "explicitDeny"].includes(entry.EvalDecision)));
     metadata.simulated_denials = evaluated.EvaluationResults.map((entry) => ({ action: entry.EvalActionName, decision: entry.EvalDecision }));
@@ -123,6 +146,8 @@ export async function runtimeRole({ registries, key, deployments, output }) {
       close,
     };
   } catch (error) {
+    metadata.failure = { operation: error.operation, code: error.awsCode, kind: error.kind };
+    await record();
     await close();
     throw error;
   }
