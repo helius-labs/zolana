@@ -836,6 +836,42 @@ describe("a prover that lost the attested key", () => {
   const health = ["/health", true] as const;
 
   it.each([false, true])(
+    "rejects an oversized open retry error without waiting for an unread clone, length header %s",
+    async (lengthHeader) => {
+      let cancelled = false;
+      const response = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(4097));
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { status: 503, ...(lengthHeader ? { headers: { "content-length": "4097" } } : {}) },
+      );
+      const pending = calls("aws-nitro", () => response, {
+        code: "CLIENT_PROVER_RESPONSE_TOO_LARGE",
+      });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const requested = await Promise.race([
+          pending,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("retry error reader stalled")), 1000);
+          }),
+        ]);
+        expect(requested).toEqual([attestation, health]);
+        expect(cancelled).toBe(true);
+      } finally {
+        clearTimeout(timer);
+        await response.body?.cancel().catch(() => undefined);
+        await pending.catch(() => undefined);
+      }
+    },
+  );
+
+  it.each([false, true])(
     "re-attests a Nitro enclave once and resends encrypted, key pinned %s",
     async (pinKey) => {
       expect(

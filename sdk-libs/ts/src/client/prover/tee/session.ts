@@ -225,9 +225,10 @@ export class TeeSession {
       if (!permits(current, key, fingerprint)) throw refused("policy_changed");
       const response = await fetched(call, prepared.init);
       if (response === undefined) return undefined;
-      if (resent || !(await recipientUnavailable(response, keyPerBoot)))
-        return prepared.finish(response);
-      await response.body?.cancel();
+      if (resent) return prepared.finish(response);
+      const checked = await recipientFailure(response, keyPerBoot);
+      if (!checked.retry) return prepared.finish(checked.response);
+      await checked.response.body?.cancel();
       if (this.#attested !== undefined && equalBytes(this.#attested.key, key)) {
         this.#attested = undefined;
       }
@@ -402,22 +403,43 @@ async function fetched(call: ProverCall, init: RequestInit): Promise<Response | 
   }
 }
 
-async function recipientUnavailable(response: Response, keyPerBoot: boolean): Promise<boolean> {
-  if (response.headers.get(HEADER_VERSION) === VERSION) return false;
-  if (response.status !== 503 && !(keyPerBoot && response.status === 400)) return false;
+async function recipientFailure(
+  response: Response,
+  keyPerBoot: boolean,
+): Promise<Readonly<{ response: Response; retry: boolean }>> {
+  if (
+    response.headers.get(HEADER_VERSION) === VERSION ||
+    (response.status !== 503 && !(keyPerBoot && response.status === 400))
+  )
+    return { response, retry: false };
+  // Consume once: cancelling an oversized cloned stream waits for its unread
+  // sibling. Preserve bounded errors for the caller without teeing the body.
+  let bytes: Uint8Array;
+  try {
+    bytes = await readBoundedBody(response, MAX_ERROR_BYTES);
+  } catch (error) {
+    void response.body?.cancel().catch(() => undefined);
+    if (error instanceof TransportFailure && error.kind === "responseTooLarge")
+      throw new ClientError("CLIENT_PROVER_RESPONSE_TOO_LARGE");
+    throw encryptionError("response");
+  }
+  const checked = new Response(bytes.slice(), {
+    status: response.status,
+    headers: response.headers,
+  });
   let answer: unknown;
   try {
-    answer = await readBoundedJson(response.clone(), MAX_ERROR_BYTES);
+    answer = await readBoundedJson(new Response(bytes.slice()), MAX_ERROR_BYTES);
   } catch {
-    return false;
+    return { response: checked, retry: false };
   }
-  return (
+  const retry =
     typeof answer === "object" &&
     answer !== null &&
     "code" in answer &&
     ((response.status === 400 && keyPerBoot && answer.code === KEY_LOST) ||
-      (response.status === 503 && answer.code === "tee_generation_unavailable"))
-  );
+      (response.status === 503 && answer.code === "tee_generation_unavailable"));
+  return { response: checked, retry };
 }
 
 const refused = (check: string): ClientError =>

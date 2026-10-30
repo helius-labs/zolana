@@ -29,6 +29,7 @@ Changed
 
 Fixed
 
+- TEE recipient recovery rejects oversized plaintext retry errors without waiting for an unread cloned response stream.
 - `ZolanaClient.proverHealth` reports caller cancellation as `CLIENT_ABORTED` instead of a transport failure.
 - `ProverClient` sends proofs and status polls to key-specific paths on Helius API URLs, including indexed proofs, instead of the older keyless routes.
 
