@@ -19,8 +19,8 @@ use crate::{
         client::Delivery,
         endpoint::ProverEndpoint,
         tee::{
-            EncryptedRequest, TeePolicy, TeeSession, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION,
-            VERSION,
+            recipient_id, EncryptedRequest, TeePolicy, TeeSession, HEADER_CIPHERTEXT, HEADER_ENC,
+            HEADER_KEY_ID, HEADER_VERSION, VERSION,
         },
     },
 };
@@ -130,6 +130,7 @@ impl<'a> Call<'a> {
         .map_err(CallError::Refused)?;
         insert(&mut headers, HEADER_VERSION, VERSION)?;
         insert(&mut headers, HEADER_ENC, &encrypted.enc)?;
+        insert(&mut headers, HEADER_KEY_ID, recipient_id(&recipient.key))?;
         let body = if self.method == Method::GET {
             insert(
                 &mut headers,
@@ -339,6 +340,7 @@ mod tests {
         let prepared = encrypted(&session, &Call::get(&url, Duration::from_secs(1)));
         assert!(prepared.body.is_none());
         assert!(prepared.headers.contains_key(HEADER_CIPHERTEXT));
+        assert_eq!(prepared.headers[HEADER_KEY_ID], recipient_id(&[9; 32]));
     }
 
     #[test]
@@ -391,5 +393,36 @@ mod tests {
                 &body
             )
             .is_err());
+    }
+}
+
+#[cfg(test)]
+mod generation_tests {
+    use super::*;
+    use crate::prover::tee::TeePolicy;
+    #[test]
+    fn unavailable_generation_is_distinct_from_arbitrary_upstream_failure() {
+        let session = TeeSession::new(
+            TeePolicy::from_json(include_str!(
+                "../../../../prover/tee/testdata/probe_policy.json"
+            ))
+            .unwrap(),
+        );
+        let key = [9; 32];
+        assert!(session.lost_key(
+            &key,
+            StatusCode::SERVICE_UNAVAILABLE,
+            br#"{"code":"tee_generation_unavailable"}"#
+        ));
+        assert!(!session.lost_key(
+            &key,
+            StatusCode::BAD_REQUEST,
+            br#"{"code":"tee_generation_unavailable"}"#
+        ));
+        assert!(!session.lost_key(
+            &key,
+            StatusCode::SERVICE_UNAVAILABLE,
+            br#"{"code":"other"}"#
+        ));
     }
 }

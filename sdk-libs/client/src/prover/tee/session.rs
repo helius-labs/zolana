@@ -299,10 +299,13 @@ impl TeeSession {
                     .map(|entry| entry.policy.platform())
             }),
         };
-        platform.is_some_and(|platform| platform.rotates_key_per_boot())
-            && status == StatusCode::BAD_REQUEST
-            && serde_json::from_slice::<Failure>(body)
-                .is_ok_and(|failure| failure.code == DECRYPTION_FAILED)
+        serde_json::from_slice::<Failure>(body).is_ok_and(|failure| {
+            (status == StatusCode::SERVICE_UNAVAILABLE
+                && failure.code == "tee_generation_unavailable")
+                || (platform.is_some_and(|platform| platform.rotates_key_per_boot())
+                    && status == StatusCode::BAD_REQUEST
+                    && failure.code == DECRYPTION_FAILED)
+        })
     }
 
     /// Uncaches `key` unless another attestation already replaced it.

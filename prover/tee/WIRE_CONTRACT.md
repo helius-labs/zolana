@@ -114,11 +114,37 @@ Parsing a fleet does not authenticate its publisher, persist a revision floor,
 download updates or implement failover. Distribute it as reviewed application
 configuration until a signed policy provider is available.
 
-A fleet allowlist does not route ciphertext. Deployments with different keys
-behind one endpoint additionally require a router that preserves the attested
-recipient across requests and retries. The existing v1 headers do not identify
-the recipient deployment; this file format alone does not make ordinary
-load balancing across independent keys work.
+### Recipient routing
+
+Every SDK encrypted request carries `Zolana-Tee-Key-Id`, a lowercase hex routing
+hint computed locally from the verified 32-byte HPKE public key:
+
+```
+recipient_id = hex(SHA-256("zolana/prover-tee/v1/recipient" || hpke_public_key))
+```
+
+A recipient router maps that identifier to an operator-configured generation
+and backend. It may select any healthy deployment for a fresh attestation;
+it must never send ciphertext for an unknown or unavailable key to a different
+recipient. The identifier is public and grants no trust or authorization.
+Attestation, paired PCR/key pins, policy expiry and HPKE verification still
+control confidentiality and acceptance.
+
+Before forwarding, an unknown or unavailable recipient produces an unencrypted
+`503` JSON `{ "code": "tee_generation_unavailable" }`. SDKs discard that
+cached recipient, obtain fresh evidence and encrypt again, at most once within
+the original call deadline. A proxy must never emit that code after forwarding
+the request or automatically replay a POST: its previous recipient may have
+acted. Other upstream errors do not trigger this recipient retry. Existing
+Nitro `400 tee_decryption_failed` recovery remains supported.
+
+Direct provers accept an omitted identifier for existing clients, but reject
+a supplied mismatch or duplicate with `400 tee_recipient_mismatch` before
+decryption. A multi-recipient router requires the identifier. Proxies must
+allow `Zolana-Tee-Key-Id` in request forwarding and browser preflights; the
+response `Zolana-Tee` marker must be forwarded and exposed to browsers.
+`testdata/recipient_ids.json` pins the derivation across Go, Rust and TS.
+
 
 ## Encryption
 

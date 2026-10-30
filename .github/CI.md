@@ -122,6 +122,8 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
 3. [TypeScript](workflows/typescript.yml)
 
+    The check job also installs Playwright Chromium and runs `npm run test:tee-fleet`: a loopback mock GK, recipient router and three independent HPKE provers, using synthetic Nitro certificates and real browser CORS/attestation/encryption. This does not qualify AWS regions, real GK or proof generation.
+
     **Triggered by:**
 
     1. PR/main changes, except changes limited to `protocol-ops/` and its workflow file.

@@ -23,6 +23,7 @@ import {
 } from "../retry.js";
 import {
   HEADER_ENC,
+  HEADER_KEY_ID,
   HEADER_CIPHERTEXT,
   HEADER_VERSION,
   RESPONSE_NONCE_SIZE,
@@ -224,7 +225,8 @@ export class TeeSession {
       if (!permits(current, key, fingerprint)) throw refused("policy_changed");
       const response = await fetched(call, prepared.init);
       if (response === undefined) return undefined;
-      if (resent || !keyPerBoot || !(await keyLost(response))) return prepared.finish(response);
+      if (resent || !(await recipientUnavailable(response, keyPerBoot)))
+        return prepared.finish(response);
       await response.body?.cancel();
       if (this.#attested !== undefined && equalBytes(this.#attested.key, key)) {
         this.#attested = undefined;
@@ -351,7 +353,12 @@ function copyAttestedProver(prover: AttestedProver): AttestedProver {
 
 /** A GET carries its encrypted bytes in a header, fetch refuses a GET body. */
 export function encryptedInit(call: ProverCall, encrypted: EncryptedRequest): RequestInit {
-  const headers = { ...call.headers, [HEADER_VERSION]: VERSION, [HEADER_ENC]: encrypted.enc };
+  const headers = {
+    ...call.headers,
+    [HEADER_VERSION]: VERSION,
+    [HEADER_ENC]: encrypted.enc,
+    [HEADER_KEY_ID]: encrypted.recipientId,
+  };
   if (call.method === "GET") {
     return {
       method: call.method,
@@ -395,8 +402,9 @@ async function fetched(call: ProverCall, init: RequestInit): Promise<Response | 
   }
 }
 
-async function keyLost(response: Response): Promise<boolean> {
-  if (response.status !== 400 || response.headers.get(HEADER_VERSION) === VERSION) return false;
+async function recipientUnavailable(response: Response, keyPerBoot: boolean): Promise<boolean> {
+  if (response.headers.get(HEADER_VERSION) === VERSION) return false;
+  if (response.status !== 503 && !(keyPerBoot && response.status === 400)) return false;
   let answer: unknown;
   try {
     answer = await readBoundedJson(response.clone(), MAX_ERROR_BYTES);
@@ -404,7 +412,11 @@ async function keyLost(response: Response): Promise<boolean> {
     return false;
   }
   return (
-    typeof answer === "object" && answer !== null && "code" in answer && answer.code === KEY_LOST
+    typeof answer === "object" &&
+    answer !== null &&
+    "code" in answer &&
+    ((response.status === 400 && keyPerBoot && answer.code === KEY_LOST) ||
+      (response.status === 503 && answer.code === "tee_generation_unavailable"))
   );
 }
 

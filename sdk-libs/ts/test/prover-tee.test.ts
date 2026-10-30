@@ -444,6 +444,7 @@ describe("encrypted request shape", () => {
   });
   const encrypted = {
     enc: "ab",
+    recipientId: "cd".repeat(32),
     body: new Uint8Array([1, 2]),
     decrypt: () => ({ status: 200, body: new Uint8Array() }),
   };
@@ -454,6 +455,7 @@ describe("encrypted request shape", () => {
     expect(init.headers).toMatchObject({
       "Zolana-Tee": "v1",
       "Zolana-Tee-Enc": "ab",
+      "Zolana-Tee-Key-Id": "cd".repeat(32),
       "Zolana-Tee-Ciphertext": "0102",
     });
   });
@@ -803,6 +805,27 @@ describe("a prover that lost the attested key", () => {
       now.mockRestore();
     }
   }
+
+  it.each(["aws-nitro", "dstack-tdx"] as const)(
+    "re-attests once after a pre-forward generation loss on %s",
+    async (platform) => {
+      expect(
+        await calls(
+          platform,
+          () => Response.json({ code: "tee_generation_unavailable" }, { status: 503 }),
+          {
+            code: "CLIENT_PROVER_HTTP",
+            details: { method: "health", status: 503, reason: "tee_generation_unavailable" },
+          },
+        ),
+      ).toEqual([
+        ["/tee/v1/attestation", false],
+        ["/health", true],
+        ["/tee/v1/attestation", false],
+        ["/health", true],
+      ]);
+    },
+  );
 
   const refusal = (code: string) => () => Response.json({ code }, { status: 400 });
   const refusedWith = (code: string): Readonly<Record<string, unknown>> => ({

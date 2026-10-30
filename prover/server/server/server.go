@@ -748,6 +748,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			"X-Request-ID",
 			tee.HeaderVersion,
 			tee.HeaderEnc,
+			tee.HeaderKeyID,
 			tee.HeaderCiphertext,
 		}),
 		handlers.AllowedOrigins([]string{"*"}),

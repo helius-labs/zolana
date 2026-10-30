@@ -15,7 +15,7 @@ mod verify;
 
 pub use attestation::Attestation;
 pub use dstack::{DstackIdentity, DstackPolicy, KeyProvider, TdxMeasurement};
-pub use encryption::{decrypt_response, EncryptedRequest};
+pub use encryption::{decrypt_response, recipient_id, EncryptedRequest};
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use fixture_prover::{seal_response, FixtureProver, OpenedRequest};
 pub use fleet::{TeeDeployment, TeeFleetPolicy};
@@ -31,6 +31,8 @@ use thiserror::Error;
 pub const ATTESTATION_PATH: &str = "/tee/v1/attestation";
 pub const HEADER_VERSION: &str = "Zolana-Tee";
 pub const HEADER_ENC: &str = "Zolana-Tee-Enc";
+/// Routing hint derived from the attested HPKE recipient key.
+pub const HEADER_KEY_ID: &str = "Zolana-Tee-Key-Id";
 /// Carries the encrypted bytes of a GET, fetch refuses a GET body.
 pub const HEADER_CIPHERTEXT: &str = "Zolana-Tee-Ciphertext";
 pub const VERSION: &str = "v1";

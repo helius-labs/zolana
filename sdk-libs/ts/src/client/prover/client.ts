@@ -263,7 +263,7 @@ export class ProverClient {
     try {
       const response = await sendCall(this.#tee, this.#call(url, request));
       if (response === undefined) {
-        if (request.timedOut()) throw requestError("health", request);
+        if (request.signal.aborted) throw requestError("health", request);
         throw new ClientError("CLIENT_PROVER_REQUEST", {
           details: { method: "health", attempts: 1 },
         });

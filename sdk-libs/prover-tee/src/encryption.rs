@@ -106,3 +106,13 @@ pub(crate) fn request_aad(method: &str, request_uri: &str) -> String {
         format!("{method} {path}?{}", kept.join("&"))
     }
 }
+
+/// Domain-separated identifier for routing ciphertext to its attested recipient.
+/// This hint grants no trust: the attestation and HPKE key remain authoritative.
+pub fn recipient_id(hpke_public_key: &[u8; 32]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"zolana/prover-tee/v1/recipient");
+    hash.update(hpke_public_key);
+    hex::encode(hash.finalize())
+}

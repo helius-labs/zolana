@@ -105,9 +105,12 @@ authenticate updates; the revision field alone provides no rollback protection.
 An expired fleet rejects requests even if a key is cached. The `network`
 argument checks the file's label, not the Solana RPC's actual network.
 
-Independent keys behind one URL still require recipient-aware routing. A fleet
-does not add routing, a recipient header or failover. Existing
-single-deployment APIs, CLI files and `xtask tee-policy` remain unchanged.
+Independent keys behind one URL require a recipient router. SDK encrypted
+requests carry `Zolana-Tee-Key-Id`, derived from the verified key; the router
+must forward to that recipient rather than round-robin ciphertext. A
+`503 tee_generation_unavailable` emitted before forwarding causes one fresh
+attestation and newly encrypted retry. Direct legacy clients may omit the
+header. See the [test gateway](../../tools/tee-fleet/README.md).
 
 ### Signed fleet policy sources
 

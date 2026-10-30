@@ -8,6 +8,8 @@ import (
 	"crypto/hpke"
 	"crypto/sha256"
 	"crypto/sha512"
+	"encoding/hex"
+	"fmt"
 	"net/url"
 	"strings"
 )
@@ -16,6 +18,7 @@ const (
 	Version       = "v1"
 	HeaderVersion = "Zolana-Tee"
 	HeaderEnc     = "Zolana-Tee-Enc"
+	HeaderKeyID   = "Zolana-Tee-Key-Id"
 	// HeaderCiphertext carries the encrypted bytes of a GET, fetch refuses a GET body.
 	HeaderCiphertext = "Zolana-Tee-Ciphertext"
 	NonceSize        = 32
@@ -87,4 +90,15 @@ func requestAAD(method, requestURI string) []byte {
 		return []byte(method + " " + path)
 	}
 	return []byte(method + " " + path + "?" + strings.Join(kept, "&"))
+}
+
+// RecipientID identifies a public recipient key; it is not an authorization token.
+func RecipientID(publicKey []byte) (string, error) {
+	if len(publicKey) != 32 {
+		return "", fmt.Errorf("HPKE recipient key must be 32 bytes")
+	}
+	h := sha256.New()
+	h.Write([]byte("zolana/prover-tee/v1/recipient"))
+	h.Write(publicKey)
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
