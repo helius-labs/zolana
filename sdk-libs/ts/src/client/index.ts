@@ -2,6 +2,7 @@ export { MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, ZolanaClient } from "./client.js";
 export type { AuthorizedPrivateTransaction, ProvedMerge, ZolanaClientConfig } from "./client.js";
 export { LocalKeys, NullifierKeyProofAuthority } from "./keys.js";
 export type {
+  AnonymousRingTransactInput,
   BlockhashProvider,
   SlotReader,
   ChainReader,
@@ -20,12 +21,14 @@ export type {
   IndexedTree,
   ProofResolution,
   ResolvedProofTree,
+  PreparedAnonymousRingEddsaTransferInputs,
   PreparedConfidentialEddsaTransferInputs,
   PreparedTransferInput,
   PreparedTransferInputs,
   PreparedMergeInputs,
   ProofReader,
   ProofService,
+  ProvenAnonymousRingTransact,
   ProvenConfidentialEddsaTransact,
   ProvenRingTransact,
   Prover,
@@ -76,16 +79,19 @@ export type { ProverTee } from "./prover/tee/session.js";
 export { signTransactMessage, transactMessageDigest } from "./prover/assembly.js";
 export { compressProof, parseProof } from "./prover/proof.js";
 export type {
+  AnonymousRingEddsaTransferInputs,
   CircuitUtxo,
   CompressedProof,
   ConfidentialEddsaTransferInputs,
   EddsaOwnerAuthorization,
   Field,
   MergeInputs,
+  PreparedOwnerSignature,
   Proof,
   ProvedTransactProof,
   ProverInputs,
   RingTransactRoots,
+  TransactOwnerAuthorization,
   TransactOwnerSigner,
   TransferInput,
   TransferInputs,

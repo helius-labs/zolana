@@ -1,5 +1,7 @@
 import type {
   Address,
+  AnonymousRingEddsaProofData,
+  Bsb22Commitment,
   Bytes32,
   Bytes16,
   Bytes33,
@@ -246,10 +248,14 @@ function circuitTag(value: CircuitId): number {
       return 1;
     case "ringAuthority":
       return 2;
+    case "anonymousRingEddsa":
+      return 3;
     case "confidentialSignerCached":
       return 4;
     case "confidentialRingEddsaCached":
       return 5;
+    case "anonymousRingEddsaCached":
+      return 6;
     case "confidentialEddsa":
       return 7;
     case "confidentialEddsaCached":
@@ -261,14 +267,27 @@ function circuitTag(value: CircuitId): number {
 
 /** Wincode `EddsaProofData`: the commitment pair, then the owner key. */
 function writeEddsaProofData(writer: Writer, value: EddsaProofData): void {
-  writer
-    .bytes(value.bsb22Commitment.commitment, 32, "circuit.proofData.bsb22Commitment.commitment")
-    .bytes(
-      value.bsb22Commitment.commitmentPok,
-      32,
-      "circuit.proofData.bsb22Commitment.commitmentPok",
-    )
-    .bytes(value.ownerPk, 32, "circuit.proofData.ownerPk");
+  writeBsb22Commitment(writer, value.bsb22Commitment).bytes(
+    value.ownerPk,
+    32,
+    "circuit.proofData.ownerPk",
+  );
+}
+
+/** An absent tag writes flag 0 and 32 zero bytes, as Rust `FixedOptionOwnerTag`. */
+function writeAnonymousRingEddsaProofData(
+  writer: Writer,
+  value: AnonymousRingEddsaProofData,
+): void {
+  writeBsb22Commitment(writer, value.bsb22Commitment)
+    .u8(value.defaultOwnerTag === undefined ? 0 : 1, "circuit.proofData.defaultOwnerTag")
+    .bytes(value.defaultOwnerTag ?? new Uint8Array(32), 32, "circuit.proofData.defaultOwnerTag");
+}
+
+function writeBsb22Commitment(writer: Writer, value: Bsb22Commitment): Writer {
+  return writer
+    .bytes(value.commitment, 32, "circuit.proofData.bsb22Commitment.commitment")
+    .bytes(value.commitmentPok, 32, "circuit.proofData.bsb22Commitment.commitmentPok");
 }
 
 /**
@@ -283,6 +302,9 @@ function writeCircuit(writer: Writer, value: CircuitId): void {
     .u8(value.publicAssetSlots, "circuit.publicAssetSlots");
   if (value.kind === "confidentialEddsa" || value.kind === "confidentialEddsaCached") {
     writeEddsaProofData(writer, value.proofData);
+  }
+  if (value.kind === "anonymousRingEddsa" || value.kind === "anonymousRingEddsaCached") {
+    writeAnonymousRingEddsaProofData(writer, value.proofData);
   }
   const cacheAccess = circuitCacheAccess(value);
   if (cacheAccess === undefined) return;

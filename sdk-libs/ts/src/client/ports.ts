@@ -28,6 +28,7 @@ import type {
   Proof,
   ProverInputs,
   RingTransactRoots,
+  TransactOwnerAuthorization,
   TransactOwnerSigner,
   TransferInputs,
   TransferInput,
@@ -166,6 +167,10 @@ export type PreparedConfidentialEddsaTransferInputs = PreparedTransferInputs & {
   readonly ownerAuthorization: EddsaOwnerAuthorization;
 };
 
+export type PreparedAnonymousRingEddsaTransferInputs = PreparedConfidentialEddsaTransferInputs & {
+  readonly defaultOwnerPublicKeyHash: Field;
+};
+
 export type PreparedMergeInputs = Omit<MergeInputs, "inputs" | "treeSlots" | "publicInputHash"> & {
   readonly inputs: readonly PreparedTransferInput[];
 };
@@ -212,6 +217,10 @@ export type IndexedProofInputs = Readonly<{
     | Readonly<{
         circuit: "transferConfidentialEddsa";
         payload: PreparedConfidentialEddsaTransferInputs;
+      }>
+    | Readonly<{
+        circuit: "transferAnonymousRingEddsa";
+        payload: PreparedAnonymousRingEddsaTransferInputs;
       }>
     | Readonly<{ circuit: "merge"; payload: PreparedMergeInputs }>
   );
@@ -267,6 +276,15 @@ export interface RingProvingConfig {
   readonly outputTree?: TreeContext;
 }
 
+export interface AnonymousRingTransactInput {
+  readonly proofInputs: SppProofInputs;
+  readonly ringProgramId: Address;
+  /** Authorizes inside the proof and stays out of `ownerSigners`. */
+  readonly owner: TransactOwnerAuthorization;
+  readonly keys: ProofAuthority;
+  readonly config?: RingProvingConfig;
+}
+
 export interface MergeCacheTarget {
   readonly address: Address;
   readonly slot: number;
@@ -304,6 +322,10 @@ export interface Prover {
     config?: RingProvingConfig,
     context?: RequestContext,
   ): Promise<ProvenRingTransact>;
+  proveAnonymousRingTransact(
+    input: AnonymousRingTransactInput,
+    context?: RequestContext,
+  ): Promise<ProvenAnonymousRingTransact>;
   /** The ring circuit when `ringProgramId` is non-zero. */
   proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof>;
   proverHealth(context?: RequestContext): Promise<ProverHealth>;
@@ -422,6 +444,10 @@ export interface ProvenRingTransact {
  */
 export interface ProvenConfidentialEddsaTransact {
   readonly data: TransactInstructionData;
+  readonly ownerSigners: readonly Address[];
+}
+
+export interface ProvenAnonymousRingTransact extends ProvenRingTransact {
   readonly ownerSigners: readonly Address[];
 }
 

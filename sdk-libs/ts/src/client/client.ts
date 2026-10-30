@@ -49,6 +49,7 @@ import {
   type IndexedProofAuthority,
   type IndexerReader,
   type KitRpcAccess,
+  type AnonymousRingTransactInput,
   type MergeAssembler,
   type MergeCacheTarget,
   type ProofAuthority,
@@ -57,6 +58,7 @@ import {
   type ProofReader,
   type ProofService,
   type ProvedMerge,
+  type ProvenAnonymousRingTransact,
   type ProvenConfidentialEddsaTransact,
   type ProvenRingTransact,
   type Prover,
@@ -76,6 +78,7 @@ import {
 } from "./kit.js";
 import {
   assemble,
+  authorizeHiddenOwner,
   checkedProverInputs,
   ownerSignerAddresses,
   signTransactMessage,
@@ -843,6 +846,37 @@ export class ZolanaClient
       context,
       config?.outputTree,
     );
+  }
+
+  proveAnonymousRingTransact(
+    input: AnonymousRingTransactInput,
+    context?: RequestContext,
+  ): Promise<ProvenAnonymousRingTransact> {
+    return this.#proving(async () => {
+      const candidate: unknown = input;
+      if (typeof candidate !== "object" || candidate === null) {
+        throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+      }
+      const { proofInputs, ringProgramId, owner, keys, config } = input;
+      checkedAddress(ringProgramId, "ringProgramId");
+      const authorization = await authorizeHiddenOwner(proofInputs, owner);
+      const proven = await this.#proveTransfer(
+        proofInputs,
+        { kind: "anonymousRingEddsa", ring: ringProgramId, authorization },
+        keys,
+        config?.indexer,
+        context,
+        config?.outputTree,
+      );
+      return Object.freeze({
+        ...proven,
+        ownerSigners: ownerSignerAddresses(
+          proofInputs.inputUtxos,
+          proofInputs.outputs,
+          authorization.ownerPublicKey,
+        ),
+      });
+    });
   }
 
   proverHealth(context?: RequestContext): Promise<ProverHealth> {
