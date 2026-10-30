@@ -142,6 +142,10 @@ its authenticated expiry; one-minute polling alone does not guarantee one-minute
 revocation. Select timestamp lifetime and renewal frequency accordingly before
 approving the production root/repository profile.
 
+Policy refresh ages and cached attestation lifetimes use wall time, including
+host suspension. A clock moving behind a cached observation forces a refresh
+instead of extending trust. Request deadlines use elapsed-time clocks.
+
 The provider performs bounded, cancellable downloads without forwarding
 prover authentication, and persists rollback state across restarts. Its
 dedicated cache uses an exclusive lock: a crash can leave that lock behind;

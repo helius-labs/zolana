@@ -1,7 +1,7 @@
 use std::{
     future::Future,
     sync::{Arc, Mutex},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use http::StatusCode;
@@ -21,7 +21,8 @@ const DECRYPTION_FAILED: &str = "tee_decryption_failed";
 pub(crate) struct TeeSession {
     policy: SessionPolicy,
     anchors: Anchors,
-    attested: Mutex<Option<(AttestedProver, Instant, Duration, TeePolicy)>>,
+    // Wall time includes host suspension; a future observation cannot be reused.
+    attested: Mutex<Option<(AttestedProver, SystemTime, Duration, TeePolicy)>>,
     // One attestation at a time, the server answers only a few quotes at once.
     attesting: tokio::sync::Mutex<()>,
     // Bumped per finished attestation, a waiting call takes its failure instead of retrying.
@@ -147,7 +148,7 @@ impl TeeSession {
         attested
             .as_ref()
             .filter(|(prover, at, max_age, policy)| {
-                at.elapsed() < *max_age
+                at.elapsed().is_ok_and(|age| age < *max_age)
                     && self.check_approval(&prover.hpke_public_key, policy).is_ok()
             })
             .map(|(prover, _, _, _)| prover.hpke_public_key)
@@ -183,7 +184,9 @@ impl TeeSession {
             && !lock(&self.attested)
                 .as_ref()
                 .is_some_and(|(prover, at, age, policy)| {
-                    prover.hpke_public_key == *key && at.elapsed() < *age && *policy == approved
+                    prover.hpke_public_key == *key
+                        && at.elapsed().is_ok_and(|elapsed| elapsed < *age)
+                        && *policy == approved
                 })
         {
             return Err(TeeError::PolicyChanged.into());
@@ -279,7 +282,7 @@ impl TeeSession {
                 (prover, policy)
             }
         };
-        *lock(&self.attested) = Some((prover.clone(), Instant::now(), policy.max_age(), policy));
+        *lock(&self.attested) = Some((prover.clone(), SystemTime::now(), policy.max_age(), policy));
         Ok(prover)
     }
 
@@ -582,7 +585,7 @@ mod tests {
         };
         *session.attested.lock().unwrap() = Some((
             prover.clone(),
-            Instant::now(),
+            SystemTime::now(),
             Duration::from_secs(600),
             session.approval(&prover.hpke_public_key)?,
         ));
@@ -612,6 +615,14 @@ mod tests {
         assert_eq!(session.attested_key(), Some([7; 32]));
         session.forget(&[7; 32]);
         assert_eq!(session.attested_key(), None);
+    }
+
+    #[test]
+    fn a_future_observation_cannot_reuse_a_cached_key() {
+        let session = session();
+        attest(&session, &AtomicUsize::new(0)).unwrap();
+        lock(&session.attested).as_mut().unwrap().1 += Duration::from_secs(60);
+        assert!(session.attested_key().is_none());
     }
 
     #[tokio::test]
@@ -659,7 +670,7 @@ mod tests {
         let session = TeeSession::fleet(fleet);
         *lock(&session.attested) = Some((
             prover,
-            Instant::now(),
+            SystemTime::now(),
             Duration::from_secs(600),
             fixture.policy().clone(),
         ));

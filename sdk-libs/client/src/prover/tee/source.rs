@@ -2,7 +2,7 @@
 
 use std::{
     sync::{Arc, Mutex},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
@@ -49,7 +49,8 @@ struct State {
 struct Accepted {
     original: TeeFleetPolicy,
     bounded: Arc<TeeFleetPolicy>,
-    at: Instant,
+    // Include host suspension in the refresh budget and reject future observations.
+    at: SystemTime,
 }
 
 impl TeePolicySource {
@@ -86,7 +87,7 @@ impl TeePolicySource {
             return Err(TeeError::PolicyUnavailable);
         }
         let accepted = state.accepted.as_ref().ok_or(TeeError::PolicyUnavailable)?;
-        if accepted.at.elapsed() >= self.interval {
+        if !accepted.at.elapsed().is_ok_and(|age| age < self.interval) {
             return Err(TeeError::PolicyUnavailable);
         }
         accepted.bounded.check_time(now_secs()?)?;
@@ -105,7 +106,7 @@ impl TeePolicySource {
             }
             if let Some(accepted) = &state.accepted {
                 if state.failure.is_none()
-                    && accepted.at.elapsed() < self.interval
+                    && accepted.at.elapsed().is_ok_and(|age| age < self.interval)
                     && accepted.bounded.check_time(now_secs()?).is_ok()
                 {
                     return Ok(Arc::clone(&accepted.bounded));
@@ -149,7 +150,7 @@ impl TeePolicySource {
         state.accepted = Some(Accepted {
             original,
             bounded: Arc::clone(&bounded),
-            at: Instant::now(),
+            at: SystemTime::now(),
         });
         Ok(bounded)
     }
@@ -262,6 +263,17 @@ mod tests {
             Err(TeeError::PolicyUnavailable)
         ));
         assert!(matches!(source.current(), Err(TeeError::PolicyUnavailable)));
+    }
+
+    #[tokio::test]
+    async fn a_future_observation_requires_a_new_policy_load() {
+        let loader = Queue::new(vec![Ok(document(1)), Ok(document(2))]);
+        let source = TeePolicySource::new("fixture", loader.clone());
+        source.resolve().await.unwrap();
+        source.state().unwrap().accepted.as_mut().unwrap().at += Duration::from_secs(60);
+        assert!(matches!(source.current(), Err(TeeError::PolicyUnavailable)));
+        assert_eq!(source.resolve().await.unwrap().revision(), 2);
+        assert_eq!(loader.calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
