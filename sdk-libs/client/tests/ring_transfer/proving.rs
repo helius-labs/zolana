@@ -164,7 +164,7 @@ fn prove_and_verify_anonymous_with_address() {
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes: vec![[0u8; 32]; shape.signer_width()],
         allow_dummy_inputs: true,
-        owner: &owner.signing_key,
+        owner: (&owner.signing_key).into(),
         ring_program_id: Some(ring_program()),
         shape,
     }

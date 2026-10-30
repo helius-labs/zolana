@@ -149,7 +149,7 @@ fn request_and_circuit(input_ring: Option<Address>) -> (Value, String) {
         output_tree_id: TREE_ID,
         external_data: transaction.external_data,
         allow_dummy_inputs: true,
-        owner: &key,
+        owner: (&key).into(),
         ring_program_id: Some(Address::new_from_array(RING)),
         shape: Shape::IN1_OUT2,
     }
@@ -183,7 +183,7 @@ fn indexed_request() -> Value {
         transaction: proof_inputs(&owner, Some(Address::new_from_array(RING))),
         rail: IndexedTransferRail::AnonymousRingEddsa {
             ring: Address::new_from_array(RING),
-            owner: &key,
+            owner: (&key).into(),
         },
     }
     .prepare(&owner)
