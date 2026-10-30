@@ -305,6 +305,10 @@ running with your origin's storage permissions. Do not reset storage to bypass
 verification failures. Production root custody and signing operations are
 separate from the provider; the URLs above remain placeholders.
 
+For strict declaration checks, include `@types/node` in development dependencies;
+existing Solana Kit declarations require its ambient types even when the runtime
+target is a browser.
+
 The ordinary client entry point remains browser-compatible. `TeePolicySource`
 from `@heliuslabs/zolana/client` accepts an application-authorized loader in
 either environment; that loader must authenticate its publisher and persist
