@@ -219,7 +219,7 @@ impl AnonymousAuthorizationPreparation<'_> {
         // name the identity while it happens.
         let owner_pk_hash = solana_owner_identity(&owner_public_key)?;
         let spends = hidden_spend_rings(self.inputs, &owner);
-        if !spends.default_ring && !spends.bound_ring {
+        if !spends.address_slot && !spends.default_ring && !spends.bound_ring {
             return Err(ClientError::AnonymousProofWithoutHiddenInput);
         }
         if spends.default_ring && spends.bound_ring {
@@ -278,12 +278,15 @@ pub(crate) fn sign_transact_digest(
 /// count: an address slot creates nothing that names an owner, so it neither
 /// publishes the hidden identity nor forbids a ring spend.
 struct HiddenSpendRings {
+    /// Satisfies the hidden input requirement and nothing else.
+    address_slot: bool,
     default_ring: bool,
     bound_ring: bool,
 }
 
 fn hidden_spend_rings(inputs: &[TransferInputUtxo], owner: &PublicKey) -> HiddenSpendRings {
     let mut rings = HiddenSpendRings {
+        address_slot: false,
         default_ring: false,
         bound_ring: false,
     };
@@ -291,7 +294,9 @@ fn hidden_spend_rings(inputs: &[TransferInputUtxo], owner: &PublicKey) -> Hidden
         if input_utxo.utxo.is_dummy() || input_utxo.utxo.utxo.owner != *owner {
             continue;
         }
-        if input_utxo.utxo.utxo.ring_program_id.is_some() {
+        if input_utxo.utxo.is_address() {
+            rings.address_slot = true;
+        } else if input_utxo.utxo.utxo.ring_program_id.is_some() {
             rings.bound_ring = true;
         } else {
             rings.default_ring = true;
