@@ -138,7 +138,7 @@ export async function fixtureProver(authority, index) {
   );
   const quote = authority.issuer();
   const stats = { attestations: 0, decrypted: 0, failed: 0, requests: [], cancelled: 0 };
-  const faults = { wrongNonce: false, delayMs: 0 };
+  const faults = { wrongNonce: false, delayMs: 0, afterDecryption: undefined };
   const handler = async (request, response) => {
     try {
       const url = new URL(request.url, "http://fixture.invalid");
@@ -189,6 +189,7 @@ export async function fixtureProver(authority, index) {
         length: plaintext.length,
       });
       plaintext.fill(0);
+      faults.afterDecryption?.();
       if (faults.delayMs) {
         await new Promise((resolve) => {
           const timer = setTimeout(resolve, faults.delayMs);

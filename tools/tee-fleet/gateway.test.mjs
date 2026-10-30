@@ -294,20 +294,28 @@ test(
           for (const p of provers) p.faults.delayMs = 2000;
           const before = provers.reduce((n, p) => n + p.stats.decrypted, 0);
           const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 100);
+          for (const p of provers) p.faults.afterDecryption = () => controller.abort();
           try {
-            await assert.rejects(clients[1].health({ signal: controller.signal }), {
-              code: "CLIENT_ABORTED",
-            });
-            await new Promise((resolve) => setTimeout(resolve, 50));
+            await assert.rejects(
+              clients[1].health({ signal: controller.signal, timeoutMs: 5000 }),
+              {
+                code: "CLIENT_ABORTED",
+              },
+            );
+            const cancelledBy = Date.now() + 5000;
+            while (!provers.some((p) => p.stats.cancelled > 0) && Date.now() < cancelledBy) {
+              await new Promise((resolve) => setTimeout(resolve, 10));
+            }
             assert.equal(
               provers.reduce((n, p) => n + p.stats.decrypted, 0),
               before + 1,
             );
             assert.ok(provers.some((p) => p.stats.cancelled > 0));
           } finally {
-            clearTimeout(timer);
-            for (const p of provers) p.faults.delayMs = 0;
+            for (const p of provers) {
+              p.faults.delayMs = 0;
+              p.faults.afterDecryption = undefined;
+            }
           }
         },
       );
