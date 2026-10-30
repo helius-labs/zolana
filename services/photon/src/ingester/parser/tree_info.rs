@@ -186,14 +186,15 @@ impl<'a> TreeResolver<'a> {
             return Ok(None);
         }
 
-        let mut account = match self.rpc_client.get_account(pubkey).await {
-            Ok(account) => account,
-            Err(e) => {
-                log::warn!("RPC error fetching tree {}: {}", pubkey, e);
-                self.failed_discoveries.insert(*pubkey);
-                return Ok(None);
-            }
-        };
+        // A failed fetch is retryable input, not a verdict on the tree: the
+        // block batch fails and the ingest retry re-runs discovery. Answering
+        // "unknown" would commit the batch without the tree, silently drop
+        // every transaction that references it, and wedge the tree's next
+        // nullifier batch update for good, because the queued-nullifier rows
+        // that update reconstructs from live in that already-committed batch.
+        let mut account = self.rpc_client.get_account(pubkey).await.map_err(|e| {
+            IngesterError::ParserError(format!("failed to fetch tree {pubkey} for discovery: {e}"))
+        })?;
 
         match tree_metadata_sync::process_tree_account(conn, *pubkey, &mut account, slot).await {
             Ok(true) => {
@@ -202,15 +203,14 @@ impl<'a> TreeResolver<'a> {
                     .await
                     .map_err(|e| IngesterError::ParserError(e.to_string()))
             }
+            // The definitive negative: the account exists and is not a tree.
             Ok(false) => {
                 self.failed_discoveries.insert(*pubkey);
                 Ok(None)
             }
-            Err(e) => {
-                log::warn!("Failed to process discovered tree {}: {}", pubkey, e);
-                self.failed_discoveries.insert(*pubkey);
-                Ok(None)
-            }
+            Err(e) => Err(IngesterError::DatabaseError(format!(
+                "failed to process discovered tree {pubkey}: {e}"
+            ))),
         }
     }
 }
@@ -229,20 +229,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_discover_tree_rpc_error_returns_none_and_caches() {
+    async fn test_discover_tree_rpc_error_propagates_uncached() {
         let rpc_client = RpcClient::new("http://localhost:1".to_string());
         let db = setup_test_db().await;
         let mut resolver = TreeResolver::new(&rpc_client);
         let pubkey = Pubkey::new_unique();
 
+        // A fetch failure is retryable input, not a verdict on the tree: it
+        // must fail the block batch so the ingest retry re-runs it, and must
+        // not poison the batch's negative cache.
         let result = resolver.discover_tree(&db, &pubkey, 0).await;
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
-        assert!(resolver.failed_discoveries.contains(&pubkey));
+        assert!(matches!(result, Err(IngesterError::ParserError(_))));
+        assert!(!resolver.failed_discoveries.contains(&pubkey));
     }
 
     #[tokio::test]
-    async fn test_discover_tree_skips_cached_failures() {
+    async fn test_discover_tree_skips_cached_negatives() {
         let rpc_client = RpcClient::new("http://localhost:1".to_string());
         let db = setup_test_db().await;
         let mut resolver = TreeResolver::new(&rpc_client);
@@ -260,7 +262,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_discover_tree_multiple_unknown_pubkeys_all_cached() {
+    async fn test_discover_tree_rpc_errors_propagate_for_every_pubkey() {
         let rpc_client = RpcClient::new("http://localhost:1".to_string());
         let db = setup_test_db().await;
         let mut resolver = TreeResolver::new(&rpc_client);
@@ -268,21 +270,12 @@ mod tests {
         let pubkeys: Vec<Pubkey> = (0..5).map(|_| Pubkey::new_unique()).collect();
 
         for pk in &pubkeys {
-            let result = resolver.discover_tree(&db, pk, 0).await;
-            assert!(result.is_ok());
-            assert!(result.unwrap().is_none());
+            assert!(resolver.discover_tree(&db, pk, 0).await.is_err());
         }
-        assert_eq!(resolver.failed_discoveries.len(), 5);
 
-        // Second round: all should skip immediately
-        let start = std::time::Instant::now();
-        for pk in &pubkeys {
-            let result = resolver.discover_tree(&db, pk, 0).await;
-            assert!(result.is_ok());
-            assert!(result.unwrap().is_none());
-        }
-        assert!(start.elapsed().as_millis() < 10);
-        assert_eq!(resolver.failed_discoveries.len(), 5);
+        // Fetch failures are not verdicts, so none of them is cached: the
+        // next batch retries every one of them.
+        assert!(resolver.failed_discoveries.is_empty());
     }
 
     #[tokio::test]
