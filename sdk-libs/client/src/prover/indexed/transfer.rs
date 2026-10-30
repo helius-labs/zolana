@@ -9,7 +9,8 @@ use crate::{
         json::{output_to_json, utxo_to_json, OutputParamsJson, UtxoParamsJson},
         transact::assembly::{assemble_outputs, input_utxos_from_nullifiers, PublicInputs},
         verify::TransferProofStatement,
-        ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo, TransferInput,
+        ExpectedProvingKey, OwnerAuthorization, Proof, ProofCompressed, ProofInputUtxo,
+        TransferInput,
     },
     ClientError,
 };
@@ -34,12 +35,12 @@ pub enum IndexedTransferRail<'a> {
     /// Keeps the owner off chain while signing the exact root-independent statement.
     AnonymousRingEddsa {
         ring: solana_address::Address,
-        owner: &'a spr_keypair::SigningKey,
+        owner: OwnerAuthorization<'a>,
     },
     /// The default ring with one owner signing the statement inside the
     /// proof instead of the transaction; every other owner still signs it.
     ConfidentialEddsa {
-        owner: &'a spr_keypair::SigningKey,
+        owner: OwnerAuthorization<'a>,
     },
 }
 
@@ -116,7 +117,7 @@ impl IndexedTransferPreparation<'_> {
         )?;
         let authority_rail = matches!(rail, IndexedTransferRail::RingAuthority(_));
         let hidden_owner = match &rail {
-            IndexedTransferRail::AnonymousRingEddsa { owner, .. } => Some(owner.pubkey()),
+            IndexedTransferRail::AnonymousRingEddsa { owner, .. } => Some(owner.public_key()),
             _ => None,
         };
         let ring = match &rail {
@@ -250,7 +251,10 @@ impl IndexedTransferPreparation<'_> {
                 hidden,
             )?
         } else if let IndexedTransferRail::ConfidentialEddsa { owner } = &rail {
-            crate::prover::transact::confidential_eddsa_signer_pk_hashes(&transaction, owner)?
+            crate::prover::transact::confidential_eddsa_signer_pk_hashes(
+                &transaction,
+                &owner.public_key(),
+            )?
         } else {
             transaction.signer_pk_hashes(shape.signer_width())?
         };
@@ -271,7 +275,7 @@ impl IndexedTransferPreparation<'_> {
             IndexedTransferRail::AnonymousRingEddsa { owner, .. } => Some(
                 crate::prover::transact::anonymous_ring_eddsa::AnonymousAuthorizationPreparation {
                     inputs: &proof_inputs,
-                    owner,
+                    owner: *owner,
                     private_tx: &private_tx,
                     external_data_hash: &external_hash,
                     published_owners: owners.as_deref().unwrap_or_default(),
@@ -282,11 +286,7 @@ impl IndexedTransferPreparation<'_> {
         };
         let eddsa = match &rail {
             IndexedTransferRail::ConfidentialEddsa { owner } => {
-                Some(crate::prover::transact::EddsaAuthorization::sign(
-                    owner,
-                    &private_tx,
-                    &external_hash,
-                )?)
+                Some(owner.authorize(&private_tx, &external_hash)?)
             }
             _ => None,
         };
@@ -575,7 +575,10 @@ struct PreparedTransferJson {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{MerkleContext, MerkleProof, NonInclusionProof, SpendProof, TransferInputUtxo};
+    use crate::{
+        MerkleContext, MerkleProof, NonInclusionProof, OwnerAuthorization, SpendProof,
+        TransferInputUtxo,
+    };
     use solana_address::Address;
     use spr_interface::instruction::{OwnerTag, TransactOutput, TreeContext};
     use spr_keypair::ShieldedKeypair;
@@ -775,7 +778,7 @@ mod tests {
                         public_transfers,
                         signer_pk_hashes: signers,
                         allow_dummy_inputs,
-                        owner: &owner.signing_key,
+                        owner: OwnerAuthorization::SigningKey(&owner.signing_key),
                         ring_program_id: ring,
                         shape,
                     }
@@ -784,7 +787,7 @@ mod tests {
                     (
                         IndexedTransferRail::AnonymousRingEddsa {
                             ring: ring.unwrap(),
-                            owner: &owner.signing_key,
+                            owner: OwnerAuthorization::SigningKey(&owner.signing_key),
                         },
                         result.inputs.transfer.public_input_hash,
                     )
@@ -829,7 +832,7 @@ mod tests {
                 transaction,
                 rail: IndexedTransferRail::AnonymousRingEddsa {
                     ring,
-                    owner: &owner.signing_key,
+                    owner: OwnerAuthorization::SigningKey(&owner.signing_key),
                 },
             }
             .prepare(&owner)
@@ -873,13 +876,49 @@ mod tests {
     }
 
     #[test]
+    fn prepared_owner_signature_proves_the_signing_key_statement() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let ring = Address::new_from_array([9; 32]);
+        let transaction = fixture(&owner, Some(ring), 2);
+        let prepare = |authorization| {
+            IndexedTransferPreparation {
+                transaction: transaction.clone(),
+                rail: IndexedTransferRail::AnonymousRingEddsa {
+                    ring,
+                    owner: authorization,
+                },
+            }
+            .prepare(&owner)
+        };
+        let prepared_over = |digest: [u8; 32]| OwnerAuthorization::Prepared {
+            owner: owner.signing_pubkey(),
+            signature: owner.sign_message(&digest).unwrap(),
+        };
+        let keyed = prepare(OwnerAuthorization::SigningKey(&owner.signing_key)).unwrap();
+        let digest = transaction.message_hash().unwrap();
+        let prepared = prepare(prepared_over(digest)).unwrap();
+        assert_eq!(
+            prepared.request.data.public_inputs,
+            keyed.request.data.public_inputs
+        );
+        assert_eq!(*prepared.request.data.witness, *keyed.request.data.witness);
+        assert_eq!(prepared.data.circuit, keyed.data.circuit);
+        let mut other_digest = digest;
+        other_digest[0] ^= 1;
+        assert!(matches!(
+            prepare(prepared_over(other_digest)),
+            Err(ClientError::OwnerSignatureMismatch)
+        ));
+    }
+
+    #[test]
     fn anonymous_default_ring_input_exposes_owner_tag() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let prepared = IndexedTransferPreparation {
             transaction: fixture(&owner, None, 1),
             rail: IndexedTransferRail::AnonymousRingEddsa {
                 ring: Address::new_from_array([9; 32]),
-                owner: &owner.signing_key,
+                owner: OwnerAuthorization::SigningKey(&owner.signing_key),
             },
         }
         .prepare(&owner)
@@ -917,7 +956,7 @@ mod tests {
                 transaction,
                 rail: IndexedTransferRail::AnonymousRingEddsa {
                     ring,
-                    owner: &owner.signing_key,
+                    owner: OwnerAuthorization::SigningKey(&owner.signing_key),
                 },
             }
             .prepare(&owner)
