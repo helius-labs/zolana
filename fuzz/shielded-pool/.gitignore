@@ -1,0 +1,20 @@
+# Build output and campaign state. None of it belongs in the repo: a committed
+# .so fuzzes dead code, and a corpus/crash set is machine-specific noise.
+target/
+corpus/
+crashes/
+bundle/
+dist/
+*.log
+fc-workdir-*/
+out_explore_*.json
+
+# Program artifacts are BUILT BY CI from this repo's current source and staged
+# here. Committing them would pin the fuzzer to a snapshot of the program and
+# silently stop testing everything added since.
+programs/
+fixtures/
+
+# Campaign working state and the resolved lockfile: local, not shared.
+Cargo.lock
+bundle-amd64/
