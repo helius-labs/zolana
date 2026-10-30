@@ -24,8 +24,13 @@ import {
   encryptRequest,
   type EncryptedRequest,
 } from "./encryption.js";
-import { checkedTeePolicy } from "./policy.js";
-import { PLATFORMS, type TeePolicy } from "./registry.js";
+import {
+  checkedProverTeePolicy,
+  checkFleetTime,
+  verifyFleetAttestation,
+  type ProverTeePolicy,
+} from "./fleet.js";
+import { PLATFORMS, type TeePlatform } from "./registry.js";
 import { verifyAttestation, type AttestedProver } from "./verify.js";
 
 const NONCE_SIZE = 32;
@@ -59,13 +64,15 @@ type Flight = Readonly<{ prover: Promise<AttestedProver>; signal: ComposedSignal
 
 /** Attestation state one prover client shares across its calls. */
 export class TeeSession {
-  readonly #policy: TeePolicy;
-  #attested: Readonly<{ key: Uint8Array; at: number }> | undefined;
+  readonly #policy: ProverTeePolicy;
+  #attested:
+    | Readonly<{ key: Uint8Array; at: number; maxAgeSecs: number; platform: TeePlatform }>
+    | undefined;
   // One attestation at a time, the server answers only a few quotes at once.
   #flight: Flight | undefined;
 
-  constructor(policy: TeePolicy) {
-    this.#policy = checkedTeePolicy(policy);
+  constructor(policy: ProverTeePolicy) {
+    this.#policy = checkedProverTeePolicy(policy);
   }
 
   /** Attests the prover now against the policy and caches its key. */
@@ -74,6 +81,7 @@ export class TeeSession {
     attestationUrl: URL,
     signal: ComposedSignal,
   ): Promise<AttestedProver> {
+    this.#checkPolicyTime();
     for (;;) {
       const flight = this.#flight ?? this.#launch(fetch, attestationUrl, signal);
       try {
@@ -163,22 +171,30 @@ export class TeeSession {
       if (!(error instanceof TransportFailure)) throw error;
       throw refused("malformed_attestation");
     }
-    const prover = verifyAttestation(
-      attestation,
-      this.#policy,
-      nonce,
-      Math.floor(Date.now() / 1000),
-    );
-    this.#attested = Object.freeze({ key: prover.hpkePublicKey.slice(), at: Date.now() });
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const { prover, policy } =
+      "kind" in this.#policy
+        ? verifyFleetAttestation(attestation, this.#policy, nonce, nowSecs)
+        : {
+            prover: verifyAttestation(attestation, this.#policy, nonce, nowSecs),
+            policy: this.#policy,
+          };
+    this.#attested = Object.freeze({
+      key: prover.hpkePublicKey.slice(),
+      at: Date.now(),
+      maxAgeSecs: policy.maxAgeSecs,
+      platform: prover.platform,
+    });
     return prover;
   }
 
   /** Resends once to a fresh attestation when a prover that draws its key per boot lost it. */
   async send(call: ProverCall): Promise<Response | undefined> {
-    const keyPerBoot = PLATFORMS[this.#policy.platform].keyPerBoot;
     for (let resent = false; ; resent = true) {
-      const key = await this.#key(call);
+      const { key, platform } = await this.#key(call);
+      const keyPerBoot = PLATFORMS[platform].keyPerBoot;
       const prepared = await this.#encrypt(call, key);
+      this.#checkPolicyTime();
       const response = await fetched(call, prepared.init);
       if (response === undefined) return undefined;
       if (resent || !keyPerBoot || !(await keyLost(response))) return prepared.finish(response);
@@ -189,12 +205,19 @@ export class TeeSession {
     }
   }
 
-  async #key(call: ProverCall): Promise<Uint8Array> {
+  #checkPolicyTime(): void {
+    if ("kind" in this.#policy) checkFleetTime(this.#policy, Math.floor(Date.now() / 1000));
+  }
+
+  async #key(call: ProverCall): Promise<Readonly<{ key: Uint8Array; platform: TeePlatform }>> {
+    this.#checkPolicyTime();
     const cached = this.#attested;
-    if (cached !== undefined && Date.now() - cached.at < this.#policy.maxAgeSecs * 1000) {
-      return cached.key;
+    if (cached !== undefined && Date.now() - cached.at < cached.maxAgeSecs * 1000) {
+      return cached;
     }
-    return (await this.attest(call.fetch, call.attestationUrl, call.signal)).hpkePublicKey;
+    const prover = await this.attest(call.fetch, call.attestationUrl, call.signal);
+    this.#checkPolicyTime();
+    return { key: prover.hpkePublicKey, platform: prover.platform };
   }
 
   async #encrypt(call: ProverCall, key: Uint8Array): Promise<PreparedCall> {

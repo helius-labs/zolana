@@ -87,6 +87,39 @@ A policy is a JSON object with `platform`, the platform's pins, `gpu` (`required
 A `dstack-tdx` policy pins `app_id`, `hpke_public_key`, `key_provider_id`, `os_image_hashes`, `measurements` (`mrtd`, `rtmr0`, `rtmr1`, `rtmr2`), `compose_hashes` and `tcb_statuses`.
 An `aws-nitro` policy pins `measurements` (`pcr0`, `pcr1`, `pcr2`) and can also pin `hpke_public_key`, which stays the same across boots only on a KMS deployment.
 
+### Explicit fleet policy files
+
+A fleet file contains `schema_version: 1`, `network`, `revision`, `expires_at`
+and `deployments`. `revision` and `expires_at` are positive safe integers;
+`expires_at` is a Unix timestamp in seconds. The parser requires the application's
+expected network label; it does not infer a network from a URL or query the RPC.
+
+`deployments` contains 1–32 entries, each with `id`, `region` and a bare `policy`
+in the single-deployment format above. Every entry requires a pinned HPKE key
+and non-empty measurements. IDs and keys must be unique. Network, ID and region
+labels contain 1–128 lowercase ASCII letters, digits or hyphens and start with
+a letter or digit. Unknown fields, unsafe integers and unsupported schema
+versions fail closed. `region` is descriptive metadata, not attested geography.
+
+The offered HPKE key selects one entry as a hint. The client then verifies the
+entire attestation against that entry, including its measurements, public-key
+binding and fresh nonce. Measurements and keys are never combined across entries.
+The selected entry's `max_age_secs` bounds quote reuse. Expiry of the fleet
+rejects further attestation and encrypted requests, including cached recipients.
+
+TypeScript uses `teeFleetPolicyFromJson(json, network)`, supplied as `proverTee`
+or `tee`. Rust uses `TeeFleetPolicy::from_json(json, network)` and
+`with_tee_fleet`. Existing single-policy parsers and configuration remain valid.
+Parsing a fleet does not authenticate its publisher, persist a revision floor,
+download updates or implement failover. Distribute it as reviewed application
+configuration until a signed policy provider is available.
+
+A fleet allowlist does not route ciphertext. Deployments with different keys
+behind one endpoint additionally require a router that preserves the attested
+recipient across requests and retries. The existing v1 headers do not identify
+the recipient deployment; this file format alone does not make ordinary
+load balancing across independent keys work.
+
 ## Encryption
 
 The client encrypts a request body with HPKE base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM.

@@ -8,8 +8,8 @@ pub use spr_prover_tee::{
     inspect, verify, verify_with, Anchors, Attestation, AttestedIdentity, AttestedProver,
     DstackIdentity, DstackPolicy, EncryptedRequest, GpuRequirement, KeyProvider, NitroIdentity,
     NitroMeasurement, NitroPolicy, Platform, PlatformIdentity, PlatformPolicy, TdxMeasurement,
-    TeeError, TeePolicy, TeePolicyFile, ATTESTATION_PATH, HEADER_CIPHERTEXT, HEADER_ENC,
-    HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
+    TeeDeployment, TeeError, TeeFleetPolicy, TeePolicy, TeePolicyFile, ATTESTATION_PATH,
+    HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
 };
 
 pub(crate) use session::TeeSession;

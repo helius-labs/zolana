@@ -48,7 +48,9 @@ export {
   LocalKeys,
   NullifierKeyProofAuthority,
   teePolicyFromJson,
+  teeFleetPolicyFromJson,
 } from "@heliuslabs/zolana/client";
+export type { ProverTeePolicy, TeeDeployment, TeeFleetPolicy } from "@heliuslabs/zolana/client";
 export type {
   DecryptRequest,
   DeriveRequest,

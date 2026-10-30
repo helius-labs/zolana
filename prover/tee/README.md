@@ -70,6 +70,46 @@ A deployment policy can be used by an older SDK when its policy schema,
 attestation protocol, wire format and circuit set remain compatible; an image
 rebuild or key rotation alone does not require an SDK release.
 
+### Several approved deployment generations
+
+For explicit fleet pins, keep a reviewed file containing the complete policy
+of each approved generation. The [fleet file format](WIRE_CONTRACT.md#explicit-fleet-policy-files)
+pairs each generation's measurements with its HPKE key and requires an expiry.
+It is independent of the prover URL.
+
+In TypeScript:
+
+```ts
+import { ZolanaClient, teeFleetPolicyFromJson } from "@heliuslabs/zolana/client";
+import fleetFile from "./mainnet-tee-fleet.json" with { type: "json" };
+
+const client = new ZolanaClient({
+  solanaRpcUrl: heliusRpcUrl,
+  proverTee: teeFleetPolicyFromJson(fleetFile, "mainnet"),
+});
+await client.attestProver();
+```
+
+In Rust, configure either prover client with the same file:
+
+```rust
+use spr_client::prover::{tee::TeeFleetPolicy, ProverClient};
+
+let fleet = TeeFleetPolicy::from_json(&std::fs::read_to_string(policy_path)?, "mainnet")?;
+let prover = ProverClient::new(prover_url).with_tee_fleet(fleet);
+prover.attest()?;
+```
+
+These parsers load explicit application-approved pins. They do not fetch or
+authenticate updates; the revision field alone provides no rollback protection.
+An expired fleet rejects requests even if a key is cached. The `network`
+argument checks the file's label, not the Solana RPC's actual network.
+
+Independent keys behind one URL still require recipient-aware routing. A fleet
+does not add routing, a recipient header, failover, signed metadata, or a
+`heliusTee` provider. Those are subsequent parts of PRI-285. Existing
+single-deployment APIs, CLI files and `xtask tee-policy` remain unchanged.
+
 ## Mainnet: v0.6.0-alpha
 
 | Network | Photon RPC | Nitro prover |

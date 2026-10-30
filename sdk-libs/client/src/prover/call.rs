@@ -115,6 +115,10 @@ impl<'a> Call<'a> {
                 encrypted: None,
             });
         };
+        recipient
+            .session
+            .check_policy_time()
+            .map_err(CallError::Refused)?;
         let encrypted = TeeSession::encrypt(
             &recipient.key,
             self.method.as_str(),
@@ -170,7 +174,7 @@ impl<'s> Prepared<'s> {
         let Some(Encrypted { recipient, request }) = &self.encrypted else {
             return Ok(Answer::Done(status, plain()));
         };
-        if !is_encrypted && recipient.session.lost_key(status, body) {
+        if !is_encrypted && recipient.session.lost_key(&recipient.key, status, body) {
             return Ok(Answer::KeyLost {
                 recipient: *recipient,
                 status,

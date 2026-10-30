@@ -58,6 +58,12 @@ export {
   type ProvingKeyReport,
 } from "./prover/client.js";
 export { teePolicyFromJson, type GpuRequirement } from "./prover/tee/policy.js";
+export {
+  teeFleetPolicyFromJson,
+  type ProverTeePolicy,
+  type TeeDeployment,
+  type TeeFleetPolicy,
+} from "./prover/tee/fleet.js";
 export type {
   AwsNitroPolicy,
   DstackTdxPolicy,

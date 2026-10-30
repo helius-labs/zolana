@@ -5,6 +5,7 @@ mod dstack;
 mod encryption;
 #[cfg(any(test, feature = "test-fixtures"))]
 mod fixture_prover;
+mod fleet;
 mod nitro;
 mod platform;
 mod policy;
@@ -17,6 +18,7 @@ pub use dstack::{DstackIdentity, DstackPolicy, KeyProvider, TdxMeasurement};
 pub use encryption::{decrypt_response, EncryptedRequest};
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use fixture_prover::{seal_response, FixtureProver, OpenedRequest};
+pub use fleet::{TeeDeployment, TeeFleetPolicy};
 #[cfg(any(test, feature = "test-fixtures"))]
 pub use nitro::fixture::Fixture as NitroFixture;
 pub use nitro::{NitroIdentity, NitroMeasurement, NitroPolicy};
@@ -49,6 +51,8 @@ pub enum TeeError {
     NoPolicy,
     #[error("TEE policy is malformed, {0}")]
     Policy(String),
+    #[error("TEE fleet policy has expired")]
+    PolicyExpired,
     #[error("attestation is malformed, {0}")]
     MalformedAttestation(String),
     #[error("TDX quote verification failed, {0}")]

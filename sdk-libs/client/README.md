@@ -90,6 +90,15 @@ policies and measured-build provenance. An older SDK can use a new deployment
 policy when its schema, attestation protocol and circuits remain supported.
 Image rebuilds and key rotations alone do not require an SDK release.
 
+For several explicitly approved deployment generations, load
+`tee::TeeFleetPolicy::from_json(json, expected_network)` and pass it to
+`ProverClient::with_tee_fleet` or `AsyncProverClient::with_tee_fleet`. Every
+generation pairs its measurements with its own pinned HPKE key. The selected
+generation determines quote-cache lifetime; fleet expiry rejects cached keys
+and new calls. This does not download or authenticate policy updates or route
+ciphertext between independent regional keys; see the deployment guide before
+putting different generations behind one URL.
+
 For readiness through the Helius API, use attestation and proving-key checks.
 `check_indexed` and `check_setup(IndexerRequirement::Required)` also call the
 operator `/health` route, which is not part of the public gateway API.

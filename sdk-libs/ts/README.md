@@ -206,6 +206,16 @@ does not infer those capabilities from the hostname.
 Use `attestProver` and `checkProverProvingKeys` for gateway readiness;
 the operator `/health` route is not part of the public Helius API.
 
+For several approved deployment generations, parse a reviewed fleet file with
+`teeFleetPolicyFromJson(fleetFile, "mainnet")` from `@heliuslabs/zolana/client`
+and pass it as `proverTee` (or `tee` on `ProverClient`). Each generation pairs
+its measurements with a pinned encryption key; the whole fleet has an expiry.
+The network argument checks the file's label, not the RPC's actual network.
+Fleet parsing performs no downloads or publisher verification. A deployment
+with independent regional keys behind one URL still needs recipient-aware
+routing; the parser does not supply it. See the
+[TEE fleet guide](../../prover/tee/README.md#several-approved-deployment-generations).
+
 ## Common transactions
 
 These snippets continue from the setup used in quickstart.

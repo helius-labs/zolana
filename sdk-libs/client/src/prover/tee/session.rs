@@ -1,15 +1,15 @@
 use std::{
     future::Future,
     sync::Mutex,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use http::StatusCode;
 use rand_core::{OsRng, TryRngCore};
 
 use super::{
-    verify_with, Anchors, Attestation, AttestedProver, EncryptedRequest, TeeError, TeePolicy,
-    HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
+    verify_with, Anchors, Attestation, AttestedProver, EncryptedRequest, TeeError, TeeFleetPolicy,
+    TeePolicy, HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
 };
 use crate::error::ClientError;
 
@@ -19,13 +19,18 @@ const DECRYPTION_FAILED: &str = "tee_decryption_failed";
 
 /// Attestation state one prover client shares across its requests.
 pub(crate) struct TeeSession {
-    policy: TeePolicy,
+    policy: SessionPolicy,
     anchors: Anchors,
-    attested: Mutex<Option<(AttestedProver, Instant)>>,
+    attested: Mutex<Option<(AttestedProver, Instant, Duration)>>,
     // One attestation at a time, the server answers only a few quotes at once.
     attesting: tokio::sync::Mutex<()>,
     // Bumped per finished attestation, a waiting call takes its failure instead of retrying.
     outcome: Mutex<(u64, Option<SharedFailure>)>,
+}
+
+enum SessionPolicy {
+    Single(TeePolicy),
+    Fleet(TeeFleetPolicy),
 }
 
 #[derive(Clone)]
@@ -54,6 +59,14 @@ impl From<SharedFailure> for ClientError {
 
 impl TeeSession {
     pub fn new(policy: TeePolicy) -> Self {
+        Self::with_policy(SessionPolicy::Single(policy))
+    }
+
+    pub fn fleet(policy: TeeFleetPolicy) -> Self {
+        Self::with_policy(SessionPolicy::Fleet(policy))
+    }
+
+    fn with_policy(policy: SessionPolicy) -> Self {
         Self {
             policy,
             anchors: Anchors::PRODUCTION,
@@ -76,6 +89,7 @@ impl TeeSession {
         &self,
         attest: impl FnOnce() -> F,
     ) -> AttestResult {
+        self.check_policy_time()?;
         let _attesting = self.attesting.lock().await;
         self.settle(attest().await)
     }
@@ -85,6 +99,7 @@ impl TeeSession {
         &self,
         attest: impl FnOnce() -> F,
     ) -> Result<[u8; 32], ClientError> {
+        self.check_policy_time()?;
         if let Some(key) = self.attested_key() {
             return Ok(key);
         }
@@ -122,11 +137,19 @@ impl TeeSession {
 
     /// The key of the last attestation still inside the policy's max age.
     pub fn attested_key(&self) -> Option<[u8; 32]> {
+        self.check_policy_time().ok()?;
         let attested = lock(&self.attested);
         attested
             .as_ref()
-            .filter(|(_, at)| at.elapsed() < self.policy.max_age())
-            .map(|(prover, _)| prover.hpke_public_key)
+            .filter(|(_, at, max_age)| at.elapsed() < *max_age)
+            .map(|(prover, _, _)| prover.hpke_public_key)
+    }
+
+    pub(crate) fn check_policy_time(&self) -> Result<(), ClientError> {
+        if let SessionPolicy::Fleet(fleet) = &self.policy {
+            fleet.check_time(now_secs()?)?;
+        }
+        Ok(())
     }
 
     pub fn nonce() -> Result<[u8; NONCE_SIZE], ClientError> {
@@ -162,21 +185,37 @@ impl TeeSession {
         }
         let attestation: Attestation = serde_json::from_slice(body)
             .map_err(|e| TeeError::MalformedAttestation(e.to_string()))?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| ClientError::Prover("system clock is before 1970".into()))?
-            .as_secs();
-        let prover = verify_with(attestation, &self.policy, nonce, now, &self.anchors)?;
-        *lock(&self.attested) = Some((prover.clone(), Instant::now()));
+        let now = now_secs()?;
+        let (prover, max_age) = match &self.policy {
+            SessionPolicy::Single(policy) => (
+                verify_with(attestation, policy, nonce, now, &self.anchors)?,
+                policy.max_age(),
+            ),
+            SessionPolicy::Fleet(fleet) => {
+                let prover = fleet.verify_with(attestation, nonce, now, &self.anchors)?;
+                let deployment = fleet
+                    .deployment_for_key(&prover.hpke_public_key)
+                    .ok_or(TeeError::HpkeKeyMismatch)?;
+                let max_age = deployment.policy.max_age();
+                (prover, max_age)
+            }
+        };
+        *lock(&self.attested) = Some((prover.clone(), Instant::now(), max_age));
         Ok(prover)
     }
 
-    pub fn lost_key(&self, status: StatusCode, body: &[u8]) -> bool {
+    pub fn lost_key(&self, key: &[u8; 32], status: StatusCode, body: &[u8]) -> bool {
         #[derive(serde::Deserialize)]
         struct Failure {
             code: String,
         }
-        self.policy.platform().rotates_key_per_boot()
+        let platform = match &self.policy {
+            SessionPolicy::Single(policy) => Some(policy.platform()),
+            SessionPolicy::Fleet(fleet) => fleet
+                .deployment_for_key(key)
+                .map(|entry| entry.policy.platform()),
+        };
+        platform.is_some_and(|platform| platform.rotates_key_per_boot())
             && status == StatusCode::BAD_REQUEST
             && serde_json::from_slice::<Failure>(body)
                 .is_ok_and(|failure| failure.code == DECRYPTION_FAILED)
@@ -187,7 +226,7 @@ impl TeeSession {
         let mut attested = lock(&self.attested);
         if attested
             .as_ref()
-            .is_some_and(|(prover, _)| prover.hpke_public_key == *key)
+            .is_some_and(|(prover, _, _)| prover.hpke_public_key == *key)
         {
             *attested = None;
         }
@@ -235,6 +274,13 @@ impl TeeSession {
     }
 }
 
+fn now_secs() -> Result<u64, ClientError> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|now| now.as_secs())
+        .map_err(|_| ClientError::Prover("system clock is before 1970".into()))
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
@@ -250,7 +296,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::prover::tee::Platform;
+    use crate::prover::tee::{NitroFixture, Platform, TeeDeployment};
 
     fn session() -> TeeSession {
         TeeSession::new(
@@ -275,7 +321,8 @@ mod tests {
             tcb_status: Some("UpToDate".into()),
             gpu_verified: false,
         };
-        *session.attested.lock().unwrap() = Some((prover.clone(), Instant::now()));
+        *session.attested.lock().unwrap() =
+            Some((prover.clone(), Instant::now(), Duration::from_secs(600)));
         Ok(prover)
     }
 
@@ -320,5 +367,97 @@ mod tests {
         assert!(results
             .iter()
             .all(|result| matches!(result, Err(ClientError::Tee(TeeError::ReportDataMismatch)))));
+    }
+
+    #[tokio::test]
+    async fn an_expired_fleet_cannot_reuse_a_cached_key_or_launch_attestation() {
+        let now = now_secs().unwrap();
+        let nonce = [0x11; NONCE_SIZE];
+        let fixture = NitroFixture::at(nonce, now).pinning_key();
+        let prover = verify_with(
+            serde_json::from_value(fixture.attestation_json()).unwrap(),
+            fixture.policy(),
+            &nonce,
+            now,
+            &fixture.anchors(),
+        )
+        .unwrap();
+        let fleet = TeeFleetPolicy::new(
+            "fixture".into(),
+            1,
+            now - 1,
+            vec![TeeDeployment {
+                id: "eu-1".into(),
+                region: "eu-north-1".into(),
+                policy: fixture.policy().clone(),
+            }],
+        )
+        .unwrap();
+        let session = TeeSession::fleet(fleet);
+        *lock(&session.attested) = Some((prover, Instant::now(), Duration::from_secs(600)));
+        let calls = AtomicUsize::new(0);
+        let launch = || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(TeeError::NoPolicy.into())
+        };
+        assert!(session.attested_key().is_none());
+        assert!(matches!(
+            session.key_or_attest(launch).await,
+            Err(ClientError::Tee(TeeError::PolicyExpired))
+        ));
+        assert!(matches!(
+            session.attest_exclusive(launch).await,
+            Err(ClientError::Tee(TeeError::PolicyExpired))
+        ));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn fleet_cache_uses_the_matched_generations_quote_lifetime() {
+        let now = now_secs().unwrap();
+        let nonce = [0x11; NONCE_SIZE];
+        let fixture = NitroFixture::at(nonce, now).pinning_key();
+        let mut other: serde_json::Value = serde_json::to_value(fixture.policy()).unwrap();
+        other["hpke_public_key"] = serde_json::json!("44".repeat(32));
+        let fleet = TeeFleetPolicy::new(
+            "fixture".into(),
+            1,
+            now + 600,
+            vec![
+                TeeDeployment {
+                    id: "eu-1".into(),
+                    region: "eu-north-1".into(),
+                    policy: fixture
+                        .policy()
+                        .clone()
+                        .with_max_age(Duration::from_secs(1)),
+                },
+                TeeDeployment {
+                    id: "us-1".into(),
+                    region: "us-east-1".into(),
+                    policy: TeePolicy::from_json(&other.to_string()).unwrap(),
+                },
+            ],
+        )
+        .unwrap();
+        let session = TeeSession {
+            anchors: fixture.anchors(),
+            ..TeeSession::fleet(fleet)
+        };
+        let prover = session
+            .accept(
+                &nonce,
+                StatusCode::OK,
+                &serde_json::to_vec(&fixture.attestation_json()).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(session.attested_key(), Some(prover.hpke_public_key));
+        lock(&session.attested).as_mut().unwrap().1 -= Duration::from_secs(2);
+        assert_eq!(session.attested_key(), None);
+        assert!(session.lost_key(
+            &prover.hpke_public_key,
+            StatusCode::BAD_REQUEST,
+            br#"{"code":"tee_decryption_failed"}"#
+        ));
     }
 }

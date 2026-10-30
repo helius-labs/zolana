@@ -37,7 +37,9 @@ use crate::{
         proof::{proof_from_value, Proof},
         proving_key::{ExpectedProvingKey, ProverKeys, ProvingKeyReport},
         requests,
-        tee::{AttestedProver, TeeError, TeePolicy, TeeSession, MAX_ATTESTATION_BYTES},
+        tee::{
+            AttestedProver, TeeError, TeeFleetPolicy, TeePolicy, TeeSession, MAX_ATTESTATION_BYTES,
+        },
     },
 };
 
@@ -338,6 +340,13 @@ impl ProverClient {
     #[must_use]
     pub fn with_tee(mut self, policy: TeePolicy) -> Self {
         self.client = self.client.with_tee(policy);
+        self
+    }
+
+    /// Encrypt calls to any generation approved by the reviewed fleet policy.
+    #[must_use]
+    pub fn with_tee_fleet(mut self, policy: TeeFleetPolicy) -> Self {
+        self.client = self.client.with_tee_fleet(policy);
         self
     }
 
@@ -753,6 +762,13 @@ impl AsyncProverClient {
     #[must_use]
     pub fn with_tee(mut self, policy: TeePolicy) -> Self {
         self.tee = Tee::On(Box::new(TeeSession::new(policy)));
+        self
+    }
+
+    /// Encrypt calls to any generation approved by the reviewed fleet policy.
+    #[must_use]
+    pub fn with_tee_fleet(mut self, policy: TeeFleetPolicy) -> Self {
+        self.tee = Tee::On(Box::new(TeeSession::fleet(policy)));
         self
     }
 
