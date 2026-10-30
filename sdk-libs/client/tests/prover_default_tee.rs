@@ -1,5 +1,5 @@
-//! The default deployment must accept its measured AWS-signed evidence without
-//! a caller-supplied policy. The live test also exercises encrypted proving.
+//! Archived caller-supplied pins must accept their measured AWS-signed evidence.
+//! Opt-in live tests exercise encrypted proving with an explicit URL and policy.
 
 use std::time::Duration;
 

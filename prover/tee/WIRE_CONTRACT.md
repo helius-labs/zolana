@@ -87,6 +87,65 @@ A policy is a JSON object with `platform`, the platform's pins, `gpu` (`required
 A `dstack-tdx` policy pins `app_id`, `hpke_public_key`, `key_provider_id`, `os_image_hashes`, `measurements` (`mrtd`, `rtmr0`, `rtmr1`, `rtmr2`), `compose_hashes` and `tcb_statuses`.
 An `aws-nitro` policy pins `measurements` (`pcr0`, `pcr1`, `pcr2`) and can also pin `hpke_public_key`, which stays the same across boots only on a KMS deployment.
 
+### Explicit fleet policy files
+
+A fleet file contains `schema_version: 1`, `network`, `revision`, `expires_at`
+and `deployments`. `revision` and `expires_at` are positive safe integers;
+`expires_at` is a Unix timestamp in seconds. The parser requires the application's
+expected network label; it does not infer a network from a URL or query the RPC.
+
+`deployments` contains 1–32 entries, each with `id`, `region` and a bare `policy`
+in the single-deployment format above. Every entry requires a pinned HPKE key
+and non-empty measurements. IDs and keys must be unique. Network, ID and region
+labels contain 1–128 lowercase ASCII letters, digits or hyphens and start with
+a letter or digit. Unknown fields, unsafe integers and unsupported schema
+versions fail closed. `region` is descriptive metadata, not attested geography.
+
+The offered HPKE key selects one entry as a hint. The client then verifies the
+entire attestation against that entry, including its measurements, public-key
+binding and fresh nonce. Measurements and keys are never combined across entries.
+The selected entry's `max_age_secs` bounds quote reuse. Expiry of the fleet
+rejects further attestation and encrypted requests, including cached recipients.
+
+TypeScript uses `teeFleetPolicyFromJson(json, network)`, supplied as `proverTee`
+or `tee`. Rust uses `TeeFleetPolicy::from_json(json, network)` and
+`with_tee_fleet`. Existing single-policy parsers and configuration remain valid.
+Parsing a fleet does not authenticate its publisher, persist a revision floor,
+download updates or implement failover. Distribute it as reviewed application
+configuration until a signed policy provider is available.
+
+### Recipient routing
+
+Every SDK encrypted request carries `Zolana-Tee-Key-Id`, a lowercase hex routing
+hint computed locally from the verified 32-byte HPKE public key:
+
+```
+recipient_id = hex(SHA-256("zolana/prover-tee/v1/recipient" || hpke_public_key))
+```
+
+A recipient router maps that identifier to an operator-configured generation
+and backend. It may select any healthy deployment for a fresh attestation;
+it must never send ciphertext for an unknown or unavailable key to a different
+recipient. The identifier is public and grants no trust or authorization.
+Attestation, paired PCR/key pins, policy expiry and HPKE verification still
+control confidentiality and acceptance.
+
+Before forwarding, an unknown or unavailable recipient produces an unencrypted
+`503` JSON `{ "code": "tee_generation_unavailable" }`. SDKs discard that
+cached recipient, obtain fresh evidence and encrypt again, at most once within
+the original call deadline. A proxy must never emit that code after forwarding
+the request or automatically replay a POST: its previous recipient may have
+acted. Other upstream errors do not trigger this recipient retry. Existing
+Nitro `400 tee_decryption_failed` recovery remains supported.
+
+Direct provers accept an omitted identifier for existing clients, but reject
+a supplied mismatch or duplicate with `400 tee_recipient_mismatch` before
+decryption. A multi-recipient router requires the identifier. Proxies must
+allow `Zolana-Tee-Key-Id` in request forwarding and browser preflights; the
+response `Zolana-Tee` marker must be forwarded and exposed to browsers.
+`testdata/recipient_ids.json` pins the derivation across Go, Rust and TS.
+
+
 ## Encryption
 
 The client encrypts a request body with HPKE base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM.

@@ -17,6 +17,8 @@ default = ["reqwest"]
 # links reqwest through `solana-rpc-client`.
 reqwest = ["dep:reqwest", "spr-api/reqwest"]
 socks = ["reqwest", "reqwest/socks"]
+# Signed static TEE policy repositories with persistent local trust metadata.
+tee-tuf = ["reqwest", "dep:tough", "dep:bytes", "dep:sha2", "dep:tempfile", "dep:jiff"]
 solana-rpc = ["dep:bs58", "dep:base64", "dep:solana-rpc-client", "dep:solana-commitment-config"]
 client = ["solana-rpc"]
 # Gates the test binaries that spawn the local prover, so a plain
@@ -55,6 +57,11 @@ groth16-solana = { workspace = true }
 spr-tree = { workspace = true, features = ["verify"] }
 futures = { workspace = true }
 async-trait = { workspace = true }
+tough = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
+jiff = { workspace = true, optional = true }
 bs58 = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 solana-account = { workspace = true }
@@ -185,3 +192,11 @@ name = "solana_rpc"
 
 [[test]]
 name = "user_registry"
+
+[[example]]
+name = "tee_policy_attest"
+required-features = ["tee-tuf"]
+
+[[example]]
+name = "tee_policy_prove"
+required-features = ["tee-tuf"]

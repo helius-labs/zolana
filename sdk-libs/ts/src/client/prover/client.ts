@@ -44,7 +44,7 @@ import {
 } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
-import type { TeePolicy } from "./tee/registry.js";
+import type { ProverTee } from "./tee/source.js";
 import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
 import type {
@@ -156,7 +156,7 @@ export class ProverClient {
        * Encrypts every call, health and key checks included, to a prover that
        * attests to the supplied policy. Required for every remote prover.
        */
-      tee?: TeePolicy;
+      tee?: ProverTee;
     }>,
   ) {
     const candidate: unknown = input;
@@ -263,7 +263,7 @@ export class ProverClient {
     try {
       const response = await sendCall(this.#tee, this.#call(url, request));
       if (response === undefined) {
-        if (request.timedOut()) throw requestError("health", request);
+        if (request.signal.aborted) throw requestError("health", request);
         throw new ClientError("CLIENT_PROVER_REQUEST", {
           details: { method: "health", attempts: 1 },
         });

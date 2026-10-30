@@ -90,6 +90,79 @@ policies and measured-build provenance. An older SDK can use a new deployment
 policy when its schema, attestation protocol and circuits remain supported.
 Image rebuilds and key rotations alone do not require an SDK release.
 
+For several explicitly approved deployment generations, load
+`tee::TeeFleetPolicy::from_json(json, expected_network)` and pass it to
+`ProverClient::with_tee_fleet` or `AsyncProverClient::with_tee_fleet`. Every
+generation pairs its measurements with its own pinned HPKE key. The selected
+generation determines quote-cache lifetime; fleet expiry rejects cached keys
+and new calls. This does not download or authenticate policy updates or route
+ciphertext between independent regional keys; see the deployment guide before
+putting different generations behind one URL.
+
+Enable `spr-client/tee-tuf` to resolve fleet updates from an explicitly trusted
+static TUF repository, in either the blocking or async prover client:
+
+```rust
+use spr_client::prover::{
+    ProverClient,
+    tee::{tuf_tee_policy, TufTeePolicyOptions},
+};
+
+let source = tuf_tee_policy(TufTeePolicyOptions {
+    network: "mainnet".into(),
+    root_json: std::fs::read_to_string("reviewed-tuf-root.json")?,
+    metadata_url: "https://policies.example/metadata/".parse()?,
+    targets_url: "https://policies.example/targets/".parse()?,
+    cache_directory: std::env::current_dir()?.join(".cache/zolana-tee"),
+    refresh_interval: None,
+})?;
+let prover = ProverClient::new(prover_url).with_tee_source(source);
+prover.attest()?;
+```
+
+The example URLs are placeholders, not a deployed Helius policy service. Obtain
+the root independently and review its exact bytes before use. The provider uses
+the `tough` verifier and the publisher's top-level, SHA-256 fleet target profile.
+No production root/preset is embedded. Metadata downloads refuse redirects and
+carry neither prover credentials nor the prover's proxy configuration.
+
+The default refresh interval is one minute, capped at five minutes; authenticated
+expiry always wins. A required refresh failure blocks new calls. Changed/removed
+entries invalidate cached recipients, and prepared ciphertext is checked again
+before transmission. Policy loading has a 30-second ceiling. A prover call's
+configured request deadline now includes policy resolution, attestation and its
+same-call key-loss recovery, rather than starting only at the proof HTTP exchange.
+Dropping a future cancels that caller; shared waiters can retry a cancelled load.
+
+Polling cadence is not a hard revocation guarantee: a serving path can replay
+older signed metadata until its authenticated expiry. Choose timestamp lifetime
+and signer renewal frequency from the required worst-case revocation window.
+
+Keep the absolute cache directory on trusted local storage. Rust uses its own
+`rust-tuf-<digest>` namespace, separate from Node's format. Cooperating processes
+use an OS advisory lock; process exit releases the lock, while its `lock` file
+remains in place. Never unlink that file during use or share the cache over a
+network filesystem. A cancelled metadata worker cancels network I/O, completes
+pending storage work, and releases the lock afterward. On Unix, metadata and
+the atomic integrity checkpoint are synced before success. Missing, malformed
+or inconsistent trusted state fails closed. An interrupted write can require
+operator recovery from a complete trusted snapshot; no error automatically
+resets metadata or revision floors. Changing bootstrap bytes, URLs or network
+selects a new trust namespace and must be reviewed as a configuration migration.
+
+Without `tee-tuf`, `TeePolicySource`, `TeePolicyLoader` and `TeePolicyDocument`
+remain available for an application-authorized loader through `with_tee_source`.
+That loader must authenticate its publisher and preserve durable rollback state;
+the portable source only supplies bounded refreshes, validation and memory floors.
+Explicit single/fleet policies and existing constructors remain available.
+
+The [attestation-only example](examples/tee_policy_attest.rs) exercises the public
+factory and blocking client without a wallet or proof submission:
+`cargo run -p spr-client --features tee-tuf --example tee_policy_attest --
+<root.json> <network> <metadata-url> <targets-url> <absolute-cache>`.
+It reads the prover endpoint from `ZOLANA_PROVER_URL`, keeping gateway credentials
+off command arguments.
+
 For readiness through the Helius API, use attestation and proving-key checks.
 `check_indexed` and `check_setup(IndexerRequirement::Required)` also call the
 operator `/health` route, which is not part of the public gateway API.

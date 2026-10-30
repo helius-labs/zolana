@@ -8,7 +8,13 @@ import {
   setUrlQuery,
 } from "../../../services/transport.js";
 import { ClientError } from "../../error.js";
-import { composeSignal, requestError, sleep, type ComposedSignal } from "../../internal.js";
+import {
+  composeSignal,
+  requestError,
+  sleep,
+  untilAborted,
+  type ComposedSignal,
+} from "../../internal.js";
 import {
   ATTESTATION_TIMEOUT_MS,
   MAX_ATTEMPTS,
@@ -17,6 +23,7 @@ import {
 } from "../retry.js";
 import {
   HEADER_ENC,
+  HEADER_KEY_ID,
   HEADER_CIPHERTEXT,
   HEADER_VERSION,
   RESPONSE_NONCE_SIZE,
@@ -24,9 +31,15 @@ import {
   encryptRequest,
   type EncryptedRequest,
 } from "./encryption.js";
-import { checkedTeePolicy } from "./policy.js";
-import { PLATFORMS, type TeePolicy } from "./registry.js";
+import {
+  checkedProverTeePolicy,
+  checkFleetTime,
+  verifyFleetAttestation,
+  type ProverTeePolicy,
+} from "./fleet.js";
+import { PLATFORMS, type TeePlatform } from "./registry.js";
 import { verifyAttestation, type AttestedProver } from "./verify.js";
+import { TeePolicySource, type ProverTee } from "./source.js";
 
 const NONCE_SIZE = 32;
 const MAX_ATTESTATION_BYTES = 1024 * 1024;
@@ -59,13 +72,23 @@ type Flight = Readonly<{ prover: Promise<AttestedProver>; signal: ComposedSignal
 
 /** Attestation state one prover client shares across its calls. */
 export class TeeSession {
-  readonly #policy: TeePolicy;
-  #attested: Readonly<{ key: Uint8Array; at: number }> | undefined;
+  readonly #configuration: ProverTee;
+  #attested:
+    | Readonly<{
+        key: Uint8Array;
+        at: number;
+        maxAgeSecs: number;
+        platform: TeePlatform;
+        fingerprint: string;
+      }>
+    | undefined;
   // One attestation at a time, the server answers only a few quotes at once.
   #flight: Flight | undefined;
 
-  constructor(policy: TeePolicy) {
-    this.#policy = checkedTeePolicy(policy);
+  constructor(policy: ProverTee) {
+    this.#configuration = TeePolicySource.isSource(policy)
+      ? policy
+      : checkedProverTeePolicy(policy);
   }
 
   /** Attests the prover now against the policy and caches its key. */
@@ -74,6 +97,8 @@ export class TeeSession {
     attestationUrl: URL,
     signal: ComposedSignal,
   ): Promise<AttestedProver> {
+    const pending = this.#resolvePolicy(signal);
+    if (pending instanceof Promise) await pending;
     for (;;) {
       const flight = this.#flight ?? this.#launch(fetch, attestationUrl, signal);
       try {
@@ -116,6 +141,8 @@ export class TeeSession {
           throw error;
         }
       }
+      const pending = this.#resolvePolicy(signal);
+      if (pending instanceof Promise) await pending;
       const nonce = randomBytes(NONCE_SIZE);
       const url = new URL(attestationUrl);
       setUrlQuery(url, "nonce", bytesToHex(nonce));
@@ -148,14 +175,18 @@ export class TeeSession {
           if (delay === undefined) throw refused("unavailable");
           continue;
         }
-        return await this.#accept(response, nonce);
+        return await this.#accept(response, nonce, signal);
       } finally {
         request.cleanup();
       }
     }
   }
 
-  async #accept(response: Response, nonce: Uint8Array): Promise<AttestedProver> {
+  async #accept(
+    response: Response,
+    nonce: Uint8Array,
+    signal: ComposedSignal,
+  ): Promise<AttestedProver> {
     let attestation: unknown;
     try {
       attestation = await readBoundedJson(response, MAX_ATTESTATION_BYTES);
@@ -163,38 +194,90 @@ export class TeeSession {
       if (!(error instanceof TransportFailure)) throw error;
       throw refused("malformed_attestation");
     }
-    const prover = verifyAttestation(
-      attestation,
-      this.#policy,
-      nonce,
-      Math.floor(Date.now() / 1000),
-    );
-    this.#attested = Object.freeze({ key: prover.hpkePublicKey.slice(), at: Date.now() });
+    const pending = this.#resolvePolicy(signal);
+    const approved = pending instanceof Promise ? await pending : pending;
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const { prover, policy } =
+      "kind" in approved
+        ? verifyFleetAttestation(attestation, approved, nonce, nowSecs)
+        : {
+            prover: verifyAttestation(attestation, approved, nonce, nowSecs),
+            policy: approved,
+          };
+    this.#attested = Object.freeze({
+      key: prover.hpkePublicKey.slice(),
+      at: Date.now(),
+      maxAgeSecs: policy.maxAgeSecs,
+      platform: prover.platform,
+      fingerprint: JSON.stringify(policy),
+    });
     return prover;
   }
 
   /** Resends once to a fresh attestation when a prover that draws its key per boot lost it. */
   async send(call: ProverCall): Promise<Response | undefined> {
-    const keyPerBoot = PLATFORMS[this.#policy.platform].keyPerBoot;
     for (let resent = false; ; resent = true) {
-      const key = await this.#key(call);
+      const { key, platform, fingerprint } = await this.#key(call);
+      const keyPerBoot = PLATFORMS[platform].keyPerBoot;
       const prepared = await this.#encrypt(call, key);
+      const pending = this.#resolvePolicy(call.signal);
+      const current = pending instanceof Promise ? await pending : pending;
+      if (!permits(current, key, fingerprint)) throw refused("policy_changed");
       const response = await fetched(call, prepared.init);
       if (response === undefined) return undefined;
-      if (resent || !keyPerBoot || !(await keyLost(response))) return prepared.finish(response);
-      await response.body?.cancel();
+      if (resent) return prepared.finish(response);
+      const checked = await recipientFailure(response, keyPerBoot);
+      if (!checked.retry) return prepared.finish(checked.response);
+      await checked.response.body?.cancel();
       if (this.#attested !== undefined && equalBytes(this.#attested.key, key)) {
         this.#attested = undefined;
       }
     }
   }
 
-  async #key(call: ProverCall): Promise<Uint8Array> {
-    const cached = this.#attested;
-    if (cached !== undefined && Date.now() - cached.at < this.#policy.maxAgeSecs * 1000) {
-      return cached.key;
+  #resolvePolicy(signal: ComposedSignal): ProverTeePolicy | Promise<ProverTeePolicy> {
+    const check = (policy: ProverTeePolicy): ProverTeePolicy => {
+      if (signal.signal.aborted) throw requestError("attest", signal);
+      if ("kind" in policy) checkFleetTime(policy, Math.floor(Date.now() / 1000));
+      return policy;
+    };
+    if (TeePolicySource.isSource(this.#configuration)) {
+      return this.#configuration
+        .resolve({ signal: signal.signal })
+        .then((policy) => check(checkedProverTeePolicy(policy)))
+        .catch((error: unknown) => {
+          if (signal.signal.aborted) throw requestError("attest", signal);
+          throw error;
+        });
     }
-    return (await this.attest(call.fetch, call.attestationUrl, call.signal)).hpkePublicKey;
+    return check(this.#configuration);
+  }
+
+  async #key(
+    call: ProverCall,
+  ): Promise<Readonly<{ key: Uint8Array; platform: TeePlatform; fingerprint: string }>> {
+    const pending = this.#resolvePolicy(call.signal);
+    const current = pending instanceof Promise ? await pending : pending;
+    const cached = this.#attested;
+    if (
+      cached !== undefined &&
+      Date.now() >= cached.at &&
+      Date.now() - cached.at < cached.maxAgeSecs * 1000 &&
+      permits(current, cached.key, cached.fingerprint)
+    ) {
+      return cached;
+    }
+    const prover = await this.attest(call.fetch, call.attestationUrl, call.signal);
+    const updated = this.#resolvePolicy(call.signal);
+    const approved = updated instanceof Promise ? await updated : updated;
+    const accepted = this.#attested;
+    if (
+      accepted === undefined ||
+      !equalBytes(accepted.key, prover.hpkePublicKey) ||
+      !permits(approved, accepted.key, accepted.fingerprint)
+    )
+      throw refused("policy_changed");
+    return accepted;
   }
 
   async #encrypt(call: ProverCall, key: Uint8Array): Promise<PreparedCall> {
@@ -250,6 +333,17 @@ export class TeeSession {
   }
 }
 
+function selectedFingerprint(policy: ProverTeePolicy, key: Uint8Array): string | undefined {
+  if (!("kind" in policy)) return JSON.stringify(policy);
+  const hex = bytesToHex(key);
+  const entry = policy.deployments.find((entry) => entry.policy.hpkePublicKey === hex);
+  return entry === undefined ? undefined : JSON.stringify(entry.policy);
+}
+
+function permits(policy: ProverTeePolicy, key: Uint8Array, fingerprint: string): boolean {
+  return selectedFingerprint(policy, key) === fingerprint;
+}
+
 function copyAttestedProver(prover: AttestedProver): AttestedProver {
   return Object.freeze({
     ...prover,
@@ -260,7 +354,12 @@ function copyAttestedProver(prover: AttestedProver): AttestedProver {
 
 /** A GET carries its encrypted bytes in a header, fetch refuses a GET body. */
 export function encryptedInit(call: ProverCall, encrypted: EncryptedRequest): RequestInit {
-  const headers = { ...call.headers, [HEADER_VERSION]: VERSION, [HEADER_ENC]: encrypted.enc };
+  const headers = {
+    ...call.headers,
+    [HEADER_VERSION]: VERSION,
+    [HEADER_ENC]: encrypted.enc,
+    [HEADER_KEY_ID]: encrypted.recipientId,
+  };
   if (call.method === "GET") {
     return {
       method: call.method,
@@ -304,40 +403,46 @@ async function fetched(call: ProverCall, init: RequestInit): Promise<Response | 
   }
 }
 
-async function keyLost(response: Response): Promise<boolean> {
-  if (response.status !== 400 || response.headers.get(HEADER_VERSION) === VERSION) return false;
+async function recipientFailure(
+  response: Response,
+  keyPerBoot: boolean,
+): Promise<Readonly<{ response: Response; retry: boolean }>> {
+  if (
+    response.headers.get(HEADER_VERSION) === VERSION ||
+    (response.status !== 503 && !(keyPerBoot && response.status === 400))
+  )
+    return { response, retry: false };
+  // Consume once: cancelling an oversized cloned stream waits for its unread
+  // sibling. Preserve bounded errors for the caller without teeing the body.
+  let bytes: Uint8Array;
+  try {
+    bytes = await readBoundedBody(response, MAX_ERROR_BYTES);
+  } catch (error) {
+    void response.body?.cancel().catch(() => undefined);
+    if (error instanceof TransportFailure && error.kind === "responseTooLarge")
+      throw new ClientError("CLIENT_PROVER_RESPONSE_TOO_LARGE");
+    throw encryptionError("response");
+  }
+  const checked = new Response(bytes.slice(), {
+    status: response.status,
+    headers: response.headers,
+  });
   let answer: unknown;
   try {
-    answer = await readBoundedJson(response.clone(), MAX_ERROR_BYTES);
+    answer = await readBoundedJson(new Response(bytes.slice()), MAX_ERROR_BYTES);
   } catch {
-    return false;
+    return { response: checked, retry: false };
   }
-  return (
-    typeof answer === "object" && answer !== null && "code" in answer && answer.code === KEY_LOST
-  );
+  const retry =
+    typeof answer === "object" &&
+    answer !== null &&
+    "code" in answer &&
+    ((response.status === 400 && keyPerBoot && answer.code === KEY_LOST) ||
+      (response.status === 503 && answer.code === "tee_generation_unavailable"));
+  return { response: checked, retry };
 }
 
 const refused = (check: string): ClientError =>
   new ClientError("CLIENT_PROVER_TEE_ATTESTATION", { details: { check } });
 const encryptionError = (check: string): ClientError =>
   new ClientError("CLIENT_PROVER_TEE_ENCRYPTION", { details: { check } });
-
-/** Settles with `promise`, or rejects as soon as this caller's own signal aborts. */
-function untilAborted<T>(promise: Promise<T>, signal: ComposedSignal): Promise<T> {
-  if (signal.signal.aborted) return Promise.reject(requestError("attest", signal));
-  return new Promise((resolve, reject) => {
-    const abort = (): void => reject(requestError("attest", signal));
-    signal.signal.addEventListener("abort", abort, { once: true });
-    const settle = (): void => signal.signal.removeEventListener("abort", abort);
-    promise.then(
-      (value) => {
-        settle();
-        resolve(value);
-      },
-      (error: unknown) => {
-        settle();
-        reject(error);
-      },
-    );
-  });
-}

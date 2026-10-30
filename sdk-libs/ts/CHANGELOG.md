@@ -4,21 +4,38 @@
 
 Remote provers require a caller-supplied attestation policy, and Helius API
 URLs support indexed proving through their gateway. Proving key checks return
-a download catalog for gnark and zopro artifacts.
+a download catalog for gnark and zopro artifacts. Provers can attest against
+fleet policies supplied directly or resolved from signed repositories in Node
+and browsers.
 
 Breaking
 
+- Encrypted prover requests include `Zolana-Tee-Key-Id` → allow it in gateway forwarding and prover/browser CORS before upgrading.
 - `ZolanaClient` now defaults to `proofDataSource: "prover"` for Helius API URLs too → configure indexed proving on the upstream or set `proofDataSource: "client"` to retain SDK-fetched proof data.
 - `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
 - `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
 
+Added
+
+- `teeFleetPolicyFromJson(json, network)` supplies approved deployment policies to `ZolanaClient.proverTee` or `ProverClient.tee`, with paired measurement/key pins and an expiry checked before requests, including those reusing a cached attestation.
+- `TeePolicySource` resolves approved fleet policies through an application-authorized loader, refreshes them within a bounded interval, and invalidates cached recipients when approved measurements or keys change.
+- `tufTeePolicy` from `@heliuslabs/zolana/tee/node` loads fleet policies from a TUF repository using an explicitly pinned root and persistent local metadata, verifies signatures, hashes and expiry, and rejects policy rollback across restarts.
+- `tufTeePolicy` from `@heliuslabs/zolana/tee/browser` loads Ed25519/SHA-256 fleet repositories with a pinned root, persistent IndexedDB rollback state and Web Locks coordination across tabs.
+
 Changed
 
+- `ProverClient` includes an attested recipient key identifier on encrypted requests and re-attests once when the router reports that generation unavailable before forwarding.
 - A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
 
 Fixed
 
+- TEE recipient recovery rejects oversized plaintext retry errors without waiting for an unread cloned response stream.
+- `ZolanaClient.proverHealth` reports caller cancellation as `CLIENT_ABORTED` instead of a transport failure.
 - `ProverClient` sends proofs and status polls to key-specific paths on Helius API URLs, including indexed proofs, instead of the older keyless routes.
+
+Dependencies
+
+- `tuf-js` 5.0.1.
 
 ## 0.6.0-alpha — 2026-10-29
 

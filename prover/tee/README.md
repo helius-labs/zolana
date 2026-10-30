@@ -70,6 +70,121 @@ A deployment policy can be used by an older SDK when its policy schema,
 attestation protocol, wire format and circuit set remain compatible; an image
 rebuild or key rotation alone does not require an SDK release.
 
+### Several approved deployment generations
+
+For explicit fleet pins, keep a reviewed file containing the complete policy
+of each approved generation. The [fleet file format](WIRE_CONTRACT.md#explicit-fleet-policy-files)
+pairs each generation's measurements with its HPKE key and requires an expiry.
+It is independent of the prover URL.
+
+In TypeScript:
+
+```ts
+import { ZolanaClient, teeFleetPolicyFromJson } from "@heliuslabs/zolana/client";
+import fleetFile from "./mainnet-tee-fleet.json" with { type: "json" };
+
+const client = new ZolanaClient({
+  solanaRpcUrl: heliusRpcUrl,
+  proverTee: teeFleetPolicyFromJson(fleetFile, "mainnet"),
+});
+await client.attestProver();
+```
+
+In Rust, configure either prover client with the same file:
+
+```rust
+use spr_client::prover::{tee::TeeFleetPolicy, ProverClient};
+
+let fleet = TeeFleetPolicy::from_json(&std::fs::read_to_string(policy_path)?, "mainnet")?;
+let prover = ProverClient::new(prover_url).with_tee_fleet(fleet);
+prover.attest()?;
+```
+
+These parsers load explicit application-approved pins. They do not fetch or
+authenticate updates; the revision field alone provides no rollback protection.
+An expired fleet rejects requests even if a key is cached. The `network`
+argument checks the file's label, not the Solana RPC's actual network.
+
+Independent keys behind one URL require a recipient router. SDK encrypted
+requests carry `Zolana-Tee-Key-Id`, derived from the verified key; the router
+must forward to that recipient rather than round-robin ciphertext. A
+`503 tee_generation_unavailable` emitted before forwarding causes one fresh
+attestation and newly encrypted retry. Direct legacy clients may omit the
+header. See the [test gateway](../../tools/tee-fleet/README.md).
+
+### Signed fleet policy sources
+
+TypeScript Node clients can configure `tufTeePolicy` from
+`@heliuslabs/zolana/tee/node` instead of supplying fleet JSON. The
+[SDK example](../../sdk-libs/ts/README.md#endpoints) configures an independently
+reviewed public root, static metadata/target URLs and a trusted persistent
+cache. The provider uses the reference TUF client, serves the fixed
+`<network>/fleet.json` target directly from top-level targets metadata, and
+does not follow delegated target roles. Signing roots are separate from
+regional enclave encryption keys.
+
+Publish target payloads and versioned targets/snapshot/root metadata before
+the timestamp that advertises them. With consistent snapshots enabled, serve
+the policy under each advertised hash as `<network>/<hash>.fleet.json` (normally
+SHA-256). Only SHA-256 and SHA-512 target hashes are accepted; at least one is
+required. Keep signed versions immutable;
+bump the fleet revision for any changed policy payload, including expiry
+renewal. The client verifies the TUF trust chain and target hash/length,
+then checks the fleet network, paired pins and revision floor. Its snapshot
+validity is bounded by the earliest expiry of the fleet and all four metadata
+roles. A successful refresh invalidates cached enclave keys if their entry or
+approved measurements changed. Even a request already encrypted locally is
+checked against the current approvals before transmission.
+
+Polling frequency bounds normal update observation, while signed metadata expiry
+bounds an adversarial freeze. A mirror can replay an older signed release until
+its authenticated expiry; one-minute polling alone does not guarantee one-minute
+revocation. Select timestamp lifetime and renewal frequency accordingly before
+approving the production root/repository profile.
+
+Policy refresh ages and cached attestation lifetimes use wall time, including
+host suspension. A clock moving behind a cached observation forces a refresh
+instead of extending trust. Request deadlines use elapsed-time clocks.
+
+The provider performs bounded, cancellable downloads without forwarding
+prover authentication, and persists rollback state across restarts. Its
+dedicated cache uses an exclusive lock: a crash can leave that lock behind;
+recover it only after confirming the previous writer is gone. Malformed
+cached metadata fails closed; do not clear the cache on verification errors.
+Do not share it over a network filesystem or delete it to recover from a
+rollback rejection. Metadata storage is a trusted part of the client.
+
+Browser clients use `tufTeePolicy` from `@heliuslabs/zolana/tee/browser` with
+an independently reviewed root and the publisher's Ed25519/SHA-256 top-level
+profile. The pinned reference metadata trust engine is bundled with browser
+crypto; IndexedDB stores atomic verified checkpoints and Web Locks coordinate
+same-origin tabs. Missing browser capabilities, corrupted state and refresh
+failures reject resolution. Full origin-storage deletion or eviction loses
+local rollback history. See the [browser initialization and storage contract](../../sdk-libs/ts/README.md).
+
+Rust clients use `tee::tuf_tee_policy` with `spr-client/tee-tuf` and pass its
+source to either prover client's `with_tee_source`; see the
+[Rust initialization and storage contract](../../sdk-libs/client/README.md).
+The Rust verifier supports the publisher's top-level SHA-256 profile. Node
+also accepts SHA-512 targets. Both run the shared public repository vectors in
+`test-vectors/tee_tuf_repository.json`, covering both root-rotation quorums,
+rollback, substitution, expiry and target integrity. The fixture generator uses
+publicly known test keys only; these are never production bootstrap material.
+
+Rust metadata storage uses OS advisory locking and an integrity checkpoint.
+Workers keep their lock until pending filesystem operations finish, including
+after the requesting future is cancelled. Native locks release on process exit;
+this differs from the Node provider's exclusive-create lock recovery above.
+Damaged or partially written cache state blocks refresh rather than silently
+discarding trusted floors. Never mix the backends' cache formats or erase them
+to bypass a verification failure.
+
+This adds no backend API service and changes no proving routes. It supplies
+neither a production Helius signing root nor a deployed policy repository.
+Browser clients retain the portable `TeePolicySource` interface for an
+application-authorized authenticated loader; a built-in browser TUF verifier
+is still pending. Regional routing and failover remain separate parts of PRI-285.
+
 ## Mainnet: v0.6.0-alpha
 
 | Network | Photon RPC | Nitro prover |

@@ -37,7 +37,10 @@ use crate::{
         proof::{proof_from_value, Proof},
         proving_key::{ExpectedProvingKey, ProverKeys, ProvingKeyReport},
         requests,
-        tee::{AttestedProver, TeeError, TeePolicy, TeeSession, MAX_ATTESTATION_BYTES},
+        tee::{
+            AttestedProver, TeeError, TeeFleetPolicy, TeePolicy, TeePolicySource, TeeSession,
+            MAX_ATTESTATION_BYTES,
+        },
     },
 };
 
@@ -338,6 +341,20 @@ impl ProverClient {
     #[must_use]
     pub fn with_tee(mut self, policy: TeePolicy) -> Self {
         self.client = self.client.with_tee(policy);
+        self
+    }
+
+    /// Encrypt calls to any generation approved by the reviewed fleet policy.
+    #[must_use]
+    pub fn with_tee_fleet(mut self, policy: TeeFleetPolicy) -> Self {
+        self.client = self.client.with_tee_fleet(policy);
+        self
+    }
+
+    /// Resolve authenticated fleet updates before attestation and transmission.
+    #[must_use]
+    pub fn with_tee_source(mut self, source: Arc<TeePolicySource>) -> Self {
+        self.client = self.client.with_tee_source(source);
         self
     }
 
@@ -756,6 +773,20 @@ impl AsyncProverClient {
         self
     }
 
+    /// Encrypt calls to any generation approved by the reviewed fleet policy.
+    #[must_use]
+    pub fn with_tee_fleet(mut self, policy: TeeFleetPolicy) -> Self {
+        self.tee = Tee::On(Box::new(TeeSession::fleet(policy)));
+        self
+    }
+
+    /// Resolve authenticated fleet updates before attestation and transmission.
+    #[must_use]
+    pub fn with_tee_source(mut self, source: Arc<TeePolicySource>) -> Self {
+        self.tee = Tee::On(Box::new(TeeSession::source(source)));
+        self
+    }
+
     /// Plaintext to any prover, every proof but a nullifier-tree batch refused.
     #[must_use]
     pub fn for_tree_batches(mut self) -> Self {
@@ -874,20 +905,53 @@ impl AsyncProverClient {
     }
 
     async fn call(&self, call: Call<'_>) -> Result<(StatusCode, String), CallError> {
-        match self.exchange(&call).await? {
+        let deadline = call
+            .timeout
+            .map(|timeout| tokio::time::Instant::now() + timeout);
+        if let Some(deadline) = deadline {
+            return tokio::time::timeout_at(deadline, self.call_inner(&call, Some(deadline)))
+                .await
+                .unwrap_or_else(|_| {
+                    Err(CallError::Connect(ApiError::HttpClient(
+                        "prover operation deadline exceeded".into(),
+                    )))
+                });
+        }
+        self.call_inner(&call, None).await
+    }
+
+    async fn call_inner(
+        &self,
+        call: &Call<'_>,
+        deadline: Option<tokio::time::Instant>,
+    ) -> Result<(StatusCode, String), CallError> {
+        match self.exchange(call, deadline).await? {
             Answer::KeyLost { recipient, .. } => {
                 recipient.forget();
-                self.exchange(&call).await.map(Answer::into_parts)
+                self.exchange(call, deadline).await.map(Answer::into_parts)
             }
             answer => Ok(answer.into_parts()),
         }
     }
 
-    async fn exchange(&self, call: &Call<'_>) -> Result<Answer<'_>, CallError> {
+    async fn exchange(
+        &self,
+        call: &Call<'_>,
+        deadline: Option<tokio::time::Instant>,
+    ) -> Result<Answer<'_>, CallError> {
         let recipient = self.recipient().await.map_err(CallError::Refused)?;
         let mut prepared = call.prepare(recipient, &self.endpoint)?;
+        prepared.authorize().await?;
+        // Synchronous encryption can cross a deadline without yielding to Tokio.
+        // Check again before the transport can observe any request bytes.
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+            return Err(CallError::Connect(ApiError::HttpClient(
+                "prover operation deadline exceeded".into(),
+            )));
+        }
+        let request = prepared.request(call);
         let response = self
-            .send_http(prepared.request(call))
+            .send_http(request)
             .await
             .map_err(CallError::transport)?;
         let is_encrypted = TeeSession::is_encrypted(&response.headers);
@@ -935,6 +999,7 @@ impl AsyncProverClient {
         let mut attempt = 0;
         loop {
             attempt += 1;
+            tee.refresh_policy().await?;
             let nonce = TeeSession::nonce()?;
             let request = HttpRequest::get(self.endpoint.attestation_url(&nonce)?)
                 .with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
@@ -957,6 +1022,7 @@ impl AsyncProverClient {
                 continue;
             }
             TeeSession::check_attestation_len(response.body.len())?;
+            tee.refresh_policy().await?;
             return tee.accept(&nonce, response.status, &response.body);
         }
     }
@@ -1361,6 +1427,50 @@ mod tests {
         fn send(&self, _request: HttpRequest) -> Result<HttpResponse, ApiError> {
             panic!("a remote witness reached the HTTP transport")
         }
+    }
+
+    impl HttpClient for NoRequests {
+        fn send<'a>(&'a self, _request: HttpRequest) -> spr_api::HttpFuture<'a> {
+            panic!("a remote proof input reached the HTTP transport")
+        }
+    }
+
+    struct PendingPolicy(Arc<AtomicBool>);
+
+    #[async_trait::async_trait]
+    impl crate::prover::tee::TeePolicyLoader for PendingPolicy {
+        async fn load(&self) -> Result<crate::prover::tee::TeePolicyDocument, TeeError> {
+            struct Cancelled(Arc<AtomicBool>);
+            impl Drop for Cancelled {
+                fn drop(&mut self) {
+                    self.0.store(true, Ordering::Release);
+                }
+            }
+            let _cancelled = Cancelled(Arc::clone(&self.0));
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn prover_call_deadline_cancels_policy_loading_before_http() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let source = Arc::new(TeePolicySource::new(
+            "fixture",
+            PendingPolicy(Arc::clone(&cancelled)),
+        ));
+        let client = AsyncProverClient::with_client("https://prover.example".into(), NoRequests)
+            .with_tee_source(source);
+        let url = client.endpoint.url("/prove/test").unwrap();
+        let result = client
+            .call(Call::post(
+                &url,
+                "private proof inputs",
+                Delivery::InResponse,
+                Duration::from_millis(10),
+            ))
+            .await;
+        assert!(matches!(result, Err(CallError::Connect(_))));
+        assert!(cancelled.load(Ordering::Acquire));
     }
 
     #[test]

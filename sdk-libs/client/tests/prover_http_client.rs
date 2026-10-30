@@ -13,8 +13,12 @@ use serde_json::{json, Value};
 use spr_api::{ApiError, BlockingHttpClient, HttpClient, HttpFuture, HttpRequest, HttpResponse};
 use spr_client::{
     prover::{
-        known_proving_keys, tee::TeePolicy, AsyncProverClient, Delivery, ExpectedProvingKey,
-        ProveRequest, ProverClient,
+        known_proving_keys,
+        tee::{
+            TeeError, TeeFleetPolicy, TeePolicy, TeePolicyDocument, TeePolicyLoader,
+            TeePolicySource,
+        },
+        AsyncProverClient, Delivery, ExpectedProvingKey, ProveRequest, ProverClient,
     },
     ClientError, Prover,
 };
@@ -116,6 +120,112 @@ fn proof() -> Value {
         "krs": [zero, zero],
         "provingKeySha256": "07".repeat(32),
     })
+}
+
+fn expired_fleet() -> TeeFleetPolicy {
+    let mut vector: Value =
+        serde_json::from_str(include_str!("../../../test-vectors/tee_fleet_policy.json")).unwrap();
+    vector["policy"]["expires_at"] = json!(1);
+    TeeFleetPolicy::from_json(&vector["policy"].to_string(), "fixture").unwrap()
+}
+
+struct FailedPolicy {
+    expired: bool,
+}
+
+#[async_trait::async_trait]
+impl TeePolicyLoader for FailedPolicy {
+    async fn load(&self) -> Result<TeePolicyDocument, TeeError> {
+        if self.expired {
+            Ok(TeePolicyDocument {
+                policy_json: serde_json::to_string(&expired_fleet()).unwrap(),
+                valid_until: 2_000_000_000,
+            })
+        } else {
+            Err(TeeError::PolicyUnavailable)
+        }
+    }
+}
+
+#[test]
+fn blocking_policy_source_failure_never_sends_attestation_metadata_or_proof_inputs() {
+    for expired in [false, true] {
+        let (http, requests) = FakeClient::answering(vec![]);
+        let source = Arc::new(TeePolicySource::new("fixture", FailedPolicy { expired }));
+        let client = ProverClient::with_client(PROVER_URL.to_owned(), http).with_tee_source(source);
+        for result in [
+            client.attest().map(|_| ()),
+            client.check_proving_keys().map(|_| ()),
+            client.prove(&IN_RESPONSE).map(|_| ()),
+        ] {
+            assert!(matches!(
+                result,
+                Err(ClientError::Tee(
+                    TeeError::PolicyExpired | TeeError::PolicyUnavailable
+                ))
+            ));
+        }
+        assert!(requests.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn async_policy_source_failure_never_sends_attestation_metadata_or_proof_inputs() {
+    for expired in [false, true] {
+        let (http, requests) = FakeClient::answering(vec![]);
+        let source = Arc::new(TeePolicySource::new("fixture", FailedPolicy { expired }));
+        let client =
+            AsyncProverClient::with_client(PROVER_URL.to_owned(), http).with_tee_source(source);
+        for result in [
+            client.attest().await.map(|_| ()),
+            client.check_proving_keys().await.map(|_| ()),
+            client.prove(&IN_RESPONSE).await.map(|_| ()),
+        ] {
+            assert!(matches!(
+                result,
+                Err(ClientError::Tee(
+                    TeeError::PolicyExpired | TeeError::PolicyUnavailable
+                ))
+            ));
+        }
+        assert!(requests.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn a_blocking_expired_fleet_sends_no_attestation_metadata_or_proof_requests() {
+    let (http, requests) = FakeClient::answering(vec![]);
+    let client =
+        ProverClient::with_client(PROVER_URL.to_owned(), http).with_tee_fleet(expired_fleet());
+    for result in [
+        client.attest().map(|_| ()),
+        client.check_proving_keys().map(|_| ()),
+        client.prove(&IN_RESPONSE).map(|_| ()),
+    ] {
+        assert!(matches!(
+            result,
+            Err(ClientError::Tee(TeeError::PolicyExpired))
+        ));
+    }
+    assert!(requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn an_async_expired_fleet_sends_no_attestation_metadata_or_proof_requests() {
+    let (http, requests) = FakeClient::answering(vec![]);
+    let client =
+        AsyncProverClient::with_client(PROVER_URL.to_owned(), http).with_tee_fleet(expired_fleet());
+    for result in [
+        client.attest().await.map(|_| ()),
+        client.check_proving_keys().await.map(|_| ()),
+        client.prove(&IN_RESPONSE).await.map(|_| ()),
+    ] {
+        assert!(matches!(
+            result,
+            Err(ClientError::Tee(TeeError::PolicyExpired))
+        ));
+    }
+    assert!(requests.lock().unwrap().is_empty());
 }
 
 fn proof_in_response() -> Vec<Answer> {

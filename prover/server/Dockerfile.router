@@ -1,0 +1,29 @@
+FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY LICENSE ./
+COPY logging/ logging/
+COPY tee/ tee/
+COPY router/ router/
+COPY cmd/tee-router/ cmd/tee-router/
+RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -buildvcs=false -ldflags='-s -w -buildid=' -o /tee-router ./cmd/tee-router
+RUN mkdir -p /licenses/go && cp /usr/local/go/LICENSE /licenses/go/LICENSE && \
+    go list -deps -f '{{with .Module}}{{.Path}} {{.Dir}}{{end}}' ./cmd/tee-router | sort -u > /tmp/modules && \
+    while read -r module directory; do \
+      [ -n "$directory" ] || continue; \
+      mkdir -p "/licenses/$module"; \
+      found=0; \
+      for document in "$directory"/LICENSE* "$directory"/NOTICE* "$directory"/COPYING*; do \
+        if [ -f "$document" ]; then cp "$document" "/licenses/$module/"; found=1; fi; \
+      done; \
+      [ "$found" = 1 ] || exit 1; \
+    done < /tmp/modules
+
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+COPY --from=build /tee-router /tee-router
+COPY --from=build /licenses/ /usr/share/licenses/
+LABEL org.opencontainers.image.source="https://github.com/helius-labs/zolana" \
+      org.opencontainers.image.licenses="Apache-2.0"
+USER nonroot:nonroot
+EXPOSE 3001 9998
+ENTRYPOINT ["/tee-router"]

@@ -1,0 +1,76 @@
+{
+  "note": "Test-only fleet of archived AWS attestations; region labels are illustrative and do not attest geography. This file authorizes no production network.",
+  "policy": {
+    "schema_version": 1,
+    "network": "fixture",
+    "revision": 1,
+    "expires_at": 2000000000,
+    "deployments": [
+      {
+        "id": "fixture-1",
+        "region": "eu-north-1",
+        "policy": {
+          "platform": "aws-nitro",
+          "measurements": [
+            {
+              "pcr0": "89cde9fcf78ed0fe2e80c25554ad38b4022a3372e5f8bf4b1ab6b4b69e721699a5d022d7370bbc8854c2c4f46d630097",
+              "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+              "pcr2": "8265ae7a12c74695e4484aa5f085f730df8c5a4741fb2a334ef88f306f47d39ae0137a9bec2e8a495ce7c6db3841e1ee"
+            }
+          ],
+          "gpu": "optional",
+          "max_age_secs": 60,
+          "hpke_public_key": "ee8289b5afa1d2e885809a91f4b28b645807dcfd5c9457ddf6a031b3ecb45878"
+        }
+      },
+      {
+        "id": "fixture-2",
+        "region": "us-east-1",
+        "policy": {
+          "platform": "aws-nitro",
+          "measurements": [
+            {
+              "pcr0": "30a5ca7cdaa68adc9802c57c7ef590cc4ea3cee981898de55c2aa2082d7980a7ca42c3daf6a0988aff5e6daaacd949ad",
+              "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+              "pcr2": "f389a946e669e3bef011d91189a542619a4dc9fe8578f9af66bc54f8f9347e1cf979a50a8c1f56e7a595bd935bf29cab"
+            }
+          ],
+          "gpu": "optional",
+          "max_age_secs": 300,
+          "hpke_public_key": "cf2254cff568f3401272b0b5fc965917938498e0ae4a41391b04f6924a93e033"
+        }
+      },
+      {
+        "id": "fixture-3",
+        "region": "ap-southeast-1",
+        "policy": {
+          "platform": "aws-nitro",
+          "measurements": [
+            {
+              "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+              "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+              "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+            }
+          ],
+          "gpu": "optional",
+          "max_age_secs": 600,
+          "hpke_public_key": "b8ceaaedaff5f6ddb2e11275c7ce2ddf1af667eb626ecbecb226c467956b8559"
+        }
+      }
+    ]
+  },
+  "cases": [
+    {
+      "fixture": "mainnet_tee_2_attestation.json",
+      "deployment_id": "fixture-1"
+    },
+    {
+      "fixture": "devnet_e_tee_1_attestation.json",
+      "deployment_id": "fixture-2"
+    },
+    {
+      "fixture": "nitro_live_attestation.json",
+      "deployment_id": "fixture-3"
+    }
+  ]
+}

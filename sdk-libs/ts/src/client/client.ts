@@ -87,7 +87,7 @@ import {
   type ProvingKeyReport,
 } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
-import type { TeePolicy } from "./prover/tee/registry.js";
+import type { ProverTee } from "./prover/tee/source.js";
 import type { AttestedProver } from "./prover/tee/verify.js";
 import { compressProof } from "./prover/proof.js";
 import type { TransactOwnerSigner, TransferCircuit, TransferInputs } from "./prover/types.js";
@@ -171,7 +171,7 @@ export interface ZolanaClientConfig {
    * Encrypts every prover call to a prover that attests to the supplied policy.
    * Required for every remote prover; only loopback development permits plaintext.
    */
-  readonly proverTee?: TeePolicy;
+  readonly proverTee?: ProverTee;
   /**
    * Sends every HTTP request the client makes: Solana RPC, indexer and prover.
    * `solanaRpcSubscriptions` connects over a WebSocket instead.

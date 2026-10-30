@@ -1,4 +1,4 @@
-import { PolicyFields, invalidPolicy } from "./platform.js";
+import { PolicyFields, invalidPolicy, policyDecode } from "./platform.js";
 import {
   PLATFORMS,
   isTeePlatform,
@@ -34,13 +34,19 @@ export function teePolicyFromJson(json: unknown): TeePolicy {
 
 /** Revalidates a caller-built policy that skipped {@link teePolicyFromJson}. */
 export function checkedTeePolicy(policy: TeePolicy): TeePolicy {
+  policyDecode.record(policy, "platform");
   if (!isTeePlatform(policy.platform)) throw invalidPolicy("platform");
-  return teePolicyFromJson({
+  return teePolicyFromJson(teePolicyJson(policy));
+}
+
+/** The shared JSON form, also used when validating fleet entries. */
+export function teePolicyJson(policy: TeePolicy): Readonly<Record<string, unknown>> {
+  return {
     platform: policy.platform,
     ...pinsJson(policy.platform, policy),
     gpu: policy.gpu,
     max_age_secs: policy.maxAgeSecs,
-  });
+  };
 }
 
 function pinsJson<K extends TeePlatform>(
