@@ -59,6 +59,12 @@ export {
 } from "./prover/client.js";
 export { teePolicyFromJson, type GpuRequirement } from "./prover/tee/policy.js";
 export {
+  TeePolicySource,
+  type TeePolicySourceConfig,
+  type TeePolicyDocument,
+  type ProverTee,
+} from "./prover/tee/source.js";
+export {
   teeFleetPolicyFromJson,
   type ProverTeePolicy,
   type TeeDeployment,

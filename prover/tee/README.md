@@ -106,9 +106,47 @@ An expired fleet rejects requests even if a key is cached. The `network`
 argument checks the file's label, not the Solana RPC's actual network.
 
 Independent keys behind one URL still require recipient-aware routing. A fleet
-does not add routing, a recipient header, failover, signed metadata, or a
-`heliusTee` provider. Those are subsequent parts of PRI-285. Existing
+does not add routing, a recipient header or failover. Existing
 single-deployment APIs, CLI files and `xtask tee-policy` remain unchanged.
+
+### Signed fleet policy sources
+
+TypeScript Node clients can configure `tufTeePolicy` from
+`@heliuslabs/zolana/tee/node` instead of supplying fleet JSON. The
+[SDK example](../../sdk-libs/ts/README.md#endpoints) configures an independently
+reviewed public root, static metadata/target URLs and a trusted persistent
+cache. The provider uses the reference TUF client, serves the fixed
+`<network>/fleet.json` target directly from top-level targets metadata, and
+does not follow delegated target roles. Signing roots are separate from
+regional enclave encryption keys.
+
+Publish target payloads and versioned targets/snapshot/root metadata before
+the timestamp that advertises them. With consistent snapshots enabled, serve
+the policy under each advertised hash as `<network>/<hash>.fleet.json` (normally
+SHA-256). Only SHA-256 and SHA-512 target hashes are accepted; at least one is
+required. Keep signed versions immutable;
+bump the fleet revision for any changed policy payload, including expiry
+renewal. The client verifies the TUF trust chain and target hash/length,
+then checks the fleet network, paired pins and revision floor. Its snapshot
+validity is bounded by the earliest expiry of the fleet and all four metadata
+roles. A successful refresh invalidates cached enclave keys if their entry or
+approved measurements changed. Even a request already encrypted locally is
+checked against the current approvals before transmission.
+
+The provider performs bounded, cancellable downloads without forwarding
+prover authentication, and persists rollback state across restarts. Its
+dedicated cache uses an exclusive lock: a crash can leave that lock behind;
+recover it only after confirming the previous writer is gone. Malformed
+cached metadata fails closed; do not clear the cache on verification errors.
+Do not share it over a network filesystem or delete it to recover from a
+rollback rejection. Metadata storage is a trusted part of the client.
+
+This adds no backend API service and changes no proving routes. It supplies
+neither a production Helius signing root nor a deployed policy repository.
+Browser clients retain the portable `TeePolicySource` interface for an
+application-authorized authenticated loader; a built-in browser TUF verifier
+and Rust source are still pending. Regional routing and failover remain
+separate parts of PRI-285.
 
 ## Mainnet: v0.6.0-alpha
 

@@ -51,6 +51,14 @@ export {
   teeFleetPolicyFromJson,
 } from "@heliuslabs/zolana/client";
 export type { ProverTeePolicy, TeeDeployment, TeeFleetPolicy } from "@heliuslabs/zolana/client";
+export { TeePolicySource } from "@heliuslabs/zolana/client";
+export type {
+  ProverTee,
+  TeePolicyDocument,
+  TeePolicySourceConfig,
+} from "@heliuslabs/zolana/client";
+export { tufTeePolicy } from "@heliuslabs/zolana/tee/node";
+export type { TufTeePolicyOptions } from "@heliuslabs/zolana/tee/node";
 export type {
   DecryptRequest,
   DeriveRequest,

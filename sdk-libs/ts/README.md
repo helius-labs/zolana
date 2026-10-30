@@ -216,6 +216,53 @@ with independent regional keys behind one URL still needs recipient-aware
 routing; the parser does not supply it. See the
 [TEE fleet guide](../../prover/tee/README.md#several-approved-deployment-generations).
 
+Node applications can resolve signed fleet policies from a static TUF
+repository through the separate `@heliuslabs/zolana/tee/node` entry point:
+
+```ts
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { ZolanaClient } from "@heliuslabs/zolana/client";
+import { tufTeePolicy } from "@heliuslabs/zolana/tee/node";
+
+const client = new ZolanaClient({
+  solanaRpcUrl: heliusRpcUrl,
+  proverTee: tufTeePolicy({
+    network: "mainnet",
+    rootJson: await readFile("./reviewed-tuf-root.json", "utf8"),
+    metadataUrl: "https://policies.example/metadata/",
+    targetsUrl: "https://policies.example/targets/",
+    cacheDirectory: resolve(".cache/zolana-tee"),
+  }),
+});
+await client.attestProver();
+```
+
+The example repository is a placeholder for an operator-managed static
+repository, not a deployed Helius policy service. Obtain the bootstrap root
+independently and review it before use. The provider authenticates the
+`mainnet/fleet.json` target and retains trusted metadata and a policy revision
+floor in a private local cache. It refreshes at most one minute apart by
+default, always before authenticated metadata expires; new calls observe
+removals after the next successful refresh. Refresh failures fail closed
+instead of silently extending stale approvals. Cancellation and operation
+deadlines include policy loading.
+
+Keep the cache on trusted local storage. Cooperating processes serialize
+updates through an exclusive lock. After a process crashes while holding it,
+confirm that no process is using the cache before manually removing the
+namespace's `lock` file. The provider never breaks a lock based on age, and
+deleting trusted metadata resets rollback history. Network files are bounded,
+redirects are refused and RPC/prover API keys are not forwarded to the policy
+repository.
+
+The ordinary client entry point remains browser-compatible. `TeePolicySource`
+from `@heliuslabs/zolana/client` accepts an application-authorized loader in
+either environment; that loader must authenticate its publisher and persist
+its rollback state. The built-in TUF loader is Node-only. Browser-native and
+Rust policy providers, the production Helius signing root/preset, and regional
+recipient routing are subsequent work; no `heliusTee` preset is shipped yet.
+
 ## Common transactions
 
 These snippets continue from the setup used in quickstart.

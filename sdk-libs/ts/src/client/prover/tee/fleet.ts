@@ -143,7 +143,7 @@ function positiveInteger(value: unknown, path: string): number {
   return value;
 }
 
-function identifier(value: unknown, path: string): string {
+export function identifier(value: unknown, path: string): string {
   const text = policyDecode.string(value, path);
   if (!IDENTIFIER.test(text)) throw invalidPolicy(path);
   return text;

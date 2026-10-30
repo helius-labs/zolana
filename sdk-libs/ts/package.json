@@ -9,6 +9,10 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./tee/node": {
+      "types": "./dist/client/prover/tee/tuf-node.d.ts",
+      "import": "./dist/client/prover/tee/tuf-node.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
@@ -78,12 +82,15 @@
     "@solana-program/token": "^0.16.1",
     "@solana/rpc-spec-types": "^8.3.0",
     "bn.js": "^5.2.5",
-    "cborg": "^6.1.3"
+    "cborg": "^6.1.3",
+    "tuf-js": "5.0.1"
   },
   "devDependencies": {
     "@solana/kit": "^8.3.0",
+    "@tufjs/models": "4.1.1",
     "@types/bn.js": "^5.2.0",
     "@types/node": "^24.0.0",
+    "esbuild": "0.28.2",
     "oxfmt": "^0.67.0",
     "oxlint": "^1.75.0",
     "typescript": "^7.0.2",

@@ -323,6 +323,26 @@ export function sleep(delayMs: bigint, context?: RequestContext): Promise<void> 
   });
 }
 
+/** Waits with this caller's cancellation while another caller may share the work. */
+export function untilAborted<T>(promise: Promise<T>, signal: ComposedSignal): Promise<T> {
+  if (signal.signal.aborted) return Promise.reject(requestError("attest", signal));
+  return new Promise((resolve, reject) => {
+    const abort = (): void => reject(requestError("attest", signal));
+    signal.signal.addEventListener("abort", abort, { once: true });
+    const settle = (): void => signal.signal.removeEventListener("abort", abort);
+    promise.then(
+      (value) => {
+        settle();
+        resolve(value);
+      },
+      (error: unknown) => {
+        settle();
+        reject(error);
+      },
+    );
+  });
+}
+
 /** Whether `candidate` answers indexed requests, callers name the error. */
 export function hasIndexedMethod(candidate: unknown): candidate is IndexedProofAuthority {
   return (
