@@ -1,6 +1,31 @@
 # Changelog
 
-## 0.5.1-alpha — unreleased
+## 0.7.0-alpha — unreleased
+
+Remote provers require a caller-supplied attestation policy, and Helius API
+URLs support indexed proving through their gateway. Proving key checks return
+a download catalog for gnark and zopro artifacts.
+
+Breaking
+
+- `ZolanaClient` now defaults to `proofDataSource: "prover"` for Helius API URLs too → configure indexed proving on the upstream or set `proofDataSource: "client"` to retain SDK-fetched proof data.
+- `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
+- `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
+
+Added
+
+- `TransactionIntent` kind `ringDeposit` shows an approval handler a ring deposit and its recipient, and the private transaction builders and `ZolanaClient` refuse to prove a transaction under that intent.
+- `@heliuslabs/zolana/internal` exports `writeTransactOutput`, `writeOwnerTag`, `readData` and `SHIELDED_ADDRESS_LENGTH`, so an extension codec writes transact outputs and reads `Data` fields in the SDK layout.
+
+Changed
+
+- A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
+
+Fixed
+
+- `ProverClient` sends proofs and status polls to key-specific paths on Helius API URLs, including indexed proofs, instead of the older keyless routes.
+
+## 0.6.0-alpha — 2026-10-29
 
 Packages that extend the protocol build on this one through an entry point
 outside semver, and the prover and indexer clients carry the requests such a
@@ -12,9 +37,6 @@ sync skips those outputs without decrypting them.
 
 Breaking
 
-- `ZolanaClient` now defaults to `proofDataSource: "prover"` for Helius API URLs too → configure indexed proving on the upstream or set `proofDataSource: "client"` to retain SDK-fetched proof data.
-- `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
-- `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
 - `CircuitId` kinds `confidentialEddsa` and `confidentialEddsaCached` are now `confidentialSigner` and `confidentialSignerCached` for transaction signer authorization → rename existing matches and hand-built selectors, and supply `proofData` when using the new in-proof `confidentialEddsa` kinds.
 - `SHIELDED_POOL_PROGRAM_ID` is `ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW`, with new tree, custody and authority addresses → use the new deployment and fund new notes; accounts and notes from the earlier deployment remain separate.
 - `ed25519DerivationPayload()` is removed → sign the exact bytes from `ed25519DerivationMessage(publicKey)` and pass the signature to `LocalKeys.fromDerivationSeed()`.
@@ -28,8 +50,6 @@ Added
 - `ZolanaClient.proveConfidentialEddsaTransact` authorizes one owner inside the proof and returns the remaining transaction signers, while `signTransactMessage` and `transactMessageDigest` expose the signed statement.
 - `PrivateTransactionParams.owner` lets transfer, withdrawal and split builders accept an owner signature inside the proof while another account pays the transaction fee.
 - `ConfidentialTransfer.withConfidentialEddsaShape` and `selectConfidentialEddsaShape` select among twelve proof shapes with up to 48 inputs and 16 outputs.
-- `TransactionIntent` kind `ringDeposit` shows an approval handler a ring deposit and its recipient, and the private transaction builders and `ZolanaClient` refuse to prove a transaction under that intent.
-- `@heliuslabs/zolana/internal` exports `writeTransactOutput`, `writeOwnerTag`, `readData` and `SHIELDED_ADDRESS_LENGTH`, so an extension codec writes transact outputs and reads `Data` fields in the SDK layout.
 - `@heliuslabs/zolana/internal` exposes the building blocks an extension
   package composes, and the `.d.ts` files keep `@internal` declarations such
   as `Wallet._replace`, both outside semver.
@@ -44,11 +64,7 @@ Added
 
 Changed
 
-- A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
-
-Fixed
-
-- `ProverClient` sends proofs and status polls to key-specific paths on Helius API URLs, including indexed proofs, instead of the older keyless routes.
+- `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` select the indexed `devnet-e-tee-1` prover and its measured enclave and HPKE key; the previous devnet deployment requires an explicit policy and endpoint.
 
 ## 0.5.0-alpha — 2026-10-23
 
