@@ -1,67 +1,14 @@
 mod data_utxo;
-mod encryption_codec;
+pub(crate) mod transaction;
 mod program_owner;
-#[cfg(feature = "client")]
-mod transaction;
-#[cfg(feature = "client")]
-mod transfer;
-#[cfg(feature = "client")]
-mod utxo;
 
-use spr_keypair::random_blinding;
+pub use transaction::{ClientError, InputRecords, ProgramProofInputs, ProgramTransaction, TransactionOptions};
+pub use program_owner::ProgramOwner;
 
 pub use data_utxo::DataUtxo;
-pub use encryption_codec::EncryptionCodec;
-pub use program_owner::ProgramOwner;
-pub use spr_keypair::circuit::client::UtxoOwner;
-pub use spr_zk_dsl::Bytes;
-pub use spr_zk_dsl::{PublicField, PublicFieldKind, PublicHashField, PublicInputLayout};
 
-#[cfg(feature = "client")]
-pub use spr_zk_dsl::ZkCircuit;
-#[cfg(feature = "client")]
-pub use transaction::{ProgramTransaction, ZkProgramCircuit};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(rename_all = "camelCase", deny_unknown_fields)
-)]
-#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
-pub struct TxContext {
-    #[cfg_attr(feature = "serde", serde(with = "spr_keypair::serde_helpers::bytes"))]
-    #[cfg_attr(feature = "tsify", tsify(type = "Uint8Array"))]
-    pub blinding_seed: [u8; 32],
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    #[cfg_attr(feature = "tsify", tsify(optional))]
-    pub output_tree_id: Option<u16>,
+pub trait ClientInputs: Sized {
+    type Client;
+    fn from_client(client: Self::Client, records: &mut InputRecords) -> Result<Self, ClientError>;
 }
-
-impl TxContext {
-    pub fn new() -> Self {
-        Self {
-            blinding_seed: random_blinding(),
-            output_tree_id: None,
-        }
-    }
-
-    pub fn with_blinding_seed(mut self, blinding_seed: [u8; 32]) -> Self {
-        self.blinding_seed = blinding_seed;
-        self
-    }
-
-    pub fn with_output_tree_id(mut self, output_tree_id: Option<u16>) -> Self {
-        self.output_tree_id = output_tree_id;
-        self
-    }
-}
-
-impl Default for TxContext {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use crate::EncryptionCodec;

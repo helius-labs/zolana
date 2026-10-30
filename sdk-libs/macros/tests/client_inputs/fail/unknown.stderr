@@ -1,0 +1,5 @@
+error: client conversion is automatic; remove the client attribute
+ --> tests/client_inputs/fail/unknown.rs:3:5
+  |
+3 |     #[client(unknown)]
+  |     ^^^^^^^^^^^^^^^^^^

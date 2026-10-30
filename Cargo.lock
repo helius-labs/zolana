@@ -6540,7 +6540,6 @@ checksum = "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d"
 dependencies = [
  "either",
  "rayon-core",
- "wasm_sync",
 ]
 
 [[package]]
@@ -6551,7 +6550,6 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
- "wasm_sync",
 ]
 
 [[package]]
@@ -10253,6 +10251,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "spr-circuit"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "borsh",
+ "light-poseidon 0.4.0",
+ "proptest",
+ "serde",
+ "serde_bytes",
+ "serde_json",
+ "spr-instruction",
+ "spr-interface",
+ "tinyvec",
+ "tsify",
+ "wasm-bindgen",
+ "xark",
+]
+
+[[package]]
+name = "spr-circuit-xark-fixture"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "spr-circuit",
+ "spr-program",
+ "xark",
+]
+
+[[package]]
 name = "spr-cli"
 version = "0.1.0"
 dependencies = [
@@ -10477,10 +10505,8 @@ name = "spr-keypair"
 version = "0.1.0"
 dependencies = [
  "aes",
- "ark-bn254 0.6.0",
  "aws-sdk-kms",
  "aws-smithy-mocks",
- "borsh",
  "bs58",
  "ctr",
  "ed25519-dalek",
@@ -10497,8 +10523,6 @@ dependencies = [
  "solana-keypair",
  "solana-signer",
  "spr-hasher",
- "spr-zk-dsl",
- "spr-zk-gadgets",
  "thiserror 2.0.20",
  "tokio",
  "tsify",
@@ -10522,7 +10546,6 @@ dependencies = [
  "spr-keypair",
  "spr-program",
  "spr-transaction",
- "spr-zk-macros-core",
  "syn 2.0.119",
  "trybuild",
 ]
@@ -10545,9 +10568,11 @@ dependencies = [
  "ark-bn254 0.6.0",
  "ark-circom",
  "ark-ff 0.6.0",
+ "ark-serialize 0.6.0",
  "borsh",
  "groth16-solana",
  "hex",
+ "js-sys",
  "num-bigint 0.4.8",
  "pinocchio 0.11.2",
  "proptest",
@@ -10556,9 +10581,11 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "solana-address 2.6.1",
+ "solana-bn254",
  "solana-program-error",
  "solana-signature",
  "spr-account-checks",
+ "spr-circuit",
  "spr-client",
  "spr-event",
  "spr-hasher",
@@ -10568,13 +10595,14 @@ dependencies = [
  "spr-macros",
  "spr-transaction",
  "spr-tree",
- "spr-zk-dsl",
- "spr-zk-gadgets",
  "thiserror 2.0.20",
  "tsify",
  "wasm-bindgen",
  "wasmer",
  "wincode",
+ "xark",
+ "xark-groth16",
+ "xark-wasm",
 ]
 
 [[package]]
@@ -10627,6 +10655,9 @@ dependencies = [
  "spr-keypair",
  "spr-program",
  "spr-transaction",
+ "tsify",
+ "wasm-bindgen",
+ "xark",
 ]
 
 [[package]]
@@ -10766,7 +10797,6 @@ dependencies = [
 name = "spr-transaction"
 version = "0.1.0"
 dependencies = [
- "ark-bn254 0.6.0",
  "borsh",
  "criterion",
  "hex",
@@ -10781,8 +10811,6 @@ dependencies = [
  "spr-interface",
  "spr-keypair",
  "spr-program",
- "spr-zk-dsl",
- "spr-zk-gadgets",
  "thiserror 2.0.20",
  "tsify",
  "wasm-bindgen",
@@ -10836,83 +10864,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "spr-zk-dsl"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
-dependencies = [
- "ark-bn254 0.6.0",
- "ark-ec 0.6.0",
- "ark-ff 0.6.0",
- "ark-groth16",
- "ark-poly 0.6.0",
- "ark-r1cs-std",
- "ark-relations",
- "ark-serialize 0.6.0",
- "ark-std 0.6.0",
- "borsh",
- "console_error_panic_hook",
- "getrandom 0.2.17",
- "groth16-solana",
- "hex",
- "js-sys",
- "rayon",
- "serde",
- "serde-wasm-bindgen",
- "serde_bytes",
- "serde_json",
- "sha2 0.10.9",
- "solana-address 2.6.1",
- "solana-bn254",
- "spr-hasher",
- "spr-zk-macros",
- "thiserror 2.0.20",
- "tsify",
- "wasm-bindgen",
- "wasm-bindgen-rayon",
- "wincode",
-]
-
-[[package]]
-name = "spr-zk-gadgets"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
-dependencies = [
- "ark-bn254 0.6.0",
- "ark-ff 0.6.0",
- "ark-r1cs-std",
- "light-poseidon 0.5.0",
- "spr-zk-dsl",
-]
-
-[[package]]
-name = "spr-zk-macros"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
-dependencies = [
- "proc-macro2",
- "spr-zk-macros-core",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "spr-zk-macros-core"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "spr-zk-standalone-fixture"
 version = "0.1.0"
 dependencies = [
  "pinocchio 0.11.2",
  "serde_json",
- "solana-address 2.6.1",
- "spr-zk-dsl",
- "spr-zk-gadgets",
+ "spr-circuit",
+ "spr-program",
+ "xark",
 ]
 
 [[package]]
@@ -11453,6 +11412,8 @@ dependencies = [
  "borsh",
  "light-program-profiler",
  "pinocchio 0.11.2",
+ "serde",
+ "serde_json",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
@@ -11468,7 +11429,10 @@ dependencies = [
  "spr-program-test",
  "spr-transaction",
  "thiserror 2.0.20",
+ "tsify",
+ "wasm-bindgen",
  "wincode",
+ "xark",
 ]
 
 [[package]]
@@ -12276,18 +12240,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasm-bindgen-rayon"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a16c60a56c81e4dc3b9c43d76ba5633e1c0278211d59a9cb07d61b6cd1c6583"
-dependencies = [
- "crossbeam-channel",
- "js-sys",
- "rayon",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "wasm-bindgen-shared"
 version = "0.2.128"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12316,17 +12268,6 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "wasm_sync"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cff360cade7fec41ff0e9d2cda57fe58258c5f16def0e21302394659e6bbb0ea"
-dependencies = [
- "js-sys",
- "wasm-bindgen",
  "web-sys",
 ]
 
@@ -12995,6 +12936,113 @@ dependencies = [
 ]
 
 [[package]]
+name = "xark"
+version = "0.3.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "num-bigint 0.4.8",
+ "serde_json",
+ "xark-macros",
+ "xark-prover",
+ "xark-schema",
+]
+
+[[package]]
+name = "xark-groth16"
+version = "0.3.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ec 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-poly 0.6.0",
+ "ark-serialize 0.6.0",
+ "num-bigint 0.4.8",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "xark-ir",
+]
+
+[[package]]
+name = "xark-ir"
+version = "0.3.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "num-bigint 0.4.8",
+ "num-traits",
+ "rayon",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "xark-macros"
+version = "0.3.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "xark-poseidon2"
+version = "0.3.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "xark",
+]
+
+[[package]]
+name = "xark-prover"
+version = "0.3.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-serialize 0.6.0",
+ "num-bigint 0.4.8",
+ "rand 0.8.8",
+ "serde_json",
+ "sha2 0.11.0",
+ "xark-groth16",
+ "xark-ir",
+]
+
+[[package]]
+name = "xark-schema"
+version = "0.3.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "num-bigint 0.4.8",
+ "serde_json",
+]
+
+[[package]]
+name = "xark-wasm"
+version = "0.3.0"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-serialize 0.6.0",
+ "console_error_panic_hook",
+ "getrandom 0.2.17",
+ "js-sys",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
+ "serde_json",
+ "sha2 0.11.0",
+ "wasm-bindgen",
+ "xark-groth16",
+ "xark-ir",
+ "xark-poseidon2",
+ "xark-prover",
+ "xark-schema",
+]
+
+[[package]]
 name = "xattr"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13198,9 +13246,11 @@ dependencies = [
  "solana-instruction",
  "solana-keypair",
  "solana-signer",
+ "spr-circuit",
  "spr-client",
- "spr-zk-dsl",
+ "spr-program",
  "spr-zk-standalone-fixture",
+ "xark",
 ]
 
 [[package]]

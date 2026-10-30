@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-
 import { address } from "@solana/kit";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
+import { bytesToBigInt } from "../src/interface/bytes.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { splInterfaceWithBump, treeAddress } from "../src/interface/pda/index.js";
 import { checkedBytes, type Bytes34 } from "../src/keypair/bytes.js";
@@ -33,6 +32,8 @@ import {
   type WalletUtxo,
 } from "../src/transaction/index.js";
 import { dummyCiphertextLength } from "../src/transaction/instructions/transact.js";
+import escrowFixture from "../../program/tests/wasm/tests/fixtures/escrow.json" with { type: "json" };
+import withdrawFixture from "../../program/tests/wasm/tests/fixtures/withdraw.json" with { type: "json" };
 
 type FixtureBytes = readonly number[];
 
@@ -43,7 +44,7 @@ interface FixtureMint {
 
 interface FixtureData {
   readonly records: readonly Readonly<{
-    kind: "ringData" | "utxoData" | "memo";
+    kind: string;
     bytes: FixtureBytes;
   }>[];
 }
@@ -81,9 +82,11 @@ interface FixtureOutputUtxo {
   readonly data: FixtureData;
 }
 
-type FixtureOwnerTag =
-  | Readonly<{ kind: "inline"; value: FixtureBytes }>
-  | Readonly<{ kind: "account"; index: number }>;
+interface FixtureOwnerTag {
+  readonly kind: string;
+  readonly value?: FixtureBytes;
+  readonly index?: number;
+}
 
 type FixtureTransfer =
   | Readonly<{ kind: "sol"; isDeposit: boolean; amount: number; userSolAccount: string }>
@@ -110,10 +113,10 @@ interface FixtureFinalizedTransaction {
   readonly sender: FixtureBytes;
 }
 
-interface Fixture<Private> {
+interface Fixture {
   readonly sender: FixtureBytes;
   readonly payer: string;
-  readonly inputs: Readonly<{ private: Private }>;
+  readonly records: Readonly<{ inputs: readonly FixtureInputUtxo[] }>;
   readonly transaction: Readonly<{ finalizedTx: FixtureFinalizedTransaction }>;
   readonly encrypted: Readonly<{
     utxoHashes: readonly FixtureBytes[];
@@ -123,22 +126,12 @@ interface Fixture<Private> {
   }>;
 }
 
-type EscrowFixture = Fixture<Readonly<{ tokenUtxosAssetA: readonly FixtureInputUtxo[] }>>;
-type WithdrawFixture = Fixture<Readonly<{ escrow: FixtureInputUtxo }>>;
-
-function readFixture(name: string): string {
-  return readFileSync(
-    new URL(`../../program/tests/wasm/tests/fixtures/${name}`, import.meta.url),
-    "utf8",
-  );
-}
-
-const escrow = JSON.parse(readFixture("escrow.json")) as EscrowFixture;
-const withdraw = JSON.parse(readFixture("withdraw.json")) as WithdrawFixture;
+const escrow: Fixture = escrowFixture;
+const withdraw: Fixture = withdrawFixture;
 
 const FIXTURES = [
-  ["escrow", escrow, escrow.inputs.private.tokenUtxosAssetA],
-  ["withdraw", withdraw, [withdraw.inputs.private.escrow]],
+  ["escrow", escrow, escrow.records.inputs],
+  ["withdraw", withdraw, withdraw.records.inputs],
 ] as const;
 
 const OTHER_ADDRESS = address("SysvarRent111111111111111111111111111111111");
@@ -159,7 +152,16 @@ function senderKeypair(): ShieldedKeypair {
 
 function programData(value: FixtureData): ProgramData {
   return {
-    records: value.records.map((record) => ({ kind: record.kind, bytes: bytes(record.bytes) })),
+    records: value.records.map((record) => {
+      switch (record.kind) {
+        case "ringData":
+        case "utxoData":
+        case "memo":
+          return { kind: record.kind, bytes: bytes(record.bytes) };
+        default:
+          throw new Error("invalid fixture data record");
+      }
+    }),
   };
 }
 
@@ -207,9 +209,11 @@ function programOutput(value: FixtureOutputUtxo): ProgramProofOutputUtxo {
 }
 
 function programOwnerTag(value: FixtureOwnerTag): ProgramOwnerTag {
-  return value.kind === "inline"
-    ? { kind: "inline", value: bytes(value.value) }
-    : { kind: "account", index: value.index };
+  if (value.kind === "inline" && value.value !== undefined)
+    return { kind: "inline", value: bytes(value.value) };
+  if (value.kind === "account" && value.index !== undefined)
+    return { kind: "account", index: value.index };
+  throw new Error("invalid fixture owner tag");
 }
 
 function programTransfer(value: FixtureTransfer): ProgramSettlementTransfer {
@@ -300,8 +304,63 @@ describe.each(FIXTURES)("the %s program transaction", (_, fixture, walletUtxos) 
     };
     const result = () => ({
       finalizedTx: programTransaction(fixture.transaction.finalizedTx),
-      proofInputs: Uint8Array.of(1, 2, 3),
+      proofInputs: {
+        opening: "17",
+        public_hash: bytesToBigInt(new Uint8Array(32).fill(1)).toString(),
+      },
       publicHash: new Uint8Array(32).fill(1),
+    });
+
+    it("owns prover-ready inputs without caller-specific decoding", async () => {
+      const raw = result();
+      const transaction = bindProgramTransaction((_inputs: Inputs) => raw, {
+        assets: new AssetRegistry(),
+      });
+      const decoded = await transaction(inputs, bytes(fixture.sender), fixture.payer);
+      raw.proofInputs.opening = "changed";
+      expect(decoded.proofInputs.opening).toEqual("17");
+    });
+
+    it.each([
+      null,
+      {},
+      { opening: null },
+      { opening: "01" },
+      { opening: "-1" },
+      { opening: "21888242871839275222246405745257275088548364400416034343698204186575808495617" },
+    ])("rejects malformed scalar inputs before encryption or proving %#", async (invalidInputs) => {
+      const transaction = bindProgramTransaction(
+        (_inputs: Inputs) => ({ ...result(), proofInputs: invalidInputs }),
+        { assets: new AssetRegistry() },
+      );
+      const encrypt = vi.spyOn(ViewingKey.prototype, "encryptSlot");
+      const prove = vi.fn();
+      try {
+        await expect(
+          transaction(inputs, bytes(fixture.sender), fixture.payer).then(prove),
+        ).rejects.toMatchObject({ code: "TRANSACTION_DESERIALIZE" });
+        expect([encrypt.mock.calls, prove.mock.calls]).toEqual([[], []]);
+      } finally {
+        encrypt.mockRestore();
+      }
+    });
+
+    it("binds the proof's public hash before encryption or proving", async () => {
+      const raw = result();
+      raw.proofInputs.public_hash = "0";
+      const transaction = bindProgramTransaction((_inputs: Inputs) => raw, {
+        assets: new AssetRegistry(),
+      });
+      const encrypt = vi.spyOn(ViewingKey.prototype, "encryptSlot");
+      const prove = vi.fn();
+      try {
+        await expect(
+          transaction(inputs, bytes(fixture.sender), fixture.payer).then(prove),
+        ).rejects.toMatchObject({ code: "TRANSACTION_PROGRAM_PUBLIC_HASH_MISMATCH" });
+        expect([encrypt.mock.calls, prove.mock.calls]).toEqual([[], []]);
+      } finally {
+        encrypt.mockRestore();
+      }
     });
 
     it("preserves generated input types and returns a transaction ready for encryption", async () => {
@@ -345,7 +404,7 @@ describe.each(FIXTURES)("the %s program transaction", (_, fixture, walletUtxos) 
       }
     });
 
-    it("owns the returned assignment/hash bytes and protects the caller's sender buffer", async () => {
+    it("owns the returned input map and hash bytes and protects the caller's sender buffer", async () => {
       const raw = result();
       const sender = bytes(fixture.sender);
       const transaction = bindProgramTransaction(
@@ -356,10 +415,13 @@ describe.each(FIXTURES)("the %s program transaction", (_, fixture, walletUtxos) 
         { assets: new AssetRegistry() },
       );
       const decoded = await transaction(inputs, sender, fixture.payer);
-      raw.proofInputs.fill(9);
+      raw.proofInputs.opening = "9";
       raw.publicHash.fill(9);
       expect({ assignment: decoded.proofInputs, hash: decoded.publicHash, sender }).toEqual({
-        assignment: Uint8Array.of(1, 2, 3),
+        assignment: {
+          opening: "17",
+          public_hash: bytesToBigInt(new Uint8Array(32).fill(1)).toString(),
+        },
         hash: new Uint8Array(32).fill(1),
         sender: bytes(fixture.sender),
       });
@@ -371,7 +433,9 @@ describe.each(FIXTURES)("the %s program transaction", (_, fixture, walletUtxos) 
       if (output === undefined) throw new Error("fixture needs an output");
       raw.finalizedTx.outputUtxos[0] = { ...output, asset: { asset: OTHER_ADDRESS, assetId: 7n } };
       const assets = new AssetRegistry();
-      const transaction = bindProgramTransaction((_inputs: Inputs) => raw, { assets });
+      const transaction = bindProgramTransaction((_inputs: Inputs) => raw, {
+        assets,
+      });
       assets.insert(7n, OTHER_ADDRESS);
       const encrypt = vi.spyOn(ViewingKey.prototype, "encryptSlot");
       const prove = vi.fn();
@@ -443,7 +507,9 @@ describe.each(FIXTURES)("the %s program transaction", (_, fixture, walletUtxos) 
 
     it("validates call identities before invoking wasm", async () => {
       const build = vi.fn((_inputs: Inputs) => result());
-      const transaction = bindProgramTransaction(build, { assets: new AssetRegistry() });
+      const transaction = bindProgramTransaction(build, {
+        assets: new AssetRegistry(),
+      });
       await expect(transaction(inputs, new Uint8Array(), fixture.payer)).rejects.toMatchObject({
         code: "TRANSACTION_INVALID_LENGTH",
       });
@@ -461,7 +527,9 @@ describe.each(FIXTURES)("the %s program transaction", (_, fixture, walletUtxos) 
           if (asynchronous) return Promise.reject(new Error(secret));
           throw new Error(secret);
         };
-        const transaction = bindProgramTransaction(build, { assets: new AssetRegistry() });
+        const transaction = bindProgramTransaction(build, {
+          assets: new AssetRegistry(),
+        });
         let failure: unknown;
         try {
           await transaction(inputs, bytes(fixture.sender), fixture.payer);
@@ -809,7 +877,7 @@ describe("program transaction decoding", () => {
 });
 
 describe("program wallet UTXOs", () => {
-  const [fixtureUtxo] = escrow.inputs.private.tokenUtxosAssetA;
+  const [fixtureUtxo] = escrow.records.inputs;
   if (!fixtureUtxo) throw new Error("escrow fixture shape");
   const assets = new AssetRegistry();
   const utxo = sdkWalletUtxo(fixtureUtxo, assets);

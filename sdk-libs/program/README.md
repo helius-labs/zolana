@@ -42,7 +42,9 @@ No feature is on by default.
 | `verifier` | `no_std`: `VerifyError`, `public_hash` and `verify_groth16`, which the generated verifier modules call with a `CompressedProof`. `client` includes it. |
 | `parallel` | Proving on a rayon thread pool. |
 | `serde`, `tsify` | Serde and TypeScript types for the client types. |
-| `wasm`, `wasm-prover`, `wasm-threads`, `wasm-verify` | The wasm bindings, the wasm prover, its thread pool and a wasm verifier. |
+| `wasm` | JavaScript transaction and state-decoding bindings. |
+| `wasm-prover`, `wasm-threads` | Include Xark's proving runtime in the application's WASM module. JavaScript workers each load their own instance. |
+| `wasm-verify` | Proof and verifying-key conversion helpers for independent verification with snarkjs. |
 | `test-support` | Circuit diagnostics and internal inspection for SDK tests. |
 | `external-tools` | Test only: the unit suite's cross-checks that spawn circom and snarkjs. |
 
@@ -361,15 +363,99 @@ Rules a program keeps:
 
 ### `spr_program::wasm` (feature `wasm`)
 
-The bindings a ZK program's wasm module exports to JavaScript, which `zolana zk compile`
-builds with wasm-pack: `ProgramTransaction`, `FinalizedTransaction` and `DataUtxo` as
-TypeScript types and a `<name>Transaction` function per program. The rest is the zk DSL's
-wasm runtime (`spr_zk_dsl::wasm`), shared with standalone circuits: a `<Name>Prover` per
-program from a proving key or a zkey (feature `wasm-prover`) whose `prove` returns a `Proof`
-with `publicInputs` (a program has one, its public hash), `verifyProof` (feature
-`wasm-verify`), and `initProverThreads`, which starts a thread pool sized to the core count
-(feature `wasm-threads`). The TypeScript SDK's `decodeProgramTransaction` turns the
-transaction the module returns into SDK inputs and outputs.
+`zolana zk compile` builds the existing program crate with wasm-pack. Its module
+exports `ProgramTransaction`, `FinalizedTransaction` and `DataUtxo` TypeScript types,
+client preparation functions and state-decoding helpers. The TypeScript
+SDK's `decodeProgramTransaction` turns the returned transaction into SDK inputs and
+outputs.
+
+The module also exports `proofInputUtxo(wallet?)`, `proofInputAddress(bytes)` and
+`proofInputContext({ blindingSeed, outputTreeId })`. These use the Rust protocol
+conversion code to produce Xark inputs. Omitting the wallet produces a canonical
+dummy input. Custom low-level bindings can pass the circuit inputs and original
+wallet records separately to `wasm::program_transaction`.
+
+`ZkProgram` derives the client type, checked conversion, `.prepare(sender, payer)`
+method and typed `<name>Transaction(inputs, sender, payer)` WASM export. Derive
+`ClientInputs` on private-input structs; `PublicInputs` includes this conversion
+for public-input structs. The generated client keeps the same `private`/`public`
+shape as the circuit. Native callers use the generated `EscrowClient` directly.
+
+Protocol types have native client representations: `ArrayVec<Utxo, N>` accepts
+`Vec<WalletUtxo>` with capacity and commitment checks, `Utxo` accepts `WalletUtxo`,
+`ShieldedAddress` accepts the native viewing address, `TxContext` accepts
+`TransactionOptions`, and `Field` accepts a canonical decimal string. Integers
+pass through. Custom structs recursively use their `ClientInputs` implementation
+without field attributes. State types used inside client inputs also derive
+`ClientInputs`; identity-only views support conversion with `.into()`. Custom low-level fixtures can
+use `#[zk_program(raw_client)]` for the explicit circuit-input/record boundary.
+
+Callers supply all public inputs, including creator identity and withdrawal
+unlock time. The circuit checks their relationship to the private inputs.
+Generated clients perform protocol conversion and transaction finalization;
+there are no application preparation hooks or client-type path attributes.
+WASM builds retain the application's existing Serde, Tsify and wasm-bindgen
+manifest dependencies. Generated client objects reject unknown fields, and their
+TypeScript declarations represent Rust u64 values as bigint.
+
+`TransactionOptions` supplies an optional blinding seed and output tree; an
+omitted seed uses secure randomness.
+
+Bind the generated function with `bindProgramTransaction(build, { assets })`.
+Its `proofInputs` is a validated, owned Xark input map ready for `ProvingSession`,
+without another `Schema.encodeInputs` call. Transaction commitment, mint, sender,
+payer and proof public-hash checks run before returning an SDK transaction.
+
+Concrete `UtxoState` types derive `serde::Serialize` and `tsify::Tsify` for typed
+state-decoding helpers. Add `serde::Deserialize` when a request accepts that state.
+Direct `Field` members use `#[serde(with = "spr_program::circuit::field_serde")]`
+and `#[tsify(type = "string")]` for canonical decimal values. State decoders reject
+a mismatched commitment with the `ClientError.DataHashMismatch` error name.
+After verifying a proof with the circuit's trusted key, `programProof` converts
+the proof to the program's format and checks its public input against the
+prepared transaction's `publicHash`.
+
+The default package directory is `<target>/zk/<package>/wasm/`. It contains the
+generated JavaScript/WASM/declarations, `runtime-options.json`, `xark/` pool scripts,
+and a `<circuit>/` directory of TypeScript client files per circuit. `--wasm-out`
+selects a different package directory. The build stages this package together before
+replacing the previous generation; circuit/key artifacts stay beside `wasm/`.
+
+The default build enables `wasm-prover` and includes Xark's runtime in that module,
+including `preloadStreaming`, `proveStreamingPreloaded` and `verify`. The build copies
+Xark's pool scripts into `xark/`; pass the combined glue URL or Node.js glue path to
+`createPool({ wasm })`. Browser proving with a pool runs inside a Web Worker and needs
+cross-origin isolation. Each pool worker initializes a separate WASM instance using
+the normal Rust toolchain.
+
+When using a generated circuit client, pass the initialized application module
+through Xark's existing `wasm` option so it does not load the stock prover module:
+
+```ts
+import init, * as runtime from "./wasm_test_program.js";
+import { Escrow } from "./escrow/escrow";
+
+await init();
+const prover = await Escrow.prover("/circuits/escrow/", { wasm: runtime });
+```
+
+`--single-threaded` writes `threads: false` in `runtime-options.json` for loaders to
+disable the pool. `--no-prover` builds the transaction/state bindings and also disables
+the pool. `--verifier` adds `proofToSnarkjs` and `verifyingKeyToSnarkjs`; Xark's `verify`
+is included with the proving runtime. `compressedProgramProof` remains available in
+the transaction-only build.
+
+This development branch uses workspace path dependencies pointing at
+`/Users/jorrit/dev/experiments/xark-client-wasm`. The build discovers that checkout
+from Cargo metadata and selects its `target/release/xark` compiler automatically.
+Generated circuit entries use the same path dependency. To rebuild the local tool,
+run `tools/xark/build.sh /Users/jorrit/dev/experiments/xark-client-wasm`.
+`XARK` can select a separate compiler executable. An explicit `XARK_SOURCE` must
+match the workspace dependency checkout; change the workspace paths to select a
+different source. Git-backed workspaces still support the pinned checkout and
+source-override workflow.
+Combined prover builds check that the existing proof-randomness patch is applied to
+the selected source. A stock checkout must first be prepared with `tools/xark/build.sh`.
 
 ## Flow
 

@@ -32,6 +32,7 @@ export {
   type ProgramSettlementTransfer,
   type ProgramTransactionKeys,
   type ProgramTransaction,
+  type ProgramProofInputs,
   type ProgramUtxo,
   type ProgramWalletUtxo,
 } from "./program-transaction.js";

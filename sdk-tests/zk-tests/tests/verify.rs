@@ -7,8 +7,10 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use spr_client::{compile_message, sign_transaction, ComputeBudgetConfig};
-use spr_zk_dsl::{conversion::field_bytes, Groth16Prover};
-use spr_zk_standalone_fixture::{instruction::withdrawal_data, verifier::withdrawal, Withdrawal};
+use spr_program::{to_bytes, proof::compressed_proof};
+use spr_zk_standalone_fixture::{
+    instruction::withdrawal_data, verifier::withdrawal, WithdrawalInputs,
+};
 
 /// A pairing check with four public inputs needs more than the 200,000 units
 /// a single instruction gets by default.
@@ -54,17 +56,15 @@ fn the_verifier_program_accepts_only_the_proven_payout() {
     svm.airdrop(&payer.pubkey(), 1_000_000_000)
         .expect("fund the payer");
 
-    let inputs = Withdrawal::example();
-    let prover = Groth16Prover::<Withdrawal>::new_with_test_setup().expect("test setup");
-    let proof = prover
-        .prove(&inputs)
-        .expect("proof")
-        .compressed()
-        .expect("compressed proof");
+    let inputs = WithdrawalInputs::example();
+    let artifacts = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/zk/spr-zk-standalone-fixture");
+    let result = xark::prover::circuit_at(artifacts).prove(inputs).expect("standalone Xark proof");
+    let proof = compressed_proof(&result.proof).expect("compressed proof");
+    let inputs = WithdrawalInputs::example();
     let public_inputs = withdrawal::PublicInputs {
-        commitment: field_bytes(&inputs.public.commitment),
+        commitment: to_bytes(&inputs.public.commitment),
         amount: inputs.public.amount,
-        destination: *inputs.public.destination.as_array(),
+        destination: inputs.public.destination(),
     };
     let other_amount = withdrawal::PublicInputs {
         amount: public_inputs.amount + 1,

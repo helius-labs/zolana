@@ -64,11 +64,11 @@ pub(crate) fn generate(input: &DeriveInput) -> Result<TokenStream> {
     let (impl_generics, _, where_clause) = generics.split_for_impl();
     Ok(quote! {
         impl #impl_generics ::spr_program::EncryptionCodec for #ident #ty_generics #where_clause {
-            fn serialize_for_encryption(&self) -> ::std::io::Result<::std::vec::Vec<u8>> {
+            fn serialize_for_encryption(&self) -> ::spr_program::__private::borsh::io::Result<::spr_program::__private::Vec<u8>> {
                 ::spr_program::__private::borsh::to_vec(self)
             }
 
-            fn deserialize_after_decryption(bytes: &[u8]) -> ::std::io::Result<Self> {
+            fn deserialize_after_decryption(bytes: &[u8]) -> ::spr_program::__private::borsh::io::Result<Self> {
                 <Self as ::spr_program::__private::borsh::BorshDeserialize>::try_from_slice(bytes)
             }
         }

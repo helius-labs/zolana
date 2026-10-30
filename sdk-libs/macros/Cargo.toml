@@ -15,7 +15,6 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 spr-hasher = { workspace = true }
 syn = { workspace = true }
-spr-zk-macros-core = { workspace = true }
 
 [dev-dependencies]
 anchor-syn = "1.1"

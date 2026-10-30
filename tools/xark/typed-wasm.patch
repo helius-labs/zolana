@@ -1,0 +1,79 @@
+diff --git a/crates/wasm/js/pool.d.ts b/crates/wasm/js/pool.d.ts
+index a7562f3..f5d862d 100644
+--- a/crates/wasm/js/pool.d.ts
++++ b/crates/wasm/js/pool.d.ts
+@@ -12,0 +13,5 @@ export interface WorkerPool {
++  /** Synchronous accelerator entry points called by the proving runtime. */
++  toCoset(n1: number, n2: number, bytes: Uint8Array): boolean;
++  fromCosetToT(n1: number, n2: number, bytes: Uint8Array): boolean;
++  decompress(g2: boolean, points: Uint8Array): Uint8Array | undefined;
++  msm(g2: boolean, points: Uint8Array, compressed: boolean, scalars: Uint8Array): Uint8Array | undefined;
+diff --git a/crates/wasm/src/lib.rs b/crates/wasm/src/lib.rs
+index 3bc2828..0aa19f6 100644
+--- a/crates/wasm/src/lib.rs
++++ b/crates/wasm/src/lib.rs
+@@ -77,0 +78,24 @@ export type Bytes = Uint8Array | ArrayBuffer;
++/** Values accepted by the native witness-input decoder. */
++export type ProofInputValue = string | number | bigint | boolean | ProofInputValue[] | { [name: string]: ProofInputValue };
++export type ProofInputs = Record<string, ProofInputValue>;
++/** Synchronous accelerator methods provided by the Xark worker pool. */
++export interface ProverWorkerPool {
++    toCoset(n1: number, n2: number, bytes: Uint8Array): boolean;
++    fromCosetToT(n1: number, n2: number, bytes: Uint8Array): boolean;
++    decompress(g2: boolean, points: Uint8Array): Uint8Array | undefined;
++    msm(g2: boolean, points: Uint8Array, compressed: boolean, scalars: Uint8Array): Uint8Array | undefined;
++}
++export interface ProverOptions {
++    r1cs?: Bytes;
++    pool?: ProverWorkerPool;
++    spill?: boolean;
++    expandRows?: boolean;
++    domainSize?: number;
++    msmChunk?: number;
++    tile?: number;
++    /** Available only when the runtime is built with test-randomness. */
++    seed?: number;
++    residentKey?: boolean;
++    sources?: string;
++}
++export interface KeyTranscodeOptions { pool?: ProverWorkerPool; }
+@@ -224 +248 @@ pub fn preload(
+-pub fn prove_preloaded(inputs: JsValue) -> Result<ProofBundle, js_sys::Error> {
++pub fn prove_preloaded(#[wasm_bindgen(unchecked_param_type = "ProofInputs")] inputs: JsValue) -> Result<ProofBundle, js_sys::Error> {
+@@ -254 +278 @@ impl ProvingSession {
+-    pub fn prove(&mut self, inputs: JsValue) -> Result<ProofBundle, js_sys::Error> {
++    pub fn prove(&mut self, #[wasm_bindgen(unchecked_param_type = "ProofInputs")] inputs: JsValue) -> Result<ProofBundle, js_sys::Error> {
+@@ -278 +302 @@ pub fn prove(
+-    inputs: JsValue,
++    #[wasm_bindgen(unchecked_param_type = "ProofInputs")] inputs: JsValue,
+@@ -393 +417 @@ impl JsSchema {
+-    #[wasm_bindgen(js_name = encodeInputs)]
++    #[wasm_bindgen(js_name = encodeInputs, unchecked_return_type = "Record<string, string>")]
+@@ -452 +476 @@ impl JsVerifyingKey {
+-#[wasm_bindgen(js_name = encodeInputs)]
++#[wasm_bindgen(js_name = encodeInputs, unchecked_return_type = "Record<string, string>")]
+diff --git a/crates/wasm/src/streaming.rs b/crates/wasm/src/streaming.rs
+index b14d475..7323170 100644
+--- a/crates/wasm/src/streaming.rs
++++ b/crates/wasm/src/streaming.rs
+@@ -525,2 +525,2 @@ pub fn prove_streaming(
+-    inputs: JsValue,
+-    options: JsValue,
++    #[wasm_bindgen(unchecked_param_type = "ProofInputs")] inputs: JsValue,
++    #[wasm_bindgen(unchecked_optional_param_type = "ProverOptions")] options: JsValue,
+@@ -551 +551 @@ pub fn preload_streaming(
+-    options: JsValue,
++    #[wasm_bindgen(unchecked_optional_param_type = "ProverOptions")] options: JsValue,
+@@ -562,2 +562,2 @@ pub fn prove_streaming_preloaded(
+-    inputs: JsValue,
+-    options: JsValue,
++    #[wasm_bindgen(unchecked_param_type = "ProofInputs")] inputs: JsValue,
++    #[wasm_bindgen(unchecked_optional_param_type = "ProverOptions")] options: JsValue,
+@@ -661,2 +661,2 @@ pub fn begin_streaming_proof(
+-    inputs: JsValue,
+-    options: JsValue,
++    #[wasm_bindgen(unchecked_param_type = "ProofInputs")] inputs: JsValue,
++    #[wasm_bindgen(unchecked_optional_param_type = "ProverOptions")] options: JsValue,
+@@ -730 +730 @@ pub struct KeyTranscoder {
+-pub fn begin_key_transcode(options: JsValue) -> KeyTranscoder {
++pub fn begin_key_transcode(#[wasm_bindgen(unchecked_optional_param_type = "KeyTranscodeOptions")] options: JsValue) -> KeyTranscoder {

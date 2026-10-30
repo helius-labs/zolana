@@ -6,7 +6,7 @@ export const test = base.extend<{ harness: Harness }, { programPage: Harness }>(
   programPage: [
     async ({ browser }, use) => {
       const page = await browser.newPage();
-      await page.goto("/");
+      await page.goto("/?threads=2");
       await page.waitForFunction(() => "zkProgram" in window, undefined, { timeout: 60_000 });
       expect(
         await page.evaluate(() => self.crossOriginIsolated),

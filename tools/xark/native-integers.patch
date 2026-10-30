@@ -1,0 +1,327 @@
+diff --git a/crates/frontend/src/builder.rs b/crates/frontend/src/builder.rs
+index 020638b..0df0e98 100644
+--- a/crates/frontend/src/builder.rs
++++ b/crates/frontend/src/builder.rs
+@@ -83,0 +84 @@ pub(crate) type CanonicalLcKey = (String, Vec<(String, VarId)>);
++type UnsignedSubKey = (usize, CanonicalLcKey, CanonicalLcKey);
+@@ -187,0 +189,3 @@ pub struct Builder {
++    /// Unconditionally constrained unsigned subtraction: wrapped remainder and
++    /// borrow. Comparisons and wrapping subtraction prove the same relation.
++    unsigned_subs: BTreeMap<UnsignedSubKey, (LinearCombination, LinearCombination)>,
+@@ -231,0 +236 @@ impl Builder {
++            unsigned_subs: BTreeMap::new(),
+@@ -722,0 +728,3 @@ impl Builder {
++        if diff.is_constant() && diff.constant.is_zero() {
++            return;
++        }
+@@ -915,0 +924,7 @@ impl Builder {
++        let key = (n, canonical_lc_key(&a), canonical_lc_key(&b));
++        if gate.is_none()
++            && !self.witness_only
++            && let Some((_, borrow)) = self.unsigned_subs.get(&key)
++        {
++            return Ok(borrow.clone());
++        }
+@@ -952 +967 @@ impl Builder {
+-        let _ = self.decompose_bits_gated(r, n, gate);
++        let _ = self.decompose_bits_gated(r.clone(), n, gate.clone());
+@@ -953,0 +969,3 @@ impl Builder {
++        if gate.is_none() && !self.witness_only {
++            self.unsigned_subs.insert(key, (r, lt.clone()));
++        }
+@@ -980,0 +999,6 @@ impl Builder {
++        let key = (n, canonical_lc_key(&a), canonical_lc_key(&b));
++        if !self.witness_only
++            && let Some((remainder, _)) = self.unsigned_subs.get(&key)
++        {
++            return remainder.clone();
++        }
+@@ -990 +1014 @@ impl Builder {
+-        let result = a - b + borrow.scale(&pow2_fc(n));
++        let result = a - b + borrow.clone().scale(&pow2_fc(n));
+@@ -993,0 +1018,3 @@ impl Builder {
++        if !self.witness_only {
++            self.unsigned_subs.insert(key, (result.clone(), borrow));
++        }
+@@ -1056,0 +1084,4 @@ impl Builder {
++
++#[cfg(test)]
++#[path = "builder_tests.rs"]
++mod tests;
+diff --git a/crates/frontend/src/builder_tests.rs b/crates/frontend/src/builder_tests.rs
+new file mode 100644
+index 0000000..f1a352f
+--- /dev/null
++++ b/crates/frontend/src/builder_tests.rs
+@@ -0,0 +1,151 @@
++use super::*;
++use xark_ir::{FieldSpec, primitive::PrimitiveProgram, solver::solve_and_check};
++
++fn input(builder: &mut Builder, name: &str) -> LinearCombination {
++    let id = builder.alloc_var(name.into(), Visibility::Private);
++    builder.input_ids.push(id);
++    LinearCombination::var(id)
++}
++
++fn accepts(program: &PrimitiveProgram, values: &[(&str, u64)]) -> bool {
++    let inputs = values
++        .iter()
++        .map(|(name, value)| {
++            let id = program
++                .vars
++                .iter()
++                .find(|var| var.name == *name)
++                .unwrap()
++                .id;
++            (id, value.to_string())
++        })
++        .collect();
++    solve_and_check(program, &inputs).is_ok()
++}
++
++#[test]
++fn equality_elides_only_identically_zero_differences() {
++    let mut builder = Builder::new(false);
++    let left = input(&mut builder, "left");
++    let right = input(&mut builder, "right");
++    builder.emit_require_eq(LinearCombination::zero(), LinearCombination::zero());
++    builder.emit_require_eq(left.clone() + right.clone(), right.clone() + left.clone());
++    assert!(builder.constraints.is_empty());
++    builder.emit_require_eq(left, right);
++    assert_eq!(builder.constraints.len(), 1);
++    let program = crate::output::finish(builder, FieldSpec::named("bn254"), 2).primitive;
++    assert!(accepts(&program, &[("left", 7), ("right", 7)]));
++    assert!(!accepts(&program, &[("left", 7), ("right", 8)]));
++
++    let mut builder = Builder::new(false);
++    builder.emit_require_eq(LinearCombination::zero(), LinearCombination::one());
++    assert_eq!(builder.constraints.len(), 1);
++    let program = crate::output::finish(builder, FieldSpec::named("bn254"), 0).primitive;
++    assert!(!accepts(&program, &[]));
++}
++
++#[test]
++fn comparison_and_subtraction_share_a_constrained_borrow_in_both_orders() {
++    for comparison_first in [false, true] {
++        let mut builder = Builder::new(false);
++        let left = input(&mut builder, "left");
++        let right = input(&mut builder, "right");
++        let expected_borrow = input(&mut builder, "borrow");
++        let expected_remainder = input(&mut builder, "remainder");
++        builder.emit_range_proof_lc(left.clone(), 3);
++        builder.emit_range_proof_lc(right.clone(), 3);
++        let (remainder, borrow) = if comparison_first {
++            let borrow = builder
++                .emit_less_than(3, left.clone(), right.clone())
++                .unwrap();
++            let rows = builder.constraints.len();
++            let remainder = builder.emit_wrapping_sub(3, left, right);
++            assert_eq!(
++                builder.constraints.len(),
++                rows,
++                "subtraction reuses comparison"
++            );
++            (remainder, borrow)
++        } else {
++            let remainder = builder.emit_wrapping_sub(3, left.clone(), right.clone());
++            let rows = builder.constraints.len();
++            let borrow = builder.emit_less_than(3, left, right).unwrap();
++            assert_eq!(
++                builder.constraints.len(),
++                rows,
++                "comparison reuses subtraction"
++            );
++            (remainder, borrow)
++        };
++        builder.emit_require_eq(remainder, expected_remainder);
++        builder.emit_require_eq(borrow, expected_borrow);
++        let program = crate::output::finish(builder, FieldSpec::named("bn254"), 4).primitive;
++        for left in 0u64..8 {
++            for right in 0..8 {
++                let borrow = u64::from(left < right);
++                let remainder = left.wrapping_sub(right) & 7;
++                let inputs = [
++                    ("left", left),
++                    ("right", right),
++                    ("borrow", borrow),
++                    ("remainder", remainder),
++                ];
++                assert!(accepts(&program, &inputs));
++                let mut forged = inputs;
++                forged[2].1 ^= 1;
++                assert!(!accepts(&program, &forged), "forged borrow: {forged:?}");
++                forged = inputs;
++                forged[3].1 ^= 1;
++                assert!(!accepts(&program, &forged), "forged remainder: {forged:?}");
++            }
++        }
++    }
++}
++
++#[test]
++fn guarded_or_witness_only_comparisons_do_not_populate_the_unsigned_cache() {
++    for witness_only in [false, true] {
++        let mut builder = Builder::new(false);
++        let left = input(&mut builder, "left");
++        let right = input(&mut builder, "right");
++        let gate = input(&mut builder, "gate");
++        builder.witness_only = witness_only;
++        builder
++            .emit_less_than_gated(3, left.clone(), right.clone(), Some(gate))
++            .unwrap();
++        builder.witness_only = false;
++        assert!(builder.unsigned_subs.is_empty());
++        let rows = builder.constraints.len();
++        builder.emit_wrapping_sub(3, left, right);
++        assert!(builder.constraints.len() > rows);
++    }
++    let mut builder = Builder::new(false);
++    let left = input(&mut builder, "left");
++    let right = input(&mut builder, "right");
++    builder.witness_only = true;
++    builder
++        .emit_less_than(3, left.clone(), right.clone())
++        .unwrap();
++    assert!(builder.unsigned_subs.is_empty());
++    builder.emit_wrapping_sub(3, left.clone(), right.clone());
++    builder.witness_only = false;
++    assert!(builder.unsigned_subs.is_empty());
++    builder.emit_less_than(3, left, right).unwrap();
++    assert!(!builder.constraints.is_empty());
++}
++
++#[test]
++fn unsigned_cache_does_not_cross_widths_or_operand_order() {
++    let mut builder = Builder::new(false);
++    let left = input(&mut builder, "left");
++    let right = input(&mut builder, "right");
++    builder.emit_wrapping_sub(3, left.clone(), right.clone());
++    let rows = builder.constraints.len();
++    builder
++        .emit_less_than(4, left.clone(), right.clone())
++        .unwrap();
++    assert!(builder.constraints.len() > rows);
++    let rows = builder.constraints.len();
++    builder.emit_less_than(3, right, left).unwrap();
++    assert!(builder.constraints.len() > rows);
++}
+diff --git a/crates/frontend/tests/integer_reuse.rs b/crates/frontend/tests/integer_reuse.rs
+new file mode 100644
+index 0000000..97a335a
+--- /dev/null
++++ b/crates/frontend/tests/integer_reuse.rs
+@@ -0,0 +1,114 @@
++//! Native integer regression cases for shared comparison/subtraction proofs.
++use std::collections::BTreeMap;
++use std::path::PathBuf;
++use xark_ir::{primitive::PrimitiveProgram, solver::solve_and_check};
++
++fn compile(name: &str, parameters: &str, body: &str) -> PrimitiveProgram {
++    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
++        .join("../..")
++        .canonicalize()
++        .unwrap();
++    let directory = root.join("target/integer-reuse").join(name);
++    std::fs::create_dir_all(directory.join("src")).unwrap();
++    let language = root.join("crates/lang");
++    std::fs::write(directory.join("Cargo.toml"), format!(
++        "[package]\nname = \"integer-{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\n[workspace]\n[lib]\ncrate-type = [\"cdylib\", \"rlib\"]\n[dependencies]\nxark = {{ path = {language:?} }}\n[lints.rust]\nunexpected_cfgs = {{ level = \"warn\", check-cfg = ['cfg(xark)', 'cfg(xark_client)'] }}\n"
++    )).unwrap();
++    std::fs::write(directory.join("src/lib.rs"), format!(
++        "#![no_std]\nuse xark::prelude::*;\n#[circuit]\npub fn circuit({parameters}) {{ {body} }}\n"
++    )).unwrap();
++    let wasm =
++        xark_frontend::build_crate(&directory, &root.join("target/integer-reuse/wasm")).unwrap();
++    let lowered =
++        xark_frontend::lower_module(&wasm, xark_ir::FieldSpec::named("bn254"), false, false)
++            .unwrap();
++    // The raw primitive expression view is debug-only (`notes = true`). Exercise
++    // the actual compact artifact consumed by the prover instead.
++    xark_ir::function_decode::expand_function_blob(&lowered.output.xbc)
++        .unwrap()
++        .to_primitive()
++}
++
++fn accepts(program: &PrimitiveProgram, values: &[(&str, u128)]) -> bool {
++    let inputs: BTreeMap<_, _> = values
++        .iter()
++        .map(|(name, value)| {
++            let id = program
++                .vars
++                .iter()
++                .find(|var| var.name == *name)
++                .unwrap()
++                .id;
++            (id, value.to_string())
++        })
++        .collect();
++    solve_and_check(program, &inputs).is_ok()
++}
++
++#[test]
++fn native_u128_addition_rejects_overflow_and_forged_results() {
++    let program = compile(
++        "add",
++        "left: Private<u128>, right: Private<u128>, expected: Public<Field>",
++        "let sum = left.checked_add(right).expect(\"overflow\"); require_eq(Field::from(sum), expected);",
++    );
++    for left in [
++        0,
++        1,
++        u64::MAX as u128,
++        1u128 << 64,
++        u128::MAX - 1,
++        u128::MAX,
++    ] {
++        for right in [0, 1, 7, u64::MAX as u128, 1u128 << 64, u128::MAX] {
++            let sum = left.checked_add(right);
++            let claimed = left.wrapping_add(right);
++            let inputs = [("left", left), ("right", right), ("expected", claimed)];
++            assert_eq!(accepts(&program, &inputs), sum.is_some(), "{inputs:?}");
++            if sum.is_some() {
++                let mut forged = inputs;
++                forged[2].1 ^= 1;
++                assert!(!accepts(&program, &forged), "{forged:?}");
++            }
++        }
++    }
++}
++
++#[test]
++fn native_debit_rejects_underflow_and_wide_remainders() {
++    let program = compile(
++        "debit",
++        "balance: Private<u128>, amount: Private<u64>, expected: Public<Field>",
++        "let low = balance as u64; let high = (balance >> 64) as u64; let borrow = low < amount; require_eq(high, u64::from(borrow)); require_eq(Field::from(low.wrapping_sub(amount)), expected);",
++    );
++    for balance in [
++        0,
++        1,
++        u64::MAX as u128,
++        1u128 << 64,
++        2 * u64::MAX as u128,
++        u128::MAX,
++    ] {
++        for amount in [0u64, 1, 7, u64::MAX] {
++            let remainder = balance
++                .checked_sub(amount as u128)
++                .filter(|remaining| *remaining <= u64::MAX as u128);
++            let claimed = (balance as u64).wrapping_sub(amount) as u128;
++            let inputs = [
++                ("balance", balance),
++                ("amount", amount as u128),
++                ("expected", claimed),
++            ];
++            assert_eq!(
++                accepts(&program, &inputs),
++                remainder.is_some(),
++                "{inputs:?}"
++            );
++            if remainder.is_some() {
++                let mut forged = inputs;
++                forged[2].1 ^= 1;
++                assert!(!accepts(&program, &forged), "{forged:?}");
++            }
++        }
++    }
++}

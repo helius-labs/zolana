@@ -1,89 +1,14 @@
 use std::path::{Path, PathBuf};
-
-use serde::Serialize;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use solana_signature::Signature;
-use spr_hasher::primitives::solana_owner_identity;
-use spr_interface::instruction::instruction_data::transact::OwnerTag;
-use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
-use spr_program::{wasm, Groth16Prover, TxContext, UtxoOwner, ZkProgramCircuit};
+use wasm_test_program::{escrow_authority, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms,
+    Withdraw, WithdrawPrivateInputs, WithdrawPublicInputs, ESCROW_OUTPUT_SLOT};
+use spr_keypair::{ShieldedKeypair, SigningKey};
+use spr_program::{InputRecords, ProgramTransaction, from_bytes, wasm};
 use spr_transaction::{utxo::Utxo, Data, Mint, WalletUtxo};
-use wasm_test_program::{
-    escrow_authority, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw,
-    WithdrawPrivateInputs, WithdrawPublicInputs, ESCROW_OUTPUT_SLOT,
-};
-
-#[cfg(feature = "snarkjs")]
-mod ceremony;
 
 const TREE_ID: u16 = 3;
 const UNLOCK: u64 = 1_700_000_000;
-
-struct Fixture<P> {
-    name: &'static str,
-    program: P,
-    keypair: ShieldedKeypair,
-}
-
-impl<P: ZkProgramCircuit + Serialize> Fixture<P> {
-    fn sender(&self) -> ShieldedAddress {
-        self.keypair.shielded_address().expect("sender address")
-    }
-
-    fn json(&self, prover: &Groth16Prover<P>) -> Value {
-        let sender = self.sender();
-        let payer = sender.solana_address().expect("payer");
-        let transaction = self
-            .program
-            .create_program_transaction(&sender, payer)
-            .expect("program transaction");
-        let proof_inputs = transaction.proof_inputs.to_bytes().expect("proof inputs");
-        let mut transaction_json = serde_json::to_value(
-            wasm::ProgramTransaction::try_from(&transaction).expect("wasm transaction"),
-        )
-        .expect("transaction json");
-        if let Some(object) = transaction_json.as_object_mut() {
-            object.remove("proofInputs");
-        }
-        let external_data = transaction
-            .finalized
-            .clone()
-            .encrypt_with_keys(&self.keypair)
-            .expect("encrypted transaction")
-            .external_data;
-        json!({
-            "inputs": serde_json::to_value(&self.program).expect("inputs json"),
-            "sender": sender.to_bytes().to_vec(),
-            "payer": payer.to_string(),
-            "transaction": transaction_json,
-            "proofInputsSha256": hex::encode(Sha256::digest(&proof_inputs)),
-            "verifyingKey": prover.keys().gnark_verifying_key().expect("verifying key"),
-            "encrypted": {
-                "utxoHashes": external_data
-                    .outputs
-                    .iter()
-                    .map(|output| output.utxo_hash.to_vec())
-                    .collect::<Vec<_>>(),
-                "ownerTags": external_data
-                    .outputs
-                    .iter()
-                    .map(|output| match output.owner_tag {
-                        OwnerTag::Inline(value) => json!({ "kind": "inline", "value": value.to_vec() }),
-                        OwnerTag::Account(index) => json!({ "kind": "account", "index": index }),
-                    })
-                    .collect::<Vec<_>>(),
-                "resolvedOwnerTags": external_data
-                    .resolved_owner_tags
-                    .iter()
-                    .map(|tag| tag.to_vec())
-                    .collect::<Vec<_>>(),
-                "interfaceTransfers": serde_json::to_value(&external_data.interface_transfers)
-                    .expect("transfers json"),
-            },
-        })
-    }
-}
 
 fn keypair(seed: u8) -> ShieldedKeypair {
     ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32])).expect("keypair")
@@ -121,193 +46,83 @@ fn token_input(owner: &ShieldedKeypair, amount: u64, leaf_index: u64, blinding: 
     }
 }
 
-fn escrow() -> Fixture<Escrow> {
+fn directory() -> PathBuf { Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures") }
+
+fn output(name: &str, inputs: Value, records: Value, tx: ProgramTransaction, keys: &ShieldedKeypair) -> Value {
+    let sender = keys.shielded_address().unwrap();
+    let artifact = Path::new(env!("CARGO_TARGET_TMPDIR")).parent().unwrap().join("zk/spr-program-wasm-test-program").join(name);
+    let mut hashes = serde_json::Map::new();
+    for file in ["circuit.xbc", "pk.bin", "vk.bin"] {
+        use sha2::{Digest, Sha256};
+        let bytes = std::fs::read(artifact.join(file)).expect("compile browser fixture circuits and keys first");
+        hashes.insert(file.to_string(), Value::String(format!("{:x}", Sha256::digest(bytes))));
+    }
+    let transaction = serde_json::to_value(wasm::ProgramTransaction::try_from(&tx).unwrap()).unwrap();
+    let external = tx.finalized.clone().encrypt_with_keys(keys).unwrap().external_data;
+    let owner_tags: Vec<_> = external.outputs.iter().map(|output| {
+        use spr_interface::instruction::instruction_data::transact::OwnerTag;
+        match output.owner_tag {
+            OwnerTag::Inline(value) => wasm::OwnerTag::Inline { value },
+            OwnerTag::Account(index) => wasm::OwnerTag::Account { index },
+        }
+    }).collect();
+    json!({ "inputs": inputs, "records": records, "sender": sender.to_bytes().to_vec(),
+        "payer": sender.solana_address().unwrap().to_string(), "transaction": transaction,
+        "encrypted": {
+            "utxoHashes": external.outputs.iter().map(|output| output.utxo_hash.to_vec()).collect::<Vec<_>>(),
+            "ownerTags": owner_tags,
+            "resolvedOwnerTags": external.resolved_owner_tags,
+            "interfaceTransfers": external.interface_transfers,
+        },
+        "circuit": name, "hashes": hashes })
+}
+
+fn fixtures() -> (Value, Value) {
     let creator = keypair(5);
-    let address = creator.shielded_address().expect("creator address");
-    Fixture {
-        name: "escrow",
-        program: Escrow {
-            private: EscrowPrivateInputs {
-                tx_context: TxContext::new().with_blinding_seed([21; 32]),
-                token_utxos_asset_a: vec![
-                    token_input(&creator, 600, 0, 11),
-                    token_input(&creator, 400, 1, 12),
-                ],
-                unlock: UNLOCK,
-                amount: 250,
-            },
-            public: EscrowPublicInputs {
-                escrow_owner: escrow_authority()
-                    .address(address.viewing_pubkey)
-                    .expect("escrow owner"),
-            },
-        },
-        keypair: creator,
-    }
-}
-
-fn withdraw() -> Fixture<Withdraw> {
-    let escrow = escrow();
-    let address = escrow.sender();
-    let finalized = escrow
-        .program
-        .create_finalized_transaction(&address, address.solana_address().expect("payer"))
-        .expect("escrow transaction");
-    let mut escrow_utxo = escrow_authority()
-        .input(
-            finalized
-                .output_utxos()
-                .get(ESCROW_OUTPUT_SLOT)
-                .expect("escrow output"),
-            finalized.output_tree_id(),
-            2,
-        )
-        .expect("escrow input");
-    escrow_utxo.latest_tree_id = Some(TREE_ID);
-    Fixture {
-        name: "withdraw",
-        program: Withdraw {
-            private: WithdrawPrivateInputs {
-                tx_context: TxContext::new().with_blinding_seed([22; 32]),
-                escrow: escrow_utxo,
-                terms: EscrowTerms {
-                    creator: UtxoOwner::try_from(&address).expect("creator owner"),
-                    unlock: UNLOCK,
-                },
-            },
-            public: WithdrawPublicInputs {
-                unlock: UNLOCK,
-                owner_identity: solana_owner_identity(
-                    address.solana_address().expect("creator").as_array(),
-                )
-                .expect("owner identity"),
-            },
-        },
-        keypair: escrow.keypair,
-    }
-}
-
-fn committed_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures")
-}
-
-fn keys_dir() -> PathBuf {
-    Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .parent()
-        .expect("target directory")
-        .join("zk-program-wasm-fixtures")
-}
-
-fn committed(name: &str) -> Value {
-    let path = committed_dir().join(format!("{name}.json"));
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|_| {
-        panic!(
-            "{} is missing: run just regen-zk-program-wasm-fixtures",
-            path.display()
-        )
-    });
-    serde_json::from_str(&text).expect("fixture json")
-}
-
-fn write_keys<P: ZkProgramCircuit + Serialize>(fixture: &Fixture<P>) {
-    let prover = Groth16Prover::<P>::new_with_test_setup().expect("seeded setup");
-    std::fs::create_dir_all(keys_dir()).expect("keys directory");
-    let bytes = prover.keys().to_bytes().expect("serialize key");
-    std::fs::write(keys_dir().join(format!("{}.pk", fixture.name)), &bytes).expect("proving key");
-    std::fs::write(
-        keys_dir().join(format!("{}.pk.sha256", fixture.name)),
-        format!(
-            "{}  {}.pk\n",
-            hex::encode(Sha256::digest(&bytes)),
-            fixture.name
-        ),
-    )
-    .expect("proving key checksum");
-    std::fs::write(
-        keys_dir().join(format!("{}.wtns", fixture.name)),
-        fixture.program.export_assignment().expect("proof inputs"),
-    )
-    .expect("wtns");
-    #[cfg(feature = "snarkjs")]
-    write_zkey::<P>(fixture.name);
-}
-
-fn write_json<P: ZkProgramCircuit + Serialize>(fixture: &Fixture<P>) {
-    let prover = Groth16Prover::<P>::new_with_test_setup().expect("seeded setup");
-    std::fs::create_dir_all(committed_dir()).expect("fixtures directory");
-    std::fs::write(
-        committed_dir().join(format!("{}.json", fixture.name)),
-        serde_json::to_string_pretty(&fixture.json(&prover)).expect("fixture text") + "\n",
-    )
-    .expect("fixture");
-}
-
-#[cfg(feature = "snarkjs")]
-fn write_zkey<P: ZkProgramCircuit>(name: &str) {
-    use spr_program::Groth16Keys;
-
-    let ceremony = ceremony::ceremony::<P>(name);
-    let zkey = keys_dir().join(format!("{name}.zkey"));
-    std::fs::copy(ceremony.final_zkey(), &zkey).expect("zkey");
-    std::fs::copy(
-        ceremony.verification_key(),
-        keys_dir().join(format!("{name}.vkey.json")),
-    )
-    .expect("snarkjs verification key");
-    let keys = Groth16Keys::load_zkey::<P>(&zkey).expect("zkey keys");
-    std::fs::write(
-        keys_dir().join(format!("{name}.zkey.vk")),
-        keys.gnark_verifying_key().expect("zkey verifying key"),
-    )
-    .expect("zkey verifying key file");
+    let sender = creator.shielded_address().unwrap();
+    let payer = sender.solana_address().unwrap();
+    let authority = escrow_authority();
+    let receiver = authority.address(sender.viewing_pubkey).unwrap();
+    let wallets = vec![token_input(&creator, 600, 0, 11), token_input(&creator, 400, 1, 12)];
+    let mut records = InputRecords::new();
+    let program = Escrow {
+        private: EscrowPrivateInputs { tx_context: InputRecords::context(&[21; 32], None).unwrap(),
+            token_utxos_asset_a: records.utxos(&wallets).unwrap(), unlock: UNLOCK, amount: 250 },
+        public: EscrowPublicInputs { escrow_owner: records.address(&receiver).unwrap() },
+    };
+    let inputs = spr_program::xark::client::to_json(&program).unwrap();
+    let tx = records.create_program_transaction(&program, program.execute().unwrap(), &sender, payer).unwrap();
+    let mut spent = authority.input(&tx.finalized.output_utxos()[ESCROW_OUTPUT_SLOT], tx.finalized.output_tree_id(), 2).unwrap();
+    spent.latest_tree_id = Some(TREE_ID);
+    let terms = <EscrowTerms as borsh::BorshDeserialize>::try_from_slice(tx.finalized.output_utxos()[ESCROW_OUTPUT_SLOT].data.utxo_data().unwrap()).unwrap();
+    let escrow = output("escrow", inputs, json!({"inputs": wallets, "addresses": [receiver.to_bytes().to_vec()], "mints": []}), tx, &creator);
+    let mut records = InputRecords::new();
+    records.address(&sender).unwrap();
+    let program = Withdraw {
+        private: WithdrawPrivateInputs { tx_context: InputRecords::context(&[22; 32], None).unwrap(), escrow: records.utxo(&spent).unwrap(), terms },
+        public: WithdrawPublicInputs { unlock: UNLOCK, owner_identity: from_bytes(&spr_hasher::primitives::solana_owner_identity(payer.as_array()).unwrap()).unwrap() },
+    };
+    let inputs = spr_program::xark::client::to_json(&program).unwrap();
+    let tx = records.create_program_transaction(&program, program.execute().unwrap(), &sender, payer).unwrap();
+    let withdraw = output("withdraw", inputs, json!({"inputs": [spent], "addresses": [sender.to_bytes().to_vec()], "mints": []}), tx, &creator);
+    (escrow, withdraw)
 }
 
 #[test]
-#[ignore = "writes the proving keys the wasm tests load: just regen-zk-program-wasm-fixtures"]
-fn write_wasm_keys() {
-    write_keys(&escrow());
-    write_keys(&withdraw());
+fn native_transactions_match_committed_browser_fixtures() {
+    let (escrow, withdraw) = fixtures();
+    for (name, actual) in [("escrow", escrow), ("withdraw", withdraw)] {
+        let expected: Value = serde_json::from_slice(&std::fs::read(directory().join(format!("{name}.json"))).unwrap()).unwrap();
+        assert_eq!(actual, expected, "{name} native transaction and proof inputs");
+    }
 }
 
 #[test]
-#[ignore = "regenerates the committed wasm fixtures: just regen-zk-program-wasm-fixtures"]
+#[ignore = "regenerates synthetic browser fixtures"]
 fn write_wasm_fixtures() {
-    write_json(&escrow());
-    write_json(&withdraw());
-}
-
-#[cfg(feature = "snarkjs")]
-#[test]
-fn imported_keys_keep_their_production_export_provenance() {
-    use spr_program::{Groth16Keys, SetupKind, VerifyingKeyExport};
-
-    let ceremony = ceremony::ceremony::<Escrow>("escrow");
-    let keys = Groth16Keys::load_zkey::<Escrow>(&ceremony.final_zkey()).unwrap();
-    let bytes = keys.to_bytes().expect("serialize key");
-    let checksum: [u8; 32] = Sha256::digest(&bytes).into();
-    let reloaded = Groth16Keys::from_bytes_checked(&bytes, &checksum).unwrap();
-    let output = keys_dir().join("production-export");
-    reloaded
-        .export_verifying_key(&VerifyingKeyExport {
-            output_dir: &output,
-            output_filename: "escrow.vk.rs",
-            setup: SetupKind::Production,
-        })
-        .expect("validated ceremony provenance survives canonical serialization");
-    let source = std::fs::read_to_string(output.join("escrow.vk.rs")).unwrap();
-    assert!(source.contains("VERIFYINGKEY_INSECURE_TEST_SETUP: bool = false"));
-    assert!(source.contains(&hex::encode(checksum)));
-}
-
-#[test]
-fn committed_wasm_fixtures_match_the_native_path() {
-    let escrow = escrow();
-    let withdraw = withdraw();
-    let escrow_prover = Groth16Prover::<Escrow>::new_with_test_setup().expect("escrow setup");
-    let withdraw_prover = Groth16Prover::<Withdraw>::new_with_test_setup().expect("withdraw setup");
-
-    assert_eq!(
-        (escrow.json(&escrow_prover), withdraw.json(&withdraw_prover)),
-        (committed("escrow"), committed("withdraw"))
-    );
+    let (escrow, withdraw) = fixtures();
+    std::fs::create_dir_all(directory()).unwrap();
+    for (name, value) in [("escrow", escrow), ("withdraw", withdraw)] {
+        std::fs::write(directory().join(format!("{name}.json")), serde_json::to_string_pretty(&value).unwrap()+"\n").unwrap();
+    }
 }

@@ -8,6 +8,13 @@ publish = false
 name = "timelock_escrow_program"
 crate-type = ["cdylib", "lib"]
 
+[target.'cfg(all(not(xark), not(xark_client)))'.dependencies]
+spr-keypair = { workspace = true, optional = true }
+spr-transaction = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+
 [features]
 # The committed verifying keys come from an example setup nobody vouches for,
 # so they are generated as SetupKind::InsecureTest and do not compile without
@@ -22,6 +29,7 @@ test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
 circuits = [
     "dep:borsh",
+    "dep:xark",
     "dep:solana-instruction",
     "dep:spr-keypair",
     "dep:spr-transaction",
@@ -31,14 +39,20 @@ circuits = [
 ]
 wasm = [
     "dep:borsh",
+    "dep:xark",
     "dep:spr-keypair",
     "dep:spr-transaction",
+    "dep:solana-instruction",
+    "dep:serde",
+    "dep:tsify",
+    "dep:wasm-bindgen",
     "spr-program/wasm",
 ]
 localnet = ["circuits"]
 r1cs-export = ["spr-program/r1cs-export"]
 
 [dependencies]
+xark = { workspace = true, optional = true }
 borsh = { workspace = true, optional = true }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi", "sha2"] }
@@ -49,11 +63,10 @@ wincode = { workspace = true }
 spr-account-checks = { workspace = true }
 spr-hasher = { workspace = true }
 spr-interface = { workspace = true }
-spr-keypair = { workspace = true, optional = true }
 spr-program = { workspace = true, features = ["cpi", "compression", "verifier"] }
-spr-transaction = { workspace = true, optional = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 anyhow = { workspace = true }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }

@@ -8,7 +8,7 @@ use crate::{
     instructions::{escrow::EscrowArgs, withdraw::WithdrawArgs},
     tag, ID,
 };
-// TODO: move to tests as utils file
+
 pub struct EscrowInstruction {
     pub creator: Address,
     pub tree: Address,

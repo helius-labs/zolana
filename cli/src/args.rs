@@ -212,14 +212,14 @@ pub(crate) struct ZkCompileOptions {
 
     #[arg(
         long = "single-threaded",
-        help = "Prove on one thread without a thread pool or nightly toolchain. Web and Node.js prover builds use threads by default; --no-prover builds are single-threaded"
+        help = "Disable the JavaScript worker pool in runtime-options.json. Pool workers use separate single-threaded WASM instances; --no-prover also disables the pool"
     )]
     pub(crate) single_threaded: bool,
 
     #[arg(
         long = "nightly",
         default_value = "nightly-2026-05-18",
-        help = "Toolchain for threaded builds; needs rust-src and the wasm32 target"
+        help = "Obsolete: JavaScript worker pools use the normal Rust toolchain. A nondefault value is rejected"
     )]
     pub(crate) nightly: String,
 
@@ -229,7 +229,7 @@ pub(crate) struct ZkCompileOptions {
     )]
     pub(crate) no_prover: bool,
 
-    #[arg(long = "verifier", help = "Also export the test verifier verifyProof")]
+    #[arg(long = "verifier", help = "Also export proofToSnarkjs and verifyingKeyToSnarkjs for independent verification")]
     pub(crate) verifier: bool,
 
     #[arg(
@@ -1364,7 +1364,7 @@ mod tests {
             "--photon-port",
             "8785",
             "--photon-db-url",
-            "sqlite:///tmp/zolana-photon-test.db",
+            "sqlite:///tmp/spr-photon-test.db",
             "--photon-start-slot",
             "latest",
             "--ledger",
@@ -1388,7 +1388,7 @@ mod tests {
         assert_eq!(opts.photon_port, 8785);
         assert_eq!(
             opts.photon_db_url.as_deref(),
-            Some("sqlite:///tmp/zolana-photon-test.db")
+            Some("sqlite:///tmp/spr-photon-test.db")
         );
         assert_eq!(opts.photon_start_slot, "latest");
         assert_eq!(opts.ledger.as_deref(), Some("target/localnet/ledger"));

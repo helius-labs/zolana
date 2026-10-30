@@ -9,7 +9,11 @@ name = "wasm_test_program"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-wasm = ["spr-program/wasm"]
+circuits = []
+r1cs-export = ["spr-program/r1cs-export"]
+wasm = ["spr-program/wasm", "dep:serde", "dep:tsify", "dep:wasm-bindgen"]
+wasm-prover = ["wasm", "spr-program/wasm-prover"]
+wasm-verify = ["wasm", "spr-program/wasm-verify"]
 fixtures = [
     "wasm",
     "spr-program/setup",
@@ -18,13 +22,17 @@ fixtures = [
 snarkjs = ["fixtures"]
 
 [dependencies]
+xark = { workspace = true }
 borsh = { workspace = true }
 solana-address = { workspace = true }
 spr-program = { workspace = true, features = ["client"] }
-spr-keypair = { workspace = true }
-spr-transaction = { workspace = true }
+serde = { workspace = true, optional = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
 
 [dev-dependencies]
+spr-keypair = { workspace = true, features = ["serde"] }
+spr-transaction = { workspace = true, features = ["serde"] }
 hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -39,6 +47,9 @@ required-features = ["fixtures"]
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O4", "--enable-simd", "--enable-threads", "--enable-bulk-memory", "--enable-mutable-globals"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(xark)', 'cfg(xark_client)'] }
 
 [lints.clippy]
 disallowed_types = "allow"

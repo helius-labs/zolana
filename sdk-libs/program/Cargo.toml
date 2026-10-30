@@ -8,8 +8,6 @@ repository.workspace = true
 publish = ["crates-io"]
 
 [dependencies]
-ark-bn254 = { version = "0.6", optional = true }
-ark-ff = { version = "0.6", optional = true }
 borsh = { workspace = true, optional = true }
 groth16-solana = { workspace = true, optional = true }
 pinocchio = { workspace = true, features = ["cpi"], optional = true }
@@ -17,91 +15,57 @@ solana-address = { workspace = true }
 solana-program-error = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
-serde-wasm-bindgen = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 solana-signature = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
-tsify = { workspace = true, optional = true }
-wasm-bindgen = { workspace = true, optional = true }
 wincode = { workspace = true }
 spr-hasher = { workspace = true }
 spr-instruction = { workspace = true }
 spr-interface = { workspace = true }
-spr-keypair = { workspace = true, optional = true }
-spr-macros = { version = "0.1.0", path = "../macros", optional = true }
-spr-zk-dsl = { workspace = true }
-spr-zk-gadgets = { workspace = true, optional = true }
-spr-transaction = { workspace = true, optional = true }
+spr-macros = { path = "../macros", optional = true, default-features = false }
+spr-circuit = { workspace = true, optional = true }
 spr-tree = { workspace = true, optional = true }
+
+[target.'cfg(all(not(xark), not(xark_client)))'.dependencies]
+js-sys = { workspace = true, optional = true }
+ark-bn254 = { version = "0.6", optional = true }
+ark-ff = { version = "0.6", optional = true }
+ark-serialize = { version = "0.6", optional = true }
+xark-groth16 = { workspace = true, optional = true }
+solana-bn254 = { workspace = true, optional = true }
+serde-wasm-bindgen = { workspace = true, optional = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+spr-keypair = { workspace = true, optional = true }
+spr-transaction = { workspace = true, optional = true }
+
+[target.'cfg(all(target_arch = "wasm32", not(xark), not(xark_client)))'.dependencies]
+xark-wasm = { workspace = true, optional = true }
 
 [features]
 default = []
 # The shielded pool's transact instruction as a signed CPI from a pinocchio
 # program.
 cpi = ["spr-instruction/cpi"]
-# Compressed accounts for pinocchio programs: program state kept as SPP UTXOs,
-# the tree and nullifier PDA checks of a read, and their transact CPI.
 compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:spr-tree", "dep:thiserror"]
-circuit = [
-    "dep:ark-bn254",
-    "dep:ark-ff",
-    "dep:borsh",
-    "dep:solana-signature",
-    "dep:thiserror",
-    "dep:spr-keypair",
-    "dep:spr-macros",
-    "dep:spr-transaction",
-    "dep:spr-zk-gadgets",
-    "spr-keypair/circuit",
-    "spr-transaction/circuit",
-    "spr-zk-dsl/circuit",
-    "solana-address/curve25519",
-]
-client = [
-    "circuit",
-    "verifier",
-    "dep:sha2",
-    "spr-zk-dsl/client",
-]
-setup = ["client", "groth16-solana/circom-vk", "dep:serde_json", "spr-zk-dsl/setup"]
-parallel = [
-    "client",
-    "spr-zk-dsl/parallel",
-]
-serde = [
-    "circuit",
-    "dep:serde",
-    "spr-keypair/serde",
-    "spr-transaction/serde",
-    "spr-zk-dsl/serde",
-]
-tsify = [
-    "serde",
-    "dep:tsify",
-    "dep:wasm-bindgen",
-    "spr-keypair/tsify",
-    "spr-transaction/tsify",
-    "spr-zk-dsl/tsify",
-]
-wasm = [
-    "client",
-    "tsify",
-    "dep:serde-wasm-bindgen",
-    "spr-zk-dsl/wasm",
-]
-wasm-prover = ["wasm", "spr-zk-dsl/wasm-prover"]
-r1cs-export = ["setup", "spr-zk-dsl/r1cs-export"]
-# The circuit crate build `zolana zk` runs (`spr_program::build`).
-build = ["setup", "spr-zk-dsl/build"]
-verifier = ["dep:groth16-solana", "dep:solana-program-error", "spr-zk-dsl/verifier"]
-wasm-threads = ["wasm-prover", "parallel", "spr-zk-dsl/wasm-threads"]
-wasm-verify = ["wasm", "spr-zk-dsl/wasm-verify"]
-# Test-only: runs the unit suite's cross-checks that spawn circom and snarkjs.
+circuit = ["dep:spr-circuit", "dep:spr-macros", "dep:borsh"]
+client = ["circuit", "verifier", "borsh/std", "dep:spr-keypair", "dep:spr-transaction", "dep:sha2", "dep:serde_json", "dep:ark-bn254", "dep:ark-serialize", "dep:xark-groth16", "dep:solana-bn254", "solana-address/curve25519"]
+setup = ["client", "dep:serde_json"]
+parallel = ["client"]
+build = ["setup", "dep:serde"]
+r1cs-export = ["build"]
+verifier = ["dep:groth16-solana", "dep:solana-program-error"]
+serde = ["client", "dep:serde", "spr-keypair/serde", "spr-transaction/serde", "spr-circuit/serde"]
+tsify = ["serde", "dep:tsify", "dep:wasm-bindgen", "spr-keypair/tsify", "spr-transaction/tsify", "spr-circuit/tsify"]
+wasm = ["client", "tsify", "dep:serde-wasm-bindgen", "dep:js-sys"]
+wasm-prover = ["wasm", "dep:xark-wasm"]
+wasm-threads = ["wasm-prover"]
+wasm-verify = ["wasm"]
 external-tools = []
-# Diagnostic and metadata inspection helpers for tests, not application circuits.
-test-support = ["client", "spr-zk-dsl/test-support"]
+test-support = ["client"]
 
 [dev-dependencies]
+xark = { workspace = true }
 ark-circom = { version = "0.6.0", default-features = false }
 borsh = { workspace = true }
 groth16-solana = { workspace = true, features = ["gnark-vk"] }
@@ -124,6 +88,10 @@ required-features = ["client", "setup"]
 
 [[test]]
 name = "client_data_decode"
+required-features = ["client"]
+
+[[test]]
+name = "client_inputs"
 required-features = ["client"]
 
 [[test]]

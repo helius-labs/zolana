@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { SOL_MINT, type ZolanaClientConfig } from "@heliuslabs/zolana";
 import { atSlot, type ZolanaClient } from "@heliuslabs/zolana/client";
 import {
@@ -58,11 +56,11 @@ import type {
   CompressedGroth16Proof,
   DataUtxo,
   EscrowTerms,
-  ProgramTransaction,
+  ProgramProver,
   Proof,
 } from "./wasm.js";
 import type { Timings } from "./timings.js";
-import { wasm } from "./wasm.js";
+import { escrowTermsDataUtxo } from "./wasm.js";
 
 export const ESCROW_OUTPUT_SLOT = 1;
 
@@ -72,7 +70,6 @@ const ESCROW_AUTHORITY_SEED = "escrow_authority";
 const DEFAULT_LOCALNET_RPC_URL = "http://127.0.0.1:8899";
 const TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 const LOADED_ACCOUNTS_DATA_SIZE_LIMIT = 64 * 1024 * 1024;
-const PROVING_KEYS = new URL("../../../target/zk/timelock-escrow-program/", import.meta.url);
 const addressEncoder = getAddressEncoder();
 
 function concat(...parts: readonly Uint8Array[]): Uint8Array {
@@ -277,9 +274,7 @@ export function escrowUtxos(
           treeId,
           leafIndex: slot.outputContext.leafIndex,
         };
-        const escrow = timings.measure("escrowTermsDataUtxo", () =>
-          wasm.escrowTermsDataUtxo(candidate),
-        );
+        const escrow = timings.measure("escrowTermsDataUtxo", () => escrowTermsDataUtxo(candidate));
         if (!spent.has(hex(escrow.utxo.nullifier))) escrows.set(hex(utxoHash), escrow);
       });
     }
@@ -291,29 +286,10 @@ export function escrowUtxos(
 
 export function prove(
   timings: Timings,
-  circuit: "escrow" | "withdraw",
-  transaction: Pick<ProgramTransaction, "proofInputs">,
+  prover: ProgramProver,
+  transaction: Parameters<ProgramProver["prove"]>[0],
 ): Proof {
-  const key = timings.measure(`${circuit} read proving key`, () =>
-    readFileSync(new URL(`${circuit}.pk`, PROVING_KEYS)),
-  );
-  // The local build records this digest when it creates the test key.
-  const digest = readFileSync(new URL(`${circuit}.pk.sha256`, PROVING_KEYS), "utf8")
-    .trim()
-    .split(/\s+/)[0];
-  if (digest === undefined || !/^[0-9a-fA-F]{64}$/.test(digest))
-    throw new Error("invalid proving-key checksum");
-  const checksum = Uint8Array.from(Buffer.from(digest, "hex"));
-  const prover = timings.measure(`${circuit} prover fromKey`, () =>
-    circuit === "escrow"
-      ? wasm.EscrowProver.fromKey(key, checksum)
-      : wasm.WithdrawProver.fromKey(key, checksum),
-  );
-  try {
-    return timings.measure(`${circuit} prove`, () => prover.prove(transaction.proofInputs));
-  } finally {
-    prover.free();
-  }
+  return timings.measure(`${prover.name} prove`, () => prover.prove(transaction));
 }
 
 interface ProgramTransactInput {

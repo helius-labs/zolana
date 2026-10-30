@@ -1,0 +1,56 @@
+diff --git a/crates/frontend/src/output.rs b/crates/frontend/src/output.rs
+index 9c8d5ac..ec9157d 100644
+--- a/crates/frontend/src/output.rs
++++ b/crates/frontend/src/output.rs
+@@ -1335,8 +1335,13 @@ fn renumber_inputs(env: &mut Builder) {
+         .collect();
+     env.witness_only_vars = env.witness_only_vars.iter().map(|&v| m(v)).collect();
+     // Call regions: shift; a region that binds an input is no template candidate.
+-    env.regions
+-        .retain(|r| (r.v0..r.v1).all(|v| !is_input[v as usize]));
++    // Parents are indices into this vector. Keep input-binding regions in place
++    // and exclude them from template detection without changing those indices.
++    for region in &mut env.regions {
++        if (region.v0..region.v1).any(|v| is_input[v as usize]) {
++            region.closed = false;
++        }
++    }
+     for r in &mut env.regions {
+         if r.v1 > r.v0 {
+             r.v0 = m(r.v0);
+@@ -1350,6 +1355,35 @@ fn renumber_inputs(env: &mut Builder) {
+     env.input_ids = (0..env.input_ids.len() as VarId).collect();
+ }
+ 
++#[cfg(test)]
++mod input_region_tests {
++    use super::*;
++    use crate::templates::Region;
++    use xark_ir::Visibility;
++
++    #[test]
++    fn renumbering_interleaved_inputs_preserves_region_parent_indices() {
++        let mut builder = Builder::new(false);
++        for name in ["first", "advice", "second", "result"] {
++            builder.alloc_var(name.into(), Visibility::Private);
++        }
++        builder.input_ids = vec![0, 2];
++        builder.regions = vec![
++            Region { c0: 0, c1: 0, w0: 0, w1: 0, v0: 0, v1: 4, parent: None, closed: true },
++            Region { c0: 0, c1: 0, w0: 0, w1: 0, v0: 1, v1: 2, parent: Some(0), closed: true },
++            Region { c0: 0, c1: 0, w0: 0, w1: 0, v0: 3, v1: 4, parent: Some(1), closed: true },
++        ];
++
++        renumber_inputs(&mut builder);
++
++        assert_eq!(
++            builder.regions.iter().map(|region| (region.parent, region.closed)).collect::<Vec<_>>(),
++            vec![(None, false), (Some(0), true), (Some(1), true)],
++        );
++        crate::templates::detect(&mut builder);
++    }
++}
++
+ pub(crate) fn finish(mut env: Builder, field: FieldSpec, n_inputs: usize) -> LowerOutput {
+     env.fill_products();
+     renumber_inputs(&mut env);
