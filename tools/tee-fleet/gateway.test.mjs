@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import { build } from "esbuild";
-import { chromium } from "playwright";
+import { launchBrowser } from "./browser.mjs";
 import { createMockGateway, createRecipientRouter, listen, recipientId } from "./gateway.mjs";
 import { fixtureAuthority, fixtureProver } from "./fixtures.mjs";
+import { policyFixture } from "./policy-fixture.mjs";
 
 const root = new URL("../../", import.meta.url);
 const dist = new URL("sdk-libs/ts/dist/", root);
@@ -16,6 +17,7 @@ async function sdkBundle(authority, platform, outfile) {
   await build({
     stdin: {
       contents: `
+      export { tufTeePolicy } from ${JSON.stringify(new URL("client/prover/tee/tuf-browser.js", dist).pathname)};
       export { ZolanaClient } from ${JSON.stringify(new URL("client/index.js", dist).pathname)};
       export { ProverClient } from ${JSON.stringify(new URL("client/prover/client.js", dist).pathname)};
       export { teeFleetPolicyFromJson } from ${JSON.stringify(new URL("client/prover/tee/fleet.js", dist).pathname)};
@@ -91,8 +93,15 @@ test(
         sdkBundle(authority, "browser", browserBundle),
       ]);
       const sdk = await import(pathToFileURL(join(staging, "sdk.mjs")).href);
+      let published;
       const assets = await listen(async (request, response) => {
-        if (request.url === "/sdk.mjs") {
+        if (request.url.startsWith("/policy/")) {
+          const data = published?.files[request.url.slice("/policy/".length)];
+          response.writeHead(data === undefined ? 404 : 200, {
+            "content-type": "application/json",
+          });
+          response.end(data);
+        } else if (request.url === "/sdk.mjs") {
           response.writeHead(200, { "content-type": "application/javascript" });
           response.end(await readFile(browserBundle));
         } else {
@@ -122,6 +131,7 @@ test(
           policy: p.policy,
         })),
       };
+      published = policyFixture(fleetJson);
       const fleet = sdk.teeFleetPolicyFromJson(fleetJson, "test-fleet");
       const clients = provers.map(() => new sdk.ProverClient({ url, tee: fleet }));
 
@@ -322,11 +332,7 @@ test(
       await t.test(
         "a real browser performs CORS preflights, verifies quotes and opens encrypted responses",
         async () => {
-          browser = await chromium.launch(
-            process.env.ZOLANA_CHROME_EXECUTABLE
-              ? { executablePath: process.env.ZOLANA_CHROME_EXECUTABLE }
-              : {},
-          );
+          browser = await launchBrowser();
           const page = await browser.newPage();
           const errors = [];
           page.on("pageerror", (error) => errors.push(error.message));
@@ -334,21 +340,42 @@ test(
           await page.waitForFunction(() => Boolean(window.sdk));
           const before = gateway.stats.preflights;
           const results = await page.evaluate(
-            async ({ url, fleetJson }) => {
-              const fleet = window.sdk.teeFleetPolicyFromJson(fleetJson, "test-fleet");
+            async ({ url, policyOptions }) => {
+              const fleet = window.sdk.tufTeePolicy(policyOptions);
               const client = new window.sdk.ZolanaClient({
                 solanaRpcUrl: "http://127.0.0.1:8899",
                 indexerUrl: undefined,
                 proverUrl: url,
                 proverTee: fleet,
               });
+              window.gatewayClient = client;
               return [(await client.proverHealth()).status, (await client.proverHealth()).status];
             },
-            { url, fleetJson },
+            {
+              url,
+              policyOptions: {
+                network: "test-fleet",
+                rootJson: published.root,
+                metadataUrl: `${assets.url}/policy/metadata/`,
+                targetsUrl: `${assets.url}/policy/targets/`,
+                databaseName: "gateway-test-policy",
+              },
+            },
           );
           assert.equal(results[0], results[1]);
           assert.match(results[0], /^fixture-region-[012]$/u);
           assert.ok(gateway.stats.preflights > before);
+          const selectedRegion = Number(results[0].slice(-1));
+          router.setAvailable(`generation-${selectedRegion}`, false);
+          try {
+            const next = await page.evaluate(
+              async () => (await window.gatewayClient.proverHealth()).status,
+            );
+            assert.notEqual(next, results[0]);
+            assert.match(next, /^fixture-region-[012]$/u);
+          } finally {
+            router.setAvailable(`generation-${selectedRegion}`, true);
+          }
           assert.deepEqual(errors, []);
           await page.close();
         },

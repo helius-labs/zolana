@@ -35,8 +35,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:ts
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:tee-fleet
+      - run: node --test tools/tee-fleet/*.test.mjs
+        env:
+          ZOLANA_TEST_BROWSER: firefox
+      - run: node --test tools/tee-fleet/*.test.mjs
+        env:
+          ZOLANA_TEST_BROWSER: webkit
       - run: npm run docs:ts
       - name: Verify the published package
         run: |

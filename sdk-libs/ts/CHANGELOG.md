@@ -5,7 +5,8 @@
 Remote provers require a caller-supplied attestation policy, and Helius API
 URLs support indexed proving through their gateway. Proving key checks return
 a download catalog for gnark and zopro artifacts. Provers can attest against
-fleet policies supplied directly or resolved from signed repositories in Node.
+fleet policies supplied directly or resolved from signed repositories in Node
+and browsers.
 
 Breaking
 
@@ -19,6 +20,7 @@ Added
 - `teeFleetPolicyFromJson(json, network)` supplies approved deployment policies to `ZolanaClient.proverTee` or `ProverClient.tee`, with paired measurement/key pins and an expiry checked before requests, including those reusing a cached attestation.
 - `TeePolicySource` resolves approved fleet policies through an application-authorized loader, refreshes them within a bounded interval, and invalidates cached recipients when approved measurements or keys change.
 - `tufTeePolicy` from `@heliuslabs/zolana/tee/node` loads fleet policies from a TUF repository using an explicitly pinned root and persistent local metadata, verifies signatures, hashes and expiry, and rejects policy rollback across restarts.
+- `tufTeePolicy` from `@heliuslabs/zolana/tee/browser` loads Ed25519/SHA-256 fleet repositories with a pinned root, persistent IndexedDB rollback state and Web Locks coordination across tabs.
 
 Changed
 

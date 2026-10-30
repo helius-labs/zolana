@@ -48,6 +48,10 @@
     "./wallet": {
       "types": "./dist/wallet/index.d.ts",
       "import": "./dist/wallet/index.js"
+    },
+    "./tee/browser": {
+      "types": "./dist/client/prover/tee/tuf-browser.d.ts",
+      "import": "./dist/client/prover/tee/tuf-browser.js"
     }
   },
   "publishConfig": {
@@ -90,6 +94,7 @@
     "@tufjs/models": "4.1.1",
     "@types/bn.js": "^5.2.0",
     "@types/node": "^24.0.0",
+    "buffer": "6.0.3",
     "esbuild": "0.28.2",
     "oxfmt": "^0.67.0",
     "oxlint": "^1.75.0",

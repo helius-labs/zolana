@@ -29,18 +29,23 @@ Requires Node 24 and the repository npm dependencies:
 
 ```sh
 npm ci
-npx playwright install chromium
+npx playwright install chromium firefox webkit
 npm run test:tee-fleet
 ```
 
 To use an installed Chrome instead, set `ZOLANA_CHROME_EXECUTABLE` to its binary
-path. The test launches a headless browser and closes its servers, browser and
+path. Set `ZOLANA_TEST_BROWSER=firefox` or `webkit` to select another engine.
+CI runs both suites with all three engines. The test launches a headless browser and closes its servers, browser and
 temporary bundle directory in `finally`.
 
 Tests exercise independent key pairs, quote verification, cached recipients,
 POST bodies, encrypted GET headers, preserved query bytes, credential removal,
 key loss, CORS preflights, unknown recipients, dropped protocol headers and
-nonce mismatch. The test bundle replaces the Nitro trust anchor with a freshly
+nonce mismatch. The browser scenario resolves an ephemeral signed TUF fleet
+policy before attestation and exercises recipient failover. A separate policy
+suite runs shared Rust/Node signed-repository vectors, reload/rollback, expiry,
+root rotation, corrupt storage, cross-tab locking and cancellation against
+real IndexedDB and Web Locks. The test bundle replaces the Nitro trust anchor with a freshly
 generated synthetic CA; it still executes the SDK's signature, certificate,
 nonce, measurement, policy and HPKE checks. The normal SDK artifact retains
 the AWS root and has no test-root option. This qualifies the local transport

@@ -122,7 +122,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
 3. [TypeScript](workflows/typescript.yml)
 
-    The check job also installs Playwright Chromium and runs `npm run test:tee-fleet`: a loopback mock GK, recipient router and three independent HPKE provers, using synthetic Nitro certificates and real browser CORS/attestation/encryption. This does not qualify AWS regions, real GK or proof generation.
+    The check job installs Playwright Chromium, Firefox and WebKit. `npm run test:tee-fleet` builds the SDK and runs the loopback gateway and browser signed-policy suites; `ZOLANA_TEST_BROWSER=firefox` / `webkit` with `node --test tools/tee-fleet/*.test.mjs` repeats them on the other engines. Coverage includes real IndexedDB/Web Locks, shared Node/Rust TUF vectors, persistent rollback floors, expiry, cancellation and the signed-policy → synthetic Nitro attestation → mock GK → independent HPKE recipient flow. This does not qualify AWS regions, real GK or proof generation.
 
     **Triggered by:**
 

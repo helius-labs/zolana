@@ -150,6 +150,14 @@ cached metadata fails closed; do not clear the cache on verification errors.
 Do not share it over a network filesystem or delete it to recover from a
 rollback rejection. Metadata storage is a trusted part of the client.
 
+Browser clients use `tufTeePolicy` from `@heliuslabs/zolana/tee/browser` with
+an independently reviewed root and the publisher's Ed25519/SHA-256 top-level
+profile. The pinned reference metadata trust engine is bundled with browser
+crypto; IndexedDB stores atomic verified checkpoints and Web Locks coordinate
+same-origin tabs. Missing browser capabilities, corrupted state and refresh
+failures reject resolution. Full origin-storage deletion or eviction loses
+local rollback history. See the [browser initialization and storage contract](../../sdk-libs/ts/README.md).
+
 Rust clients use `tee::tuf_tee_policy` with `spr-client/tee-tuf` and pass its
 source to either prover client's `with_tee_source`; see the
 [Rust initialization and storage contract](../../sdk-libs/client/README.md).

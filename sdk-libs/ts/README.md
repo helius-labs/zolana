@@ -260,6 +260,51 @@ deleting trusted metadata resets rollback history. Network files are bounded,
 redirects are refused and RPC/prover API keys are not forwarded to the policy
 repository.
 
+Browser applications use `tufTeePolicy` from `@heliuslabs/zolana/tee/browser`:
+
+```ts
+import { ZolanaClient } from "@heliuslabs/zolana/client";
+import { tufTeePolicy } from "@heliuslabs/zolana/tee/browser";
+
+const client = new ZolanaClient({
+  solanaRpcUrl: heliusRpcUrl,
+  proverTee: tufTeePolicy({
+    network: "mainnet",
+    rootJson: reviewedRootJson, // Reviewed root bundled with your application.
+    metadataUrl: "https://policies.example/metadata/",
+    targetsUrl: "https://policies.example/targets/",
+    databaseName: "my-app-tee-policy", // Optional; keep stable across reloads.
+  }),
+});
+await client.attestProver();
+```
+
+This entry point uses the pinned TUF metadata trust engine with browser
+Ed25519/SHA-256 crypto. It supports the publisher's top-level fleet profile:
+no delegated roles, mandatory SHA-256 lengths/hashes for referenced files,
+Ed25519 public keys, and JSON served as `application/json`. Network URLs must
+allow your app's origin through CORS. Metadata downloads omit credentials and
+referrers, refuse redirects and enforce cancellation and size bounds.
+
+IndexedDB and Web Locks are required in a secure browser context (HTTPS or
+loopback development). The database stores verified root/role bytes and the
+accepted fleet revision/hash in atomic checkpoints. Web Locks serialize
+same-origin tabs and workers using that database/repository. Cancellation
+returns promptly; verified storage work finishes under the lock before
+another refresh may begin. Failed later downloads preserve already verified
+metadata floors. There is no memory-only or stale-policy fallback.
+
+Rollback history is origin-local and scoped to the database name, repository
+URLs, network and exact bootstrap-root bytes. Keep those stable. A damaged or
+partially deleted record fails closed; clearing or evicting all origin storage,
+changing origins/databases or private-browsing teardown loses that history.
+The independently pinned root still authenticates a fresh repository, but a
+browser cache cannot guarantee history after all of its storage is removed.
+The checksum detects corruption; it does not protect against hostile code
+running with your origin's storage permissions. Do not reset storage to bypass
+verification failures. Production root custody and signing operations are
+separate from the provider; the URLs above remain placeholders.
+
 The ordinary client entry point remains browser-compatible. `TeePolicySource`
 from `@heliuslabs/zolana/client` accepts an application-authorized loader in
 either environment; that loader must authenticate its publisher and persist
