@@ -133,6 +133,12 @@ roles. A successful refresh invalidates cached enclave keys if their entry or
 approved measurements changed. Even a request already encrypted locally is
 checked against the current approvals before transmission.
 
+Polling frequency bounds normal update observation, while signed metadata expiry
+bounds an adversarial freeze. A mirror can replay an older signed release until
+its authenticated expiry; one-minute polling alone does not guarantee one-minute
+revocation. Select timestamp lifetime and renewal frequency accordingly before
+approving the production root/repository profile.
+
 The provider performs bounded, cancellable downloads without forwarding
 prover authentication, and persists rollback state across restarts. Its
 dedicated cache uses an exclusive lock: a crash can leave that lock behind;
@@ -141,12 +147,28 @@ cached metadata fails closed; do not clear the cache on verification errors.
 Do not share it over a network filesystem or delete it to recover from a
 rollback rejection. Metadata storage is a trusted part of the client.
 
+Rust clients use `tee::tuf_tee_policy` with `spr-client/tee-tuf` and pass its
+source to either prover client's `with_tee_source`; see the
+[Rust initialization and storage contract](../../sdk-libs/client/README.md).
+The Rust verifier supports the publisher's top-level SHA-256 profile. Node
+also accepts SHA-512 targets. Both run the shared public repository vectors in
+`test-vectors/tee_tuf_repository.json`, covering both root-rotation quorums,
+rollback, substitution, expiry and target integrity. The fixture generator uses
+publicly known test keys only; these are never production bootstrap material.
+
+Rust metadata storage uses OS advisory locking and an integrity checkpoint.
+Workers keep their lock until pending filesystem operations finish, including
+after the requesting future is cancelled. Native locks release on process exit;
+this differs from the Node provider's exclusive-create lock recovery above.
+Damaged or partially written cache state blocks refresh rather than silently
+discarding trusted floors. Never mix the backends' cache formats or erase them
+to bypass a verification failure.
+
 This adds no backend API service and changes no proving routes. It supplies
 neither a production Helius signing root nor a deployed policy repository.
 Browser clients retain the portable `TeePolicySource` interface for an
 application-authorized authenticated loader; a built-in browser TUF verifier
-and Rust source are still pending. Regional routing and failover remain
-separate parts of PRI-285.
+is still pending. Regional routing and failover remain separate parts of PRI-285.
 
 ## Mainnet: v0.6.0-alpha
 

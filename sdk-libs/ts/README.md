@@ -248,6 +248,10 @@ removals after the next successful refresh. Refresh failures fail closed
 instead of silently extending stale approvals. Cancellation and operation
 deadlines include policy loading.
 
+One-minute polling is an operational cadence. Older signed metadata can be
+replayed until authenticated expiry, so timestamp lifetime and signer renewal
+frequency determine the worst-case revocation window.
+
 Keep the cache on trusted local storage. Cooperating processes serialize
 updates through an exclusive lock. After a process crashes while holding it,
 confirm that no process is using the cache before manually removing the
@@ -259,9 +263,11 @@ repository.
 The ordinary client entry point remains browser-compatible. `TeePolicySource`
 from `@heliuslabs/zolana/client` accepts an application-authorized loader in
 either environment; that loader must authenticate its publisher and persist
-its rollback state. The built-in TUF loader is Node-only. Browser-native and
-Rust policy providers, the production Helius signing root/preset, and regional
-recipient routing are subsequent work; no `heliusTee` preset is shipped yet.
+its rollback state. The built-in TypeScript TUF loader is Node-only. Browser-native
+verification, the production Helius signing root/preset, and regional recipient
+routing are subsequent work; no `heliusTee` preset is shipped yet. The
+[Rust client](../client/README.md) supplies the matching source boundary and
+an opt-in native TUF provider.
 
 ## Common transactions
 

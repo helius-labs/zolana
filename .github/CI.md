@@ -86,7 +86,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     18. `spr-keypair`: `cargo nextest run`, `cargo test --doc`.
     19. `spr-event-parser`: `cargo nextest run`.
     20. `spr-transaction`: `cargo nextest run`.
-    21. `spr-client`: `cargo nextest run`, `cargo test --doc`.
+    21. `spr-client`: `cargo nextest run` with `client,tee-tuf`, including loopback signed-policy repositories, cancellation, rollback and revocation; `cargo test --doc`. `spr-prover-tee` canonical policy/evidence tests also run. Workspace Clippy enables `spr-client/tee-tuf`.
     22. `spr-test-utils`: `cargo nextest run`.
     23. `spr-rpc-http`: `cargo nextest run`.
     24. `spr-gnark-ffi-prover`: `cargo nextest run`.

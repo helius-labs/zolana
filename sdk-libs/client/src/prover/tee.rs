@@ -3,6 +3,14 @@
 //! that attests once and reuses the key across a client's calls.
 
 mod session;
+mod source;
+
+pub use source::{TeePolicyDocument, TeePolicyLoader, TeePolicySource};
+
+#[cfg(feature = "tee-tuf")]
+mod tuf;
+#[cfg(feature = "tee-tuf")]
+pub use tuf::{tuf_tee_policy, TufTeePolicyOptions};
 
 pub use spr_prover_tee::{
     inspect, verify, verify_with, Anchors, Attestation, AttestedIdentity, AttestedProver,

@@ -53,6 +53,16 @@ pub enum TeeError {
     Policy(String),
     #[error("TEE fleet policy has expired")]
     PolicyExpired,
+    #[error("TEE policy source is unavailable")]
+    PolicyUnavailable,
+    #[error("TEE policy revision rolled back or changed without a revision increment")]
+    PolicyRollback,
+    #[error("TEE policy repository could not be verified")]
+    PolicyRepository,
+    #[error("TEE policy storage is damaged or unavailable")]
+    PolicyStorage,
+    #[error("TEE recipient approval changed before transmission")]
+    PolicyChanged,
     #[error("attestation is malformed, {0}")]
     MalformedAttestation(String),
     #[error("TDX quote verification failed, {0}")]

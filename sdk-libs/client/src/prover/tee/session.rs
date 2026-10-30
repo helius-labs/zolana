@@ -1,6 +1,6 @@
 use std::{
     future::Future,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -9,7 +9,7 @@ use rand_core::{OsRng, TryRngCore};
 
 use super::{
     verify_with, Anchors, Attestation, AttestedProver, EncryptedRequest, TeeError, TeeFleetPolicy,
-    TeePolicy, HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
+    TeePolicy, TeePolicySource, HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
 };
 use crate::error::ClientError;
 
@@ -21,7 +21,7 @@ const DECRYPTION_FAILED: &str = "tee_decryption_failed";
 pub(crate) struct TeeSession {
     policy: SessionPolicy,
     anchors: Anchors,
-    attested: Mutex<Option<(AttestedProver, Instant, Duration)>>,
+    attested: Mutex<Option<(AttestedProver, Instant, Duration, TeePolicy)>>,
     // One attestation at a time, the server answers only a few quotes at once.
     attesting: tokio::sync::Mutex<()>,
     // Bumped per finished attestation, a waiting call takes its failure instead of retrying.
@@ -31,6 +31,7 @@ pub(crate) struct TeeSession {
 enum SessionPolicy {
     Single(TeePolicy),
     Fleet(TeeFleetPolicy),
+    Source(Arc<TeePolicySource>),
 }
 
 #[derive(Clone)]
@@ -66,6 +67,10 @@ impl TeeSession {
         Self::with_policy(SessionPolicy::Fleet(policy))
     }
 
+    pub fn source(source: Arc<TeePolicySource>) -> Self {
+        Self::with_policy(SessionPolicy::Source(source))
+    }
+
     fn with_policy(policy: SessionPolicy) -> Self {
         Self {
             policy,
@@ -89,7 +94,7 @@ impl TeeSession {
         &self,
         attest: impl FnOnce() -> F,
     ) -> AttestResult {
-        self.check_policy_time()?;
+        self.refresh_policy().await?;
         let _attesting = self.attesting.lock().await;
         self.settle(attest().await)
     }
@@ -99,7 +104,7 @@ impl TeeSession {
         &self,
         attest: impl FnOnce() -> F,
     ) -> Result<[u8; 32], ClientError> {
-        self.check_policy_time()?;
+        self.refresh_policy().await?;
         if let Some(key) = self.attested_key() {
             return Ok(key);
         }
@@ -141,13 +146,74 @@ impl TeeSession {
         let attested = lock(&self.attested);
         attested
             .as_ref()
-            .filter(|(_, at, max_age)| at.elapsed() < *max_age)
-            .map(|(prover, _, _)| prover.hpke_public_key)
+            .filter(|(prover, at, max_age, policy)| {
+                at.elapsed() < *max_age
+                    && self.check_approval(&prover.hpke_public_key, policy).is_ok()
+            })
+            .map(|(prover, _, _, _)| prover.hpke_public_key)
+    }
+
+    pub(crate) async fn refresh_policy(&self) -> Result<(), ClientError> {
+        if let SessionPolicy::Source(source) = &self.policy {
+            source.resolve().await?;
+        }
+        self.check_policy_time()
     }
 
     pub(crate) fn check_policy_time(&self) -> Result<(), ClientError> {
-        if let SessionPolicy::Fleet(fleet) = &self.policy {
-            fleet.check_time(now_secs()?)?;
+        match &self.policy {
+            SessionPolicy::Single(_) => {}
+            SessionPolicy::Fleet(fleet) => fleet.check_time(now_secs()?)?,
+            SessionPolicy::Source(_) => self.resolved_policy()?.check_time(now_secs()?)?,
+        }
+        Ok(())
+    }
+
+    fn resolved_policy(&self) -> Result<Arc<TeeFleetPolicy>, ClientError> {
+        match &self.policy {
+            SessionPolicy::Source(source) => source.current().map_err(ClientError::from),
+            _ => Err(TeeError::PolicyUnavailable.into()),
+        }
+    }
+
+    /// The exact entry approved now, retained with prepared ciphertext for the final check.
+    pub(crate) fn approval(&self, key: &[u8; 32]) -> Result<TeePolicy, ClientError> {
+        let approved = self.selected_policy(key)?;
+        if matches!(self.policy, SessionPolicy::Source(_))
+            && !lock(&self.attested)
+                .as_ref()
+                .is_some_and(|(prover, at, age, policy)| {
+                    prover.hpke_public_key == *key && at.elapsed() < *age && *policy == approved
+                })
+        {
+            return Err(TeeError::PolicyChanged.into());
+        }
+        Ok(approved)
+    }
+
+    fn selected_policy(&self, key: &[u8; 32]) -> Result<TeePolicy, ClientError> {
+        self.check_policy_time()?;
+        match &self.policy {
+            SessionPolicy::Single(policy) => Ok(policy.clone()),
+            SessionPolicy::Fleet(fleet) => fleet
+                .deployment_for_key(key)
+                .map(|entry| entry.policy.clone())
+                .ok_or_else(|| TeeError::PolicyChanged.into()),
+            SessionPolicy::Source(_) => self
+                .resolved_policy()?
+                .deployment_for_key(key)
+                .map(|entry| entry.policy.clone())
+                .ok_or_else(|| TeeError::PolicyChanged.into()),
+        }
+    }
+
+    pub(crate) fn check_approval(
+        &self,
+        key: &[u8; 32],
+        approved: &TeePolicy,
+    ) -> Result<(), ClientError> {
+        if self.selected_policy(key)? != *approved {
+            return Err(TeeError::PolicyChanged.into());
         }
         Ok(())
     }
@@ -186,21 +252,34 @@ impl TeeSession {
         let attestation: Attestation = serde_json::from_slice(body)
             .map_err(|e| TeeError::MalformedAttestation(e.to_string()))?;
         let now = now_secs()?;
-        let (prover, max_age) = match &self.policy {
+        let resolved = match &self.policy {
+            SessionPolicy::Source(_) => Some(self.resolved_policy()?),
+            _ => None,
+        };
+        let (prover, policy) = match &self.policy {
             SessionPolicy::Single(policy) => (
                 verify_with(attestation, policy, nonce, now, &self.anchors)?,
-                policy.max_age(),
+                policy.clone(),
             ),
             SessionPolicy::Fleet(fleet) => {
                 let prover = fleet.verify_with(attestation, nonce, now, &self.anchors)?;
                 let deployment = fleet
                     .deployment_for_key(&prover.hpke_public_key)
                     .ok_or(TeeError::HpkeKeyMismatch)?;
-                let max_age = deployment.policy.max_age();
-                (prover, max_age)
+                (prover, deployment.policy.clone())
+            }
+            SessionPolicy::Source(_) => {
+                let fleet = resolved.as_ref().ok_or(TeeError::PolicyUnavailable)?;
+                let prover = fleet.verify_with(attestation, nonce, now, &self.anchors)?;
+                let policy = fleet
+                    .deployment_for_key(&prover.hpke_public_key)
+                    .ok_or(TeeError::HpkeKeyMismatch)?
+                    .policy
+                    .clone();
+                (prover, policy)
             }
         };
-        *lock(&self.attested) = Some((prover.clone(), Instant::now(), max_age));
+        *lock(&self.attested) = Some((prover.clone(), Instant::now(), policy.max_age(), policy));
         Ok(prover)
     }
 
@@ -214,6 +293,11 @@ impl TeeSession {
             SessionPolicy::Fleet(fleet) => fleet
                 .deployment_for_key(key)
                 .map(|entry| entry.policy.platform()),
+            SessionPolicy::Source(_) => self.resolved_policy().ok().and_then(|fleet| {
+                fleet
+                    .deployment_for_key(key)
+                    .map(|entry| entry.policy.platform())
+            }),
         };
         platform.is_some_and(|platform| platform.rotates_key_per_boot())
             && status == StatusCode::BAD_REQUEST
@@ -226,7 +310,7 @@ impl TeeSession {
         let mut attested = lock(&self.attested);
         if attested
             .as_ref()
-            .is_some_and(|(prover, _, _)| prover.hpke_public_key == *key)
+            .is_some_and(|(prover, _, _, _)| prover.hpke_public_key == *key)
         {
             *attested = None;
         }
@@ -297,6 +381,178 @@ mod tests {
 
     use super::*;
     use crate::prover::tee::{NitroFixture, Platform, TeeDeployment};
+    use crate::prover::{
+        call::{Call, CallError, Recipient},
+        endpoint::ProverEndpoint,
+        tee::{TeePolicyDocument, TeePolicyLoader},
+    };
+
+    #[derive(Clone)]
+    struct MutablePolicy(Arc<Mutex<Result<String, TeeError>>>);
+
+    #[async_trait::async_trait]
+    impl TeePolicyLoader for MutablePolicy {
+        async fn load(&self) -> Result<TeePolicyDocument, TeeError> {
+            Ok(TeePolicyDocument {
+                policy_json: self.0.lock().unwrap().clone()?,
+                valid_until: now_secs().unwrap() + 600,
+            })
+        }
+    }
+
+    struct SourceFixture {
+        source: Arc<TeePolicySource>,
+        session: TeeSession,
+        fixture: NitroFixture,
+        policy: MutablePolicy,
+    }
+
+    impl SourceFixture {
+        async fn new() -> Self {
+            let fixture = NitroFixture::at([0x11; NONCE_SIZE], now_secs().unwrap()).pinning_key();
+            let fleet = TeeFleetPolicy::new(
+                "fixture".into(),
+                1,
+                now_secs().unwrap() + 3600,
+                vec![TeeDeployment {
+                    id: "eu-1".into(),
+                    region: "eu-north-1".into(),
+                    policy: fixture.policy().clone(),
+                }],
+            )
+            .unwrap();
+            let policy = MutablePolicy(Arc::new(Mutex::new(Ok(
+                serde_json::to_string(&fleet).unwrap()
+            ))));
+            let source = Arc::new(TeePolicySource::new("fixture", policy.clone()));
+            let session = TeeSession {
+                anchors: fixture.anchors(),
+                ..TeeSession::source(Arc::clone(&source))
+            };
+            session.refresh_policy().await.unwrap();
+            session
+                .accept(
+                    &[0x11; NONCE_SIZE],
+                    StatusCode::OK,
+                    &serde_json::to_vec(&fixture.attestation_json()).unwrap(),
+                )
+                .unwrap();
+            Self {
+                source,
+                session,
+                fixture,
+                policy,
+            }
+        }
+
+        async fn replace(&self, edit: impl FnOnce(&mut serde_json::Value)) {
+            let mut json: serde_json::Value =
+                serde_json::from_str(self.policy.0.lock().unwrap().as_ref().unwrap()).unwrap();
+            json["revision"] = 2.into();
+            edit(&mut json);
+            *self.policy.0.lock().unwrap() = Ok(json.to_string());
+            self.source.expire_for_test();
+            self.source.resolve().await.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn source_revocation_invalidates_cached_key_and_prepared_ciphertext() {
+        let test = SourceFixture::new().await;
+        let key = test.session.attested_key().unwrap();
+        let endpoint = ProverEndpoint::parse("https://prover.example");
+        let url = endpoint.url("/prove/merge").unwrap();
+        let call = Call::post(
+            &url,
+            "private proof inputs",
+            crate::prover::client::Delivery::InResponse,
+            Duration::from_secs(1),
+        );
+        let prepared = call
+            .prepare(
+                Some(Recipient {
+                    session: &test.session,
+                    key,
+                }),
+                &endpoint,
+            )
+            .ok()
+            .unwrap();
+        assert_ne!(
+            prepared.body.as_ref().unwrap().as_slice(),
+            b"private proof inputs"
+        );
+        test.replace(|json| {
+            json["deployments"][0]["policy"]["hpke_public_key"] = serde_json::json!("44".repeat(32))
+        })
+        .await;
+        assert!(test.session.attested_key().is_none());
+        assert!(matches!(
+            prepared.authorize().await,
+            Err(CallError::Refused(ClientError::Tee(
+                TeeError::PolicyChanged
+            )))
+        ));
+    }
+
+    #[tokio::test]
+    async fn changed_measurements_cannot_relabel_a_key_obtained_from_an_old_quote() {
+        let test = SourceFixture::new().await;
+        let key = test
+            .session
+            .key_or_attest(|| async { panic!("cached quote should be reused") })
+            .await
+            .unwrap();
+        test.replace(|json| {
+            json["deployments"][0]["policy"]["measurements"][0]["pcr0"] =
+                serde_json::json!("04".repeat(48))
+        })
+        .await;
+        assert!(matches!(
+            test.session.approval(&key),
+            Err(ClientError::Tee(TeeError::PolicyChanged))
+        ));
+        assert!(test.session.attested_key().is_none());
+        assert!(matches!(
+            test.session.accept(
+                &[0x11; NONCE_SIZE],
+                StatusCode::OK,
+                &serde_json::to_vec(&test.fixture.attestation_json()).unwrap()
+            ),
+            Err(ClientError::Tee(TeeError::EnclaveMeasurementNotAllowed))
+        ));
+    }
+
+    #[tokio::test]
+    async fn unchanged_entry_survives_policy_renewal_without_reusing_removed_entries() {
+        let test = SourceFixture::new().await;
+        let key = test.session.attested_key().unwrap();
+        test.replace(|json| json["expires_at"] = (now_secs().unwrap() + 7200).into())
+            .await;
+        assert_eq!(test.session.attested_key(), Some(key));
+        assert!(test.session.approval(&key).is_ok());
+    }
+
+    #[tokio::test]
+    async fn source_failure_blocks_cached_recipients_and_never_launches_another_quote() {
+        let test = SourceFixture::new().await;
+        *test.policy.0.lock().unwrap() = Err(TeeError::PolicyUnavailable);
+        test.source.expire_for_test();
+        let calls = AtomicUsize::new(0);
+        let result = test
+            .session
+            .key_or_attest(|| async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err(TeeError::NoPolicy.into())
+            })
+            .await;
+        assert!(matches!(
+            result,
+            Err(ClientError::Tee(TeeError::PolicyUnavailable))
+        ));
+        assert!(test.session.attested_key().is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
 
     fn session() -> TeeSession {
         TeeSession::new(
@@ -321,8 +577,12 @@ mod tests {
             tcb_status: Some("UpToDate".into()),
             gpu_verified: false,
         };
-        *session.attested.lock().unwrap() =
-            Some((prover.clone(), Instant::now(), Duration::from_secs(600)));
+        *session.attested.lock().unwrap() = Some((
+            prover.clone(),
+            Instant::now(),
+            Duration::from_secs(600),
+            session.approval(&prover.hpke_public_key)?,
+        ));
         Ok(prover)
     }
 
@@ -394,7 +654,12 @@ mod tests {
         )
         .unwrap();
         let session = TeeSession::fleet(fleet);
-        *lock(&session.attested) = Some((prover, Instant::now(), Duration::from_secs(600)));
+        *lock(&session.attested) = Some((
+            prover,
+            Instant::now(),
+            Duration::from_secs(600),
+            fixture.policy().clone(),
+        ));
         let calls = AtomicUsize::new(0);
         let launch = || async {
             calls.fetch_add(1, Ordering::SeqCst);

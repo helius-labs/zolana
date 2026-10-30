@@ -19,7 +19,8 @@ use crate::{
         client::Delivery,
         endpoint::ProverEndpoint,
         tee::{
-            EncryptedRequest, TeeSession, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION, VERSION,
+            EncryptedRequest, TeePolicy, TeeSession, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION,
+            VERSION,
         },
     },
 };
@@ -58,6 +59,7 @@ pub(crate) struct Prepared<'s> {
 struct Encrypted<'s> {
     recipient: Recipient<'s>,
     request: EncryptedRequest,
+    approval: TeePolicy,
 }
 
 pub(crate) enum Answer<'s> {
@@ -115,9 +117,9 @@ impl<'a> Call<'a> {
                 encrypted: None,
             });
         };
-        recipient
+        let approval = recipient
             .session
-            .check_policy_time()
+            .approval(&recipient.key)
             .map_err(CallError::Refused)?;
         let encrypted = TeeSession::encrypt(
             &recipient.key,
@@ -149,12 +151,35 @@ impl<'a> Call<'a> {
             encrypted: Some(Encrypted {
                 recipient,
                 request: encrypted,
+                approval,
             }),
         })
     }
 }
 
 impl<'s> Prepared<'s> {
+    /// A refresh may revoke a key while local encryption is in progress.
+    pub async fn authorize(&self) -> Result<(), CallError> {
+        if let Some(encrypted) = &self.encrypted {
+            encrypted
+                .recipient
+                .session
+                .refresh_policy()
+                .await
+                .map_err(CallError::Refused)?;
+            let current = encrypted
+                .recipient
+                .session
+                .approval(&encrypted.recipient.key)
+                .map_err(CallError::Refused)?;
+            if current != encrypted.approval {
+                return Err(CallError::Refused(
+                    super::tee::TeeError::PolicyChanged.into(),
+                ));
+            }
+        }
+        Ok(())
+    }
     /// The request to send; it takes the prepared headers and body.
     pub fn request(&mut self, call: &Call<'_>) -> HttpRequest {
         let mut request = HttpRequest::new(call.method.clone(), call.url.as_str());
@@ -171,7 +196,10 @@ impl<'s> Prepared<'s> {
         body: &[u8],
     ) -> Result<Answer<'s>, CallError> {
         let plain = || String::from_utf8_lossy(body).into_owned();
-        let Some(Encrypted { recipient, request }) = &self.encrypted else {
+        let Some(Encrypted {
+            recipient, request, ..
+        }) = &self.encrypted
+        else {
             return Ok(Answer::Done(status, plain()));
         };
         if !is_encrypted && recipient.session.lost_key(&recipient.key, status, body) {
