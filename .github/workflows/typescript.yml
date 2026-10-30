@@ -35,6 +35,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:ts
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:tee-fleet
+      - run: node --test tools/tee-fleet/*.test.mjs
+        env:
+          ZOLANA_TEST_BROWSER: firefox
+      - run: node --test tools/tee-fleet/*.test.mjs
+        env:
+          ZOLANA_TEST_BROWSER: webkit
       - run: npm run docs:ts
       - name: Verify the published package
         run: |
@@ -46,9 +54,14 @@ jobs:
           tarball="$1"
           printf '{"private":true,"type":"module"}\n' > "$tmp/package.json"
           kit_range="$(node -p "require('./sdk-libs/ts/package.json').peerDependencies['@solana/kit']")"
-          npm --prefix "$tmp" install "$tarball" "@solana/kit@$kit_range" --ignore-scripts
+          npm --prefix "$tmp" install "$tarball" "@solana/kit@$kit_range" "@types/node@^24" --ignore-scripts
+          cp test-vectors/tee_tuf_repository.json "$tmp/tee-vectors.json"
           cat > "$tmp/smoke.mts" <<'TS'
           import { createZolanaClient, type ZolanaClientConfig } from "@heliuslabs/zolana";
+          import { tufTeePolicy, type BrowserTufTeePolicyOptions } from "@heliuslabs/zolana/tee/browser";
+          import type { TeePolicySource } from "@heliuslabs/zolana/client";
+          const browserFactory: (options: BrowserTufTeePolicyOptions) => TeePolicySource = tufTeePolicy;
+          void browserFactory;
           const config: ZolanaClientConfig = {
             solanaRpcUrl: new URL("http://127.0.0.1:8899"),
             indexerUrl: undefined,
@@ -57,14 +70,33 @@ jobs:
           await createZolanaClient(config);
           TS
           ./node_modules/.bin/tsc \
-            --noEmit --strict --exactOptionalPropertyTypes --skipLibCheck \
+            --noEmit --strict --exactOptionalPropertyTypes --skipLibCheck false \
             --target es2022 --module nodenext --moduleResolution nodenext \
             "$tmp/smoke.mts"
+          node --input-type=module - "$tmp" <<'BUNDLE'
+          import { build } from "esbuild";
+          const result = await build({
+            stdin: { contents: 'export { tufTeePolicy } from "@heliuslabs/zolana/tee/browser";', resolveDir: process.argv[2] },
+            bundle: true, platform: "browser", format: "esm", write: false, metafile: true,
+          });
+          if (Object.values(result.metafile.outputs).some((output) => output.imports.length)) {
+            throw new Error("packed browser provider must bundle without external/Node imports");
+          }
+          BUNDLE
           (
             cd "$tmp"
             node --input-type=module <<'NODE'
           const sdk = await import("@heliuslabs/zolana");
           const instructions = await import("@heliuslabs/zolana/instructions");
+          const client = await import("@heliuslabs/zolana/client");
+          const browser = await import("@heliuslabs/zolana/tee/browser");
+          const { readFileSync } = await import("node:fs");
+          const vector = JSON.parse(readFileSync("tee-vectors.json", "utf8"));
+          const source = browser.tufTeePolicy({
+            network: vector.network, rootJson: vector.bootstrap_root,
+            metadataUrl: "https://policy.test/metadata/", targetsUrl: "https://policy.test/targets/",
+          });
+          if (!client.TeePolicySource.isSource(source)) throw new Error("browser source identity differs from client");
           await Promise.all(
             ["addresses", "client", "interface", "internal", "keypair", "transaction", "wallet"].map(
               (subpath) => import(`@heliuslabs/zolana/${subpath}`),

@@ -48,6 +48,15 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 			rejectEncrypted(w, codeRequestMalformed)
 			return
 		}
+		// A legacy direct client may omit the routing hint. If present, it
+		// must name this key before any ciphertext is read or decrypted.
+		if ids, present := r.Header[http.CanonicalHeaderKey(HeaderKeyID)]; present {
+			expected, _ := RecipientID(s.publicKey)
+			if len(ids) != 1 || ids[0] != expected {
+				rejectEncrypted(w, "tee_recipient_mismatch")
+				return
+			}
+		}
 		enc, ciphertext, err := readEncrypted(w, r)
 		if err != nil {
 			rejectEncrypted(w, codeRequestMalformed)
@@ -63,6 +72,7 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 		inner.ContentLength = int64(len(plaintext))
 		inner.Header.Del(HeaderVersion)
 		inner.Header.Del(HeaderEnc)
+		inner.Header.Del(HeaderKeyID)
 		inner.Header.Del(HeaderCiphertext)
 		inner.Header.Set("Content-Type", "application/json")
 

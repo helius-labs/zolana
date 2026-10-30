@@ -1,12 +1,14 @@
 import { Aes256Gcm, CipherSuite, DhkemX25519HkdfSha256, HkdfSha256 } from "@hpke/core";
 import { gcm } from "@noble/ciphers/aes.js";
-import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, concatBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import { ZOLANA_GATEWAY_PATH } from "../../../endpoint.js";
 import { ClientError } from "../../error.js";
 
 export const HEADER_VERSION = "Zolana-Tee";
 export const HEADER_ENC = "Zolana-Tee-Enc";
+export const HEADER_KEY_ID = "Zolana-Tee-Key-Id";
 /** Carries the encrypted bytes of a GET, fetch refuses a GET body. */
 export const HEADER_CIPHERTEXT = "Zolana-Tee-Ciphertext";
 export const VERSION = "v1";
@@ -27,6 +29,7 @@ export type DecryptedResponse = Readonly<{ status: number; body: Uint8Array }>;
 /** One request encrypted to the attested key, and the only key that decrypts its answer. */
 export type EncryptedRequest = Readonly<{
   enc: string;
+  recipientId: string;
   body: Uint8Array;
   decrypt(encrypted: Uint8Array): DecryptedResponse;
 }>;
@@ -50,6 +53,7 @@ export async function encryptRequest(
   const responseKey = new Uint8Array(await sender.export(RESPONSE_EXPORT, 32));
   return Object.freeze({
     enc: bytesToHex(new Uint8Array(sender.enc)),
+    recipientId: recipientId(hpkePublicKey),
     body,
     decrypt: (encrypted: Uint8Array) => decryptResponse(responseKey, encrypted),
   });
@@ -90,4 +94,14 @@ export function decryptResponse(key: Uint8Array, encrypted: Uint8Array): Decrypt
     status: new DataView(plaintext.buffer, plaintext.byteOffset).getUint16(0, false),
     body: plaintext.subarray(2),
   });
+}
+
+/** An opaque routing hint derived only from the attested HPKE public key. */
+export function recipientId(hpkePublicKey: Uint8Array): string {
+  if (hpkePublicKey.length !== 32) {
+    throw new ClientError("CLIENT_PROVER_TEE_ENCRYPTION", { details: { check: "recipient" } });
+  }
+  return bytesToHex(
+    sha256(concatBytes(utf8ToBytes("zolana/prover-tee/v1/recipient"), hpkePublicKey)),
+  );
 }

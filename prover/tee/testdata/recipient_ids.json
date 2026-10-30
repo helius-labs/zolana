@@ -1,0 +1,22 @@
+{
+  "domain": "zolana/prover-tee/v1/recipient",
+  "header": "Zolana-Tee-Key-Id",
+  "vectors": [
+    {
+      "hpke_public_key": "0000000000000000000000000000000000000000000000000000000000000000",
+      "recipient_id": "410872ce8c4c35b543db87d3d25ce9398efce4360acbb157ab157d4e2783d8c6"
+    },
+    {
+      "hpke_public_key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "recipient_id": "bd74d73e48a3e6a9108b008721f00d0fc3e865e4fd4711095bbb8839a5f156b2"
+    },
+    {
+      "hpke_public_key": "2222222222222222222222222222222222222222222222222222222222222222",
+      "recipient_id": "73a2c5e2b095a5bb5edfa07b36e4d8165bb4e43b94a5668c7cbc09f2b38c0cd2"
+    },
+    {
+      "hpke_public_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "recipient_id": "81be693d24dff33737237177356f902bb79b0657e2f75ce91b6f3f819c7320f1"
+    }
+  ]
+}

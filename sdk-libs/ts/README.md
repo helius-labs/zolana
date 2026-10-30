@@ -206,6 +206,118 @@ does not infer those capabilities from the hostname.
 Use `attestProver` and `checkProverProvingKeys` for gateway readiness;
 the operator `/health` route is not part of the public Helius API.
 
+For several approved deployment generations, parse a reviewed fleet file with
+`teeFleetPolicyFromJson(fleetFile, "mainnet")` from `@heliuslabs/zolana/client`
+and pass it as `proverTee` (or `tee` on `ProverClient`). Each generation pairs
+its measurements with a pinned encryption key; the whole fleet has an expiry.
+The network argument checks the file's label, not the RPC's actual network.
+Fleet parsing performs no downloads or publisher verification. A deployment
+with independent regional keys behind one URL still needs recipient-aware
+routing; the parser does not supply it. See the
+[TEE fleet guide](../../prover/tee/README.md#several-approved-deployment-generations).
+
+Node applications can resolve signed fleet policies from a static TUF
+repository through the separate `@heliuslabs/zolana/tee/node` entry point:
+
+```ts
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { ZolanaClient } from "@heliuslabs/zolana/client";
+import { tufTeePolicy } from "@heliuslabs/zolana/tee/node";
+
+const client = new ZolanaClient({
+  solanaRpcUrl: heliusRpcUrl,
+  proverTee: tufTeePolicy({
+    network: "mainnet",
+    rootJson: await readFile("./reviewed-tuf-root.json", "utf8"),
+    metadataUrl: "https://policies.example/metadata/",
+    targetsUrl: "https://policies.example/targets/",
+    cacheDirectory: resolve(".cache/zolana-tee"),
+  }),
+});
+await client.attestProver();
+```
+
+The example repository is a placeholder for an operator-managed static
+repository, not a deployed Helius policy service. Obtain the bootstrap root
+independently and review it before use. The provider authenticates the
+`mainnet/fleet.json` target and retains trusted metadata and a policy revision
+floor in a private local cache. It refreshes at most one minute apart by
+default, always before authenticated metadata expires; new calls observe
+removals after the next successful refresh. Refresh failures fail closed
+instead of silently extending stale approvals. Cancellation and operation
+deadlines include policy loading.
+
+One-minute polling is an operational cadence. Older signed metadata can be
+replayed until authenticated expiry, so timestamp lifetime and signer renewal
+frequency determine the worst-case revocation window.
+
+Keep the cache on trusted local storage. Cooperating processes serialize
+updates through an exclusive lock. After a process crashes while holding it,
+confirm that no process is using the cache before manually removing the
+namespace's `lock` file. The provider never breaks a lock based on age, and
+deleting trusted metadata resets rollback history. Network files are bounded,
+redirects are refused and RPC/prover API keys are not forwarded to the policy
+repository.
+
+Browser applications use `tufTeePolicy` from `@heliuslabs/zolana/tee/browser`:
+
+```ts
+import { ZolanaClient } from "@heliuslabs/zolana/client";
+import { tufTeePolicy } from "@heliuslabs/zolana/tee/browser";
+
+const client = new ZolanaClient({
+  solanaRpcUrl: heliusRpcUrl,
+  proverTee: tufTeePolicy({
+    network: "mainnet",
+    rootJson: reviewedRootJson, // Reviewed root bundled with your application.
+    metadataUrl: "https://policies.example/metadata/",
+    targetsUrl: "https://policies.example/targets/",
+    databaseName: "my-app-tee-policy", // Optional; keep stable across reloads.
+  }),
+});
+await client.attestProver();
+```
+
+This entry point uses the pinned TUF metadata trust engine with browser
+Ed25519/SHA-256 crypto. It supports the publisher's top-level fleet profile:
+no delegated roles, mandatory SHA-256 lengths/hashes for referenced files,
+Ed25519 public keys, and JSON served as `application/json`. Network URLs must
+allow your app's origin through CORS. Metadata downloads omit credentials and
+referrers, refuse redirects and enforce cancellation and size bounds.
+
+IndexedDB and Web Locks are required in a secure browser context (HTTPS or
+loopback development). The database stores verified root/role bytes and the
+accepted fleet revision/hash in atomic checkpoints. Web Locks serialize
+same-origin tabs and workers using that database/repository. Cancellation
+returns promptly; verified storage work finishes under the lock before
+another refresh may begin. Failed later downloads preserve already verified
+metadata floors. There is no memory-only or stale-policy fallback.
+
+Rollback history is origin-local and scoped to the database name, repository
+URLs, network and exact bootstrap-root bytes. Keep those stable. A damaged or
+partially deleted record fails closed; clearing or evicting all origin storage,
+changing origins/databases or private-browsing teardown loses that history.
+The independently pinned root still authenticates a fresh repository, but a
+browser cache cannot guarantee history after all of its storage is removed.
+The checksum detects corruption; it does not protect against hostile code
+running with your origin's storage permissions. Do not reset storage to bypass
+verification failures. Production root custody and signing operations are
+separate from the provider; the URLs above remain placeholders.
+
+For strict declaration checks, include `@types/node` in development dependencies;
+existing Solana Kit declarations require its ambient types even when the runtime
+target is a browser.
+
+The ordinary client entry point remains browser-compatible. `TeePolicySource`
+from `@heliuslabs/zolana/client` accepts an application-authorized loader in
+either environment; that loader must authenticate its publisher and persist
+its rollback state. The built-in TypeScript TUF loader is Node-only. Browser-native
+verification, the production Helius signing root/preset, and regional recipient
+routing are subsequent work; no `heliusTee` preset is shipped yet. The
+[Rust client](../client/README.md) supplies the matching source boundary and
+an opt-in native TUF provider.
+
 ## Common transactions
 
 These snippets continue from the setup used in quickstart.

@@ -86,7 +86,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     18. `spr-keypair`: `cargo nextest run`, `cargo test --doc`.
     19. `spr-event-parser`: `cargo nextest run`.
     20. `spr-transaction`: `cargo nextest run`.
-    21. `spr-client`: `cargo nextest run`, `cargo test --doc`.
+    21. `spr-client`: `cargo nextest run` with `client,tee-tuf`, including loopback signed-policy repositories, cancellation, rollback and revocation; `cargo test --doc`. `spr-prover-tee` canonical policy/evidence tests also run. Workspace Clippy enables `spr-client/tee-tuf`.
     22. `spr-test-utils`: `cargo nextest run`.
     23. `spr-rpc-http`: `cargo nextest run`.
     24. `spr-gnark-ffi-prover`: `cargo nextest run`.
@@ -122,6 +122,8 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
 3. [TypeScript](workflows/typescript.yml)
 
+    The check job installs Playwright Chromium, Firefox and WebKit. `npm run test:tee-fleet` builds the SDK and runs the loopback gateway and browser signed-policy suites; `ZOLANA_TEST_BROWSER=firefox` / `webkit` with `node --test tools/tee-fleet/*.test.mjs` repeats them on the other engines. Coverage includes real IndexedDB/Web Locks, shared Node/Rust TUF vectors, persistent rollback floors, expiry, cancellation and the signed-policy → synthetic Nitro attestation → mock GK → independent HPKE recipient flow. This does not qualify AWS regions, real GK or proof generation.
+
     **Triggered by:**
 
     1. PR/main changes, except changes limited to `protocol-ops/` and its workflow file.
@@ -130,7 +132,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     1. `@heliuslabs/zolana`: `npm run check:ts`.
     2. API documentation: `npm run docs:ts`.
-    3. Package smoke test: `npm pack`, `tsc`, `node`.
+    3. Package smoke test: `npm pack`, installed-tarball `tsc --skipLibCheck false` including the browser factory, `node` public exports/source identity, and `esbuild` with the browser platform and no external imports.
     4. SDK e2e: `just test-ts-e2e`.
     5. Escrow e2e: `just test-escrow-ts`.
     6. `spr-program-wasm-test-program`: `cargo test`.
@@ -181,6 +183,13 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     4. `prover/server/server`: `go test`.
     5. `prover/server/tee`: `go test`.
     6. TEE release tests: `python3 scripts/test_release_tee.py`.
+
+    [TEE router](workflows/tee-router.yml) separately checks router/command,
+    TEE/logging, Go manifest, router Dockerfile and workflow changes, including
+    draft PRs. It runs `go test -race ./router ./cmd/tee-router ./tee`,
+    `go vet ./router ./cmd/tee-router`, and builds `Dockerfile.router`. The
+    routing checks require no AWS credentials or real provers; live S3 and
+    three-region qualification remains an explicit operator exercise.
 
 6. [Async prover](workflows/async-prover.yml)
 

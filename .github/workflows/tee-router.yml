@@ -1,0 +1,47 @@
+name: tee-router
+
+on:
+  pull_request:
+    paths:
+      - "prover/server/router/**"
+      - "prover/server/cmd/tee-router/**"
+      - "prover/server/tee/**"
+      - "prover/server/logging/**"
+      - "prover/server/go.mod"
+      - "prover/server/go.sum"
+      - "prover/server/Dockerfile.router"
+      - ".github/workflows/tee-router.yml"
+  push:
+    branches: [main]
+    paths:
+      - "prover/server/router/**"
+      - "prover/server/cmd/tee-router/**"
+      - "prover/server/tee/**"
+      - "prover/server/logging/**"
+      - "prover/server/go.mod"
+      - "prover/server/go.sum"
+      - "prover/server/Dockerfile.router"
+      - ".github/workflows/tee-router.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tee-router-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  router:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: prover/server/go.mod
+          cache-dependency-path: prover/server/go.sum
+      - run: go test -race ./router ./cmd/tee-router ./tee
+        working-directory: prover/server
+      - run: go vet ./router ./cmd/tee-router
+        working-directory: prover/server
+      - run: docker build -f prover/server/Dockerfile.router -t tee-router:test prover/server

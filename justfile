@@ -185,7 +185,7 @@ test-zk-standalone-program: build-zk-standalone
 # Unit, integration, and property tests for the client-side SDK crates, which
 # all run against in-memory fakes. nextest skips doctests, so the `--doc` line keeps the
 # spr-keypair doctest covered. The spr-client proving binaries are behind
-# its `proofs` feature, so `--features client` stays hermetic.
+# its `proofs` feature; TUF tests use loopback repositories and public fixtures only.
 test-sdk-libs:
     cargo nextest run -p spr-instruction --features cpi
     cargo nextest run -p spr-program --features compression
@@ -193,7 +193,8 @@ test-sdk-libs:
     cargo test --doc -p spr-keypair
     cargo nextest run -p spr-event-parser
     cargo nextest run -p spr-transaction
-    cargo nextest run -p spr-client --features client
+    cargo nextest run -p spr-prover-tee
+    cargo nextest run -p spr-client --features client,tee-tuf
     # The test harness wallet: its scan, indexer sync and transaction actions.
     cargo nextest run -p spr-test-utils
     # `parallel` is off by default, so the default run compiles neither
@@ -1395,7 +1396,7 @@ fmt-check:
     cargo fmt --all -- --check
 
 clippy:
-    cargo clippy --workspace --all-targets --features spr-client/proofs -- -D warnings
+    cargo clippy --workspace --all-targets --features spr-client/proofs,spr-client/tee-tuf -- -D warnings
     # Not covered by `--workspace`: an optional feature's module is only
     # compiled when the feature is on.
     cargo clippy -p spr-test-utils --features parallel --all-targets -- -D warnings
@@ -1449,7 +1450,7 @@ prover-server-test:
     # The whole `server` package, unfiltered, so a new or renamed test cannot
     # drop out of CI. Its tests bring their own in-process miniredis and need no
     # Redis server or proving keys.
-    go test ./server/ ./tee/
+    go test ./server/ ./tee/ ./router/ ./cmd/tee-router/
     python3 scripts/test_release_tee.py
 
 [private]

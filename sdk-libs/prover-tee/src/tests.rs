@@ -555,3 +555,29 @@ fn encrypted_responses_reject_tampering_and_truncation() {
     wrong_key[0] ^= 1;
     assert!(decrypt_response(&wrong_key, &encrypted).is_err());
 }
+
+#[test]
+fn recipient_ids_match_the_shared_wire_vectors() {
+    #[derive(Deserialize)]
+    struct Vector {
+        hpke_public_key: String,
+        recipient_id: String,
+    }
+    #[derive(Deserialize)]
+    struct Vectors {
+        header: String,
+        vectors: Vec<Vector>,
+    }
+    let fixture: Vectors = serde_json::from_str(include_str!(
+        "../../../prover/tee/testdata/recipient_ids.json"
+    ))
+    .unwrap();
+    assert_eq!(fixture.header, super::HEADER_KEY_ID);
+    for vector in fixture.vectors {
+        let key: [u8; 32] = hex::decode(vector.hpke_public_key)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert_eq!(super::recipient_id(&key), vector.recipient_id);
+    }
+}

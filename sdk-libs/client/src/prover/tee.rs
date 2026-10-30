@@ -3,13 +3,22 @@
 //! that attests once and reuses the key across a client's calls.
 
 mod session;
+mod source;
+
+pub use source::{TeePolicyDocument, TeePolicyLoader, TeePolicySource};
+
+#[cfg(feature = "tee-tuf")]
+mod tuf;
+#[cfg(feature = "tee-tuf")]
+pub use tuf::{tuf_tee_policy, TufTeePolicyOptions};
 
 pub use spr_prover_tee::{
-    inspect, verify, verify_with, Anchors, Attestation, AttestedIdentity, AttestedProver,
-    DstackIdentity, DstackPolicy, EncryptedRequest, GpuRequirement, KeyProvider, NitroIdentity,
-    NitroMeasurement, NitroPolicy, Platform, PlatformIdentity, PlatformPolicy, TdxMeasurement,
-    TeeError, TeePolicy, TeePolicyFile, ATTESTATION_PATH, HEADER_CIPHERTEXT, HEADER_ENC,
-    HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
+    inspect, recipient_id, verify, verify_with, Anchors, Attestation, AttestedIdentity,
+    AttestedProver, DstackIdentity, DstackPolicy, EncryptedRequest, GpuRequirement, KeyProvider,
+    NitroIdentity, NitroMeasurement, NitroPolicy, Platform, PlatformIdentity, PlatformPolicy,
+    TdxMeasurement, TeeDeployment, TeeError, TeeFleetPolicy, TeePolicy, TeePolicyFile,
+    ATTESTATION_PATH, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_KEY_ID, HEADER_VERSION,
+    MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
 };
 
 pub(crate) use session::TeeSession;

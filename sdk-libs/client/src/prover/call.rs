@@ -19,7 +19,8 @@ use crate::{
         client::Delivery,
         endpoint::ProverEndpoint,
         tee::{
-            EncryptedRequest, TeeSession, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION, VERSION,
+            recipient_id, EncryptedRequest, TeePolicy, TeeSession, HEADER_CIPHERTEXT, HEADER_ENC,
+            HEADER_KEY_ID, HEADER_VERSION, VERSION,
         },
     },
 };
@@ -58,6 +59,7 @@ pub(crate) struct Prepared<'s> {
 struct Encrypted<'s> {
     recipient: Recipient<'s>,
     request: EncryptedRequest,
+    approval: TeePolicy,
 }
 
 pub(crate) enum Answer<'s> {
@@ -115,6 +117,10 @@ impl<'a> Call<'a> {
                 encrypted: None,
             });
         };
+        let approval = recipient
+            .session
+            .approval(&recipient.key)
+            .map_err(CallError::Refused)?;
         let encrypted = TeeSession::encrypt(
             &recipient.key,
             self.method.as_str(),
@@ -124,6 +130,7 @@ impl<'a> Call<'a> {
         .map_err(CallError::Refused)?;
         insert(&mut headers, HEADER_VERSION, VERSION)?;
         insert(&mut headers, HEADER_ENC, &encrypted.enc)?;
+        insert(&mut headers, HEADER_KEY_ID, recipient_id(&recipient.key))?;
         let body = if self.method == Method::GET {
             insert(
                 &mut headers,
@@ -145,12 +152,35 @@ impl<'a> Call<'a> {
             encrypted: Some(Encrypted {
                 recipient,
                 request: encrypted,
+                approval,
             }),
         })
     }
 }
 
 impl<'s> Prepared<'s> {
+    /// A refresh may revoke a key while local encryption is in progress.
+    pub async fn authorize(&self) -> Result<(), CallError> {
+        if let Some(encrypted) = &self.encrypted {
+            encrypted
+                .recipient
+                .session
+                .refresh_policy()
+                .await
+                .map_err(CallError::Refused)?;
+            let current = encrypted
+                .recipient
+                .session
+                .approval(&encrypted.recipient.key)
+                .map_err(CallError::Refused)?;
+            if current != encrypted.approval {
+                return Err(CallError::Refused(
+                    super::tee::TeeError::PolicyChanged.into(),
+                ));
+            }
+        }
+        Ok(())
+    }
     /// The request to send; it takes the prepared headers and body.
     pub fn request(&mut self, call: &Call<'_>) -> HttpRequest {
         let mut request = HttpRequest::new(call.method.clone(), call.url.as_str());
@@ -167,10 +197,13 @@ impl<'s> Prepared<'s> {
         body: &[u8],
     ) -> Result<Answer<'s>, CallError> {
         let plain = || String::from_utf8_lossy(body).into_owned();
-        let Some(Encrypted { recipient, request }) = &self.encrypted else {
+        let Some(Encrypted {
+            recipient, request, ..
+        }) = &self.encrypted
+        else {
             return Ok(Answer::Done(status, plain()));
         };
-        if !is_encrypted && recipient.session.lost_key(status, body) {
+        if !is_encrypted && recipient.session.lost_key(&recipient.key, status, body) {
             return Ok(Answer::KeyLost {
                 recipient: *recipient,
                 status,
@@ -307,6 +340,7 @@ mod tests {
         let prepared = encrypted(&session, &Call::get(&url, Duration::from_secs(1)));
         assert!(prepared.body.is_none());
         assert!(prepared.headers.contains_key(HEADER_CIPHERTEXT));
+        assert_eq!(prepared.headers[HEADER_KEY_ID], recipient_id(&[9; 32]));
     }
 
     #[test]
@@ -359,5 +393,26 @@ mod tests {
                 &body
             )
             .is_err());
+    }
+
+    #[test]
+    fn unavailable_generation_is_distinct_from_arbitrary_upstream_failure() {
+        let session = session();
+        let key = [9; 32];
+        assert!(session.lost_key(
+            &key,
+            StatusCode::SERVICE_UNAVAILABLE,
+            br#"{"code":"tee_generation_unavailable"}"#
+        ));
+        assert!(!session.lost_key(
+            &key,
+            StatusCode::BAD_REQUEST,
+            br#"{"code":"tee_generation_unavailable"}"#
+        ));
+        assert!(!session.lost_key(
+            &key,
+            StatusCode::SERVICE_UNAVAILABLE,
+            br#"{"code":"other"}"#
+        ));
     }
 }
