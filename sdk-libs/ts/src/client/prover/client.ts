@@ -58,6 +58,9 @@ import type {
   TreeSlotFields,
 } from "./types.js";
 import { isObject } from "../../services/jsonrpc.js";
+import { solanaOwnerIdentity } from "../../hasher/index.js";
+import { bytesToBigInt } from "../../interface/bytes.js";
+import { asField } from "./assembly.js";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 /** An error body is a code and a message; anything larger is not read. */
@@ -683,6 +686,7 @@ function transferCircuit(
   | "transfer-ring-authority"
   | "transfer-ring"
   | "transfer-confidential-eddsa"
+  | "transfer-eddsa-ring"
   | "transfer-confidential" {
   switch (inputs.circuit) {
     case "transferRingAuthority":
@@ -691,6 +695,8 @@ function transferCircuit(
       return "transfer-ring";
     case "transferConfidentialEddsa":
       return "transfer-confidential-eddsa";
+    case "transferAnonymousRingEddsa":
+      return "transfer-eddsa-ring";
     case "transfer":
       return "transfer-confidential";
   }
@@ -714,11 +720,21 @@ function ownerAuthorizationJson(authorization: EddsaOwnerAuthorization): ProverR
 /** Mirrors Rust `TransferInputsJson`, key set and order included. */
 function proverRequest(inputs: TransferRequest, secret: SecretEncoder): ProverRequestBody {
   const payload = inputs.payload;
+  // The anonymous circuit resolves owner 0 to the hidden owner.
+  const hidden =
+    inputs.circuit === "transferAnonymousRingEddsa"
+      ? bytesToBigInt(solanaOwnerIdentity(inputs.payload.ownerAuthorization.ownerPublicKey))
+      : undefined;
   return Object.freeze({
     circuitType: transferCircuit(inputs),
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
-    inputs: payload.inputs.map((input) => inputJson(input, secret)),
+    inputs: payload.inputs.map((input) =>
+      inputJson(
+        input.ownerPublicKeyHash === hidden ? { ...input, ownerPublicKeyHash: asField(0n) } : input,
+        secret,
+      ),
+    ),
     outputs: payload.outputs.map(outputJson),
     ...("treeSlots" in payload
       ? {
@@ -746,6 +762,12 @@ function proverRequest(inputs: TransferRequest, secret: SecretEncoder): ProverRe
     cacheReadIndex: hexes(payload.cacheReadIndex, "cacheReadIndex"),
     ...(inputs.circuit === "transferConfidentialEddsa"
       ? ownerAuthorizationJson(inputs.payload.ownerAuthorization)
+      : {}),
+    ...(inputs.circuit === "transferAnonymousRingEddsa"
+      ? {
+          ...ownerAuthorizationJson(inputs.payload.ownerAuthorization),
+          defaultOwnerPkHash: hex(inputs.payload.defaultOwnerPublicKeyHash, "defaultOwnerPkHash"),
+        }
       : {}),
   });
 }
