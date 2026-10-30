@@ -138,14 +138,14 @@ export async function fixtureProver(authority, index) {
   );
   const quote = authority.issuer();
   const stats = { attestations: 0, decrypted: 0, failed: 0, requests: [], cancelled: 0 };
-  const faults = { wrongNonce: false, delayMs: 0, afterDecryption: undefined };
+  const faults = { wrongNonce: false, delayMs: 0, afterDecryption: undefined, apiKey: undefined };
   const handler = async (request, response) => {
     try {
       const url = new URL(request.url, "http://fixture.invalid");
       if (
         url.searchParams.has("api-key") ||
         request.headers.authorization ||
-        request.headers["x-api-key"]
+        request.headers["x-api-key"] !== faults.apiKey
       )
         throw new Error("gateway leaked credential");
       if (url.pathname === `${PREFIX}/tee/v1/attestation`) {

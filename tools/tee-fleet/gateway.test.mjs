@@ -73,6 +73,7 @@ test(
     try {
       const authority = fixtureAuthority();
       const provers = await Promise.all([0, 1, 2].map((n) => fixtureProver(authority, n)));
+      provers[2].faults.apiKey = "fixture-origin-key-2";
       const deployments = [];
       for (let i = 0; i < provers.length; i++) {
         const server = await listen(provers[i].handler);
@@ -82,6 +83,7 @@ test(
           region: ["eu-north-1", "us-east-1", "ap-southeast-1"][i],
           origin: server.url,
           recipientId: provers[i].recipientId,
+          ...(i === 2 ? { apiKey: "fixture-origin-key-2" } : {}),
         });
       }
       const router = createRecipientRouter({ deployments });

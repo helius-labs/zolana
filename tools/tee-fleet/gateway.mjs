@@ -118,6 +118,7 @@ function forward(request, response, origin, path, options) {
     return;
   }
   const headers = selectedHeaders(request.headers, REQUEST_HEADERS, options.dropRequest);
+  if (options.apiKey !== undefined) headers["x-api-key"] = options.apiKey;
   const upstream = (origin.protocol === "https:" ? https : http).request({
     protocol: origin.protocol,
     hostname: origin.hostname.replace(/^\[|\]$/gu, ""),
@@ -256,7 +257,9 @@ export function createRecipientRouter({ deployments, timeoutMs = 600_000 }) {
       !/^[a-zA-Z0-9_-]{1,128}$/u.test(entry.id) ||
       !/^[0-9a-f]{64}$/u.test(entry.recipientId) ||
       typeof entry.region !== "string" ||
-      !entry.region
+      !entry.region ||
+      (entry.apiKey !== undefined &&
+        (typeof entry.apiKey !== "string" || !/^[\x21-\x7e]{1,4096}$/u.test(entry.apiKey)))
     )
       throw new Error("invalid deployment");
     return { ...entry, origin: endpoint(entry.origin), available: true };
@@ -313,7 +316,7 @@ export function createRecipientRouter({ deployments, timeoutMs = 600_000 }) {
       response,
       entry.origin,
       matched.path + (matched.query ? `?${matched.query}` : ""),
-      { timeoutMs },
+      { timeoutMs, apiKey: entry.apiKey },
     );
   };
   return {

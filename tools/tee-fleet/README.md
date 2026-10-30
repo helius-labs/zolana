@@ -94,3 +94,45 @@ Real GK qualification must check the deployed route map, request allowlist
 (including the new `Zolana-Tee-Key-Id`), response marker forwarding, browser
 CORS, origin authentication and retry behavior. Passing this suite does not
 establish real GK compatibility.
+
+## Qualify the owned AWS test fleet
+
+`live.mjs` accepts a public manifest with `network: "pri285-tee-test"`, a
+relative `rootFile`, static `metadataUrl`/`targetsUrl`, and deployment entries
+containing `id`, `region`, `stackName` and the independently verified
+`recipientId`. It only accepts the operator-owned `zolana-nitro-pri285-*`
+stacks in account 558215002830. Regional origin credentials are read from each
+stack's exact Secrets Manager output and retained in process memory. They are
+not placed in the manifest, browser configuration, reports or command line.
+
+```sh
+npm run build:ts
+cargo build -p spr-client --features tee-tuf --example tee_policy_prove
+ZOLANA_TEE_PROOF_VERIFIER="$PWD/target/debug/examples/tee_policy_prove" \
+  node tools/tee-fleet/live.mjs manifest.json /absolute/qualification-output
+```
+
+The normal SDK artifact and AWS trust root are used. Node, native Rust and the
+selected real browser load the actual signed CDN policy, attest and generate
+an encrypted proof through one mock-GK URL for each region. Every proof is
+verified against the committed on-chain Groth16 key. Generation removal tests
+cached-recipient failover in all three clients, including a native Rust stdin
+barrier between attestation and the first encrypted request. Public proof
+exports and a qualification report are written to the output directory.
+
+For persistent-client checks, add `--lifecycle`. After the `ready` line,
+publish a higher signed policy and send an operator command on stdin:
+
+```json
+{"action":"policy","revision":2,"available":["us-east-1"],"retired":"ap-southeast-1"}
+```
+
+The manifest must already contain every backend needed for the exercise.
+The harness waits for the approved revision before proving and checks that
+the retired generation receives no request. Once the actual signed metadata
+has expired, send `{"action":"expiry"}`; Node, browser and a restarted native
+Rust client must fail before forwarding any request. No test clock is used.
+Publish renewed higher metadata and use another `policy` command to verify
+recovery. Send `{"action":"finish"}` to close the browser and servers.
+Control commands are available only on the operator's stdin, never as HTTP
+routes. Publication still uses the separate reviewed conditional publisher.

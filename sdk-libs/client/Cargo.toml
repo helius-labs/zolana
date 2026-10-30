@@ -196,3 +196,7 @@ name = "user_registry"
 [[example]]
 name = "tee_policy_attest"
 required-features = ["tee-tuf"]
+
+[[example]]
+name = "tee_policy_prove"
+required-features = ["tee-tuf"]
