@@ -327,6 +327,8 @@ export async function managedRouter({ deployments, binary, output }) {
       await role.failRegion(failedRegion);
       const started = Date.now();
       const deadline = started + 360000;
+      const faultObservations = [];
+      let previousState;
       console.log(JSON.stringify({ phase: "control-plane-fault", region: failedRegion, waitingFor: "bounded credential expiry" }));
       const converged = (states) => states.every((state) =>
         state.registry_fresh && state.revision === config.revision &&
@@ -340,6 +342,12 @@ export async function managedRouter({ deployments, binary, output }) {
         }));
       for (;;) {
         const states = await Promise.all(processes.map(status));
+        const state = JSON.stringify(states);
+        if (state !== previousState || Date.now() >= deadline) {
+          faultObservations.push({ at: new Date().toISOString(), elapsedMs: Date.now() - started, states });
+          await writeFile(resolve(output, "control-plane-observations.json"), JSON.stringify(faultObservations, null, 2) + "\n");
+          previousState = state;
+        }
         if (converged(states)) {
           assert.ok(Date.now() - started > 60000, "fault did not outlive registry cache freshness");
           controlPlane.push({ action: "regional-reads-unavailable", region: failedRegion, elapsedMs: Date.now() - started, states });

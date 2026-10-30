@@ -390,13 +390,14 @@ func (r *Router) Status(w http.ResponseWriter, request *http.Request) {
 		return
 	}
 	type endpoint struct {
-		ID               string `json:"id"`
-		Region           string `json:"region"`
-		Healthy          bool   `json:"healthy"`
-		Draining         bool   `json:"draining"`
-		Disabled         bool   `json:"disabled"`
-		Forwarded        uint64 `json:"forwarded"`
-		CredentialsReady bool   `json:"credentials_ready"`
+		ID                  string `json:"id"`
+		Region              string `json:"region"`
+		Healthy             bool   `json:"healthy"`
+		Draining            bool   `json:"draining"`
+		Disabled            bool   `json:"disabled"`
+		Forwarded           uint64 `json:"forwarded"`
+		CredentialsReady    bool   `json:"credentials_ready"`
+		CredentialExpiresAt int64  `json:"credential_expires_at,omitempty"`
 	}
 	value := struct {
 		Revision           uint64     `json:"revision"`
@@ -420,7 +421,11 @@ func (r *Router) Status(w http.ResponseWriter, request *http.Request) {
 		for _, id := range r.current.order {
 			group := r.current.keys[id]
 			for _, target := range group.backends {
-				value.Backends = append(value.Backends, endpoint{ID: target.id, Region: target.region, Healthy: !group.disabled && healthy(target, time.Now()), Draining: group.draining, Disabled: group.disabled, Forwarded: target.forwarded.Load(), CredentialsReady: credentialFresh(target, time.Now())})
+				var credentialExpiresAt int64
+				if !target.credentialAt.IsZero() {
+					credentialExpiresAt = target.credentialAt.Add(credentialMaxAge).Unix()
+				}
+				value.Backends = append(value.Backends, endpoint{ID: target.id, Region: target.region, Healthy: !group.disabled && healthy(target, time.Now()), Draining: group.draining, Disabled: group.disabled, Forwarded: target.forwarded.Load(), CredentialsReady: credentialFresh(target, time.Now()), CredentialExpiresAt: credentialExpiresAt})
 			}
 		}
 	}

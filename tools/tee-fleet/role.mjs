@@ -19,7 +19,7 @@ async function aws(args, env = process.env) {
     return stdout.trim() ? JSON.parse(stdout) : {};
   } catch (error) {
     const message = String(error.stderr);
-    const kind = /AccessDenied|UnauthorizedOperation/u.test(message)
+    const kind = /AccessDenied|UnauthorizedOperation|Forbidden|\(403\)/u.test(message)
       ? "denied"
       : message.includes("NoSuchEntity")
         ? "missing"
@@ -128,18 +128,45 @@ export async function runtimeRole({ registries, key, deployments, output }) {
         const registry = registries.find((entry) => entry.region === region);
         const deployment = deployments.find((entry) => entry.region === region);
         assert.ok(registry && deployment);
+        const secretProbe = ["--region", region, "secretsmanager", "get-secret-value", "--secret-id", deployment.apiKeyARN, "--query", "ARN"];
+        const registryProbe = ["--region", region, "s3api", "head-object", "--bucket", registry.bucket, "--key", key, "--expected-bucket-owner", owner, "--query", "VersionId"];
+        // Query only public response metadata; never serialize a secret value.
+        assert.equal(await aws(secretProbe, environment), deployment.apiKeyARN);
+        assert.equal(typeof await aws(registryProbe, environment), "string");
+        const faultPolicy = {
+          Version: "2012-10-17",
+          Statement: [
+            { Effect: "Deny", Action: ["s3:GetObject"], Resource: [`arn:aws:s3:::${registry.bucket}/${key}`] },
+            { Effect: "Deny", Action: ["secretsmanager:GetSecretValue"], Resource: [deployment.apiKeyARN] },
+          ],
+        };
+        metadata.fault_policy = faultPolicy;
         await aws([
           "iam", "put-role-policy", "--role-name", name, "--policy-name", "QualificationFault",
-          "--policy-document", JSON.stringify({
-            Version: "2012-10-17",
-            Statement: [
-              { Effect: "Deny", Action: ["s3:GetObject"], Resource: [`arn:aws:s3:::${registry.bucket}/${key}`] },
-              { Effect: "Deny", Action: ["secretsmanager:GetSecretValue"], Resource: [deployment.apiKeyARN] },
-            ],
-          }),
+          "--policy-document", JSON.stringify(faultPolicy),
         ]);
         metadata.faults.push({ action: "deny-regional-registry-and-secret", region, at: new Date().toISOString() });
         await record();
+        const deadline = Date.now() + 90000;
+        for (;;) {
+          const denied = [];
+          for (const probe of [registryProbe, secretProbe]) {
+            try {
+              await aws(probe, environment);
+              denied.push(false);
+            } catch (error) {
+              if (error.kind !== "denied") throw error;
+              denied.push(true);
+            }
+          }
+          if (denied.every(Boolean)) {
+            metadata.faults.push({ action: "regional-read-denials-confirmed", region, at: new Date().toISOString() });
+            await record();
+            return;
+          }
+          assert.ok(Date.now() < deadline, "regional IAM fault did not become effective");
+          await delay(1000);
+        }
       },
       restore,
       close,
