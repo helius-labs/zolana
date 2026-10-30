@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.0-alpha — unreleased
+
+Remote provers require a caller-supplied attestation policy, and Helius API
+URLs support indexed proving through their gateway. Proving key checks return
+a download catalog for gnark and zopro artifacts.
+
+Breaking
+
+- `ZolanaClient` now defaults to `proofDataSource: "prover"` for Helius API URLs too → configure indexed proving on the upstream or set `proofDataSource: "client"` to retain SDK-fetched proof data.
+- `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
+- `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
+
+Changed
+
+- A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
+
+Fixed
+
+- `ProverClient` sends proofs and status polls to key-specific paths on Helius API URLs, including indexed proofs, instead of the older keyless routes.
+
 ## 0.6.0-alpha — 2026-10-29
 
 Packages that extend the protocol build on this one through an entry point
