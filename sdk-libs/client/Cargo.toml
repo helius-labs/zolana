@@ -185,3 +185,7 @@ name = "solana_rpc"
 
 [[test]]
 name = "user_registry"
+
+# Hermetic: the anonymous ring prover requests the TS SDK pins.
+[[test]]
+name = "anonymous_ring_eddsa_request"
