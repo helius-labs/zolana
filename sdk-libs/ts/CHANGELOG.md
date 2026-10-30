@@ -48,6 +48,10 @@ Fixed
 
 - `ProverClient` sends proofs and status polls to key-specific paths on Helius API URLs, including indexed proofs, instead of the older keyless routes.
 
+Fixed
+
+- `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
+
 ## 0.5.0-alpha — 2026-10-23
 
 Proofs go encrypted to an attested Nitro Enclave prover by default, the devnet

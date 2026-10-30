@@ -18,6 +18,26 @@
   "aad_cases": [
     {
       "method": "GET",
+      "request_target": "/",
+      "aad": "GET /"
+    },
+    {
+      "method": "POST",
+      "request_target": "/v1/zolana/prove/sample/?id=a%20b",
+      "aad": "POST /prove/sample?id=a%20b"
+    },
+    {
+      "method": "POST",
+      "request_target": "/prove/sample//?id=a%20b",
+      "aad": "POST /prove/sample?id=a%20b"
+    },
+    {
+      "method": "POST",
+      "request_target": "/prove/sample%2F/?id=a%20b",
+      "aad": "POST /prove/sample%2F?id=a%20b"
+    },
+    {
+      "method": "GET",
       "request_target": "/health",
       "aad": "GET /health"
     },
