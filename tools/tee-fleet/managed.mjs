@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import { runtimeRole } from "./role.mjs";
+import { connectionFaultProxy } from "./connection-fault.mjs";
 
 const execute = promisify(execFile);
 const owner = "558215002830";
@@ -44,6 +45,7 @@ export async function managedRouter({ deployments, binary, output }) {
   const publications = [];
   const controlPlane = [];
   let role;
+  let connectionFault;
 
   async function service(id, action) {
     const entry = deployments.find((item) => item.id === id);
@@ -223,7 +225,14 @@ export async function managedRouter({ deployments, binary, output }) {
         previous ? new URL(previous.admin).host : "127.0.0.1:0",
       ],
       {
-        env: { ...role.environment, ZOLANA_ROUTER_ORIGIN_KEY: originApiKey },
+        env: {
+          ...role.environment,
+          HTTPS_PROXY: connectionFault.url,
+          https_proxy: connectionFault.url,
+          NO_PROXY: "",
+          no_proxy: "",
+          ZOLANA_ROUTER_ORIGIN_KEY: originApiKey,
+        },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
@@ -278,6 +287,7 @@ export async function managedRouter({ deployments, binary, output }) {
       restoreError = error;
     }
     await Promise.all(processes.map(stop));
+    try { await connectionFault?.close(); } catch (error) { restoreError ??= error; }
     try { await role?.close(); } catch (error) { restoreError ??= error; }
     if (restoreError) throw restoreError;
   }
@@ -285,6 +295,10 @@ export async function managedRouter({ deployments, binary, output }) {
   try {
     await publish();
     role = await runtimeRole({ registries, key, deployments, output });
+    connectionFault = await connectionFaultProxy(registries.flatMap(({ region, bucket }) => [
+      { authority: `${bucket}.s3.${region}.amazonaws.com:443`, region },
+      { authority: `secretsmanager.${region}.amazonaws.com:443`, region },
+    ]));
     await Promise.all([start(0), start(1)]);
     await synchronize();
   } catch (error) {
@@ -310,6 +324,8 @@ export async function managedRouter({ deployments, binary, output }) {
       outages,
       runtimeRole: role.metadata.arn,
       controlPlane,
+      connectionFaults: connectionFault.events,
+      controlPlaneConnections: connectionFault.statistics,
     },
     setAvailable(id, available) {
       generation(id).disabled = !available;
@@ -324,7 +340,7 @@ export async function managedRouter({ deployments, binary, output }) {
       assert.ok(deployment && deployments.length === 3);
       for (const entry of config.generations) entry.disabled = false;
       await synchronize();
-      await role.failRegion(failedRegion);
+      connectionFault.fail(failedRegion);
       const started = Date.now();
       const deadline = started + 360000;
       const faultObservations = [];
@@ -370,7 +386,7 @@ export async function managedRouter({ deployments, binary, output }) {
       }
     },
     async restoreControlPlane() {
-      await role.restore();
+      connectionFault.restore();
       const deadline = Date.now() + 60000;
       for (;;) {
         const states = await Promise.all(processes.map(status));

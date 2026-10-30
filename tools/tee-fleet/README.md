@@ -181,18 +181,23 @@ such a timeout to S3 or routing. Choose an output directory per run and engine.
 Managed qualification publishes byte-identical registries to the isolated US,
 EU and AP buckets. Its temporary IAM role reads only that run's three object
 keys and the three exact regional origin-secret ARNs; router processes receive
-only the assumed-role credentials. Publication and fault injection retain the
-operator identity. The driver records the public resource policy and IAM
+only the assumed-role credentials. Publication retains the operator identity.
+The driver records the public resource policy and IAM
 simulation denials for writes, KMS, SSM and role passing, then removes the role
 and its policies during cleanup. This operator exercise requires permission to
 create and remove its tagged `zolana-pri285-router-*` roles.
 
-Add `ZOLANA_TEE_CONTROL_PLANE_OUTAGE=1` to deny the runtime role's US registry
-and origin-secret reads after warming clients on that recipient. The test waits
+Add `ZOLANA_TEE_CONTROL_PLANE_OUTAGE=1` to disconnect the routers from US S3
+and Secrets Manager after warming clients on that recipient. A loopback CONNECT
+fixture allows only the six configured regional AWS API hosts, passes TLS
+unchanged, closes existing US tunnels and refuses new US connections. The
+prover transport remains independent of this fixture. The test waits
 past the real five-minute credential limit, verifies fresh mirror reads beyond
 the registry cache budget, cold-starts one router during the fault, and proves
 through the remaining regions without forwarding stale-recipient requests.
 It then restores access and proves with the original sealed recipient again.
 Reports contain source regions, object versions and credential readiness; no
-credential values are written. This injects AWS read-permission failures and
-does not claim a complete physical AWS-region outage.
+credential values are written. This injects regional API connection failures;
+it does not claim a complete physical AWS-region outage. An earlier IAM-denial
+drill produced mixed successful and denied reads under the same role, confirmed
+by CloudTrail. A single denied probe cannot establish sustained unavailability.

@@ -26,6 +26,9 @@ async function aws(args, env = process.env) {
         : "failed";
     const sanitized = new Error(`qualification AWS operation ${kind}`);
     sanitized.kind = kind;
+    sanitized.operation = (args[0] === "--region" ? args.slice(2, 4) : args.slice(0, 2)).join(".");
+    sanitized.awsCode = /An error occurred \(([A-Za-z0-9_]+)\)/u.exec(message)?.[1]
+      ?? (error.killed ? "ClientTimeout" : error instanceof SyntaxError ? "ResponseEncoding" : "UnknownAwsFailure");
     throw sanitized;
   }
 }
@@ -53,7 +56,7 @@ export async function runtimeRole({ registries, key, deployments, output }) {
       { Effect: "Allow", Action: ["secretsmanager:GetSecretValue"], Resource: secrets },
     ],
   };
-  const metadata = { name, arn: `arn:aws:iam::${owner}:role/${name}`, principal, policy, faults: [] };
+  const metadata = { name, arn: `arn:aws:iam::${owner}:role/${name}`, principal, policy };
   const record = () => writeFile(resolve(output, "runtime-role.json"), JSON.stringify(metadata, null, 2) + "\n");
   await record();
   let created = false;
@@ -64,15 +67,8 @@ export async function runtimeRole({ registries, key, deployments, output }) {
       if (error.kind !== "missing") throw error;
     }
   }
-  async function restore() {
-    if (!created) return;
-    await removePolicy("QualificationFault");
-    metadata.faults.push({ action: "restore-access", at: new Date().toISOString() });
-    await record();
-  }
   async function close() {
     if (!created) return;
-    await restore();
     await removePolicy("RoutingReadOnly");
     await aws(["iam", "delete-role", "--role-name", name]);
     created = false;
@@ -124,51 +120,6 @@ export async function runtimeRole({ registries, key, deployments, output }) {
     return {
       environment,
       metadata,
-      async failRegion(region) {
-        const registry = registries.find((entry) => entry.region === region);
-        const deployment = deployments.find((entry) => entry.region === region);
-        assert.ok(registry && deployment);
-        const secretProbe = ["--region", region, "secretsmanager", "get-secret-value", "--secret-id", deployment.apiKeyARN, "--query", "ARN"];
-        const registryProbe = ["--region", region, "s3api", "head-object", "--bucket", registry.bucket, "--key", key, "--expected-bucket-owner", owner, "--query", "VersionId"];
-        // Query only public response metadata; never serialize a secret value.
-        assert.equal(await aws(secretProbe, environment), deployment.apiKeyARN);
-        assert.equal(typeof await aws(registryProbe, environment), "string");
-        const faultPolicy = {
-          Version: "2012-10-17",
-          Statement: [
-            { Effect: "Deny", Action: ["s3:GetObject"], Resource: [`arn:aws:s3:::${registry.bucket}/${key}`] },
-            { Effect: "Deny", Action: ["secretsmanager:GetSecretValue"], Resource: [deployment.apiKeyARN] },
-          ],
-        };
-        metadata.fault_policy = faultPolicy;
-        await aws([
-          "iam", "put-role-policy", "--role-name", name, "--policy-name", "QualificationFault",
-          "--policy-document", JSON.stringify(faultPolicy),
-        ]);
-        metadata.faults.push({ action: "deny-regional-registry-and-secret", region, at: new Date().toISOString() });
-        await record();
-        const deadline = Date.now() + 90000;
-        for (;;) {
-          const denied = [];
-          for (const probe of [registryProbe, secretProbe]) {
-            try {
-              await aws(probe, environment);
-              denied.push(false);
-            } catch (error) {
-              if (error.kind !== "denied") throw error;
-              denied.push(true);
-            }
-          }
-          if (denied.every(Boolean)) {
-            metadata.faults.push({ action: "regional-read-denials-confirmed", region, at: new Date().toISOString() });
-            await record();
-            return;
-          }
-          assert.ok(Date.now() < deadline, "regional IAM fault did not become effective");
-          await delay(1000);
-        }
-      },
-      restore,
       close,
     };
   } catch (error) {
