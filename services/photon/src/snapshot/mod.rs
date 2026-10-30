@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     env::temp_dir,
     fs::{self, File, OpenOptions},
     io::{BufReader, Error, Read, Write},
@@ -17,7 +18,7 @@ use crate::ingester::{
         nullifier_tree_batch_update_parser::has_nullifier_tree_batch_update,
         ring_config_parser::parse_ring_configs, rings_event_parser::parse_rings_events,
     },
-    typedefs::block_info::{BlockInfo, TransactionInfo},
+    typedefs::block_info::{BlockInfo, Instruction, TransactionInfo},
 };
 use anyhow::{anyhow, Context as AnyhowContext, Result};
 use async_stream::stream;
@@ -30,6 +31,7 @@ use s3::creds::Credentials;
 use s3::region::Region;
 use s3::{bucket::Bucket, BucketConfiguration};
 use s3_utils::multipart_upload::put_object_stream_custom;
+use solana_pubkey::Pubkey;
 use tokio::io::{AsyncRead, ReadBuf};
 
 use self::gcs_utils::GcsClient;
@@ -42,6 +44,35 @@ pub const CHUNK_SIZE: usize = 100 * 1024 * 1024;
 pub const TRANSACTIONS_TO_ACCUMULATE: usize = 5000;
 
 const SNAPSHOT_VERSION: u8 = 1;
+
+/// Written once, by a writer that starts an empty store. Snapshot files carry
+/// no version of their own, so this is what says the store has kept custom ring
+/// instructions since its first slot. Its name is not a snapshot file name, so
+/// listings and merges leave it alone.
+const FORMAT_FILE: &str = "format.json";
+const FORMAT: &str = r#"{"custom_rings":true}"#;
+
+/// Whether every snapshot in the store keeps custom ring instructions, so the
+/// custom ring index can be rebuilt from it. A store some writer began before
+/// rings were kept says no, whatever was appended later.
+pub async fn keeps_custom_rings(directory_adapter: Arc<DirectoryAdapter>) -> Result<bool> {
+    if !directory_adapter
+        .list_files()
+        .await?
+        .iter()
+        .any(|file| file == FORMAT_FILE)
+    {
+        return Ok(false);
+    }
+    let bytes: Vec<Bytes> = directory_adapter
+        .read_file(FORMAT_FILE.to_string())
+        .await
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<_>>()?;
+    Ok(bytes.concat() == FORMAT.as_bytes())
+}
 
 #[derive(Clone, Copy, Debug, Decode, Encode, PartialEq, Eq)]
 struct SnapshotHeader {
@@ -524,6 +555,79 @@ fn has_ring_config_registration(tx: &TransactionInfo, slot: u64) -> bool {
     }
 }
 
+/// Decides which transactions a snapshot keeps. Beyond the Rings events,
+/// nullifier batches and ring registrations of `is_rings_snapshot_transaction`,
+/// it keeps every transaction that calls a known ring program: a custom ring's
+/// key registry and spend records come from the ring program's own
+/// instructions, and those emit no SPP event.
+#[derive(Debug, Default)]
+pub struct SnapshotFilter {
+    rings: HashSet<Pubkey>,
+}
+
+impl SnapshotFilter {
+    pub fn keeps(&mut self, tx: &TransactionInfo, slot: u64) -> bool {
+        self.learn(tx, slot);
+        is_rings_snapshot_transaction(tx, slot) || self.calls_ring(tx)
+    }
+
+    /// Records the rings `tx` registers or initializes, so their later
+    /// transactions are kept.
+    pub fn learn(&mut self, tx: &TransactionInfo, slot: u64) {
+        if let Ok(Some(update)) = parse_ring_configs(tx, slot) {
+            self.rings.extend(
+                update
+                    .ring_configs
+                    .iter()
+                    .map(|config| Pubkey::new_from_array(config.program_id)),
+            );
+        }
+        #[cfg(feature = "custom-rings")]
+        self.rings.extend(
+            instructions(tx)
+                .filter(|instruction| initializes_key_registry(instruction))
+                .map(|instruction| instruction.program_id),
+        );
+    }
+
+    /// Learns the rings of blocks snapshotted before a restart.
+    pub async fn learn_from(&mut self, blocks: impl Stream<Item = Vec<BlockInfo>>) {
+        pin_mut!(blocks);
+        while let Some(blocks) = blocks.next().await {
+            for block in &blocks {
+                for tx in &block.transactions {
+                    self.learn(tx, block.metadata.slot);
+                }
+            }
+        }
+    }
+
+    fn calls_ring(&self, tx: &TransactionInfo) -> bool {
+        instructions(tx).any(|instruction| self.rings.contains(&instruction.program_id))
+    }
+}
+
+fn instructions(tx: &TransactionInfo) -> impl Iterator<Item = &Instruction> {
+    tx.instruction_groups.iter().flat_map(|group| {
+        std::iter::once(&group.outer_instruction).chain(group.inner_instructions.iter())
+    })
+}
+
+/// A ring can create its key registry before the pool registers it. The root
+/// account must be the program's own registry PDA, which no other program can
+/// imitate.
+#[cfg(feature = "custom-rings")]
+fn initializes_key_registry(instruction: &Instruction) -> bool {
+    use custom_ring_interface::instruction::{accounts, tag};
+    instruction.data.first() == Some(&tag::CREATE_KEY_REGISTRY_ROOT)
+        && instruction
+            .accounts
+            .get(accounts::CREATE_KEY_REGISTRY_ROOT_ROOT)
+            .is_some_and(|root| {
+                *root == custom_ring_interface::pda::key_registry_root(&instruction.program_id).0
+            })
+}
+
 #[derive(Debug)]
 pub struct SnapshotFileWithSlots {
     pub file: String,
@@ -668,6 +772,19 @@ pub async fn update_snapshot_helper(
         .map(|file| file.end_slot)
         .unwrap_or(last_indexed_slot);
 
+    let mut filter = SnapshotFilter::default();
+    if snapshot_files.is_empty() {
+        let format = stream! { yield Ok(Bytes::from_static(FORMAT.as_bytes())); };
+        directory_adapter
+            .write_file(FORMAT_FILE.to_string(), format)
+            .await
+            .context("Failed to write the snapshot format")?;
+    } else {
+        filter
+            .learn_from(load_block_stream_from_directory_adapter(directory_adapter.clone()).await)
+            .await;
+    }
+
     let mut byte_buffer = Vec::new();
 
     pin_mut!(blocks_stream);
@@ -688,7 +805,7 @@ pub async fn update_snapshot_helper(
                 transactions: block
                     .transactions
                     .iter()
-                    .filter(|tx| is_rings_snapshot_transaction(tx, slot))
+                    .filter(|tx| filter.keeps(tx, slot))
                     .cloned()
                     .collect(),
             };
@@ -915,6 +1032,155 @@ pub async fn create_snapshot_from_byte_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ingester::typedefs::block_info::{BlockMetadata, InstructionGroup};
+    use solana_signature::Signature;
+    use zolana_interface::{instruction::CreateRingConfigData, pda};
+
+    fn call(program_id: Pubkey, data: Vec<u8>, accounts: Vec<Pubkey>) -> TransactionInfo {
+        TransactionInfo {
+            instruction_groups: vec![InstructionGroup {
+                outer_instruction: Instruction {
+                    program_id,
+                    data,
+                    accounts,
+                    stack_height: Some(1),
+                },
+                inner_instructions: Vec::new(),
+            }],
+            signature: Signature::from([1; 64]),
+            error: None,
+        }
+    }
+
+    /// The pool's own `CREATE_RING_CONFIG` for `ring`.
+    fn registration(ring: Pubkey) -> TransactionInfo {
+        let mut data = vec![zolana_event::tag::CREATE_RING_CONFIG];
+        borsh::to_writer(
+            &mut data,
+            &CreateRingConfigData {
+                program_id: ring.to_bytes().into(),
+                authority: Pubkey::new_unique().to_bytes().into(),
+            },
+        )
+        .unwrap();
+        let accounts = vec![
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            pda::ring_auth(&ring).0,
+            Pubkey::new_unique(),
+        ];
+        call(pda::shielded_pool_program_id(), data, accounts)
+    }
+
+    /// An instruction on `ring` that emits no SPP event.
+    fn ring_call(ring: Pubkey) -> TransactionInfo {
+        call(ring, vec![200], vec![Pubkey::new_unique()])
+    }
+
+    #[test]
+    fn keeps_calls_to_a_ring_once_its_registration_is_seen() {
+        let ring = Pubkey::new_unique();
+        let mut filter = SnapshotFilter::default();
+        assert!(!filter.keeps(&ring_call(ring), 1));
+        assert!(filter.keeps(&registration(ring), 2));
+        assert!(filter.keeps(&ring_call(ring), 3));
+        assert!(!filter.keeps(&ring_call(Pubkey::new_unique()), 4));
+    }
+
+    #[cfg(feature = "custom-rings")]
+    #[test]
+    fn a_key_registry_root_teaches_the_ring_before_its_registration() {
+        use custom_ring_interface::instruction::tag;
+        let ring = Pubkey::new_unique();
+        let root = |root: Pubkey| {
+            let accounts = vec![
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                root,
+            ];
+            call(ring, vec![tag::CREATE_KEY_REGISTRY_ROOT], accounts)
+        };
+
+        // A root account that is not the ring's registry PDA teaches nothing.
+        let mut filter = SnapshotFilter::default();
+        assert!(!filter.keeps(&root(Pubkey::new_unique()), 1));
+        assert!(!filter.keeps(&ring_call(ring), 2));
+
+        let registry = custom_ring_interface::pda::key_registry_root(&ring).0;
+        assert!(filter.keeps(&root(registry), 3));
+        assert!(filter.keeps(&ring_call(ring), 4));
+    }
+
+    #[tokio::test]
+    async fn a_restarted_writer_still_keeps_rings_registered_before_it() {
+        let dir = temp_dir().join(format!("photon-snapshot-filter-{}", Pubkey::new_unique()));
+        fs::create_dir_all(&dir).unwrap();
+        let adapter = Arc::new(DirectoryAdapter::from_local_directory(
+            dir.to_string_lossy().into_owned(),
+        ));
+        let ring = Pubkey::new_unique();
+        let block = |slot: u64, transactions: Vec<TransactionInfo>| BlockInfo {
+            metadata: BlockMetadata {
+                slot,
+                parent_slot: slot - 1,
+                ..Default::default()
+            },
+            transactions,
+        };
+        let write = |blocks: Vec<BlockInfo>| {
+            update_snapshot_helper(adapter.clone(), stream::iter([blocks]), 0, 1, u64::MAX)
+        };
+
+        write(vec![block(1, vec![registration(ring)])])
+            .await
+            .unwrap();
+        // A new writer sees only the ring's own instruction, not its registration.
+        write(vec![block(2, vec![ring_call(ring)])]).await.unwrap();
+
+        let blocks: Vec<BlockInfo> = load_block_stream_from_directory_adapter(adapter.clone())
+            .await
+            .flat_map(stream::iter)
+            .collect()
+            .await;
+        let kept: Vec<(u64, usize)> = blocks
+            .iter()
+            .map(|block| (block.metadata.slot, block.transactions.len()))
+            .collect();
+        assert_eq!(kept, [(1, 1), (2, 1)]);
+        assert!(keeps_custom_rings(adapter.clone()).await.unwrap());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn only_a_store_begun_by_a_ring_aware_writer_keeps_custom_rings() {
+        let dir = temp_dir().join(format!("photon-snapshot-format-{}", Pubkey::new_unique()));
+        fs::create_dir_all(&dir).unwrap();
+        let adapter = Arc::new(DirectoryAdapter::from_local_directory(
+            dir.to_string_lossy().into_owned(),
+        ));
+        // A file an older writer left, with no format beside it.
+        fs::write(dir.join("snapshot-1-1"), []).unwrap();
+        assert!(!keeps_custom_rings(adapter.clone()).await.unwrap());
+
+        let block = BlockInfo {
+            metadata: BlockMetadata {
+                slot: 2,
+                parent_slot: 1,
+                ..Default::default()
+            },
+            transactions: Vec::new(),
+        };
+        update_snapshot_helper(adapter.clone(), stream::iter([vec![block]]), 0, 1, u64::MAX)
+            .await
+            .unwrap();
+        // Appending with a ring-aware writer does not make the older part complete.
+        assert!(!keeps_custom_rings(adapter.clone()).await.unwrap());
+        // The format is not mistaken for a snapshot file.
+        let files = get_snapshot_files_with_metadata(&adapter).await.unwrap();
+        assert!(files.iter().all(|file| file.file.starts_with("snapshot-")));
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn gcs_paths_strip_only_a_complete_utf8_prefix() {
