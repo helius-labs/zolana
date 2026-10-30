@@ -178,6 +178,12 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_NULLIFIER_ROOT_MISMATCH: IndexDetails;
   /** An output blinding is not the one the circuit derives for its slot. */
   readonly CLIENT_OUTPUT_BLINDING_MISMATCH: IndexDetails;
+  /** An anonymous ring proof has no input of the hidden owner. */
+  readonly CLIENT_ANONYMOUS_WITHOUT_HIDDEN_INPUT: NoDetails;
+  /** The hidden owner spends a default-ring and a ring UTXO in one proof. */
+  readonly CLIENT_ANONYMOUS_MIXED_RING_SPEND: NoDetails;
+  /** A published output owner names the hidden owner of a ring spend. */
+  readonly CLIENT_ANONYMOUS_PUBLISHED_OWNER: IndexDetails;
   /** The proof inputs were built for another output tree than the client's. */
   readonly CLIENT_TREE_ID_MISMATCH: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_INVALID_MERGE_OUTPUT: NoDetails;
@@ -260,6 +266,9 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_TOO_MANY_INPUT_TREES",
   "CLIENT_NULLIFIER_ROOT_MISMATCH",
   "CLIENT_OUTPUT_BLINDING_MISMATCH",
+  "CLIENT_ANONYMOUS_WITHOUT_HIDDEN_INPUT",
+  "CLIENT_ANONYMOUS_MIXED_RING_SPEND",
+  "CLIENT_ANONYMOUS_PUBLISHED_OWNER",
   "CLIENT_TREE_ID_MISMATCH",
   "CLIENT_INVALID_MERGE_OUTPUT",
   "CLIENT_INVALID_MERGE_SHAPE",
@@ -350,6 +359,8 @@ const NO_DETAIL_CODES: ReadonlySet<ClientErrorCode> = new Set([
   "CLIENT_PROVER_JSON",
   "CLIENT_UNUSED_READ_CACHE",
   "CLIENT_UNUSED_WRITE_CACHE",
+  "CLIENT_ANONYMOUS_WITHOUT_HIDDEN_INPUT",
+  "CLIENT_ANONYMOUS_MIXED_RING_SPEND",
   "CLIENT_UNEXPECTED",
   "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
   "CLIENT_PROVER_INDEXER_UNCONFIGURED",
@@ -419,6 +430,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_TOO_MANY_INPUT_TREES: { got: "number", max: "number" },
   CLIENT_NULLIFIER_ROOT_MISMATCH: { index: "number" },
   CLIENT_OUTPUT_BLINDING_MISMATCH: { index: "number" },
+  CLIENT_ANONYMOUS_PUBLISHED_OWNER: { index: "number" },
   CLIENT_TREE_ID_MISMATCH: { expected: "number", actual: "number" },
   CLIENT_INVALID_MERGE_SHAPE: { expected: "number", actual: "number" },
   CLIENT_INVALID_CACHE_ACCESS: { field: "string", index: "number" },

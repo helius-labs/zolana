@@ -11,11 +11,13 @@ Breaking
 - `ZolanaClient` now defaults to `proofDataSource: "prover"` for Helius API URLs too → configure indexed proving on the upstream or set `proofDataSource: "client"` to retain SDK-fetched proof data.
 - `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
 - `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
+- `Prover` requires `proveAnonymousRingTransact`, and `ProverInputs`, `IndexedProofInputs` and `CircuitId` gain anonymous ring variants → implement the method on a custom `Prover` and forward the new variants in a custom `ProofService` or `ProofAuthority`.
 
 Added
 
 - `TransactionIntent` kind `ringDeposit` shows an approval handler a ring deposit and its recipient, and the private transaction builders and `ZolanaClient` refuse to prove a transaction under that intent.
 - `@heliuslabs/zolana/internal` exports `writeTransactOutput`, `writeOwnerTag`, `readData` and `SHIELDED_ADDRESS_LENGTH`, so an extension codec writes transact outputs and reads `Data` fields in the SDK layout.
+- `ZolanaClient.proveAnonymousRingTransact(input)` proves a custom-ring transfer whose hidden owner signs only inside the proof, from a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 
 Changed
 

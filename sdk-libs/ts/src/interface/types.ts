@@ -156,6 +156,12 @@ export interface EddsaProofData {
   readonly ownerPk: Bytes32;
 }
 
+export interface AnonymousRingEddsaProofData {
+  readonly bsb22Commitment: Bsb22Commitment;
+  /** The hidden owner's Ed25519 key, present only when it spends a default-ring UTXO. */
+  readonly defaultOwnerTag?: Bytes32;
+}
+
 export type CircuitId =
   | Readonly<{
       kind: "confidentialSigner";
@@ -190,6 +196,21 @@ export type CircuitId =
       cacheAccess: CacheAccess;
     }>
   | Readonly<{
+      kind: "anonymousRingEddsa";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+      proofData: AnonymousRingEddsaProofData;
+    }>
+  | Readonly<{
+      kind: "anonymousRingEddsaCached";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+      proofData: AnonymousRingEddsaProofData;
+      cacheAccess: CacheAccess;
+    }>
+  | Readonly<{
       kind: "confidentialEddsa";
       inputs: number;
       outputs: number;
@@ -210,6 +231,7 @@ export function circuitCacheAccess(circuit: CircuitId): CacheAccess | undefined 
   switch (circuit.kind) {
     case "confidentialSignerCached":
     case "confidentialRingEddsaCached":
+    case "anonymousRingEddsaCached":
     case "confidentialEddsaCached":
       return circuit.cacheAccess;
     default:
