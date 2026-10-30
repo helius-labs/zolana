@@ -53,6 +53,12 @@ test("regional connection fault closes existing tunnels, rejects new ones and le
     const restored = await tunnel(targets[0].authority);
     assert.equal(restored.status, 200);
     await echo(restored.socket);
+    // SDK clients may keep several idle TLS pools. The fault fixture must not
+    // inject admission failures into a region that was never disconnected.
+    for (let n = 0; n < 40; n++) {
+      assert.equal((await tunnel(targets[1].authority)).status, 200);
+    }
+    assert.equal(proxy.statistics["eu-test"].refused, 0);
   } finally {
     for (const socket of sockets) socket.destroy();
     await proxy?.close();

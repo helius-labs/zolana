@@ -28,7 +28,7 @@ export async function connectionFaultProxy(targets) {
     const target = routes.get(request.url);
     const refuse = (status) => client.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
     if (!target) return refuse("403 Forbidden");
-    if (blocked.has(target.region) || tunnels.size >= 32) {
+    if (blocked.has(target.region)) {
       statistics[target.region].refused++;
       return refuse("503 Service Unavailable");
     }
