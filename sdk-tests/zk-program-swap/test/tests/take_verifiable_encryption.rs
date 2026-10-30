@@ -142,14 +142,13 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         };
 
         let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
-        let spp_proof = localnet
-            .client
-            .indexer()
-            .prove_transact(
-                spp_proof_inputs,
-                &spr_keypair::NullifierKey::from_secret([0; 31]),
-            )
-            .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
+        let spp_proof = spr_client::TransactionProofRequest::new(
+            spp_proof_inputs,
+            &[&spr_keypair::NullifierKey::from_secret([0; 31])],
+        )?
+        .prove_sync(&localnet.client)
+        .map(|proved| proved.instruction_data().clone())
+        .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
         let make_proof_inputs = MakeProofInputParams {
             order_utxo,
@@ -292,17 +291,16 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
             output_tree_id: localnet.tree_id,
         };
 
-        let spp_proof = localnet
-            .client
-            .indexer()
-            .prove_transact(
-                take_spp_proof_inputs,
-                &spr_test_utils::utxo::ProofKeys(&[
-                    &spr_keypair::NullifierKey::from_secret([0; 31]),
-                    &taker.keypair.nullifier_key,
-                ]),
-            )
-            .map_err(|e| anyhow!("take transact proof: {e:?}"))?;
+        let spp_proof = spr_client::TransactionProofRequest::new(
+            take_spp_proof_inputs,
+            &[
+                &spr_keypair::NullifierKey::from_secret([0; 31]),
+                &taker.keypair.nullifier_key,
+            ],
+        )?
+        .prove_sync(&localnet.client)
+        .map(|proved| proved.instruction_data().clone())
+        .map_err(|e| anyhow!("take transact proof: {e:?}"))?;
 
         let take_proof = swap_prover_client
             .prove_take_verifiable_encryption(&take_proof_inputs.to_proof_inputs()?)

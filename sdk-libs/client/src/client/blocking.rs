@@ -5,18 +5,17 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
-use spr_transaction::{instructions::transact::SppProofInputs, utxo::SppProofInputUtxo};
+use spr_transaction::utxo::SppProofInputUtxo;
 
 use crate::{
-    authority::ProofAuthority,
     error::ClientError,
     prover::transact::witness::SpendProof,
     rpc::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, IndexerRpcConfig, ProgramAccountsFilter, ProveResult,
-        RingHistoryOptions, Rpc, ShieldedTransactionStream,
+        GetUserRecordsResponse, IndexerRpcConfig, ProgramAccountsFilter, RingHistoryOptions, Rpc,
+        ShieldedTransactionStream,
     },
 };
 
@@ -227,13 +226,5 @@ impl<R: BlockingRpc, I: BlockingIndexer> Rpc for ZolanaClient<R, I> {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetUserRecordsResponse, ClientError> {
         self.block_on(self.client.get_user_records(owners, config))
-    }
-
-    fn prove(
-        &self,
-        transaction: SppProofInputs,
-        authority: &dyn ProofAuthority,
-    ) -> Result<ProveResult, ClientError> {
-        self.block_on(self.client.prove(transaction, authority))
     }
 }

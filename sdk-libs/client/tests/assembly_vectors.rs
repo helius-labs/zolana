@@ -622,7 +622,7 @@ fn pinned_input_and_output_vectors_rebuild_the_pinned_private_tx_hash() {
 // ---------------------------------------------------------------------------
 
 /// `SppProofInputs::message_hash()` in spr-transaction and the digest
-/// `AnonymousRingEddsaProver::build` derives from the assembled `private_tx_hash`
+/// `AnonymousRingEddsaProver::assemble` derives from the assembled `private_tx_hash`
 /// must stay bit-identical: `validate_authorization` checks a signature against
 /// the second and the wallet signs the first.
 #[test]

@@ -9,7 +9,7 @@ use client_example::{
 };
 use solana_signer::Signer;
 use spr_client::{
-    ComputeBudgetConfig, IndexerRpcConfig, MergeProver, ProverClient, ProverExt, Rpc, SolanaRpc,
+    ComputeBudgetConfig, IndexerRpcConfig, MergeProver, ProverClient, ProverExt, Rpc,
     WitnessReader, ZolanaClient, ZolanaIndexer,
 };
 use spr_program::instruction::{MergeTransact, Transact};
@@ -76,12 +76,7 @@ fn main() -> Result<()> {
         utxos,
     } = setup_merge_scenario(UTXO_COUNT, DEPOSIT_AMOUNT)?;
 
-    let client = ZolanaClient::from_urls(
-        SolanaRpc::new(rpc_url),
-        &indexer_url,
-        prover_url.clone(),
-        None,
-    )?;
+    let client = ZolanaClient::from_urls(rpc_url, &indexer_url, prover_url.clone(), None)?;
     let indexer = ZolanaIndexer::new(&indexer_url);
     let prover = ProverClient::new(prover_url);
     let assets = AssetRegistry::default();
@@ -160,11 +155,11 @@ fn main() -> Result<()> {
         .with_output_tree_id(tree_id)?;
     transfer.transfer_sol(&recipient_address, TRANSFER_AMOUNT)?;
     transfer.pad_utxos(Shape::IN2_OUT4, &sender_address)?;
-    let transfer_data = client.prove_transact(
-        transfer.encrypt(&sender)?,
-        Some(IndexerRpcConfig::at_slot(merge_slot)),
-        &sender,
-    )?;
+    let client = client.with_indexer_config(IndexerRpcConfig::at_slot(merge_slot));
+    let transfer_data =
+        spr_client::TransactionProofRequest::new(transfer.encrypt(&sender)?, &[&sender])?
+            .prove_sync(&client)
+            .map(|proved| proved.instruction_data().clone())?;
     log(started, "merged output indexed, transfer proof ready");
 
     // 5. Send the transfer.

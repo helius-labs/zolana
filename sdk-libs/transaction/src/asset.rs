@@ -111,6 +111,25 @@ impl AssetRegistry {
         Ok(())
     }
 
+    /// Merge mappings atomically, accepting mappings already present unchanged.
+    pub fn extend(&mut self, other: &AssetRegistry) -> Result<(), TransactionError> {
+        for (&asset_id, mint) in &other.by_id {
+            if self.by_id.get(&asset_id).is_some_and(|known| known != mint) {
+                return Err(TransactionError::DuplicateAssetId(asset_id));
+            }
+            if self
+                .by_mint
+                .get(mint)
+                .is_some_and(|known| *known != asset_id)
+            {
+                return Err(TransactionError::DuplicateMint(*mint));
+            }
+        }
+        self.by_id.extend(&other.by_id);
+        self.by_mint.extend(&other.by_mint);
+        Ok(())
+    }
+
     pub fn resolve(&self, asset_id: u64) -> Result<Mint, TransactionError> {
         self.by_id
             .get(&asset_id)

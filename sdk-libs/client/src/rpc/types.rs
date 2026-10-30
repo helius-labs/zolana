@@ -8,7 +8,7 @@ use spr_keypair::X25519Pubkey;
 pub use spr_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use spr_user_registry_interface::UserRecord;
 
-use crate::{error::ClientError, prover::ProofCompressed};
+use crate::error::ClientError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Context {
@@ -180,12 +180,4 @@ pub struct NonInclusionProof {
 pub struct GetNonInclusionProofsResponse {
     pub context: Context,
     pub proofs: Vec<NonInclusionProof>,
-}
-
-/// Result of a server-side proving request.
-#[derive(Clone, Debug)]
-pub struct ProveResult {
-    pub proof: ProofCompressed,
-    pub public_inputs: Vec<[u8; 32]>,
-    pub circuit_id: u16,
 }

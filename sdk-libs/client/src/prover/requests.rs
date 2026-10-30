@@ -22,7 +22,7 @@ use crate::{
 
 /// A request whose body is already encoded, so an encoding error surfaces
 /// before any backend sees it.
-pub(crate) struct CircuitRequest {
+pub struct CircuitRequest {
     body: Zeroizing<String>,
     proving_key: ExpectedProvingKey,
     delivery: Delivery,
@@ -51,7 +51,7 @@ fn in_response(body: String, proving_key: ExpectedProvingKey) -> CircuitRequest 
     }
 }
 
-pub(crate) fn transfer(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
+pub fn transfer(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
     let key = ExpectedProvingKey::transfer_confidential(inputs.inputs.len(), inputs.outputs.len())?;
     Ok(in_response(to_json(inputs)?, key))
 }
@@ -66,30 +66,30 @@ pub(crate) fn transfer_confidential_eddsa(
     })
 }
 
-pub(crate) fn transfer_ring(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
+pub fn transfer_ring(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
     let key = ExpectedProvingKey::transfer_ring(inputs.inputs.len(), inputs.outputs.len())?;
     Ok(in_response(to_json_ring(inputs)?, key))
 }
 
-pub(crate) fn ring_authority(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
+pub fn ring_authority(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
     let key =
         ExpectedProvingKey::transfer_ring_authority(inputs.inputs.len(), inputs.outputs.len())?;
     Ok(in_response(to_json_ring_authority(inputs)?, key))
 }
 
-pub(crate) fn merge(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
+pub fn merge(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
     let key = ExpectedProvingKey::merge(inputs.inputs.len())?;
     Ok(in_response(to_json_merge(inputs), key))
 }
 
-pub(crate) fn merge_ring(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
+pub fn merge_ring(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
     let key = ExpectedProvingKey::merge_ring(inputs.inputs.len())?;
     Ok(in_response(to_json_merge_ring(inputs), key))
 }
 
 /// A batch proof runs far longer than a connection should be held open, so it
 /// always queues.
-pub(crate) fn batch_address_append(
+pub fn batch_address_append(
     inputs: &BatchAddressAppendInputs,
 ) -> Result<CircuitRequest, ClientError> {
     Ok(CircuitRequest {

@@ -500,7 +500,7 @@ fn async_authority_invokes_approval() {
             .unwrap();
 
     assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
-    prover_of(signed.transaction).build().unwrap();
+    prover_of(signed).build().unwrap();
 }
 
 #[tokio::test]

@@ -567,6 +567,10 @@ fn post_failed(attempts: usize, error: ApiError) -> ClientError {
 }
 
 impl Prover for ProverClient {
+    fn server_client(&self) -> Option<&AsyncProverClient> {
+        Some(&self.client)
+    }
+
     fn prove(&self, request: &dyn ProveRequest) -> Result<Proof, ClientError> {
         self.runtime.block_on(self.client.prove(request))
     }
@@ -802,21 +806,6 @@ impl AsyncProverClient {
 
     pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::merge(inputs)?).await
-    }
-
-    pub async fn prove_ring_authority(
-        &self,
-        inputs: &TransferInputs,
-    ) -> Result<Proof, ClientError> {
-        self.prove(&requests::ring_authority(inputs)?).await
-    }
-
-    pub async fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::merge_ring(inputs)?).await
-    }
-
-    pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::transfer_ring(inputs)?).await
     }
 
     /// Prove `request` on its rail; [`Prover::prove`] on [`ProverClient`] is

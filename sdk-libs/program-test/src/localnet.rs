@@ -337,7 +337,7 @@ fn connect(
         .and_then(|account| read_tree_id(&account.data))
         .ok_or_else(|| ProgramTestError::Localnet(format!("default tree {tree} is missing")))?;
     // The shared prover resolves against the checkout's Photon, not this one.
-    let client = ZolanaClient::new(
+    let client = ZolanaClient::from_parts(
         rpc,
         ZolanaIndexer::new(ports.photon_url()),
         ProverClient::default(),

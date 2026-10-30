@@ -12,8 +12,8 @@
 //!
 //! It reads UTXOs only in the assets of the [`AssetRegistry`] it is given and
 //! reports the others as unknown; [`fetch_asset_id`] reads the id the pool
-//! registered for a mint, to add it. Opt into [`UtxoScan::with_asset_discovery`]
-//! to learn registered SPL assets and decrypt the fetched transactions again,
+//! registered for a mint, to add it. Asset discovery learns registered SPL
+//! assets and decrypts the fetched transactions again,
 //! without repeating the indexer reads. An indexer that lags misses the latest
 //! spends; [`UtxoScan::with_indexer_config`] makes every read wait for a
 //! slot first. Every spendable UTXO carries the output tree the indexer
@@ -40,6 +40,8 @@ use crate::{
     rpc::{EncryptedUtxoMatch, IndexerRpcConfig, ProgramAccountsFilter, Rpc, ShieldedTransaction},
 };
 
+pub use spr_transaction::decrypt::{UnresolvedOutput, UnresolvedOutputReason};
+
 const PAGE_LIMIT: u32 = 1_000;
 
 /// What [`UtxoScan::fetch`] read. Outputs in unresolved assets are omitted
@@ -47,6 +49,7 @@ const PAGE_LIMIT: u32 = 1_000;
 /// `unknown_asset_ids` and `unknown_mints` fields, even with discovery enabled.
 #[derive(Clone, Debug)]
 pub struct UtxoScanResult {
+    pub unresolved_outputs: Vec<UnresolvedOutput>,
     /// The registry used to decrypt this scan, including mappings learned by
     /// asset discovery. Reuse it on the next scan to avoid another lookup.
     pub asset_registry: AssetRegistry,
@@ -62,18 +65,16 @@ pub struct UtxoScanResult {
 /// [`fetch`](Self::fetch). It holds no connection and no state between reads.
 pub struct UtxoScan<'a, K: ?Sized> {
     keys: &'a K,
-    assets: &'a AssetRegistry,
     indexer_config: Option<IndexerRpcConfig>,
     discover_assets: bool,
 }
 
 impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
-    pub fn new(keys: &'a K, assets: &'a AssetRegistry) -> Self {
+    pub fn new(keys: &'a K) -> Self {
         Self {
             keys,
-            assets,
             indexer_config: None,
-            discover_assets: false,
+            discover_assets: true,
         }
     }
 
@@ -89,24 +90,12 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         self
     }
 
-    /// Resolve unknown asset ids and mints through the pool's on-chain SPL
-    /// registrations. Requires [`Rpc::get_program_accounts_filtered`].
-    ///
-    /// At most one filtered registry read is made, only when an unknown
-    /// asset is encountered. Already fetched transactions are decrypted
-    /// again and newly discovered nullifiers are followed normally.
-    /// The registry read requires the greater of `indexer_config.require_slot`
-    /// and every transaction slot fetched so far; a lagging Solana RPC fails
-    /// rather than returning a stale registry listing.
-    /// Outputs in assets still unknown after discovery are skipped and reported
-    /// in the result's `unknown_asset_ids` and `unknown_mints` fields. Unknown
-    /// ids are sender-provided and unverified; they do not fail the scan.
-    /// RPC failures and invalid or conflicting registrations still fail it.
-    /// The supplied registry is unchanged; the result carries the updated
-    /// registry. Leave this disabled to scan an explicit asset allowlist.
+    /// Use only the registry supplied to `fetch`, reporting other assets as
+    /// unresolved. By default, a scan looks up validated on-chain registrations
+    /// once when it encounters an unknown asset, then reprocesses its outputs.
     #[must_use]
-    pub fn with_asset_discovery(mut self) -> Self {
-        self.discover_assets = true;
+    pub fn disable_asset_discovery(mut self) -> Self {
+        self.discover_assets = false;
         self
     }
 
@@ -114,9 +103,14 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
     /// outputs carry, and with each held viewing key's tag, which deposits
     /// carry, then the transactions that spent what they hold. Anonymous
     /// transfer and ring deposit payloads are unsupported.
-    pub fn fetch<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<UtxoScanResult, ClientError> {
-        let fetched = self.fetch_rounds(indexer)?;
+    pub fn fetch<I: Rpc + ?Sized>(
+        &self,
+        indexer: &I,
+        assets: &AssetRegistry,
+    ) -> Result<UtxoScanResult, ClientError> {
+        let fetched = self.fetch_rounds(indexer, assets)?;
         Ok(UtxoScanResult {
+            unresolved_outputs: fetched.unresolved_outputs,
             asset_registry: fetched.asset_registry,
             spendable: fetched.spendable,
             history: History {
@@ -129,8 +123,12 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         })
     }
 
-    fn fetch_rounds<I: Rpc + ?Sized>(&self, indexer: &I) -> Result<Fetched, ClientError> {
-        let mut assets = self.assets.clone();
+    fn fetch_rounds<I: Rpc + ?Sized>(
+        &self,
+        indexer: &I,
+        assets: &AssetRegistry,
+    ) -> Result<Fetched, ClientError> {
+        let mut assets = assets.clone();
         let mut registry_refreshed = false;
         let address = self.keys.address()?;
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
@@ -139,7 +137,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         // The output tree the last page read named; every page reports it.
         let mut output_tree_id = None;
         let mut seen = HashSet::new();
-        let mut batch = self.unseen(
+        let mut batch = Self::unseen(
             &mut seen,
             tagged_transactions(indexer, &tags, self.indexer_config, &mut output_tree_id)?,
         );
@@ -176,7 +174,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                 .map(|utxo| utxo.nullifier)
                 .filter(|nullifier| queried.insert(*nullifier))
                 .collect();
-            batch = self.unseen(
+            batch = Self::unseen(
                 &mut seen,
                 spending_transactions(
                     indexer,
@@ -187,6 +185,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
             );
             if batch.is_empty() {
                 return Ok(Fetched {
+                    unresolved_outputs: decrypted.unresolved_outputs,
                     asset_registry: assets,
                     tags,
                     transactions,
@@ -199,11 +198,10 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         }
     }
 
-    /// The transactions not fetched before, their ring deposits unwrapped. A
+    /// The transactions not fetched before. A
     /// proofless deposit arrives one output at a time, so its leaf is part of
     /// its identity.
     fn unseen(
-        &self,
         seen: &mut HashSet<(Signature, Option<u16>, Option<u64>)>,
         transactions: Vec<ShieldedTransaction>,
     ) -> Vec<ShieldedTransaction> {
@@ -288,6 +286,7 @@ pub fn fetch_asset_id<R: Rpc + ?Sized>(rpc: &R, asset: Address) -> Result<u64, C
 
 /// What the rounds of one fetch read and decrypted.
 struct Fetched {
+    unresolved_outputs: Vec<UnresolvedOutput>,
     asset_registry: AssetRegistry,
     tags: Vec<[u8; 32]>,
     transactions: Vec<ShieldedTransaction>,

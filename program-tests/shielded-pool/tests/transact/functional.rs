@@ -12,6 +12,7 @@ use shielded_pool_tests::support::{
     ring::{RealRingTransact, RingRail},
     transact::{current_tree_roots, proof_env, tree_progress, write_ring_config_account, Pool},
 };
+use spr_client::Prover as _;
 
 use num_bigint::BigUint;
 
@@ -596,11 +597,17 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let prover = ProverClient::local();
     let proof = if IS_AUTHORITY {
         prover
-            .prove_ring_authority(&prover_inputs)
+            .prove(
+                &spr_client::prover::requests::ring_authority(&prover_inputs)
+                    .expect("encode ring proof request"),
+            )
             .expect("prove ring authority transact")
     } else {
         prover
-            .prove_transfer_ring(&prover_inputs)
+            .prove(
+                &spr_client::prover::requests::transfer_ring(&prover_inputs)
+                    .expect("encode ring proof request"),
+            )
             .expect("prove ring transact")
     };
     // Local pairing gate against the committed ring verifying key: the proof

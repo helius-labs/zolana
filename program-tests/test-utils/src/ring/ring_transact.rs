@@ -8,10 +8,9 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
-    input_utxos_from_nullifiers,
-    prover::transact::anonymous_ring_eddsa::anonymous_signer_pk_hashes, transaction_size,
-    AnonymousRingEddsaProver, ComputeBudgetConfig, ProofAuthority, ProofCompressed, Prover,
-    ProverClient, ProverExt, RingTransferProver, Shape, TransferInputUtxo,
+    input_utxos_from_nullifiers, transaction_size, AnonymousRingEddsaProver, ComputeBudgetConfig,
+    ProofAuthority, ProofCompressed, Prover, ProverClient, RingTransferProver, Shape,
+    TransferInputUtxo,
 };
 use spr_interface::{
     error::ShieldedPoolError,
@@ -655,11 +654,14 @@ impl RingHarness {
                     ring_program_id: Some(ring),
                     shape,
                 };
-                let mut result = prover.build()?;
+                let mut result = prover.assemble()?;
                 // The assembled witness carries no nullifier secrets; the signer
                 // is the authority that fills in the inputs it owns.
                 signer.complete_inputs(&mut result.inputs.inputs)?;
-                let proof = ProverClient::local().prove_transfer_ring(&result.inputs)?;
+                let proof = ProverClient::local().prove(
+                    &spr_client::prover::requests::transfer_ring(&result.inputs)
+                        .expect("encode ring proof request"),
+                )?;
                 let proof = pack_transact_proof(&proof)?;
                 if tamper == ProofTamper::EddsaProofUnderAnonymousSelector {
                     // No valid BSB22 commitment can exist for an eddsa proof; a
@@ -704,16 +706,19 @@ impl RingHarness {
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
                     public_transfers: proof_inputs.public_transfers()?,
-                    signer_pk_hashes: anonymous_signer_pk_hashes(
-                        proof_inputs,
-                        &signer.signing_pubkey(),
-                    )?,
+                    signer_pk_hashes: {
+                        let mut signers = proof_inputs.signer_pk_hashes(shape.signer_width())?;
+                        let hidden = signer.signing_pubkey().owner_proof_input_hash()?;
+                        signers.retain(|identity| *identity != hidden);
+                        signers.resize(shape.signer_width(), [0; 32]);
+                        signers
+                    },
                     allow_dummy_inputs: true,
                     owner: &signer.signing_key,
                     ring_program_id: Some(ring),
                     shape,
                 };
-                let mut result = prover.build()?;
+                let mut result = prover.assemble()?;
                 signer.complete_inputs(&mut result.inputs.transfer.inputs)?;
                 let proof = ProverClient::local().prove(&result.inputs)?;
                 let (proof, commitment) = committed_transact_proof(&proof)?;
@@ -961,7 +966,7 @@ impl RingHarness {
             ring_program_id: Some(ring),
             shape: Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs()),
         };
-        let result = prover.build()?;
+        let result = prover.assemble()?;
         let data = assemble_ix_data(
             &proof_inputs,
             input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?,

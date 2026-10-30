@@ -263,6 +263,18 @@ pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
 /// Complete each fixture input with the key that owns its published nullifier.
 pub struct ProofKeys<'a>(pub &'a [&'a NullifierKey]);
 impl spr_client::ProofAuthority for ProofKeys<'_> {
+    fn owns_nullifier_pubkey(
+        &self,
+        nullifier_pubkey: &[u8; 32],
+    ) -> std::result::Result<bool, spr_client::ClientError> {
+        for key in self.0 {
+            if key.pubkey()? == *nullifier_pubkey {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn complete_inputs(
         &self,
         inputs: &mut [spr_client::TransferInput],

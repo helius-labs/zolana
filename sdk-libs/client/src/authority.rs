@@ -1,14 +1,13 @@
-//! The one capability that consumes the nullifier secret.
+//! Proof-authority and merge capabilities that consume the nullifier secret.
 //!
 //! Every other use of the secret derives from it, and those live behind
 //! [`ShieldedKeys`](spr_transaction::keys::ShieldedKeys), which returns
 //! results rather than key material. Proving is the exception: the circuit takes
 //! the raw secret as a witness field, so something has to put it there. That is
-//! this trait, and nothing else in the client holds a
-//! [`NullifierKey`].
+//! these capabilities. Callers request operations rather than extracting keys.
 
 use num_bigint::BigUint;
-use spr_keypair::{NullifierKey, ShieldedKeypair};
+use spr_keypair::{NullifierKey, ShieldedAddress, ShieldedKeypair};
 
 use crate::{
     error::ClientError,
@@ -17,6 +16,111 @@ use crate::{
         TransferInput,
     },
 };
+
+/// The operations needed to assemble a merge without exposing a nullifier key.
+pub trait MergeKeys: Send + Sync {
+    fn address(&self) -> Result<ShieldedAddress, ClientError>;
+
+    fn derive_merge(
+        &self,
+        requests: &[spr_transaction::DeriveRequest],
+    ) -> Result<Vec<[u8; 32]>, ClientError>;
+
+    /// Complete the merge proof inputs without returning a long-lived key.
+    fn complete_merge_inputs(
+        &self,
+        inputs: &mut crate::prover::MergeInputs,
+    ) -> Result<(), ClientError>;
+}
+
+pub struct LocalMergeKeys {
+    address: ShieldedAddress,
+    nullifier_key: NullifierKey,
+}
+
+impl LocalMergeKeys {
+    pub fn new(address: ShieldedAddress, nullifier_key: NullifierKey) -> Result<Self, ClientError> {
+        if nullifier_key.pubkey()? != address.nullifier_pubkey {
+            return Err(ClientError::MergeNullifierKeyMismatch);
+        }
+        Ok(Self {
+            address,
+            nullifier_key,
+        })
+    }
+}
+
+impl MergeKeys for LocalMergeKeys {
+    fn address(&self) -> Result<ShieldedAddress, ClientError> {
+        Ok(self.address)
+    }
+
+    fn derive_merge(
+        &self,
+        requests: &[spr_transaction::DeriveRequest],
+    ) -> Result<Vec<[u8; 32]>, ClientError> {
+        use spr_transaction::{
+            instructions::merge::{
+                merge_dummy_nullifier, merge_output_blinding, merge_output_key,
+                merge_private_tx_blinding,
+            },
+            DeriveRequest,
+        };
+        requests
+            .iter()
+            .map(|request| {
+                Ok(match request {
+                    DeriveRequest::Nullifier {
+                        utxo_hash,
+                        blinding,
+                    } => self.nullifier_key.nullifier(utxo_hash, blinding)?,
+                    DeriveRequest::MergeDummyNullifier {
+                        first_nullifier,
+                        slot_index,
+                    } => merge_dummy_nullifier(&self.nullifier_key, first_nullifier, *slot_index)?,
+                    DeriveRequest::MergeOutputBlinding { first_nullifier } => {
+                        merge_output_blinding(&self.nullifier_key, first_nullifier)?
+                    }
+                    DeriveRequest::MergePrivateTxBlinding { first_nullifier } => {
+                        merge_private_tx_blinding(&self.nullifier_key, first_nullifier)?
+                    }
+                    DeriveRequest::MergeOutputKey { first_nullifier } => {
+                        merge_output_key(&self.nullifier_key, first_nullifier)?
+                    }
+                })
+            })
+            .collect()
+    }
+
+    fn complete_merge_inputs(
+        &self,
+        inputs: &mut crate::prover::MergeInputs,
+    ) -> Result<(), ClientError> {
+        inputs.user_nullifier_secret = be(&right_align_slice(&*self.nullifier_key.secret())?);
+        Ok(())
+    }
+}
+
+impl MergeKeys for ShieldedKeypair {
+    fn address(&self) -> Result<ShieldedAddress, ClientError> {
+        Ok(self.shielded_address()?)
+    }
+
+    fn derive_merge(
+        &self,
+        requests: &[spr_transaction::DeriveRequest],
+    ) -> Result<Vec<[u8; 32]>, ClientError> {
+        Ok(spr_transaction::ShieldedKeys::derive(self, requests)?)
+    }
+
+    fn complete_merge_inputs(
+        &self,
+        inputs: &mut crate::prover::MergeInputs,
+    ) -> Result<(), ClientError> {
+        inputs.user_nullifier_secret = be(&right_align_slice(&*self.nullifier_key.secret())?);
+        Ok(())
+    }
+}
 
 /// Completes a witness whose real inputs it owns.
 ///
@@ -37,6 +141,10 @@ use crate::{
 /// across an await, and their futures have to be `Send` to run on a
 /// multi-threaded runtime.
 pub trait ProofAuthority: Send + Sync {
+    /// Whether this authority can complete inputs of this nullifier public key.
+    /// Provider errors must be returned, rather than interpreted as a mismatch.
+    fn owns_nullifier_pubkey(&self, nullifier_pubkey: &[u8; 32]) -> Result<bool, ClientError>;
+
     /// Fill in the nullifier secret of every input this authority owns, and
     /// check each completed input's nullifier against the one it already
     /// carries.
@@ -79,15 +187,80 @@ fn complete_owned_inputs(
 }
 
 impl ProofAuthority for NullifierKey {
+    fn owns_nullifier_pubkey(&self, nullifier_pubkey: &[u8; 32]) -> Result<bool, ClientError> {
+        Ok(self.pubkey()? == *nullifier_pubkey)
+    }
+
     fn complete_inputs(&self, inputs: &mut [TransferInput]) -> Result<(), ClientError> {
         complete_owned_inputs(self, inputs)
     }
 }
 
 impl ProofAuthority for ShieldedKeypair {
+    fn owns_nullifier_pubkey(&self, nullifier_pubkey: &[u8; 32]) -> Result<bool, ClientError> {
+        self.nullifier_key.owns_nullifier_pubkey(nullifier_pubkey)
+    }
+
     fn complete_inputs(&self, inputs: &mut [TransferInput]) -> Result<(), ClientError> {
         complete_owned_inputs(&self.nullifier_key, inputs)
     }
+}
+
+pub(crate) fn complete_with_authorities(
+    inputs: &mut [TransferInput],
+    original: &[spr_transaction::utxo::SppProofInputUtxo],
+    authorities: &[&dyn ProofAuthority],
+) -> Result<(), ClientError> {
+    if inputs.len() != original.len() {
+        return Err(ClientError::WitnessInputCountMismatch {
+            got: inputs.len(),
+            expected: original.len(),
+        });
+    }
+    for (index, (input, original)) in inputs.iter_mut().zip(original).enumerate() {
+        if original.is_dummy() || original.is_address() {
+            continue;
+        }
+        let mut selected = None;
+        for authority in authorities {
+            if authority.owns_nullifier_pubkey(&original.nullifier_pubkey)? {
+                if selected.is_some() {
+                    return Err(ClientError::AmbiguousProofAuthority { index });
+                }
+                selected = Some(*authority);
+            }
+        }
+        let authority = selected.ok_or(ClientError::MissingProofAuthority { index })?;
+        input.nullifier_secret = None;
+        authority
+            .complete_inputs(core::slice::from_mut(input))
+            .map_err(|error| match error {
+                ClientError::InputNullifierMismatch { .. } => {
+                    ClientError::InputNullifierMismatch { index }
+                }
+                other => other,
+            })?;
+        let secret = input
+            .nullifier_secret
+            .as_ref()
+            .ok_or(ClientError::MissingNullifierSecret { index })?;
+        let secret = right_align_slice(&secret.to_bytes_be())?;
+        let nullifier_pubkey = spr_keypair::hash::poseidon(&[&secret])?;
+        let utxo_hash = input.utxo.hash()?;
+        if utxo_hash != original.utxo_hash {
+            return Err(
+                spr_transaction::TransactionError::InputCommitmentMismatch { index }.into(),
+            );
+        }
+        let nullifier = spr_keypair::hash::poseidon(&[&utxo_hash, &input.utxo.blinding, &secret])?;
+        if nullifier_pubkey != original.nullifier_pubkey
+            || be(&nullifier) != input.nullifier
+            || input.nullifier != be(&original.published_nullifier())
+        {
+            return Err(ClientError::InputNullifierMismatch { index });
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

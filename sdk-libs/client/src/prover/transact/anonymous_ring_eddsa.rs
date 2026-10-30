@@ -84,7 +84,7 @@ pub struct AnonymousEddsaAuthorization {
 }
 
 impl AnonymousRingEddsaProver<'_> {
-    pub fn build(self) -> Result<AnonymousRingEddsaProofResult, ClientError> {
+    pub fn assemble(self) -> Result<AnonymousRingEddsaProofResult, ClientError> {
         let shape = self.shape;
         validate_shape(shape, self.inputs.len(), self.outputs.len())?;
         if self.signer_pk_hashes.len() != shape.signer_width() {
@@ -184,7 +184,7 @@ impl AnonymousRingEddsaProver<'_> {
 }
 
 /// Signer identities without the hidden owner, which authorizes only inside the proof.
-pub fn anonymous_signer_pk_hashes(
+pub(crate) fn anonymous_signer_pk_hashes(
     transaction: &SppProofInputs,
     owner: &PublicKey,
 ) -> Result<Vec<[u8; 32]>, ClientError> {

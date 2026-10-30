@@ -11,6 +11,11 @@ use crate::prover::tee::TeeError;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error("no proof authority owns input {index}'s nullifier public key")]
+    MissingProofAuthority { index: usize },
+
+    #[error("multiple proof authorities own input {index}'s nullifier public key")]
+    AmbiguousProofAuthority { index: usize },
     #[error("address input {index} is not supported by merge or ring authority proofs")]
     AddressInputUnsupported { index: usize },
     #[error("deposit builder error: {0}")]
@@ -116,6 +121,9 @@ pub enum ClientError {
 
     #[error("SPL token account is required for mint {mint}")]
     MissingSplTokenAccount { mint: Pubkey },
+
+    #[error("SPL token account {address} is invalid for mint {mint}")]
+    InvalidSplTokenAccount { address: Address, mint: Address },
 
     #[error("mint {mint} is owned by unsupported SPL token program {owner}")]
     UnsupportedSplTokenProgram { mint: Pubkey, owner: Pubkey },

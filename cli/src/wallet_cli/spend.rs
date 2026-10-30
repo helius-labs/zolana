@@ -7,12 +7,10 @@
 
 use anyhow::Result;
 use solana_signature::Signature;
-use solana_signer::Signer;
 use spr_client::{
-    sign_transaction, Rpc, RpcSendTransactionConfig, SignedPrivateTransaction, SolanaRpc,
-    Submission, ZolanaClient,
+    sign_transaction, Rpc, RpcSendTransactionConfig, SolanaRpc, TransactionProofRequest,
+    ZolanaClient,
 };
-use spr_program::instruction::TransactInterfaceTransferAccounts;
 use spr_transaction::instructions::transact::ConfidentialTransaction;
 
 use super::sync::SyncContext;
@@ -31,16 +29,14 @@ pub(super) fn send_private(
     ctx: &SyncContext,
     client: &ZolanaClient<SolanaRpc>,
     transaction: ConfidentialTransaction,
-    settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
     send: Send,
 ) -> Result<Signature> {
     let keypair = &ctx.material.keypair;
-    let signed = SignedPrivateTransaction {
-        transaction: transaction.encrypt(keypair)?,
-        settlement_transfers,
-    };
-    let unsigned = Submission::new(&signed, ctx.material.funding.pubkey(), keypair)
-        .finish_unsigned_sync(client)?;
+    let signed = transaction.encrypt(keypair)?;
+    let proved = TransactionProofRequest::new(signed, &[keypair])?.prove_sync(client)?;
+    let (blockhash, last_valid_block_height) = client.get_latest_blockhash()?;
+    let unsigned =
+        proved.build_solana_message(blockhash, last_valid_block_height, client.compute_budget())?;
     let transaction = sign_transaction(unsigned.message, &[&ctx.material.funding])?;
     let signature = match send {
         Send::Fast => client.rpc().send_transaction_with_config(

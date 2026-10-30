@@ -4,7 +4,7 @@ use anyhow::{bail, Result};
 use solana_signer::Signer;
 use spr_client::{
     check_service_url, indexer::ZolanaIndexer, prover::ProverClient,
-    user_registry::try_resolve_registered_address, MergeSubmission, Rpc, SolanaRpc, ZolanaClient,
+    user_registry::try_resolve_registered_address, MergeProofRequest, Rpc, SolanaRpc, ZolanaClient,
 };
 use spr_interface::shape::Shape;
 use spr_transaction::{
@@ -36,7 +36,7 @@ pub(super) fn client(
     let prover = network
         .prover_tee
         .apply(ProverClient::new(network.prover_url.clone()))?;
-    Ok(ZolanaClient::new(
+    Ok(ZolanaClient::from_parts(
         rpc,
         ZolanaIndexer::new(&network.sync.indexer_url),
         prover,
@@ -57,23 +57,22 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
 
     let inputs = select_spend(ctx.spendable.utxos(), asset, opts.amount)?;
     let mut transaction = ConfidentialTransaction::new(inputs, payer(&ctx))?;
-    let (mode, settlement_transfers) = match try_resolve_registered_address(&client, recipient)? {
+    let mode = match try_resolve_registered_address(&client, recipient)? {
         Some(registered) => {
             if asset == SOL_MINT {
                 transaction.transfer_sol(&registered.address, opts.amount)?;
             } else {
                 transaction.transfer(&registered.address, asset, opts.amount)?;
             }
-            ("shielded", Vec::new())
+            "shielded"
         }
         None => {
             let spl_token_program = spl_token_program(&client, asset)?;
-            let settlement =
-                transaction.withdraw_to(asset, opts.amount, recipient, spl_token_program)?;
-            ("withdraw", vec![settlement])
+            transaction.withdraw_to(asset, opts.amount, recipient, spl_token_program)?;
+            "withdraw"
         }
     };
-    let signature = send_private(&ctx, &client, transaction, settlement_transfers, Send::Fast)?;
+    let signature = send_private(&ctx, &client, transaction, Send::Fast)?;
     println!(
         "ok transfer amount={} mint={} to={} mode={} signature={}",
         opts.amount,
@@ -146,7 +145,7 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
             transaction.transfer(&address, asset, per_output)?;
         }
     }
-    let signature = send_private(&ctx, &client, transaction, Vec::new(), Send::Fast)?;
+    let signature = send_private(&ctx, &client, transaction, Send::Fast)?;
     println!(
         "ok split parts={} amount={} mint={} signature={}",
         opts.parts,
@@ -218,14 +217,8 @@ pub(crate) fn run_merge(opts: MergeOptions) -> Result<()> {
         .with_output_tree_id(tree_id)
         .encrypt(keypair)?;
     let merged_amount = prepared.output_utxo.amount;
-    let address = keypair.shielded_address()?;
-    let signature = MergeSubmission::new(
-        &prepared,
-        ctx.material.owner_pubkey(),
-        &address,
-        &keypair.nullifier_key,
-    )
-    .send_sync(&client, &ctx.material.funding)?;
+    let signature = MergeProofRequest::new(prepared, keypair)?
+        .prove_and_send_sync(&client, &ctx.material.funding)?;
 
     println!(
         "ok merge inputs={} amount={} mint={} signature={}",

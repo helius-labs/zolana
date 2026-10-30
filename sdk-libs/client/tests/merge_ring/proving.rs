@@ -3,7 +3,8 @@
 use crate::input_fixture::wallet_utxo;
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
-use spr_client::{MergeProver, ProverClient, ProverExt, Rpc};
+use spr_client::Prover as _;
+use spr_client::{MergeProver, ProverClient, Rpc};
 use spr_interface::{
     instruction::instruction_data::merge_transact::MergeProof,
     verifying_keys::{merge_ring_24_1, merge_ring_52_1, merge_ring_8_1},
@@ -98,7 +99,10 @@ impl MergeRingHarness {
         .expect("build merge-ring proof");
 
         let proof = ProverClient::local()
-            .prove_merge_ring(&result.inputs)
+            .prove(
+                &spr_client::prover::requests::merge_ring(&result.inputs)
+                    .expect("encode ring proof request"),
+            )
             .expect("prove merge-ring");
         assert!(
             proof.commitment.is_none(),
@@ -116,11 +120,13 @@ impl MergeRingHarness {
         verifier
             .verify()
             .expect("merge-ring groth16 proof verifies");
-        let sent = result
-            .ring_instruction_data(MergeProof::zeroed())
-            .merge
-            .nullifiers
-            .len();
+        let sent = spr_interface::instruction::instruction_data::merge_ring::MergeRingIxData {
+            output_ring_data_hash: result.output_ring_data_hash,
+            merge: result.instruction_data(MergeProof::zeroed()),
+        }
+        .merge
+        .nullifiers
+        .len();
         assert_eq!(sent, n, "compact padding is left out of the instruction");
 
         // The owner derives the merge-ring output blinding from its nullifier

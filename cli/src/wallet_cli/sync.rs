@@ -49,12 +49,12 @@ pub(super) fn sync_context(opts: &SyncOptions, rpc: &SolanaRpc) -> Result<SyncCo
     let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
     let slot = rpc.get_slot()?;
-    let spendable = UtxoScan::new(&material.keypair, &assets)
+    let spendable = UtxoScan::new(&material.keypair)
         .with_indexer_config(IndexerRpcConfig {
             poll: indexer_poll(),
             require_slot: Some(slot),
         })
-        .fetch(&indexer)?
+        .fetch(&indexer, &assets)?
         .spendable;
     Ok(SyncContext {
         material,

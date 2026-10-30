@@ -7,11 +7,8 @@ use spr_hasher::primitives::pack_be;
 use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::{
-            merge_ring::MergeRingIxData,
-            merge_transact::{
-                MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeTransactIxData,
-            },
+        instruction_data::merge_transact::{
+            MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeTransactIxData,
         },
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
@@ -21,11 +18,11 @@ use spr_interface::{
 use spr_keypair::{viewing_key::Salt, NullifierKey};
 use spr_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
-        MergeOutputCiphertext, MergeOutputPlaintext, MergeProofInputs,
+        merge_output_key, MergeOutputCiphertext, MergeOutputPlaintext, MergeProofInputs,
         MERGE_SUPPORTED_INPUT_COUNTS,
     },
     utxo::program_id_proof_input_hash,
+    DeriveRequest,
 };
 
 use crate::{
@@ -104,17 +101,6 @@ impl MergeProofResult {
             cache_slot: self.cache_slot,
         }
     }
-
-    /// Assemble the `merge_ring` instruction data: the same `merge_transact`
-    /// body wrapped in a [`MergeRingIxData`] with the output `ring_data_hash`
-    /// the ring program selected. The caller passes the result to the
-    /// `MergeRing` builder with the tree / ring_config accounts.
-    pub fn ring_instruction_data(&self, proof: MergeProof) -> MergeRingIxData {
-        MergeRingIxData {
-            output_ring_data_hash: self.output_ring_data_hash,
-            merge: self.instruction_data(proof),
-        }
-    }
 }
 
 /// Refuses a merge whose ciphertext does not encrypt its output's amount and
@@ -126,14 +112,18 @@ pub(crate) fn check_output_ciphertext(
     nullifier_key: &NullifierKey,
     first_nullifier: &[u8; 32],
 ) -> Result<(), ClientError> {
+    check_output_ciphertext_with_key(merge, &merge_output_key(nullifier_key, first_nullifier)?)
+}
+
+fn check_output_ciphertext_with_key(
+    merge: &MergeProofInputs,
+    key: &[u8; 32],
+) -> Result<(), ClientError> {
     let expected = MergeOutputPlaintext {
         amount: merge.output_utxo.amount,
         mint: merge.output_utxo.asset.asset,
     }
-    .encrypt(
-        &merge_output_key(nullifier_key, first_nullifier)?,
-        &merge.output_ciphertext_salt,
-    )?;
+    .encrypt(key, &merge.output_ciphertext_salt)?;
     if merge.output_ciphertext != expected {
         return Err(ClientError::MergeOutputCiphertextMismatch);
     }
@@ -142,6 +132,49 @@ pub(crate) fn check_output_ciphertext(
 
 impl MergeProver {
     pub fn build(self) -> Result<MergeProofResult, ClientError> {
+        let address = self
+            .transaction
+            .output_utxo
+            .owner_address
+            .ok_or(ClientError::MergeOutputMismatch)?;
+        let keys = crate::LocalMergeKeys::new(address, self.nullifier_key)?;
+        assemble_merge(
+            self.transaction,
+            &keys,
+            self.proofs,
+            self.dummy_nullifier_proofs,
+            self.cache,
+        )
+    }
+}
+
+pub(crate) fn assemble_merge(
+    transaction: MergeProofInputs,
+    keys: &dyn crate::MergeKeys,
+    proofs: Vec<SpendProof>,
+    dummy_nullifier_proofs: Vec<NonInclusionProof>,
+    cache: Option<MergeCacheTarget>,
+) -> Result<MergeProofResult, ClientError> {
+    MergeAssembly {
+        transaction,
+        keys,
+        proofs,
+        dummy_nullifier_proofs,
+        cache,
+    }
+    .build()
+}
+
+struct MergeAssembly<'a> {
+    transaction: MergeProofInputs,
+    keys: &'a dyn crate::MergeKeys,
+    proofs: Vec<SpendProof>,
+    dummy_nullifier_proofs: Vec<NonInclusionProof>,
+    cache: Option<MergeCacheTarget>,
+}
+
+impl MergeAssembly<'_> {
+    fn build(self) -> Result<MergeProofResult, ClientError> {
         let tx = &self.transaction;
         let n_inputs = tx.input_utxos.len();
         if !MERGE_SUPPORTED_INPUT_COUNTS.contains(&n_inputs) {
@@ -157,20 +190,58 @@ impl MergeProver {
             .filter(|input| !input.is_dummy())
             .ok_or(ClientError::NoInputs)?;
         let first_nullifier = first.nullifier;
-        let nullifier_pubkey = self.nullifier_key.pubkey()?;
+        let address = self.keys.address()?;
+        if address.signing_pubkey != tx.signing_pubkey {
+            return Err(ClientError::MergeSigningKeyMismatch);
+        }
+        let nullifier_pubkey = address.nullifier_pubkey;
         let mut total = 0u64;
         tx.input_utxo_hashes()?;
-        for (index, input) in tx.input_utxos.iter().enumerate() {
+        let mut requests = tx
+            .input_utxos
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                Ok(if input.is_dummy() {
+                    DeriveRequest::MergeDummyNullifier {
+                        first_nullifier,
+                        slot_index: u8::try_from(index).map_err(|_| {
+                            ClientError::TooManyInputs {
+                                got: n_inputs,
+                                max: usize::from(u8::MAX),
+                            }
+                        })?,
+                    }
+                } else {
+                    DeriveRequest::Nullifier {
+                        utxo_hash: input.utxo_hash,
+                        blinding: input.utxo.blinding,
+                    }
+                })
+            })
+            .collect::<Result<Vec<_>, ClientError>>()?;
+        requests.extend([
+            DeriveRequest::MergeOutputBlinding { first_nullifier },
+            DeriveRequest::MergeOutputKey { first_nullifier },
+            DeriveRequest::MergePrivateTxBlinding { first_nullifier },
+        ]);
+        let derived = self.keys.derive_merge(&requests)?;
+        let incomplete = || spr_transaction::TransactionError::IncompleteDerivation {
+            got: derived.len(),
+            want: requests.len(),
+        };
+        if derived.len() != requests.len() {
+            return Err(incomplete().into());
+        }
+        let (nullifiers, output_derivations) =
+            derived.split_at_checked(n_inputs).ok_or_else(incomplete)?;
+        let [output_blinding, output_key, private_tx_blinding] =
+            <[[u8; 32]; 3]>::try_from(output_derivations).map_err(|_| incomplete())?;
+        for (index, (input, nullifier)) in tx.input_utxos.iter().zip(nullifiers).enumerate() {
+            if input.nullifier != *nullifier {
+                return Err(ClientError::InputNullifierMismatch { index });
+            }
             if input.is_dummy() {
-                let slot = u8::try_from(index).map_err(|_| ClientError::TooManyInputs {
-                    got: n_inputs,
-                    max: usize::from(u8::MAX),
-                })?;
-                if input.nullifier
-                    != merge_dummy_nullifier(&self.nullifier_key, &first_nullifier, slot)?
-                {
-                    return Err(ClientError::InputNullifierMismatch { index });
-                }
                 continue;
             }
             if input.utxo.owner != tx.signing_pubkey {
@@ -184,13 +255,6 @@ impl MergeProver {
             }
             if input.utxo.asset != first.utxo.asset {
                 return Err(ClientError::MergeInputAssetMismatch { index });
-            }
-            if input.nullifier
-                != self
-                    .nullifier_key
-                    .nullifier(&input.utxo_hash, &input.utxo.blinding)?
-            {
-                return Err(ClientError::InputNullifierMismatch { index });
             }
             total = total
                 .checked_add(input.utxo.amount)
@@ -210,10 +274,10 @@ impl MergeProver {
         {
             return Err(ClientError::MergeOutputMismatch);
         }
-        if output.blinding != merge_output_blinding(&self.nullifier_key, &first_nullifier)? {
+        if output.blinding != output_blinding {
             return Err(ClientError::OutputBlindingMismatch { index: 0 });
         }
-        check_output_ciphertext(tx, &self.nullifier_key, &first_nullifier)?;
+        check_output_ciphertext_with_key(tx, &output_key)?;
         let MergeProofInputs {
             input_utxos,
             output_utxo,
@@ -254,7 +318,6 @@ impl MergeProver {
                 .zip(cache_slot),
         }
         .hash()?;
-        let private_tx_blinding = merge_private_tx_blinding(&self.nullifier_key, &first_nullifier)?;
         let private_tx =
             private_tx_hash(&assembled_inputs, &assembled_outputs, &private_tx_blinding)?;
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
@@ -284,13 +347,12 @@ impl MergeProver {
             },
         }
         .hash(tree_slots_hash_chain(&assembled_inputs.tree_slots)?)?;
-        let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
         let output = assembled_outputs
             .outputs
             .into_iter()
             .next()
             .ok_or(ClientError::MissingOutput)?;
-        let inputs = MergeInputs {
+        let mut inputs = MergeInputs {
             inputs: assembled_inputs.inputs,
             output,
             tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
@@ -299,7 +361,7 @@ impl MergeProver {
             output_ciphertext_salt: be(&right_align(&output_ciphertext_salt)),
             owner_pk_hash: be(&user_signing_pk_hash),
             user_nullifier_pk: be(&nullifier_pubkey),
-            user_nullifier_secret: be(&user_nullifier_secret),
+            user_nullifier_secret: BigUint::ZERO,
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             allow_dummy_inputs: BigUint::from(1u8),
@@ -307,6 +369,11 @@ impl MergeProver {
             output_ring_data_hash: be(&output_ring_data_hash),
             ring_program_id: be(&ring_hash),
         };
+        self.keys.complete_merge_inputs(&mut inputs)?;
+        let secret = right_align_slice(&inputs.user_nullifier_secret.to_bytes_be())?;
+        if spr_keypair::hash::poseidon(&[&secret])? != nullifier_pubkey {
+            return Err(ClientError::MergeNullifierKeyMismatch);
+        }
         Ok(MergeProofResult {
             inputs,
             public_input_hash,

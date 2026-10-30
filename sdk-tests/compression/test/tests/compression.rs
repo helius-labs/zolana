@@ -133,11 +133,12 @@ fn prove_update(
     spp_proof_inputs: SppProofInputs,
     meta: UtxoMeta,
 ) -> Result<(UtxoMeta, TransactProof)> {
-    let transact = env.localnet.client.prove_transact(
+    let transact = spr_client::TransactionProofRequest::new(
         spp_proof_inputs,
-        None,
-        &compression_example_sdk::shared::zero_nullifier_key(),
-    )?;
+        &[&compression_example_sdk::shared::zero_nullifier_key()],
+    )?
+    .prove_sync(&env.localnet.client)
+    .map(|proved| proved.instruction_data().clone())?;
     let [tree_context] = transact.tree_contexts.as_slice() else {
         bail!("SPP transact must declare exactly one input tree");
     };
@@ -238,7 +239,7 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
         vec![pda.to_bytes()],
         Vec::new(),
     );
-    let transact = env.localnet.client.prove_transact(
+    let transact = spr_client::TransactionProofRequest::new(
         SppProofInputs {
             input_utxos,
             output_utxos: poison_outputs,
@@ -248,9 +249,10 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
             output_tree_id: DEFAULT_TREE_ID,
             cache_accounts: Default::default(),
         },
-        None,
-        &attacker,
-    )?;
+        &[&attacker],
+    )?
+    .prove_sync(&env.localnet.client)
+    .map(|proved| proved.instruction_data().clone())?;
     let poison_ix = Transact {
         payer: attacker.pubkey(),
         input_trees: vec![env.localnet.tree],

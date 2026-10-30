@@ -34,10 +34,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 // `Rpc` is in scope for send_transaction_with_config, which is a
 // trait method rather than an inherent one on SolanaRpc.
-use spr_client::{
-    prover::{tee::TeePolicy, AsyncProverClient},
-    Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient,
-};
+use spr_client::{prover::{tee::TeePolicy, AsyncProverClient}, Rpc, RpcSendTransactionConfig, ZolanaClient};
 use spr_keypair::ShieldedKeypair;
 use spr_test_utils::wallet::{
     create_transfer_sync, sign_private_transaction_sync, sync_wallet, KeypairWalletAuthority,
@@ -477,7 +474,7 @@ fn worker(
     // Retains support for private HTTP indexers. Prover attestation and
     // encryption still apply whenever a policy is supplied.
     let client = ZolanaClient::from_urls_allowing_insecure_http(
-        SolanaRpc::new(options.rpc_url.clone()),
+        options.rpc_url.clone(),
         options.indexer_url.clone(),
         options.prover_url.clone(),
         options.prover_tee.clone(),

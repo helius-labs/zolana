@@ -1,18 +1,5 @@
 use std::sync::Arc;
 
-use solana_address::Address;
-use solana_signature::Signature;
-use spr_api::{BlockingRuntime, BlockingZolanaApi, ZolanaApi};
-#[cfg(feature = "reqwest")]
-use spr_interface::instruction::instruction_data::transact::TransactIxData;
-#[cfg(feature = "reqwest")]
-use spr_transaction::instructions::transact::SppProofInputs;
-
-#[cfg(feature = "reqwest")]
-use crate::{
-    authority::ProofAuthority,
-    prover::{witness::WitnessReader, ProverClient, ProverExt},
-};
 use crate::{
     error::ClientError,
     rpc::{
@@ -22,6 +9,9 @@ use crate::{
         GetUserRecordsResponse, IndexerRpcConfig, RingHistoryOptions, Rpc,
     },
 };
+use solana_address::Address;
+use solana_signature::Signature;
+use spr_api::{BlockingRuntime, BlockingZolanaApi, ZolanaApi};
 
 use super::AsyncZolanaIndexer;
 
@@ -74,27 +64,6 @@ impl ZolanaIndexer {
         future: impl std::future::Future<Output = Result<T, ClientError>>,
     ) -> Result<T, ClientError> {
         self.runtime.block_on(future)
-    }
-
-    /// Fetch the witnesses the inputs name and prove through the local prover.
-    #[cfg(feature = "reqwest")]
-    ///
-    /// The witnesses come from [`WitnessReader`], the one place that knows how
-    /// to split real inputs from padding and which tree each is proven against;
-    /// a second copy of that split here would be a second thing to keep in step
-    /// with the circuit.
-    pub fn prove_transact(
-        &self,
-        proof_inputs: SppProofInputs,
-        authority: &dyn ProofAuthority,
-    ) -> Result<TransactIxData, ClientError> {
-        let witnesses = WitnessReader::transaction_proofs(self, &proof_inputs.input_utxos, None)?;
-        ProverClient::local().prove_transact(
-            proof_inputs,
-            &witnesses.spend_proofs,
-            &witnesses.dummy_nullifier_proofs,
-            authority,
-        )
     }
 }
 
