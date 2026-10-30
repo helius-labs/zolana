@@ -56,7 +56,7 @@ function metadata(text: string, role: Role): void {
   positive(signed["version"]);
   const expires = decode.string(signed["expires"], "expires");
   if (
-    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/u.test(expires) ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/u.test(expires) ||
     !Number.isSafeInteger(Date.parse(expires)) ||
     new Date(Date.parse(expires)).toISOString().slice(0, 19) !== expires.slice(0, 19)
   ) {

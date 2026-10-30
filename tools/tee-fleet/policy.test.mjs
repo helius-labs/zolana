@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { build } from "esbuild";
 import { launchBrowser } from "./browser.mjs";
 import { listen } from "./gateway.mjs";
+import { policyFixture } from "./policy-fixture.mjs";
 
 const root = new URL("../../", import.meta.url);
 const vector = JSON.parse(
@@ -34,6 +35,16 @@ test(
           /tuf-node|node_modules\/tuf-js\/dist\/updater/u.test(input),
         ),
       );
+      const fleet = JSON.parse(
+        Object.entries(vector.repositories.v1).find(
+          ([path]) => path.startsWith("targets/") && path.endsWith(".fleet.json"),
+        )[1],
+      );
+      const nanoExpiry = new Date(Date.now() + 3_600_000)
+        .toISOString()
+        .replace(/\.\d+Z$/u, ".123456789Z");
+      const nano = policyFixture(fleet, { expires: nanoExpiry });
+      vector.repositories.nano = nano.files;
       let selected = "v1";
       let fault;
       const requests = [];
@@ -79,7 +90,13 @@ test(
         response.writeHead(200, {
           "content-type": fault === "badType" ? "text/plain" : "application/json",
         });
-        response.end(fault === "badTarget" && path.startsWith("targets/") ? `${data}x` : data);
+        response.end(
+          fault === "badTarget" && path.startsWith("targets/")
+            ? `${data}x`
+            : fault === "bomRoot" && path.endsWith(".root.json")
+              ? `\ufeff${data}`
+              : data,
+        );
       });
       servers.push(repository);
       const assets = await listen(async (request, response) => {
@@ -105,7 +122,7 @@ test(
         metadataUrl: `${repository.url}/metadata/`,
         targetsUrl: `${repository.url}/targets/`,
       };
-      const resolve = (databaseName) =>
+      const resolve = (databaseName, patch = {}) =>
         page.evaluate(
           async (options) => {
             try {
@@ -119,7 +136,7 @@ test(
               return { error: error.code, details: error.details };
             }
           },
-          { ...options, databaseName },
+          { ...options, databaseName, ...patch },
         );
       const refused = (value) => assert.equal(value.error, "CLIENT_PROVER_TEE_ATTESTATION");
       let index = 0;
@@ -153,6 +170,15 @@ test(
           refused(await resolve(fresh()));
         });
       }
+      await t.test(
+        "fractional expiry with nanosecond precision is conservatively floored",
+        async () => {
+          selected = "nano";
+          const result = await resolve(fresh(), { rootJson: nano.root });
+          assert.equal(result.revision, 1);
+          assert.equal(result.expiresAt, Math.floor(Date.parse(nanoExpiry) / 1000));
+        },
+      );
       await t.test(
         "revision and metadata floors survive a page reload and a new source",
         async () => {
@@ -197,7 +223,7 @@ test(
         selected = "v1";
         refused(await resolve(db));
       });
-      for (const mode of ["root500", "redirect", "oversized", "badType"]) {
+      for (const mode of ["root500", "redirect", "oversized", "badType", "bomRoot"]) {
         await t.test(`fails closed before timestamp on ${mode}`, async () => {
           selected = "rotated";
           fault = mode;

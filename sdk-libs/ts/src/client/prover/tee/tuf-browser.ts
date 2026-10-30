@@ -295,7 +295,8 @@ function digest(bytes: string | Uint8Array): string {
   return bytesToHex(sha256(typeof bytes === "string" ? utf8ToBytes(bytes) : bytes));
 }
 function text(bytes: Uint8Array): string {
-  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  // Keep BOMs visible to the strict JSON parser; decoding must not rewrite trusted root bytes.
+  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
 }
 function checkAbort(request: ComposedSignal): void {
   if (request.signal.aborted) throw requestError("attest", request);

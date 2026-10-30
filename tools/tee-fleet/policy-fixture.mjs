@@ -2,7 +2,10 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { canonicalize } from "@tufjs/canonical-json";
 
-export function policyFixture(policy) {
+export function policyFixture(
+  policy,
+  { expires = new Date(Date.now() + 3_600_000).toISOString() } = {},
+) {
   const keys = generateKeyPairSync("ed25519");
   const der = keys.publicKey.export({ type: "spki", format: "der" });
   const key = {
@@ -12,7 +15,6 @@ export function policyFixture(policy) {
   };
   const digest = (data) => createHash("sha256").update(data).digest("hex");
   const id = digest(canonicalize(key));
-  const expires = new Date(Date.now() + 3_600_000).toISOString();
   const metadata = (type, fields) => {
     const signed = { _type: type, version: 1, spec_version: "1.0.31", expires, ...fields };
     return JSON.stringify({
