@@ -4,18 +4,17 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { build } from "esbuild";
+import { writeJson } from "./artifacts.mjs";
 import { launchBrowser } from "./browser.mjs";
 import { managedRouter } from "./managed.mjs";
 import { createMockGateway, createRecipientRouter, listen, recipientId } from "./gateway.mjs";
 
-const repository = new URL("../../", import.meta.url).pathname;
 const execute = promisify(execFile);
-const dist = join(repository, "sdk-libs/ts/dist");
 const verifier = process.env.ZOLANA_TEE_PROOF_VERIFIER;
 const managedBinary = process.env.ZOLANA_TEE_ROUTER_BINARY;
 const manifestPath = process.argv[2];
@@ -33,7 +32,7 @@ if (
   throw new Error("expected the isolated PRI-285 test fleet");
 const rootJson = await readFile(resolve(dirname(manifestPath), manifest.rootFile), "utf8");
 await mkdir(output, { recursive: true });
-const staging = await mkdtemp(new URL(".tmp-live-", import.meta.url).pathname);
+const staging = await mkdtemp(fileURLToPath(new URL(".tmp-live-", import.meta.url)));
 const servers = [];
 let browser;
 
@@ -89,52 +88,11 @@ function backend(entry) {
 }
 
 async function bundle(platform, outfile) {
-  const provider = platform === "node" ? "tuf-node.js" : "tuf-browser.js";
   await build({
-    stdin: {
-      contents: `
-      import { createZolanaClient } from ${JSON.stringify(join(dist, "index.js"))};
-      import { tufTeePolicy } from ${JSON.stringify(join(dist, "client/prover/tee", provider))};
-      import { transferFixtureInputs, transferFixturePublicInputHash } from ${JSON.stringify(join(repository, "sdk-libs/ts/test/helpers/transfer-fixture.ts"))};
-      import { bytesToHex } from "@noble/hashes/utils.js";
-      import { readBoundedBody } from ${JSON.stringify(join(dist, "services/transport.js"))};
-      export async function client(options) {
-        const source = tufTeePolicy(options.policy);
-        const observed = { encrypted: 0, attestations: 0 };
-        let evidence;
-        const fetch = async (input, init) => {
-          const url = new URL(input instanceof Request ? input.url : String(input));
-          if (url.origin !== new URL(options.proverUrl).origin) throw new Error("unexpected fixture client endpoint");
-          if (url.pathname.endsWith("/tee/v1/attestation")) observed.attestations++;
-          else {
-            const headers = new Headers(init?.headers);
-            if (headers.get("Zolana-Tee") !== "v1" || !/^[0-9a-f]{64}$/.test(headers.get("Zolana-Tee-Key-Id") ?? "")) throw new Error("unencrypted fixture request");
-            observed.encrypted++;
-          }
-          const response = await globalThis.fetch(input, init);
-          if (url.pathname.endsWith("/tee/v1/attestation") && response.ok) {
-            const bytes = await readBoundedBody(response, 1 << 20);
-            evidence = { captured_at: Math.floor(Date.now() / 1000), nonce: url.searchParams.get("nonce"), attestation: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) };
-            return new Response(bytes.slice(), { status: response.status, headers: response.headers });
-          }
-          return response;
-        };
-        const value = await createZolanaClient({ solanaRpcUrl: "http://127.0.0.1:8899", indexerUrl: undefined, proverUrl: options.proverUrl, proverTee: source, fetch });
-        return {
-          observed,
-          evidence() { return evidence; },
-          async policy() { const p = await source.resolve({ timeoutMs: 30000 }); return { revision: p.revision, expiresAt: p.expiresAt, deployments: p.deployments.map(d => d.id) }; },
-          async attest() { const p = await value.attestProver({ timeoutMs: 120000 }); return { platform: p.platform, key: bytesToHex(p.hpkePublicKey) }; },
-          async prove() {
-            await value.checkProverProvingKeys({ timeoutMs: 120000 });
-            const p = await value.proofService.prove(transferFixtureInputs(), { timeoutMs: 180000 });
-            return { a: bytesToHex(p.a), b: bytesToHex(p.b), c: bytesToHex(p.c), publicInputHash: transferFixturePublicInputHash() };
-          }
-        };
-      }
-    `,
-      resolveDir: repository,
-    },
+    entryPoints: [fileURLToPath(new URL("live-client.mjs", import.meta.url))],
+    ...(platform === "browser"
+      ? { alias: { "@heliuslabs/zolana/tee/node": "@heliuslabs/zolana/tee/browser" } }
+      : {}),
     outfile,
     bundle: true,
     format: "esm",
@@ -151,7 +109,7 @@ async function bundle(platform, outfile) {
 
 async function saveProof(name, proof) {
   const path = join(output, `${name}.json`);
-  await writeFile(path, JSON.stringify(proof, null, 2) + "\n");
+  await writeJson(path, proof);
   execFileSync(verifier, ["--verify", path], { stdio: ["ignore", "pipe", "pipe"] });
   return path;
 }
@@ -259,10 +217,7 @@ try {
     assert.equal(attestation.platform, "aws-nitro");
     assert.equal(recipientId(Buffer.from(attestation.key, "hex")), entry.recipientId);
     await saveProof(`node-${entry.id}`, await client.prove());
-    await writeFile(
-      join(output, `node-${entry.id}-attestation.json`),
-      JSON.stringify(client.evidence(), null, 2) + "\n",
-    );
+    await writeJson(join(output, `node-${entry.id}-attestation.json`), client.evidence());
     report.node.push({ id: entry.id, region: entry.region, ...client.observed, verified: true });
     await nativeProof(`rust-${entry.id}`);
     report.rust.push({ id: entry.id, region: entry.region, verified: true });
@@ -271,6 +226,12 @@ try {
   const page = await browser.newPage();
   await page.goto(assets.url);
   await page.waitForFunction(() => Boolean(window.sdk));
+  const browserClient = {
+    attest: () => page.evaluate(() => window.liveClient.attest()),
+    prove: () => page.evaluate(() => window.liveClient.prove()),
+    policy: () => page.evaluate(() => window.liveClient.policy()),
+    evidence: () => page.evaluate(() => window.liveClient.evidence()),
+  };
   for (const entry of deployments) {
     await only(entry.id);
     const attestation = await page.evaluate(
@@ -282,11 +243,11 @@ try {
     );
     assert.equal(attestation.platform, "aws-nitro");
     assert.equal(recipientId(Buffer.from(attestation.key, "hex")), entry.recipientId);
-    const proof = await page.evaluate(async () => await window.liveClient.prove());
+    const proof = await browserClient.prove();
     await saveProof(`browser-${entry.id}`, proof);
-    await writeFile(
+    await writeJson(
       join(output, `browser-${entry.id}-attestation.json`),
-      JSON.stringify(await page.evaluate(() => window.liveClient.evidence()), null, 2) + "\n",
+      await browserClient.evidence(),
     );
     report.browser.push({ id: entry.id, region: entry.region, verified: true });
   }
@@ -294,7 +255,7 @@ try {
     const previous = deployments.at(-1);
     const before = (await router.readStats()).forwarded[previous.id];
     await router.failGeneration(previous.id);
-    const proof = await page.evaluate(async () => await window.liveClient.prove());
+    const proof = await browserClient.prove();
     await saveProof("browser-failover", proof);
     await saveProof("node-failover", await nodeClient.prove());
     assert.equal((await router.readStats()).forwarded[previous.id], before);
@@ -304,22 +265,11 @@ try {
     let attested = false;
     let afterAttestation;
     await new Promise((resolveRun, rejectRun) => {
-      const child = spawn(
-        verifier,
-        [
-          "--pause-after-attestation",
-          resolve(dirname(manifestPath), manifest.rootFile),
-          manifest.network,
-          manifest.metadataUrl,
-          manifest.targetsUrl,
-          resolve(output, "rust-cache"),
-        ],
-        {
-          env: { ...process.env, ZOLANA_PROVER_URL: proverUrl, ZOLANA_TEE_PROOF_OUTPUT: rustProof },
-          timeout: 240000,
-          stdio: ["pipe", "pipe", "ignore"],
-        },
-      );
+      const child = spawn(verifier, ["--pause-after-attestation", ...nativeArgs], {
+        env: { ...process.env, ZOLANA_PROVER_URL: proverUrl, ZOLANA_TEE_PROOF_OUTPUT: rustProof },
+        timeout: 240000,
+        stdio: ["pipe", "pipe", "ignore"],
+      });
       let pending = "";
       child.stdout.on("data", async (chunk) => {
         pending += chunk.toString();
@@ -361,9 +311,9 @@ try {
     const attested = await nodeClient.attest();
     assert.equal(recipientId(Buffer.from(attested.key, "hex")), restored.recipientId);
     await saveProof("node-restored-generation", await nodeClient.prove());
-    await writeFile(
+    await writeJson(
       join(output, "node-restored-generation-attestation.json"),
-      JSON.stringify(nodeClient.evidence(), null, 2) + "\n",
+      nodeClient.evidence(),
     );
     report.restoredGeneration = { id: restored.id, recipientUnchanged: true, proofVerified: true };
   }
@@ -373,15 +323,15 @@ try {
     assert.ok(affected);
     await only(affected.id);
     const nodeQuote = await nodeClient.attest();
-    const browserQuote = await page.evaluate(async () => await window.liveClient.attest());
+    const browserQuote = await browserClient.attest();
     for (const quote of [nodeQuote, browserQuote])
       assert.equal(recipientId(Buffer.from(quote.key, "hex")), affected.recipientId);
     await saveProof("node-before-control-plane", await nodeClient.prove());
-    await saveProof("browser-before-control-plane", await page.evaluate(async () => await window.liveClient.prove()));
+    await saveProof("browser-before-control-plane", await browserClient.prove());
     await router.failControlPlane(affected.region);
     const before = (await router.readStats()).forwarded[affected.id];
     await saveProof("node-control-plane-failover", await nodeClient.prove());
-    await saveProof("browser-control-plane-failover", await page.evaluate(async () => await window.liveClient.prove()));
+    await saveProof("browser-control-plane-failover", await browserClient.prove());
     await nativeProof("rust-control-plane-failover");
     assert.equal((await router.readStats()).forwarded[affected.id], before);
     await router.restoreControlPlane();
@@ -389,7 +339,10 @@ try {
     const restored = await nodeClient.attest();
     assert.equal(recipientId(Buffer.from(restored.key, "hex")), affected.recipientId);
     await saveProof("node-control-plane-restored", await nodeClient.prove());
-    await writeFile(join(output, "node-control-plane-restored-attestation.json"), JSON.stringify(nodeClient.evidence(), null, 2) + "\n");
+    await writeJson(
+      join(output, "node-control-plane-restored-attestation.json"),
+      nodeClient.evidence(),
+    );
     report.controlPlane = {
       affectedRegion: affected.region,
       nodeVerified: true,
@@ -404,7 +357,7 @@ try {
     report.lifecycle = [];
     const commands = createInterface({ input: process.stdin });
     let approvedPolicy = await nodeClient.policy();
-    await writeFile(join(output, "qualification.json"), JSON.stringify(report, null, 2) + "\n");
+    await writeJson(join(output, "qualification.json"), report);
     console.log(JSON.stringify({ phase: "ready", policy: approvedPolicy }));
     try {
       for await (const line of commands) {
@@ -425,10 +378,7 @@ try {
             assert.ok(Date.now() < deadline, "published policy revision was not observed");
             await delay(250);
           }
-          while (
-            (await page.evaluate(async () => await window.liveClient.policy())).revision !==
-            command.revision
-          ) {
+          while ((await browserClient.policy()).revision !== command.revision) {
             assert.ok(
               Date.now() < deadline,
               "browser did not observe the published policy revision",
@@ -438,10 +388,7 @@ try {
           approvedPolicy = await nodeClient.policy();
           const before = { ...(await router.readStats()).forwarded };
           await saveProof(`node-policy-${command.revision}`, await nodeClient.prove());
-          await saveProof(
-            `browser-policy-${command.revision}`,
-            await page.evaluate(async () => await window.liveClient.prove()),
-          );
+          await saveProof(`browser-policy-${command.revision}`, await browserClient.prove());
           await nativeProof(`rust-policy-${command.revision}`);
           if (command.retired) {
             assert.equal(
@@ -476,17 +423,7 @@ try {
           await writeFile(join(output, "expired-timestamp.json"), timestampBytes);
           const before = JSON.stringify((await router.readStats()).forwarded);
           await assert.rejects(nodeClient.prove());
-          assert.equal(
-            await page.evaluate(async () => {
-              try {
-                await window.liveClient.prove();
-                return false;
-              } catch {
-                return true;
-              }
-            }),
-            true,
-          );
+          await assert.rejects(browserClient.prove());
           await assert.rejects(nativeProof("expired"));
           assert.equal(
             JSON.stringify((await router.readStats()).forwarded),
@@ -502,14 +439,14 @@ try {
             requestsForwarded: false,
           });
         } else throw new Error("unknown lifecycle command");
-        await writeFile(join(output, "qualification.json"), JSON.stringify(report, null, 2) + "\n");
+        await writeJson(join(output, "qualification.json"), report);
         console.log(JSON.stringify({ phase: "complete", action: command.action }));
       }
     } finally {
       commands.close();
     }
   }
-  await writeFile(join(output, "qualification.json"), JSON.stringify(report, null, 2) + "\n");
+  await writeJson(join(output, "qualification.json"), report);
   console.log(JSON.stringify(report, null, 2));
 } finally {
   await browser?.close();

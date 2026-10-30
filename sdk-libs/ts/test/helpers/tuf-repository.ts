@@ -82,6 +82,7 @@ export function tufRepository(
     rotatedRoot?: boolean;
     timestampExpires?: number;
     policy?: unknown;
+    policyJson?: string;
     targetHashAlgorithm?: "sha256" | "sha512" | "md5" | "none";
   }> = {},
 ) {
@@ -90,7 +91,7 @@ export function tufRepository(
   const keys = options.rotatedRoot === true ? NEW : OLD;
   const rootJson = envelope(root(1, OLD), OLD.root).toString("utf8");
   const policy = options.policy ?? { ...vector.policy, revision };
-  const payload = Buffer.from(JSON.stringify(policy));
+  const payload = Buffer.from(options.policyJson ?? JSON.stringify(policy));
   const algorithm = options.targetHashAlgorithm ?? "sha256";
   const hashes =
     algorithm === "none"

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"strings"
@@ -32,7 +33,7 @@ type registryLocation struct {
 }
 
 func NewAWSSource(config aws.Config, bucket, key, owner string, mirrors ...RegistryMirror) (*AWSSource, error) {
-	if config.Region == "" || !accountID.MatchString(owner) || bucket == "" || strings.ContainsAny(bucket, "/:@\\ \t\r\n") || key == "" || strings.ContainsAny(key, "\r\n") {
+	if !accountID.MatchString(owner) || key == "" || strings.ContainsAny(key, "\r\n") {
 		return nil, ErrRegistry
 	}
 	locations := append([]RegistryMirror{{Region: config.Region, Bucket: bucket}}, mirrors...)
@@ -42,7 +43,8 @@ func NewAWSSource(config aws.Config, bucket, key, owner string, mirrors ...Regis
 	source := &AWSSource{config: config, key: key, owner: owner}
 	regions, buckets := map[string]bool{}, map[string]bool{}
 	for _, location := range locations {
-		if !identifier.MatchString(location.Region) || location.Bucket == "" || strings.ContainsAny(location.Bucket, "/:@\\ \t\r\n") || regions[location.Region] || buckets[location.Bucket] {
+		if !identifier.MatchString(location.Region) || location.Bucket == "" ||
+			strings.ContainsAny(location.Bucket, "/:@\\ \t\r\n") || regions[location.Region] || buckets[location.Bucket] {
 			return nil, ErrRegistry
 		}
 		regions[location.Region], buckets[location.Bucket] = true, true
@@ -81,7 +83,7 @@ func (s *AWSSource) Registry(parent context.Context) (RegistryDocument, error) {
 		if value.revision > best.revision {
 			best, conflict = value, false
 		} else if value.revision != 0 && value.revision == best.revision {
-			if registryDigest(value.document.Data) != registryDigest(best.document.Data) {
+			if !bytes.Equal(value.document.Data, best.document.Data) {
 				conflict = true
 			}
 			if value.index < best.index {
@@ -96,7 +98,9 @@ func (s *AWSSource) Registry(parent context.Context) (RegistryDocument, error) {
 }
 
 func (s *AWSSource) readRegistry(ctx context.Context, location registryLocation) (RegistryDocument, error) {
-	response, err := location.client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(location.Bucket), Key: aws.String(s.key), ExpectedBucketOwner: aws.String(s.owner)})
+	response, err := location.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(location.Bucket), Key: aws.String(s.key), ExpectedBucketOwner: aws.String(s.owner),
+	})
 	if err != nil {
 		return RegistryDocument{}, ErrRegistry
 	}

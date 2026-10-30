@@ -36,7 +36,10 @@ const (
 )
 
 var keyPath = regexp.MustCompile(`^/prove/[A-Za-z0-9_-]{1,128}(/indexed|/status)?$`)
-var requestHeaders = []string{"Content-Type", tee.HeaderVersion, tee.HeaderEnc, tee.HeaderKeyID, tee.HeaderCiphertext, "X-Sync", "X-Async", "X-Prover-Timing", "X-Request-Id"}
+var requestHeaders = []string{
+	"Content-Type", tee.HeaderVersion, tee.HeaderEnc, tee.HeaderKeyID, tee.HeaderCiphertext,
+	"X-Sync", "X-Async", "X-Prover-Timing", "X-Request-Id",
+}
 var responseHeaders = []string{"Content-Type", tee.HeaderVersion, "Retry-After", "Server-Timing", "X-Prover-Timing", "X-Request-Id"}
 
 type backend struct {
@@ -153,14 +156,20 @@ func (r *Router) Refresh(parent context.Context) error {
 	if previous != nil && (config.Revision < previous.revision || (config.Revision == previous.revision && digest != previous.digest)) {
 		return ErrRegistry
 	}
-	candidate := &snapshot{revision: config.Revision, digest: digest, expires: time.Unix(config.ExpiresAt, 0), loaded: now, keys: make(map[string]generation), sourceRegion: document.Region, sourceVersion: document.Version}
+	candidate := &snapshot{
+		revision: config.Revision, digest: digest, expires: time.Unix(config.ExpiresAt, 0),
+		keys: make(map[string]generation), sourceRegion: document.Region, sourceVersion: document.Version,
+	}
 	secrets := r.credentials(ctx, config)
 	for _, entry := range config.Generations {
 		group := generation{draining: entry.Draining, disabled: entry.Disabled}
 		for _, destination := range entry.Backends {
 			credential := secrets[destination.APIKeyARN]
 			origin, _ := originURL(destination.Origin) // decodeRegistry already proved this invariant.
-			group.backends = append(group.backends, &backend{id: destination.ID, region: entry.Region, recipientID: entry.RecipientID, arn: destination.APIKeyARN, origin: origin, key: credential.key, credentialAt: credential.at})
+			group.backends = append(group.backends, &backend{
+				id: destination.ID, region: entry.Region, recipientID: entry.RecipientID,
+				arn: destination.APIKeyARN, origin: origin, key: credential.key, credentialAt: credential.at,
+			})
 		}
 		candidate.keys[entry.RecipientID] = group
 		candidate.order = append(candidate.order, entry.RecipientID)
@@ -411,12 +420,15 @@ func (r *Router) Status(w http.ResponseWriter, request *http.Request) {
 		ProbeFailures      uint64     `json:"probe_failures"`
 		ForwardFailures    uint64     `json:"forward_failures"`
 		Unavailable        uint64     `json:"unavailable"`
-	}{Admitted: r.admitted.Load(), RefreshFailures: r.refreshFailures.Load(), CredentialFailures: r.credentialFailures.Load(), ProbeFailures: r.probeFailures.Load(), ForwardFailures: r.forwardFailures.Load()}
-	value.Backends = []endpoint{}
-	value.Unavailable = r.unavailable.Load()
+	}{
+		Backends: []endpoint{}, Admitted: r.admitted.Load(), Unavailable: r.unavailable.Load(),
+		RefreshFailures: r.refreshFailures.Load(), CredentialFailures: r.credentialFailures.Load(),
+		ProbeFailures: r.probeFailures.Load(), ForwardFailures: r.forwardFailures.Load(),
+	}
 	r.mu.RLock()
 	if r.current != nil {
-		value.Revision, value.Fresh = r.current.revision, r.available(r.current, time.Now())
+		now := time.Now()
+		value.Revision, value.Fresh = r.current.revision, r.available(r.current, now)
 		value.SourceRegion, value.SourceVersion = r.current.sourceRegion, r.current.sourceVersion
 		for _, id := range r.current.order {
 			group := r.current.keys[id]
@@ -425,7 +437,11 @@ func (r *Router) Status(w http.ResponseWriter, request *http.Request) {
 				if !target.credentialAt.IsZero() {
 					credentialExpiresAt = target.credentialAt.Add(credentialMaxAge).Unix()
 				}
-				value.Backends = append(value.Backends, endpoint{ID: target.id, Region: target.region, Healthy: !group.disabled && healthy(target, time.Now()), Draining: group.draining, Disabled: group.disabled, Forwarded: target.forwarded.Load(), CredentialsReady: credentialFresh(target, time.Now()), CredentialExpiresAt: credentialExpiresAt})
+				value.Backends = append(value.Backends, endpoint{
+					ID: target.id, Region: target.region, Healthy: !group.disabled && healthy(target, now),
+					Draining: group.draining, Disabled: group.disabled, Forwarded: target.forwarded.Load(),
+					CredentialsReady: credentialFresh(target, now), CredentialExpiresAt: credentialExpiresAt,
+				})
 			}
 		}
 	}
@@ -447,10 +463,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	}
 	path := strings.TrimPrefix(request.URL.Path, tee.GatewayPrefix)
 	isAttestation := path == attestation && request.Method == http.MethodGet
-	metadata := path == "/health" || path == "/proving-keys"
-	proof := keyPath.MatchString(path)
-	allowed := isAttestation || (metadata && request.Method == http.MethodGet) || (proof && ((strings.HasSuffix(path, "/status") && request.Method == http.MethodGet) || (!strings.HasSuffix(path, "/status") && request.Method == http.MethodPost)))
-	if !allowed {
+	if method := routeMethod(path); method == "" || request.Method != method {
 		fail(w, http.StatusNotFound, "route_unknown")
 		return
 	}
@@ -513,12 +526,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 			proxy.Out.URL.Path, proxy.Out.URL.RawPath = proxy.In.URL.Path, ""
 			proxy.Out.URL.RawQuery = withoutAPIKey(proxy.In.URL.RawQuery)
 			proxy.Out.Host, proxy.Out.GetBody = target.origin.Host, nil
-			proxy.Out.Header = make(http.Header)
-			for _, header := range requestHeaders {
-				if value := proxy.In.Header.Get(header); value != "" {
-					proxy.Out.Header.Set(header, value)
-				}
-			}
+			proxy.Out.Header = allowedHeaders(proxy.In.Header, requestHeaders)
 			proxy.Out.Header.Set("X-API-Key", target.key)
 		},
 		ModifyResponse: func(response *http.Response) error {
@@ -528,14 +536,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 				((response.StatusCode >= 200 && response.StatusCode < 300) || response.StatusCode == http.StatusServiceUnavailable) {
 				return errors.New("unauthenticated prover response")
 			}
-			headers := make(http.Header)
-			for _, header := range responseHeaders {
-				if value := response.Header.Get(header); value != "" {
-					headers.Set(header, value)
-				}
-			}
-			headers.Set("Cache-Control", "no-store")
-			response.Header = headers
+			response.Header = allowedHeaders(response.Header, responseHeaders)
+			response.Header.Set("Cache-Control", "no-store")
 			response.Body = http.MaxBytesReader(w, response.Body, maxBody)
 			return nil
 		},
@@ -550,6 +552,29 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 		},
 	}
 	proxy.ServeHTTP(w, request)
+}
+
+func routeMethod(path string) string {
+	switch {
+	case path == attestation || path == "/health" || path == "/proving-keys":
+		return http.MethodGet
+	case !keyPath.MatchString(path):
+		return ""
+	case strings.HasSuffix(path, "/status"):
+		return http.MethodGet
+	default:
+		return http.MethodPost
+	}
+}
+
+func allowedHeaders(source http.Header, names []string) http.Header {
+	headers := make(http.Header, len(names))
+	for _, name := range names {
+		if value := source.Get(name); value != "" {
+			headers.Set(name, value)
+		}
+	}
+	return headers
 }
 
 func fail(w http.ResponseWriter, status int, code string) {

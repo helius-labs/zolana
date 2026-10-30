@@ -10,11 +10,10 @@ Up to three regions may hold byte-identical copies under the same object key.
 Reads run independently with three-second deadlines. The highest valid reachable
 revision wins; conflicting bytes at that revision reject the reload. A running
 router never downgrades to an older mirror or renews freshness with a rollback.
-Registry reloads are atomic and reject older revisions, changed bytes under
-the same revision, duplicate/unknown JSON members and invalid destinations.
+Reloads are atomic and reject duplicate/unknown JSON members and invalid destinations.
 After a restart the highest valid reachable copy is authoritative; there is no
-local durable rollback floor or cross-region consensus protocol. Use conditional publication, version history and
-restricted operator access. A failed reload cannot renew the previous map's
+local durable rollback floor or cross-region consensus. Use conditional publication,
+version history and restricted operator access. A failed reload cannot renew the previous map's
 one-minute freshness budget. Registry expiry closes admission too.
 
 Regional origin credentials load independently with three-second deadlines.
@@ -80,8 +79,7 @@ The runtime role needs only `s3:GetObject` for the exact object in each mirror a
 `secretsmanager:GetSecretValue` for its approved origin credential ARNs. S3
 requests bind the expected bucket owner; origin secrets must belong to the same
 account and their generation's region. No KMS seed/key, signing, S3 write or SSM
-permission belongs to this runtime role. The qualified test driver uses its
-separate operator identity for fault injection.
+permission belongs to this runtime role. The test driver uses a separate operator identity for fault injection.
 
 ## Registry and rollout
 
@@ -136,8 +134,5 @@ ciphertext route alone does not provide that compatibility.
 
 `go test -race ./router ./cmd/tee-router ./tee` covers routing, atomic registry
 changes, ingress/origin credentials, draining, health/key mismatch, stale state,
-no replay, admission bounds and signed/bounded AWS reads. The operator live
-harness in `tools/tee-fleet` separately qualifies actual S3 convergence across
-two processes and real encrypted AWS proofs through mock GK. Production
-deployment, production trust custody and real GK configuration remain explicit
-release gates.
+no replay, admission bounds and signed/bounded AWS reads. The [live harness](../../../tools/tee-fleet/README.md) qualifies S3 convergence,
+regional outages and encrypted AWS proofs through mock GK.

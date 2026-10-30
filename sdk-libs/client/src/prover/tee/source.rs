@@ -33,7 +33,7 @@ pub trait TeePolicyLoader: Send + Sync {
 /// Resolves a network's approved generations before attestation and transmission.
 pub struct TeePolicySource {
     network: String,
-    loader: Arc<dyn TeePolicyLoader>,
+    loader: Box<dyn TeePolicyLoader>,
     interval: Duration,
     state: Mutex<State>,
     loading: tokio::sync::Mutex<()>,
@@ -57,7 +57,7 @@ impl TeePolicySource {
     pub fn new(network: impl Into<String>, loader: impl TeePolicyLoader + 'static) -> Self {
         Self {
             network: network.into(),
-            loader: Arc::new(loader),
+            loader: Box::new(loader),
             interval: DEFAULT_REFRESH,
             state: Mutex::new(State::default()),
             loading: tokio::sync::Mutex::new(()),
@@ -222,10 +222,6 @@ mod tests {
         }
     }
 
-    fn expire(source: &TeePolicySource) {
-        source.state().unwrap().accepted.as_mut().unwrap().at -= Duration::from_secs(61);
-    }
-
     #[tokio::test]
     async fn concurrent_calls_share_one_refresh_and_metadata_caps_validity() {
         let loader = Queue::new(vec![Ok(document(1))]);
@@ -257,7 +253,7 @@ mod tests {
         let loader = Queue::new(vec![Ok(document(1)), Err(TeeError::PolicyUnavailable)]);
         let source = TeePolicySource::new("fixture", loader);
         source.resolve().await.unwrap();
-        expire(&source);
+        source.expire_for_test();
         assert!(matches!(
             source.resolve().await,
             Err(TeeError::PolicyUnavailable)
@@ -291,11 +287,11 @@ mod tests {
         ]);
         let source = TeePolicySource::new("fixture", loader);
         let old = source.resolve().await.unwrap();
-        expire(&source);
+        source.expire_for_test();
         assert_eq!(source.resolve().await.unwrap().revision(), 2);
         assert_eq!(old.revision(), 1);
         assert_eq!(source.current().unwrap().revision(), 2);
-        expire(&source);
+        source.expire_for_test();
         assert!(matches!(
             source.resolve().await,
             Err(TeeError::PolicyRollback)

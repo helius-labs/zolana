@@ -68,7 +68,10 @@ func run() error {
 	adminMux.HandleFunc("/ready", proxy.Ready)
 	adminMux.HandleFunc("/status", proxy.Status)
 	server := func(handler http.Handler) *http.Server {
-		return &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute, WriteTimeout: 11 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10}
+		return &http.Server{
+			Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute,
+			WriteTimeout: 11 * time.Minute, IdleTimeout: time.Minute, MaxHeaderBytes: 32 << 10,
+		}
 	}
 	front, health := server(proxy), server(adminMux)
 	errorsOut := make(chan error, 2)

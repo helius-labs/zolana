@@ -218,12 +218,11 @@ async fn refresh(config: &Config, control: Arc<Control>) -> Result<TeePolicyDocu
     ];
     let valid_until = expiries
         .into_iter()
-        .map(|expiry| u64::try_from(expiry.as_second()).map_err(|_| TeeError::PolicyExpired))
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .min()
-        .ok_or(TeeError::PolicyExpired)?
-        .min(fleet.expires_at());
+        .try_fold(fleet.expires_at(), |earliest, expiry| {
+            u64::try_from(expiry.as_second())
+                .map(|expiry| earliest.min(expiry))
+                .map_err(|_| TeeError::PolicyExpired)
+        })?;
     if super::source::now_secs()? >= valid_until {
         return Err(TeeError::PolicyExpired);
     }
@@ -348,9 +347,7 @@ impl PolicyTransport {
         }
         Ok(bytes)
     }
-}
 
-impl PolicyTransport {
     fn canonical_url(&self, url: Url) -> Result<Url, TeeError> {
         if url.origin() == self.targets.origin() {
             if let Some(path) = url.path().strip_prefix(self.targets.path()) {
@@ -616,15 +613,7 @@ fn sync_directory(directory: &Path) -> Result<(), TeeError> {
 }
 
 fn local_bytes(path: &Path, limit: usize) -> Result<Vec<u8>, TeeError> {
-    let file = File::open(path).map_err(|_| TeeError::PolicyStorage)?;
-    let mut bytes = Vec::new();
-    file.take(limit as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| TeeError::PolicyStorage)?;
-    if bytes.len() > limit {
-        return Err(TeeError::PolicyStorage);
-    }
-    Ok(bytes)
+    optional_bytes(path, limit)?.ok_or(TeeError::PolicyStorage)
 }
 
 fn optional_bytes(path: &Path, limit: usize) -> Result<Option<Vec<u8>>, TeeError> {

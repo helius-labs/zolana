@@ -1,17 +1,23 @@
-import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
-import { checkedEndpoint, checkedFetch, readBoundedBody } from "../../../services/transport.js";
+import { utf8ToBytes } from "@noble/hashes/utils.js";
+import { readBoundedBody } from "../../../services/transport.js";
 import { ClientError } from "../../error.js";
 import { composeSignal, requestError, type ComposedSignal } from "../../internal.js";
 import { identifier, teeFleetPolicyFromJson } from "./fleet.js";
 import { invalidPolicy, policyDecode, refused } from "./platform.js";
 import { TeePolicySource, type TeePolicyDocument } from "./source.js";
 import { BrowserTrust, type MetadataFiles, type Role } from "./browser/core.js";
-import { uniqueJson } from "./browser/json.js";
+import { uniqueJson } from "./json.js";
 import { openPolicyDatabase, readPolicyState, writePolicyState } from "./browser/storage.js";
-
-const LIMITS = { root: 512_000, timestamp: 16_384, snapshot: 2 << 20, targets: 2 << 20 } as const;
-const MAX_POLICY_BYTES = 1 << 20;
+import {
+  LIMITS,
+  MAX_POLICY_BYTES,
+  checkAbort,
+  digest,
+  parseJson,
+  repositoryUrl,
+  sourceFetch,
+  text,
+} from "./repository.js";
 
 export interface BrowserTufTeePolicyOptions {
   readonly network: string;
@@ -49,12 +55,7 @@ export function tufTeePolicy(options: BrowserTufTeePolicyOptions): TeePolicySour
   const databaseName = options.databaseName ?? "zolana-tee-policy-v1";
   if (typeof databaseName !== "string" || !/^[a-zA-Z0-9_.-]{1,128}$/u.test(databaseName))
     throw invalidPolicy("source.databaseName");
-  let fetch: typeof globalThis.fetch;
-  try {
-    fetch = checkedFetch(options.fetch);
-  } catch {
-    throw invalidPolicy("source.fetch");
-  }
+  const fetch = sourceFetch(options.fetch);
   const namespace = digest(JSON.stringify([network, metadata.href, targets.href, root]));
   const targetPath = `${network}/fleet.json`;
 
@@ -168,7 +169,7 @@ export function tufTeePolicy(options: BrowserTufTeePolicyOptions): TeePolicySour
       const path = trust.consistentSnapshot ? `${network}/${target.sha256}.fleet.json` : targetPath;
       const bytes = await required(targets, path, target.length, request);
       trust.verifyTarget(targetPath, bytes);
-      const json = uniqueJson(text(bytes));
+      const json = parseJson(bytes);
       const policy = teeFleetPolicyFromJson(json, network);
       const validUntil = Math.min(policy.expiresAt, trust.validUntil());
       if (Date.now() >= validUntil * 1000) throw refused("policy_expired");
@@ -290,25 +291,4 @@ function checksum(cache: Cache): string {
       cache.sha256,
     ]),
   );
-}
-function digest(bytes: string | Uint8Array): string {
-  return bytesToHex(sha256(typeof bytes === "string" ? utf8ToBytes(bytes) : bytes));
-}
-function text(bytes: Uint8Array): string {
-  // Keep BOMs visible to the strict JSON parser; decoding must not rewrite trusted root bytes.
-  return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-}
-function checkAbort(request: ComposedSignal): void {
-  if (request.signal.aborted) throw requestError("attest", request);
-}
-function repositoryUrl(value: string | URL): URL {
-  let url: URL;
-  try {
-    url = checkedEndpoint(value, { field: "tee.source.url", allowLoopbackHttp: true });
-  } catch {
-    throw invalidPolicy("source.url");
-  }
-  if (url.search) throw invalidPolicy("source.url");
-  if (!url.pathname.endsWith("/")) url.pathname += "/";
-  return url;
 }

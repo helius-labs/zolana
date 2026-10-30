@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, open, readdir, rename, unlink, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
@@ -6,14 +6,20 @@ import { Updater, type Fetcher } from "tuf-js";
 // The published custom-fetcher error type is not re-exported by tuf-js 5's barrel.
 import { DownloadHTTPError } from "tuf-js/dist/error.js";
 
-import { checkedEndpoint, checkedFetch, readBoundedBody } from "../../../services/transport.js";
+import { readBoundedBody } from "../../../services/transport.js";
 import { composeSignal, requestError, sleep, type ComposedSignal } from "../../internal.js";
 import { identifier, teeFleetPolicyFromJson } from "./fleet.js";
 import { invalidPolicy, policyDecode, refused } from "./platform.js";
 import { TeePolicySource, type TeePolicyDocument } from "./source.js";
-
-const MAX_POLICY_BYTES = 1 << 20;
-const MAX_METADATA_BYTES = 2 << 20;
+import {
+  LIMITS,
+  MAX_POLICY_BYTES,
+  checkAbort,
+  digest,
+  parseJson,
+  repositoryUrl,
+  sourceFetch,
+} from "./repository.js";
 const ROLES = ["root", "timestamp", "snapshot", "targets"] as const;
 
 export interface TufTeePolicyOptions {
@@ -32,7 +38,7 @@ export interface TufTeePolicyOptions {
 export function tufTeePolicy(options: TufTeePolicyOptions): TeePolicySource {
   policyDecode.record(options, "source");
   const network = identifier(options.network, "network");
-  if (typeof options.rootJson !== "string" || Buffer.byteLength(options.rootJson) > 512_000) {
+  if (typeof options.rootJson !== "string" || Buffer.byteLength(options.rootJson) > LIMITS.root) {
     throw invalidPolicy("source.rootJson");
   }
   if (typeof options.cacheDirectory !== "string" || !isAbsolute(options.cacheDirectory)) {
@@ -81,7 +87,7 @@ export function tufTeePolicy(options: TufTeePolicyOptions): TeePolicySource {
     // Corrupt persisted JSON must not cause the updater to silently reset its floors.
     for (const role of ROLES) {
       if (role === "root" || files.includes(`${role}.json`)) {
-        metadataExpiry(await localBytes(join(directory, `${role}.json`), MAX_METADATA_BYTES));
+        metadataExpiry(await localBytes(join(directory, `${role}.json`), LIMITS[role]));
       }
     }
     const updater = new Updater({
@@ -94,10 +100,10 @@ export function tufTeePolicy(options: TufTeePolicyOptions): TeePolicySource {
         maxRootRotations: 32,
         // This repository contract publishes the fleet directly in top-level targets.
         maxDelegations: 0,
-        rootMaxLength: 512_000,
-        timestampMaxLength: 16_384,
-        snapshotMaxLength: MAX_METADATA_BYTES,
-        targetsMaxLength: MAX_METADATA_BYTES,
+        rootMaxLength: LIMITS.root,
+        timestampMaxLength: LIMITS.timestamp,
+        snapshotMaxLength: LIMITS.snapshot,
+        targetsMaxLength: LIMITS.targets,
         fetchRetry: false,
       },
     });
@@ -128,7 +134,7 @@ export function tufTeePolicy(options: TufTeePolicyOptions): TeePolicySource {
     const policy = teeFleetPolicyFromJson(policyJson, network);
     const expires = await Promise.all(
       ROLES.map(async (role) =>
-        metadataExpiry(await localBytes(join(directory, `${role}.json`), MAX_METADATA_BYTES)),
+        metadataExpiry(await localBytes(join(directory, `${role}.json`), LIMITS[role])),
       ),
     );
     const validUntil = Math.min(policy.expiresAt, ...expires);
@@ -180,7 +186,7 @@ class PolicyFetcher implements Fetcher {
   ) {}
 
   async downloadBytes(url: string, maxLength: number): Promise<Buffer> {
-    const bytes = await this.bytes(url, Math.min(maxLength, MAX_METADATA_BYTES));
+    const bytes = await this.bytes(url, Math.min(maxLength, LIMITS.targets));
     metadataExpiry(bytes);
     return bytes;
   }
@@ -243,23 +249,11 @@ async function lock(directory: string, request: ComposedSignal): Promise<() => P
         await unlink(path);
       };
     } catch (error) {
-      if (!isMissingOrExists(error, "EEXIST")) throw error;
+      if (!hasErrorCode(error, "EEXIST")) throw error;
       // Never break an apparently stale lock: another process may still own it.
       await sleep(25n, { signal: request.signal });
     }
   }
-}
-
-function repositoryUrl(value: string | URL): URL {
-  let url: URL;
-  try {
-    url = checkedEndpoint(value, { field: "tee.source.url", allowLoopbackHttp: true });
-  } catch {
-    throw invalidPolicy("source.url");
-  }
-  if (url.search !== "") throw invalidPolicy("source.url");
-  if (!url.pathname.endsWith("/")) url.pathname += "/";
-  return url;
 }
 
 async function localBytes(path: string, limit: number): Promise<Buffer> {
@@ -278,37 +272,17 @@ async function localBytes(path: string, limit: number): Promise<Buffer> {
   }
 }
 
-function sourceFetch(value: unknown): typeof globalThis.fetch {
-  try {
-    return checkedFetch(value);
-  } catch {
-    throw invalidPolicy("source.fetch");
-  }
-}
-
 async function optionalBytes(path: string, limit: number): Promise<Buffer | undefined> {
   try {
     return await localBytes(path, limit);
   } catch (error) {
-    if (isMissingOrExists(error, "ENOENT")) return undefined;
+    if (hasErrorCode(error, "ENOENT")) return undefined;
     throw error;
   }
 }
 
-function isMissingOrExists(error: unknown, code: string): boolean {
+function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
-}
-
-function checkAbort(request: ComposedSignal): void {
-  if (request.signal.aborted) throw requestError("attest", request);
-}
-
-function parseJson(bytes: Uint8Array): unknown {
-  try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-  } catch {
-    throw refused("policy_json");
-  }
 }
 
 function metadataExpiry(bytes: Uint8Array): number {
@@ -323,8 +297,4 @@ function metadataExpiry(bytes: Uint8Array): number {
   if (!Number.isSafeInteger(expires) || expires <= 0) throw refused("policy_metadata");
   // Fleet timestamps are whole seconds; never round past authenticated expiry.
   return Math.floor(expires / 1000);
-}
-
-function digest(value: string | Uint8Array): string {
-  return createHash("sha256").update(value).digest("hex");
 }

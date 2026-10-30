@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { writeFile } from "node:fs/promises";
+import { writeJson } from "./artifacts.mjs";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
@@ -110,42 +110,50 @@ export async function managedRouter({ deployments, binary, output }) {
   async function publish() {
     config.revision++;
     const path = resolve(output, "routing-registry.json");
-    await writeFile(path, JSON.stringify(config, null, 2) + "\n");
-    const results = await Promise.allSettled(registries.map(async (registry) => {
-      const etag = etags.get(registry.bucket);
-      const { stdout } = await execute(
-        "aws",
-        [
-          "--region",
-          registry.region,
-          "s3api",
-          "put-object",
-          "--bucket",
-          registry.bucket,
-          "--key",
-          key,
-          "--expected-bucket-owner",
-          owner,
-          "--body",
-          path,
-          "--content-type",
-          "application/json",
-          ...(etag === undefined ? ["--if-none-match", "*"] : ["--if-match", etag]),
-          "--output",
-          "json",
-        ],
-        { timeout: 30000, maxBuffer: 1 << 20 },
-      );
-      const result = JSON.parse(stdout);
-      assert.equal(typeof result.VersionId, "string");
-      assert.equal(typeof result.ETag, "string");
-      etags.set(registry.bucket, result.ETag);
-      versions.set(registry.region, result.VersionId);
-      return { ...registry, version: result.VersionId, etag: result.ETag };
-    }));
-    assert.ok(results.every((result) => result.status === "fulfilled"), "conditional mirrored routing publication failed");
-    publications.push({ revision: config.revision, mirrors: results.map((result) => result.value) });
-    await writeFile(resolve(output, "registry-publications.json"), JSON.stringify(publications, null, 2) + "\n");
+    await writeJson(path, config);
+    const results = await Promise.allSettled(
+      registries.map(async (registry) => {
+        const etag = etags.get(registry.bucket);
+        const { stdout } = await execute(
+          "aws",
+          [
+            "--region",
+            registry.region,
+            "s3api",
+            "put-object",
+            "--bucket",
+            registry.bucket,
+            "--key",
+            key,
+            "--expected-bucket-owner",
+            owner,
+            "--body",
+            path,
+            "--content-type",
+            "application/json",
+            ...(etag === undefined ? ["--if-none-match", "*"] : ["--if-match", etag]),
+            "--output",
+            "json",
+          ],
+          { timeout: 30000, maxBuffer: 1 << 20 },
+        );
+        const result = JSON.parse(stdout);
+        assert.equal(typeof result.VersionId, "string");
+        assert.equal(typeof result.ETag, "string");
+        etags.set(registry.bucket, result.ETag);
+        versions.set(registry.region, result.VersionId);
+        return { ...registry, version: result.VersionId, etag: result.ETag };
+      }),
+    );
+    assert.ok(
+      results.every((result) => result.status === "fulfilled"),
+      "conditional mirrored routing publication failed",
+    );
+    publications.push({
+      revision: config.revision,
+      mirrors: results.map((result) => result.value),
+    });
+    await writeJson(resolve(output, "registry-publications.json"), publications);
   }
 
   async function status(process) {
@@ -155,6 +163,20 @@ export async function managedRouter({ deployments, binary, output }) {
     assert.ok(Number.isSafeInteger(value.revision));
     assert.ok(Array.isArray(value.backends));
     return value;
+  }
+
+  async function waitForRouters(ready, message, timeout = 45000) {
+    const deadline = Date.now() + timeout;
+    for (;;) {
+      const states = await Promise.all(processes.map(status));
+      if (ready(states)) return states;
+      assert.ok(
+        processes.every(({ child }) => child.exitCode === null),
+        "managed router stopped",
+      );
+      assert.ok(Date.now() < deadline, message);
+      await delay(250);
+    }
   }
 
   async function synchronize() {
@@ -188,10 +210,7 @@ export async function managedRouter({ deployments, binary, output }) {
           at: new Date().toISOString(),
           states,
         });
-        await writeFile(
-          resolve(output, "routing-observations.json"),
-          JSON.stringify(observations, null, 2) + "\n",
-        );
+        await writeJson(resolve(output, "routing-observations.json"), observations);
       }
       if (converged) return;
       assert.ok(
@@ -216,7 +235,9 @@ export async function managedRouter({ deployments, binary, output }) {
         owner,
         "--registry-region",
         region,
-        ...registries.slice(1).flatMap((registry) => ["--registry-mirror", `${registry.region}/${registry.bucket}`]),
+        ...registries
+          .slice(1)
+          .flatMap((registry) => ["--registry-mirror", `${registry.region}/${registry.bucket}`]),
         "--preferred-region",
         deployments[index % deployments.length].region,
         "--listen",
@@ -287,18 +308,28 @@ export async function managedRouter({ deployments, binary, output }) {
       restoreError = error;
     }
     await Promise.all(processes.map(stop));
-    try { await connectionFault?.close(); } catch (error) { restoreError ??= error; }
-    try { await role?.close(); } catch (error) { restoreError ??= error; }
+    try {
+      await connectionFault?.close();
+    } catch (error) {
+      restoreError ??= error;
+    }
+    try {
+      await role?.close();
+    } catch (error) {
+      restoreError ??= error;
+    }
     if (restoreError) throw restoreError;
   }
 
   try {
     await publish();
     role = await runtimeRole({ registries, key, deployments, output });
-    connectionFault = await connectionFaultProxy(registries.flatMap(({ region, bucket }) => [
-      { authority: `${bucket}.s3.${region}.amazonaws.com:443`, region },
-      { authority: `secretsmanager.${region}.amazonaws.com:443`, region },
-    ]));
+    connectionFault = await connectionFaultProxy(
+      registries.flatMap(({ region, bucket }) => [
+        { authority: `${bucket}.s3.${region}.amazonaws.com:443`, region },
+        { authority: `secretsmanager.${region}.amazonaws.com:443`, region },
+      ]),
+    );
     await Promise.all([start(0), start(1)]);
     await synchronize();
   } catch (error) {
@@ -345,28 +376,51 @@ export async function managedRouter({ deployments, binary, output }) {
       const deadline = started + 360000;
       const faultObservations = [];
       let previousState;
-      console.log(JSON.stringify({ phase: "control-plane-fault", region: failedRegion, waitingFor: "bounded credential expiry" }));
-      const converged = (states) => states.every((state) =>
-        state.registry_fresh && state.revision === config.revision &&
-        state.registry_region !== failedRegion &&
-        state.registry_object_version === versions.get(state.registry_region) &&
-        config.generations.every((entry) => {
-          const backend = state.backends.find((item) => item.id === entry.id);
-          return backend && !backend.disabled && (entry.id === deployment.id
-            ? !backend.credentials_ready && !backend.healthy
-            : backend.credentials_ready && backend.healthy);
-        }));
+      console.log(
+        JSON.stringify({
+          phase: "control-plane-fault",
+          region: failedRegion,
+          waitingFor: "bounded credential expiry",
+        }),
+      );
+      const converged = (states) =>
+        states.every(
+          (state) =>
+            state.registry_fresh &&
+            state.revision === config.revision &&
+            state.registry_region !== failedRegion &&
+            state.registry_object_version === versions.get(state.registry_region) &&
+            config.generations.every((entry) => {
+              const backend = state.backends.find((item) => item.id === entry.id);
+              return (
+                backend &&
+                !backend.disabled &&
+                (entry.id === deployment.id
+                  ? !backend.credentials_ready && !backend.healthy
+                  : backend.credentials_ready && backend.healthy)
+              );
+            }),
+        );
       for (;;) {
         const states = await Promise.all(processes.map(status));
         const state = JSON.stringify(states);
         if (state !== previousState || Date.now() >= deadline) {
-          faultObservations.push({ at: new Date().toISOString(), elapsedMs: Date.now() - started, states });
-          await writeFile(resolve(output, "control-plane-observations.json"), JSON.stringify(faultObservations, null, 2) + "\n");
+          faultObservations.push({
+            at: new Date().toISOString(),
+            elapsedMs: Date.now() - started,
+            states,
+          });
+          await writeJson(resolve(output, "control-plane-observations.json"), faultObservations);
           previousState = state;
         }
         if (converged(states)) {
           assert.ok(Date.now() - started > 60000, "fault did not outlive registry cache freshness");
-          controlPlane.push({ action: "regional-reads-unavailable", region: failedRegion, elapsedMs: Date.now() - started, states });
+          controlPlane.push({
+            action: "regional-reads-unavailable",
+            region: failedRegion,
+            elapsedMs: Date.now() - started,
+            states,
+          });
           break;
         }
         assert.ok(Date.now() < deadline, "regional control-plane fault did not converge");
@@ -374,29 +428,31 @@ export async function managedRouter({ deployments, binary, output }) {
       }
       await stop(processes[1]);
       await start(1);
-      const restartDeadline = Date.now() + 45000;
-      for (;;) {
-        const states = await Promise.all(processes.map(status));
-        if (converged(states)) {
-          controlPlane.push({ action: "cold-router-recovered-during-fault", region: failedRegion, states });
-          return;
-        }
-        assert.ok(Date.now() < restartDeadline, "cold router could not use regional mirrors and remaining credentials");
-        await delay(250);
-      }
+      const states = await waitForRouters(
+        converged,
+        "cold router could not use regional mirrors and remaining credentials",
+      );
+      controlPlane.push({
+        action: "cold-router-recovered-during-fault",
+        region: failedRegion,
+        states,
+      });
     },
     async restoreControlPlane() {
       connectionFault.restore();
-      const deadline = Date.now() + 60000;
-      for (;;) {
-        const states = await Promise.all(processes.map(status));
-        if (states.every((state) => state.registry_fresh && state.registry_region === region && state.registry_object_version === versions.get(region) && state.backends.every((entry) => entry.credentials_ready && entry.healthy))) {
-          controlPlane.push({ action: "regional-access-restored", states });
-          return;
-        }
-        assert.ok(Date.now() < deadline, "regional access did not recover");
-        await delay(250);
-      }
+      const states = await waitForRouters(
+        (states) =>
+          states.every(
+            (state) =>
+              state.registry_fresh &&
+              state.registry_region === region &&
+              state.registry_object_version === versions.get(region) &&
+              state.backends.every((entry) => entry.credentials_ready && entry.healthy),
+          ),
+        "regional access did not recover",
+        60000,
+      );
+      controlPlane.push({ action: "regional-access-restored", states });
     },
     async failGeneration(id) {
       if (!realOutage) {
@@ -411,10 +467,8 @@ export async function managedRouter({ deployments, binary, output }) {
       // attempt restoration once the stop may have been dispatched.
       stopped.add(id);
       await service(id, "stop");
-      const deadline = Date.now() + 30000;
-      for (;;) {
-        const states = await Promise.all(processes.map(status));
-        if (
+      const states = await waitForRouters(
+        (states) =>
           states.every((state) => {
             const backend = state.backends.find((entry) => entry.id === id);
             return (
@@ -423,20 +477,17 @@ export async function managedRouter({ deployments, binary, output }) {
               backend?.healthy === false &&
               backend.disabled === false
             );
-          })
-        ) {
-          outages.push({
-            id,
-            action: "health_observed_down",
-            registryRevision: config.revision,
-            replicas: states.length,
-            at: new Date().toISOString(),
-          });
-          return;
-        }
-        assert.ok(Date.now() < deadline, "routing health did not observe the real enclave outage");
-        await delay(250);
-      }
+          }),
+        "routing health did not observe the real enclave outage",
+        30000,
+      );
+      outages.push({
+        id,
+        action: "health_observed_down",
+        registryRevision: config.revision,
+        replicas: states.length,
+        at: new Date().toISOString(),
+      });
     },
     async readStats() {
       const states = await Promise.all(processes.map(status));

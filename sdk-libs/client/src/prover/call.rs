@@ -394,20 +394,10 @@ mod tests {
             )
             .is_err());
     }
-}
 
-#[cfg(test)]
-mod generation_tests {
-    use super::*;
-    use crate::prover::tee::TeePolicy;
     #[test]
     fn unavailable_generation_is_distinct_from_arbitrary_upstream_failure() {
-        let session = TeeSession::new(
-            TeePolicy::from_json(include_str!(
-                "../../../../prover/tee/testdata/probe_policy.json"
-            ))
-            .unwrap(),
-        );
+        let session = session();
         let key = [9; 32];
         assert!(session.lost_key(
             &key,

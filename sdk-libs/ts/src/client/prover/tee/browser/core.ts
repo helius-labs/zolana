@@ -2,7 +2,7 @@ import { TrustedMetadataStore } from "tuf-js/dist/store.js";
 import { BadVersionError, EqualVersionError, ExpiredMetadataError } from "tuf-js/dist/error.js";
 import { MetaFile } from "@tufjs/models";
 import { wireDecoder } from "../../../../interface/decode.js";
-import { uniqueJson } from "./json.js";
+import { uniqueJson } from "../json.js";
 
 export type Role = "root" | "timestamp" | "snapshot" | "targets";
 export type MetadataFiles = {

@@ -69,12 +69,17 @@ func decodeRegistry(data []byte, now time.Time) (Registry, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&value) != nil || value.SchemaVersion != 1 || value.Revision == 0 || value.Revision > 1<<53-1 || value.ExpiresAt <= now.Unix() || value.ExpiresAt > 1<<53-1 || len(value.Generations) == 0 || len(value.Generations) > 32 {
+	if decoder.Decode(&value) != nil || value.SchemaVersion != 1 ||
+		value.Revision == 0 || value.Revision > 1<<53-1 ||
+		value.ExpiresAt <= now.Unix() || value.ExpiresAt > 1<<53-1 ||
+		len(value.Generations) == 0 || len(value.Generations) > 32 {
 		return Registry{}, ErrRegistry
 	}
 	ids, keys, backends, origins := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, generation := range value.Generations {
-		if !identifier.MatchString(generation.ID) || !identifier.MatchString(generation.Region) || !recipient.MatchString(generation.RecipientID) || ids[generation.ID] || keys[generation.RecipientID] || len(generation.Backends) == 0 || len(generation.Backends) > 8 {
+		if !identifier.MatchString(generation.ID) || !identifier.MatchString(generation.Region) ||
+			!recipient.MatchString(generation.RecipientID) || ids[generation.ID] || keys[generation.RecipientID] ||
+			len(generation.Backends) == 0 || len(generation.Backends) > 8 {
 			return Registry{}, ErrRegistry
 		}
 		ids[generation.ID], keys[generation.RecipientID] = true, true
@@ -99,7 +104,8 @@ func decodeRegistry(data []byte, now time.Time) (Registry, error) {
 
 func originURL(value string) (*url.URL, error) {
 	origin, err := url.Parse(value)
-	if err != nil || origin.Host == "" || origin.User != nil || origin.RawQuery != "" || origin.ForceQuery || origin.Fragment != "" || origin.RawPath != "" || (origin.Path != "" && origin.Path != "/") {
+	if err != nil || origin.Host == "" || origin.User != nil || origin.RawQuery != "" || origin.ForceQuery ||
+		origin.Fragment != "" || origin.RawPath != "" || (origin.Path != "" && origin.Path != "/") {
 		return nil, ErrRegistry
 	}
 	ip := net.ParseIP(origin.Hostname())

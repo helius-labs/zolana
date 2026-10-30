@@ -56,6 +56,37 @@ function setup(initial = tufRepository()) {
 }
 
 describe("Node TUF fleet policy provider", () => {
+  it.each(["metadata", "target"])(
+    "rejects duplicate JSON fields in authenticated %s without committing a fleet floor",
+    async (kind) => {
+      const repo = tufRepository(
+        kind === "target"
+          ? {
+              policyJson: JSON.stringify({ ...vector.policy, revision: 1 }).replace(
+                '"revision":1',
+                '"revision":0,"revision":1',
+              ),
+            }
+          : {},
+      );
+      if (kind === "metadata") {
+        const path = "/metadata/timestamp.json";
+        const bytes = repo.files.get(path);
+        if (bytes === undefined) throw new Error("missing fixture timestamp");
+        repo.files.set(
+          path,
+          Buffer.from(bytes.toString("utf8").replace('"version":1', '"version":0,"version":1')),
+        );
+      }
+      const test = setup(repo);
+      await expect(test.source().resolve()).rejects.toThrow(denied);
+      const namespace = (await readdir(directory))[0];
+      if (namespace === undefined) throw new Error("missing cache");
+      expect(await readdir(join(directory, namespace))).not.toContain("fleet-floor.json");
+      if (kind === "metadata") expect(test.requests).not.toContain(repo.targetUrl);
+    },
+  );
+
   it("requires strong target digests even if a publisher signs an empty or weak hash set", async () => {
     let revision = 1;
     for (const algorithm of ["none", "md5"] as const) {

@@ -4,7 +4,7 @@ import { expect, it } from "vitest";
 import vector from "../../../test-vectors/tee_tuf_repository.json" with { type: "json" };
 import { createHash, createPublicKey, verify } from "../src/client/prover/tee/browser/crypto.js";
 import { isDeepStrictEqual } from "../src/client/prover/tee/browser/equality.js";
-import { uniqueJson } from "../src/client/prover/tee/browser/json.js";
+import { uniqueJson } from "../src/client/prover/tee/json.js";
 import { tufTeePolicy } from "../src/client/prover/tee/tuf-browser.js";
 
 it("verifies native Ed25519 signatures through the browser crypto port", () => {

@@ -1,29 +1,18 @@
-# Mock GK for TEE fleet tests
+# TEE fleet qualification
 
-One loopback URL exposes the prover routes used by the TEE SDK:
+The harness connects Node, Rust and browser clients through one loopback URL:
 
 ```text
-Browser / Node / Rust SDK
-    → mock GK (API key, CORS, header allowlists)
-    → recipient router (attestation selection, key ID routing)
-    → independent regional prover generations
+SDK → mock GK → recipient router → regional provers
 ```
 
-The stand-in serves `GET /v1/zolana/tee/v1/attestation`, `GET
-/v1/zolana/proving-keys`, the health probe, `POST /v1/zolana/prove/{key}`,
-`POST /v1/zolana/prove/{key}/indexed` and `GET
-/v1/zolana/prove/{key}/status`. Everything else is refused. Indexer and private
-wallet routes, GK billing, rate limiting and actual deployment configuration
-are outside this harness.
+Mock GK implements API-key authentication, CORS, header allowlists and the
+[prover routes](../../prover/tee/WIRE_CONTRACT.md#recipient-routing). It strips
+the outer API key while preserving the remaining query bytes authenticated by
+HPKE. It never retries an upstream request. Indexer/wallet routes, billing and
+rate limiting are outside the harness.
 
-It removes the single outer `api-key` query pair, preserves remaining query
-bytes and the full gateway path, and forwards only explicitly allowed headers.
-It does not follow redirects or retry upstream requests. Each encrypted
-request must name an available recipient with `Zolana-Tee-Key-Id`; an unknown
-key fails before the body is forwarded. No component here possesses a real
-enclave key or decides which PCRs the SDK should trust.
-
-## Run the tests
+## Local tests
 
 Requires Node 24 and the repository npm dependencies:
 
@@ -31,176 +20,102 @@ Requires Node 24 and the repository npm dependencies:
 npm ci
 npx playwright install chromium firefox webkit
 npm run test:tee-fleet
+ZOLANA_TEST_BROWSER=firefox node --test tools/tee-fleet/*.test.mjs
+ZOLANA_TEST_BROWSER=webkit node --test tools/tee-fleet/*.test.mjs
 ```
 
-To use an installed Chrome instead, set `ZOLANA_CHROME_EXECUTABLE` to its binary
-path. Set `ZOLANA_TEST_BROWSER=firefox` or `webkit` to select another engine.
-CI runs both suites with all three engines. The test launches a headless browser and closes its servers, browser and
-temporary bundle directory in `finally`.
+`ZOLANA_CHROME_EXECUTABLE` selects an installed Chrome. CI runs all three
+engines. Tests cover signed policy updates, persistent rollback protection,
+IndexedDB/Web Locks, cancellation, attestation, HPKE, recipient failover and
+transport faults. Synthetic Nitro certificates are injected only into the test
+bundle; the shipped SDK retains AWS roots. These local fixtures generate no
+ZK proofs.
 
-Tests exercise independent key pairs, quote verification, cached recipients,
-POST bodies, encrypted GET headers, preserved query bytes, credential removal,
-key loss, CORS preflights, unknown recipients, dropped protocol headers and
-nonce mismatch. The browser scenario resolves an ephemeral signed TUF fleet
-policy before attestation and exercises recipient failover. A separate policy
-suite runs shared Rust/Node signed-repository vectors, reload/rollback, expiry,
-root rotation, corrupt storage, cross-tab locking and cancellation against
-real IndexedDB and Web Locks. The test bundle replaces the Nitro trust anchor with a freshly
-generated synthetic CA; it still executes the SDK's signature, certificate,
-nonce, measurement, policy and HPKE checks. The normal SDK artifact retains
-the AWS root and has no test-root option. This qualifies the local transport
-only: these processes are not AWS Nitro enclaves or three physical regions,
-and the fixture responses do not generate or verify a ZK proof.
+## Live AWS qualification
 
-## Run against isolated test provers
+`live.mjs` accepts a public manifest containing `network: "pri285-tee-test"`,
+relative `rootFile`, `metadataUrl`, `targetsUrl`, and a `deployments` array with
+`id`, `region`, `stackName` and `recipientId`. Only owned
+`zolana-nitro-pri285-*` stacks in account 558215002830 are accepted. Obtain
+recipient IDs from independently verified attestations, using the wire contract
+linked above. Origin credentials come from the stacks' Secrets Manager outputs
+and stay in memory.
 
-Create a local configuration using the public keys from independently verified
-attestations. Derive each `recipientId` according to
-[the wire contract](../../prover/tee/WIRE_CONTRACT.md#recipient-routing).
+```sh
+npm run build:ts
+cargo build -p spr-client --features tee-tuf --example tee_policy_prove
+go -C prover/server build -o /absolute/tee-router ./cmd/tee-router
+ZOLANA_TEE_ROUTER_BINARY=/absolute/tee-router \
+ZOLANA_TEE_PROOF_VERIFIER="$PWD/target/debug/examples/tee_policy_prove" \
+ZOLANA_TEE_REAL_OUTAGE=1 \
+ZOLANA_TEE_CONTROL_PLANE_OUTAGE=1 \
+  node tools/tee-fleet/live.mjs manifest.json /absolute/qualification-output
+```
+
+Use a fresh output directory for each run and browser engine. On macOS, run
+`caffeinate -i node ...` to keep the qualification host awake through the real
+freshness deadlines. Without `ZOLANA_TEE_ROUTER_BINARY`, the driver uses the
+in-process recipient router instead of the Go service.
+
+The managed run starts two independent Go routers behind round-robin mock GK.
+It publishes identical, conditional revisions to three private S3 mirrors and
+waits for both routers to converge. A temporary IAM role grants access only to
+that run's registry objects and regional origin secrets. The operator identity
+owns publication and fault injection; router processes receive read-only
+credentials. Cleanup removes the temporary role.
+
+Node, Rust and the selected browser load the signed CDN policy, verify AWS
+attestations, and generate encrypted proofs in every region. All proof exports
+are checked against the committed on-chain Groth16 verifying key. The driver
+also verifies cached-recipient failover, including a Rust stdin barrier between
+attestation and the first encrypted request.
+
+- `ZOLANA_TEE_REAL_OUTAGE=1` stops and restarts `zolana-enclave@0.service` on
+  the owned test instance through SSM. Both routers must observe health loss
+  with the registry entry still enabled. Restoration checks the sealed key is
+  unchanged and verifies another proof. Cleanup restores any stopped service.
+- `ZOLANA_TEE_CONTROL_PLANE_OUTAGE=1` blocks US S3 and Secrets Manager
+  connections through a loopback CONNECT proxy that preserves TLS. It waits
+  past the actual five-minute credential lifetime, checks fresh mirror reads,
+  cold-starts a router during the fault, and proves through the remaining
+  regions without stale-recipient forwarding. It then restores access.
+
+Reports contain proofs, public quotes/nonces, registry versions, role policies
+and observations. They contain no credentials. The control-plane fault simulates
+regional API connection loss, not a complete AWS-region outage. Production trust
+custody, deployment and real GK integration require separate qualification.
+
+## Policy renewal, revocation and expiry
+
+Add `--lifecycle` to keep clients open after the initial qualification. After
+`ready`, publish a higher signed policy through the infra publisher and send a
+command on stdin (IDs must exist in the manifest):
 
 ```json
-{
-  "port": 3301,
-  "allowedOrigins": ["http://localhost:5173"],
-  "deployments": [
-    {
-      "id": "eu-test-1",
-      "region": "eu-north-1",
-      "origin": "https://test-prover.example",
-      "recipientId": "<64 lowercase hex characters>"
-    }
-  ]
-}
+{"action":"policy","revision":2,"available":["eu-north-1","us-east-1","ap-southeast-1"],"retired":"ap-southeast-1"}
 ```
 
-Add one entry for each independent recipient, then:
+The retired generation stays routable for cached ciphertext but is excluded
+from new attestations. Remove it from the signed policy. The harness waits for
+the new revision, proves with all clients and checks that no request reaches
+the retired recipient.
+
+After the actual signed metadata expires, send `{"action":"expiry"}`. With
+the CDN still serving the expired metadata, all clients must reject before
+forwarding. Publish renewed metadata and send another `policy` command to
+verify recovery. `{"action":"finish"}` closes the clients and services.
+
+## Interactive mock gateway
+
+`serve.mjs` accepts a JSON file with `port`, `allowedOrigins` and `deployments`.
+Each deployment supplies `id`, `region`, HTTPS `origin` and `recipientId`.
 
 ```sh
 ZOLANA_MOCK_API_KEY=local-test-key node tools/tee-fleet/serve.mjs config.json
 ```
 
-Configure the SDK with `http://127.0.0.1:3301/v1/zolana?api-key=local-test-key`
-and its normal reviewed TEE policy/source. The mock binds only loopback;
-configuration contains public identifiers and fixed origins. Do not use a
-production API key. The CLI logs neither the key nor request contents.
-
-Fault controls are JavaScript objects returned to the test runner, never
-public HTTP endpoints. `gateway.faults.dropRequest` and `dropResponse` drop a
-named header; `router.setAvailable(id, false)` removes a generation from both
-attestation selection and ciphertext routing. This in-process router uses
-operator fault controls. The shared Go router is qualified separately below.
-
-Real GK qualification must check the deployed route map, request allowlist
-(including the new `Zolana-Tee-Key-Id`), response marker forwarding, browser
-CORS, origin authentication and retry behavior. Passing this suite does not
-establish real GK compatibility.
-
-## Qualify the owned AWS test fleet
-
-`live.mjs` accepts a public manifest with `network: "pri285-tee-test"`, a
-relative `rootFile`, static `metadataUrl`/`targetsUrl`, and deployment entries
-containing `id`, `region`, `stackName` and the independently verified
-`recipientId`. It only accepts the operator-owned `zolana-nitro-pri285-*`
-stacks in account 558215002830. Regional origin credentials are read from each
-stack's exact Secrets Manager output and retained in process memory. They are
-not placed in the manifest, browser configuration, reports or command line.
-
-```sh
-npm run build:ts
-cargo build -p spr-client --features tee-tuf --example tee_policy_prove
-ZOLANA_TEE_PROOF_VERIFIER="$PWD/target/debug/examples/tee_policy_prove" \
-  node tools/tee-fleet/live.mjs manifest.json /absolute/qualification-output
-```
-
-The normal SDK artifact and AWS trust root are used. Node, native Rust and the
-selected real browser load the actual signed CDN policy, attest and generate
-an encrypted proof through one mock-GK URL for each region. Every proof is
-verified against the committed on-chain Groth16 key. Generation removal tests
-cached-recipient failover in all three clients, including a native Rust stdin
-barrier between attestation and the first encrypted request. Public proof
-exports and a qualification report are written to the output directory.
-
-For persistent-client checks, add `--lifecycle`. After the `ready` line,
-publish a higher signed policy and send an operator command on stdin:
-
-```json
-{"action":"policy","revision":2,"available":["us-east-1","ap-southeast-1"],"retired":"ap-southeast-1"}
-```
-
-The manifest must already contain every backend needed for the exercise.
-The harness waits for the approved revision before proving and checks that
-the retired generation receives no request. Once the actual signed metadata
-has expired, send `{"action":"expiry"}`; Node, browser and a restarted native
-Rust client must fail before forwarding any request. No test clock is used.
-Publish renewed higher metadata and use another `policy` command to verify
-recovery. Send `{"action":"finish"}` to close the browser and servers.
-Control commands are available only on the operator's stdin, never as HTTP
-routes. Publication still uses the separate reviewed conditional publisher.
-
-`router.setDraining(id, true)` excludes a generation from new attestation
-selection while retaining its ciphertext route. A lifecycle command's
-`retired` entry is drained automatically. Keeping it in `available` proves
-policy revocation rather than outage recovery: stale ciphertext could still
-be served, and the test asserts that none is forwarded there. Successful
-qualification also archives the public nonce, capture time and complete AWS
-evidence beside each region's verified proof.
-
-## Qualify shared routing and physical outages
-
-Build the Go router and set `ZOLANA_TEE_ROUTER_BINARY` to its absolute path to
-run two independent router processes behind round-robin mock GK. Both read one
-private versioned object in the isolated test routing bucket provisioned by
-`zolana-infra/infra/routing-registry`. The driver publishes complete revisions
-conditionally and waits for both processes to observe them. Origin credentials
-are resolved inside the Go processes. The driver archives per-replica
-convergence observations, counters and the public routing configuration.
-
-```sh
-go -C prover/server build -o /absolute/tee-router ./cmd/tee-router
-ZOLANA_TEE_ROUTER_BINARY=/absolute/tee-router \
-ZOLANA_TEE_PROOF_VERIFIER="$PWD/target/debug/examples/tee_policy_prove" \
-ZOLANA_TEE_REAL_OUTAGE=1 \
-  node tools/tee-fleet/live.mjs manifest.json /absolute/qualification-output
-```
-
-`ZOLANA_TEE_REAL_OUTAGE=1` requires the separate operator identity's SSM access.
-It stops and starts only `zolana-enclave@0.service` on the owned test stack's
-instance. Both routers must observe health loss while its registry entry
-remains enabled; Node, Rust and browser clients must recover without forwarding
-to that unavailable recipient. The driver restores the service, checks its
-sealed recipient key is unchanged, and verifies another proof. Cleanup restores
-any stopped service. Production runtime identities must not receive SSM access.
-
-Keep the qualification host awake. On macOS, wrap the Node invocation with
-`caffeinate -i node tools/tee-fleet/live.mjs ...`; its assertion ends with that
-command and changes no system sleep settings. Idle sleep suspends both routers
-and the driver, invalidating wall-clock convergence deadlines. Preserve a
-failed trace and correlate it with host sleep/wake events before attributing
-such a timeout to S3 or routing. Choose an output directory per run and engine.
-
-Managed qualification publishes byte-identical registries to the isolated US,
-EU and AP buckets. Its temporary IAM role reads only that run's three object
-keys and the three exact regional origin-secret ARNs; router processes receive
-only the assumed-role credentials. Publication retains the operator identity.
-The driver records the public resource policy and IAM
-simulation denials for writes, KMS, SSM and role passing, then removes the role
-and its policies during cleanup. This operator exercise requires permission to
-create and remove its tagged `zolana-pri285-router-*` roles.
-Setup identity/permission reads retry a client timeout or rejected temporary
-token once and record the attempt; persistent failures and access denials stop
-the run. This does not change runtime refresh or outage deadlines.
-
-Add `ZOLANA_TEE_CONTROL_PLANE_OUTAGE=1` to disconnect the routers from US S3
-and Secrets Manager after warming clients on that recipient. A loopback CONNECT
-fixture allows only the six configured regional AWS API hosts, passes TLS
-unchanged, closes existing US tunnels and refuses new US connections. The
-prover transport remains independent of this fixture. The test waits
-past the real five-minute credential limit, verifies fresh mirror reads beyond
-the registry cache budget, cold-starts one router during the fault, and proves
-through the remaining regions without forwarding stale-recipient requests.
-It then restores access and proves with the original sealed recipient again.
-Reports contain source regions, object versions and credential readiness; no
-credential values are written. This injects regional API connection failures;
-it does not claim a complete physical AWS-region outage. An earlier IAM-denial
-drill produced mixed successful and denied reads under the same role, confirmed
-by CloudTrail. A single denied probe cannot establish sustained unavailability.
+Use `http://127.0.0.1:3301/v1/zolana?api-key=local-test-key` (or the configured
+port) with a reviewed SDK policy. Never use a production API key. In tests,
+`gateway.faults.dropRequest`/`dropResponse` remove headers, and
+`router.setAvailable`/`setDraining` control generation selection. These controls
+are JavaScript methods, not public HTTP routes.

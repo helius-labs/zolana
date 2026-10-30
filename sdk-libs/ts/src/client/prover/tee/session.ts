@@ -37,6 +37,7 @@ import {
   verifyFleetAttestation,
   type ProverTeePolicy,
 } from "./fleet.js";
+import { refused } from "./platform.js";
 import { PLATFORMS, type TeePlatform } from "./registry.js";
 import { verifyAttestation, type AttestedProver } from "./verify.js";
 import { TeePolicySource, type ProverTee } from "./source.js";
@@ -333,15 +334,12 @@ export class TeeSession {
   }
 }
 
-function selectedFingerprint(policy: ProverTeePolicy, key: Uint8Array): string | undefined {
-  if (!("kind" in policy)) return JSON.stringify(policy);
-  const hex = bytesToHex(key);
-  const entry = policy.deployments.find((entry) => entry.policy.hpkePublicKey === hex);
-  return entry === undefined ? undefined : JSON.stringify(entry.policy);
-}
-
 function permits(policy: ProverTeePolicy, key: Uint8Array, fingerprint: string): boolean {
-  return selectedFingerprint(policy, key) === fingerprint;
+  if (!("kind" in policy)) return JSON.stringify(policy) === fingerprint;
+  const hex = bytesToHex(key);
+  return policy.deployments.some(
+    (entry) => entry.policy.hpkePublicKey === hex && JSON.stringify(entry.policy) === fingerprint,
+  );
 }
 
 function copyAttestedProver(prover: AttestedProver): AttestedProver {
@@ -442,7 +440,5 @@ async function recipientFailure(
   return { response: checked, retry };
 }
 
-const refused = (check: string): ClientError =>
-  new ClientError("CLIENT_PROVER_TEE_ATTESTATION", { details: { check } });
 const encryptionError = (check: string): ClientError =>
   new ClientError("CLIENT_PROVER_TEE_ENCRYPTION", { details: { check } });
