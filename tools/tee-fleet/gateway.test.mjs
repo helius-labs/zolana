@@ -128,7 +128,7 @@ test(
               const response = await session.send({
                 fetch,
                 attestationUrl: new URL(
-                  `${gatewayServer.url}/v1/zolana/tee/v1/attestation?api-key=${apiKey}`,
+                  `${gatewayServer.url}/v1/zolana/attestation?api-key=${apiKey}`,
                 ),
                 url: call,
                 route,

@@ -53,8 +53,8 @@
     },
     {
       "method": "GET",
-      "request_target": "/tee/v1/attestation?nonce=ab\u0026api-key=k1\u0026api-key=k2",
-      "aad": "GET /tee/v1/attestation?nonce=ab"
+      "request_target": "/attestation?nonce=ab\u0026api-key=k1\u0026api-key=k2",
+      "aad": "GET /attestation?nonce=ab"
     },
     {
       "method": "GET",

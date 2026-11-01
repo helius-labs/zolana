@@ -471,7 +471,7 @@ class AttestationTests(unittest.TestCase):
                     request = urlopen.call_args.args[0]
                     self.assertRegex(
                         request.full_url,
-                        r"^https://x/tee/v1/attestation\?nonce=[0-9a-f]{64}$",
+                        r"^https://x/attestation\?nonce=[0-9a-f]{64}$",
                     )
                     self.assertEqual(request.get_header("X-api-key"), "secret")
                 else:

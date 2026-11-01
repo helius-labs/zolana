@@ -135,7 +135,6 @@ export class TeeSession {
     signal: ComposedSignal,
   ): Promise<AttestedProver> {
     let delay: bigint | undefined;
-    let legacy = false;
     for (let attempt = 1; ; attempt++) {
       if (delay !== undefined) {
         try {
@@ -156,7 +155,6 @@ export class TeeSession {
         .join(",");
       const nonce = randomBytes(NONCE_SIZE);
       const url = new URL(attestationUrl);
-      if (legacy) url.pathname = url.pathname.replace(/\/attestation$/u, "/tee/v1/attestation");
       setUrlQuery(url, "nonce", bytesToHex(nonce));
       const request = composeSignal(
         { signal: signal.signal, timeoutMs: ATTESTATION_TIMEOUT_MS },
@@ -176,17 +174,6 @@ export class TeeSession {
             throw request.timedOut() ? requestError("attest", request) : refused("unavailable");
           }
           delay = RETRY_DELAY_MS;
-          continue;
-        }
-        if (
-          !legacy &&
-          attempt < MAX_ATTEMPTS &&
-          !url.pathname.endsWith("/tee/v1/attestation") &&
-          (await legacyAttestation(response))
-        ) {
-          if (!response.bodyUsed) await response.body?.cancel();
-          legacy = true;
-          delay = undefined;
           continue;
         }
         if (!response.ok) {
@@ -471,19 +458,3 @@ async function recipientFailure(
 
 const encryptionError = (check: string): ClientError =>
   new ClientError("CLIENT_PROVER_TEE_ENCRYPTION", { details: { check } });
-
-async function legacyAttestation(response: Response): Promise<boolean> {
-  if (response.status === 404) return true;
-  if (response.status !== 400 || response.headers.has(HEADER_VERSION)) return false;
-  try {
-    const answer: unknown = await readBoundedJson(response, MAX_ERROR_BYTES);
-    return (
-      typeof answer === "object" &&
-      answer !== null &&
-      "code" in answer &&
-      answer.code === "tee_required"
-    );
-  } catch {
-    return false;
-  }
-}

@@ -6,7 +6,7 @@ JSON fields are snake_case, and byte fields and the `Zolana-Tee-Enc` and `Zolana
 
 | Method                                         | Request                                                                                                         | Result                                                                |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `GET /tee/v1/attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key                                                                            | `platform`, `hpke_public_key`, `gpu` and `evidence`                   |
+| `GET /attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key                                                                            | `platform`, `hpke_public_key`, `gpu` and `evidence`                   |
 | any prover route, encrypted                    | `Zolana-Tee: v1`, `Zolana-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Zolana-Tee-Ciphertext` | the inner status, `Zolana-Tee: v1`, and the encrypted status and body |
 
 A TEE prover rejects a request without `Zolana-Tee` before reading its body, except on `/auth`, `/ready`, `/health`, `/proving-keys` and the attestation route.
@@ -124,16 +124,13 @@ recipient_id = hex(SHA-256("zolana/prover-tee/v1/recipient" || hpke_public_key))
 ```
 
 Gatekeeper maps that identifier to an origin inside the selected service pool.
-`GET /v1/zolana/attestation` is the public attestation route; the former
-`/v1/zolana/tee/v1/attestation` remains an alias. Direct provers serve both
-`/attestation` and `/tee/v1/attestation`. The protocol and HPKE domain stay v1.
-New SDKs try the legacy alias once on 404 or unsealed `400 tee_required`, within
-the original three-attempt attestation budget, with a fresh nonce.
+`GET /v1/zolana/attestation` is the public attestation route. Direct provers
+serve `/attestation`. The protocol and HPKE domain stay v1.
 
 The SDK sends `Zolana-Tee-Accept` on attestation requests when keys are pinned:
 1–32 unique, comma-separated lowercase 64-hex recipient IDs, without spaces.
 GK chooses an enabled, non-draining origin in that set. An omitted hint permits
-any enabled, non-draining origin for legacy clients. Quotes still undergo full
+any enabled, non-draining origin for policies without pinned keys. Quotes still undergo full
 client verification; the hint is neither policy nor evidence. No intersection
 returns the same pre-forward refusal as an unavailable encrypted recipient;
 

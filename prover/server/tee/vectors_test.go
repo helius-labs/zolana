@@ -48,7 +48,7 @@ var aadTargets = [][2]string{
 	{"GET", "/v1/zolana?jobId=a"},
 	{"GET", "/prove/merge_8_1/status?api-key=k&jobId=a1"},
 	{"GET", "/prove/merge_8_1/status?jobId=a1&api-key=k"},
-	{"GET", "/tee/v1/attestation?nonce=ab&api-key=k1&api-key=k2"},
+	{"GET", "/attestation?nonce=ab&api-key=k1&api-key=k2"},
 	{"GET", "/prove/x?api-keys=v&api-key"},
 	{"GET", "/prove/x?&&jobId=a&"},
 	{"POST", "/v1/zolana/prove/transfer_2_2?api%2Dkey=k&jobId=%61%31&q=a%20b+c"},

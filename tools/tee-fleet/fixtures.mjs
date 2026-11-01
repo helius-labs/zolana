@@ -152,10 +152,7 @@ export async function fixtureProver(
         request.headers[credentialHeader] !== faults.apiKey
       )
         throw new Error("gateway leaked credential");
-      if (
-        url.pathname === `${prefix}/attestation` ||
-        url.pathname === `${prefix}/tee/v1/attestation`
-      ) {
+      if (url.pathname === `${prefix}/attestation`) {
         const nonce = hexToBytes(url.searchParams.get("nonce") ?? "");
         if (nonce.length !== 32) throw new Error("invalid nonce");
         stats.attestations++;

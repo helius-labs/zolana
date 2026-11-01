@@ -9,7 +9,6 @@ import (
 )
 
 const AttestationPath = "/attestation"
-const LegacyAttestationPath = "/tee/v1/attestation"
 
 type Attestation struct {
 	Platform      string `json:"platform"`

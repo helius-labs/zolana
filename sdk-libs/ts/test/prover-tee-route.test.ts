@@ -117,59 +117,51 @@ it("seals the route below a prover URL that a proxy serves under its own path", 
   }
 });
 
-it.each([undefined, 404, 400])(
-  "does not replay an encrypted proof after a lost response (legacy %s)",
-  async (legacy) => {
-    const live = decode.record(json("../../../prover/tee/testdata/live_attestation.json"), "live");
-    const policy = decode.record(json("../../../prover/tee/testdata/live_policy.json"), "policy");
-    const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
-    let quotes = 0;
-    const fillNonce: typeof globalThis.crypto.getRandomValues = (bytes) => {
-      if (!(bytes instanceof Uint8Array)) throw new Error("unexpected nonce");
-      bytes.set(nonce);
-      return bytes;
-    };
-    const random = vi.spyOn(globalThis.crypto, "getRandomValues").mockImplementationOnce(fillNonce);
-    if (legacy !== undefined) random.mockImplementationOnce(fillNonce);
-    const now = vi
-      .spyOn(Date, "now")
-      .mockReturnValue(Number(decode.integer(live["captured_at"], "time")) * 1000);
-    let posts = 0;
-    try {
-      const client = new ProverClient({
-        url: "https://prover.example",
-        tee: teePolicyFromJson(policy["deployment"]),
-        fetch: async (input, init) => {
-          if (init?.method === undefined) {
-            quotes++;
-            const deployment = teePolicyFromJson(policy["deployment"]);
-            if (deployment.hpkePublicKey !== undefined)
-              expect(new Headers(init?.headers).get("Zolana-Tee-Accept")).toBe(
-                recipientId(hexToBytes(deployment.hpkePublicKey)),
-              );
-            if (legacy !== undefined && quotes === 1)
-              return Response.json({ code: "tee_required" }, { status: legacy });
-            expect(new URL(String(input)).pathname).toBe(
-              legacy === undefined ? "/attestation" : "/tee/v1/attestation",
+it("does not replay an encrypted proof after a lost response", async () => {
+  const live = decode.record(json("../../../prover/tee/testdata/live_attestation.json"), "live");
+  const policy = decode.record(json("../../../prover/tee/testdata/live_policy.json"), "policy");
+  const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
+  let quotes = 0;
+  const fillNonce: typeof globalThis.crypto.getRandomValues = (bytes) => {
+    if (!(bytes instanceof Uint8Array)) throw new Error("unexpected nonce");
+    bytes.set(nonce);
+    return bytes;
+  };
+  const random = vi.spyOn(globalThis.crypto, "getRandomValues").mockImplementationOnce(fillNonce);
+  const now = vi
+    .spyOn(Date, "now")
+    .mockReturnValue(Number(decode.integer(live["captured_at"], "time")) * 1000);
+  let posts = 0;
+  try {
+    const client = new ProverClient({
+      url: "https://prover.example",
+      tee: teePolicyFromJson(policy["deployment"]),
+      fetch: async (input, init) => {
+        if (init?.method === undefined) {
+          quotes++;
+          const deployment = teePolicyFromJson(policy["deployment"]);
+          if (deployment.hpkePublicKey !== undefined)
+            expect(new Headers(init?.headers).get("Zolana-Tee-Accept")).toBe(
+              recipientId(hexToBytes(deployment.hpkePublicKey)),
             );
-            return Response.json(live["attestation"]);
-          }
-          posts++;
-          throw new TypeError("connection lost");
-        },
-      });
-      await expect(
-        client.send(
-          "synthetic-private-inputs",
-          "sync",
-          expectedProvingKey({ circuit: "transfer-confidential", nInputs: 2, nOutputs: 2 }),
-        ),
-      ).rejects.toMatchObject({ code: "CLIENT_PROVER_OUTCOME_UNKNOWN" });
-      expect(posts).toBe(1);
-      expect(quotes).toBe(legacy === undefined ? 1 : 2);
-    } finally {
-      random.mockRestore();
-      now.mockRestore();
-    }
-  },
-);
+          expect(new URL(String(input)).pathname).toBe("/attestation");
+          return Response.json(live["attestation"]);
+        }
+        posts++;
+        throw new TypeError("connection lost");
+      },
+    });
+    await expect(
+      client.send(
+        "synthetic-private-inputs",
+        "sync",
+        expectedProvingKey({ circuit: "transfer-confidential", nInputs: 2, nOutputs: 2 }),
+      ),
+    ).rejects.toMatchObject({ code: "CLIENT_PROVER_OUTCOME_UNKNOWN" });
+    expect(posts).toBe(1);
+    expect(quotes).toBe(1);
+  } finally {
+    random.mockRestore();
+    now.mockRestore();
+  }
+});

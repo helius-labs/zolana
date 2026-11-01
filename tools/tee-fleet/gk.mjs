@@ -71,7 +71,6 @@ export async function gkRouter({ deployments, binary }) {
     const send = (value) => child.stdin.write(`${JSON.stringify(value)}\n`);
     const routes = [
       ["GET", "/attestation", 184],
-      ["GET", "/tee/v1/attestation", 184],
       ["GET", "/proving-keys", 185],
       ["GET", "/health", 162],
       ["GET", "/prove/{key}/status", 162],

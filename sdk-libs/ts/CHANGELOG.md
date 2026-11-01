@@ -24,7 +24,7 @@ Added
 
 Changed
 
-- `ProverClient` uses `/attestation` with a bounded fallback for older provers, selects from approved recipient keys, re-attests once after an explicit pre-forward refusal, and reports `CLIENT_PROVER_OUTCOME_UNKNOWN` without replaying an encrypted proof after a lost connection.
+- `ProverClient` uses `/attestation`, selects from approved recipient keys, re-attests once after an explicit pre-forward refusal, and reports `CLIENT_PROVER_OUTCOME_UNKNOWN` without replaying an encrypted proof after a lost connection.
 - A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
 
 Fixed

@@ -109,7 +109,7 @@ Independent keys behind one URL use recipient routing in Gatekeeper. SDK encrypt
 requests carry `Zolana-Tee-Key-Id`, derived from the verified key; the router
 must forward to that recipient rather than round-robin ciphertext. A
 `503 tee_generation_unavailable` emitted before forwarding causes one fresh
-attestation and newly encrypted retry. Direct legacy clients may omit the
+attestation and newly encrypted retry. Direct prover requests may omit the
 header. Policy publishing remains static; TUF is an optional policy provider,
 independent of routing. See the [test gateway](../../tools/tee-fleet/README.md).
 

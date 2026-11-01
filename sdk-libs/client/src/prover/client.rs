@@ -1017,13 +1017,12 @@ impl AsyncProverClient {
     /// Retries a transport failure and a busy or unavailable answer, each try
     /// with a fresh nonce.
     async fn attest_with(&self, tee: &TeeSession) -> Result<AttestedProver, ClientError> {
-        let mut legacy = false;
         let mut attempt = 0;
         loop {
             attempt += 1;
             tee.refresh_policy().await?;
             let nonce = TeeSession::nonce()?;
-            let mut request = HttpRequest::get(self.endpoint.attestation_url(&nonce, legacy)?)
+            let mut request = HttpRequest::get(self.endpoint.attestation_url(&nonce)?)
                 .with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
                 .with_body_limit(MAX_ATTESTATION_BYTES);
             if let Some(ids) = tee.accepted_recipients()? {
@@ -1041,18 +1040,6 @@ impl AsyncProverClient {
                 }
                 Err(error) => return Err(attestation_unreachable(attempt, error)),
             };
-            let legacy_route = response.status == StatusCode::NOT_FOUND
-                || (response.status == StatusCode::BAD_REQUEST
-                    && !response
-                        .headers
-                        .contains_key(spr_prover_tee::HEADER_VERSION)
-                    && response.body.len() <= 4096
-                    && serde_json::from_slice::<serde_json::Value>(&response.body)
-                        .is_ok_and(|body| body["code"] == "tee_required"));
-            if legacy_route && !legacy && attempt < PROVE_MAX_ATTEMPTS {
-                legacy = true;
-                continue;
-            }
             if let Some(delay) = attestation_retry_delay(
                 response.status,
                 retry_after(&response.headers, SystemTime::now()),
@@ -2086,24 +2073,19 @@ mod tests {
     }
 
     #[test]
-    fn an_old_prover_can_be_attested_through_the_legacy_alias() {
+    fn an_unsupported_attestation_route_fails_without_another_request() {
         for refusal in [
             MockResponse::json(404, json!({})),
             MockResponse::json(400, json!({"code": "tee_required"})),
         ] {
             let now = now_secs();
-            let server = MockServer::respond_with(vec![refusal, nitro_attestation(now)]);
+            let server = MockServer::respond_then_hold(vec![refusal, nitro_attestation(now)]);
             let mut client = ProverClient::new(server.url().to_string());
             client.client.tee = Tee::On(Box::new(nitro_session(now)));
-            client.attest().unwrap();
+            assert!(client.attest().is_err());
             let requests = server.requests();
-            assert_eq!(requests.len(), 2);
+            assert_eq!(requests.len(), 1);
             assert!(requests[0].path.starts_with("/attestation?nonce="));
-            assert!(requests[1].path.starts_with("/tee/v1/attestation?nonce="));
-            assert_ne!(
-                requests[0].path.split_once("nonce=").unwrap().1,
-                requests[1].path.split_once("nonce=").unwrap().1
-            );
         }
     }
 
@@ -3042,7 +3024,7 @@ mod tests {
                 ProofRoute::Complete.url(&endpoint, &key).unwrap(),
                 ProofRoute::Indexed.url(&endpoint, &key).unwrap(),
                 endpoint.status_url(&key, "gateway-job").unwrap(),
-                endpoint.attestation_url(&[0; 32], false).unwrap(),
+                endpoint.attestation_url(&[0; 32]).unwrap(),
                 endpoint.url(PROVING_KEYS_PATH).unwrap(),
             ];
             assert_eq!(

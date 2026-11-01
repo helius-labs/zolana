@@ -46,7 +46,7 @@ for _ in range(80):
     except OSError:
         pass
     time.sleep(0.25)
-for path in ('/ready', '/prove/transfer_confidential_2_3', '/tee/v1/attestation?nonce=00'):
+for path in ('/ready', '/prove/transfer_confidential_2_3', '/attestation?nonce=00'):
     assert request(path)[0] == 401, path
     assert request(path, {{'X-API-Key': 'wrong'}})[0] == 401, path
     assert request(path, {{'X-API-Key': 'secret'}})[0] == 200, path

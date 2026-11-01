@@ -37,6 +37,10 @@ ZK proofs.
 
 ## Live AWS qualification
 
+Prover images must serve `/attestation` (or `/v1/zolana/attestation` behind the
+gateway). Rebuilt enclave images need reviewed measurements in the test policy
+before qualification; the SDK does not try alternate attestation routes.
+
 `live.mjs` accepts a public manifest containing `network: "pri285-tee-test"`,
 relative `rootFile`, `metadataUrl`, `targetsUrl`, and a `deployments` array with
 `id`, `region`, `stackName` and `recipientId`. Only owned

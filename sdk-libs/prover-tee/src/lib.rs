@@ -29,7 +29,6 @@ pub use verify::{inspect, verify, verify_with, AttestedIdentity, AttestedProver}
 use thiserror::Error;
 
 pub const ATTESTATION_PATH: &str = "/attestation";
-pub const LEGACY_ATTESTATION_PATH: &str = "/tee/v1/attestation";
 pub const HEADER_ACCEPT: &str = "zolana-tee-accept";
 pub const HEADER_VERSION: &str = "Zolana-Tee";
 pub const HEADER_ENC: &str = "Zolana-Tee-Enc";

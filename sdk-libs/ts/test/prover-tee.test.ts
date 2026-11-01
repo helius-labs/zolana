@@ -470,6 +470,7 @@ describe("encrypted request shape", () => {
 describe("a TEE prover client", () => {
   it.each([
     ["no endpoint", () => new Response("404 page not found", { status: 404 })],
+    ["encryption required", () => Response.json({ code: "tee_required" }, { status: 400 })],
     ["junk attestation", () => Response.json({ quote: "00" })],
   ])("sends nothing but the attestation request to a prover with %s", async (_name, answer) => {
     const requested: string[] = [];
@@ -482,9 +483,7 @@ describe("a TEE prover client", () => {
       },
     });
     await expect(prover.checkProvingKeys()).rejects.toThrow(ClientError);
-    expect(requested).toEqual(
-      _name === "no endpoint" ? ["/attestation", "/tee/v1/attestation"] : ["/attestation"],
-    );
+    expect(requested).toEqual(["/attestation"]);
   });
 });
 
