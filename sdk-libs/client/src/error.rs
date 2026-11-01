@@ -176,6 +176,9 @@ pub enum ClientError {
     #[error("input {index} is not Solana-owned")]
     EddsaInputNotSolanaOwned { index: usize },
 
+    #[error("the prepared owner signature does not verify over the transaction message digest")]
+    OwnerSignatureMismatch,
+
     #[error("the anonymous ring proof requires at least one real input of the hidden owner")]
     AnonymousProofWithoutHiddenInput,
 

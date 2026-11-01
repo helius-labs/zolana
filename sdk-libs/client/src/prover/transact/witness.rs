@@ -2,7 +2,6 @@ use spr_interface::{
     instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
     pda, N_PUBLIC_SLOTS,
 };
-use spr_keypair::SigningKey;
 use spr_transaction::{
     instructions::transact::{CacheAccounts, SppProofInputs, TransactRail},
     utxo::SppProofInputUtxo,
@@ -20,6 +19,7 @@ use crate::{
                 ConfidentialEddsaTransferInputs, EddsaAuthorization,
             },
             eddsa::TransferProver,
+            OwnerAuthorization,
         },
         verify::{verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs},
         Proof, ProofCompressed, Prover, ProverExt, TransferInputs,
@@ -353,11 +353,11 @@ pub fn assemble_with_dummy_policy(
 /// [`assemble`] for the `ConfidentialEddsa` rail: `owner` signs the
 /// transaction message digest and the proof verifies that signature, so the
 /// owner does not sign the transaction. Every other input owner still does.
-pub fn assemble_confidential_eddsa(
+pub fn assemble_confidential_eddsa<'a>(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
-    owner: &SigningKey,
+    owner: impl Into<OwnerAuthorization<'a>>,
 ) -> Result<AssembledTransfer, ClientError> {
     assemble_confidential_eddsa_with_dummy_policy(
         proof_inputs,
@@ -368,15 +368,16 @@ pub fn assemble_confidential_eddsa(
     )
 }
 
-pub fn assemble_confidential_eddsa_with_dummy_policy(
+pub fn assemble_confidential_eddsa_with_dummy_policy<'a>(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
     allow_dummy_inputs: bool,
-    owner: &SigningKey,
+    owner: impl Into<OwnerAuthorization<'a>>,
 ) -> Result<AssembledTransfer, ClientError> {
+    let owner = owner.into();
     let shape = proof_inputs.check_shape_for(TransactRail::ConfidentialEddsa)?;
-    let signer_pk_hashes = confidential_eddsa_signer_pk_hashes(&proof_inputs, owner)?;
+    let signer_pk_hashes = confidential_eddsa_signer_pk_hashes(&proof_inputs, &owner.public_key())?;
     let external = proof_inputs.external_data.clone();
     let cache_accounts = proof_inputs.cache_accounts;
     let public_transfers = proof_inputs.public_transfers()?;

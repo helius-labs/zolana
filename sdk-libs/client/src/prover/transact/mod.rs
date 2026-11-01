@@ -2,6 +2,7 @@ pub mod anonymous_ring_eddsa;
 pub(crate) mod assembly;
 pub mod confidential_eddsa;
 pub mod eddsa;
+mod owner_authorization;
 pub mod ring_eddsa;
 pub mod witness;
 
@@ -15,6 +16,7 @@ pub use confidential_eddsa::{
     ConfidentialEddsaTransferInputs, EddsaAuthorization,
 };
 pub use eddsa::{TransferProofResult, TransferProver};
+pub use owner_authorization::OwnerAuthorization;
 pub use ring_eddsa::{RingTransferProofResult, RingTransferProver};
 pub use spr_transaction::instructions::transact::PublicTransfers;
 pub use witness::{

@@ -45,8 +45,8 @@ pub use transact::{
     attach_input_proofs, confidential_eddsa_signer_pk_hashes, input_utxos_from_nullifiers,
     AnonymousEddsaTransferInputs, AnonymousRingEddsaProofResult, AnonymousRingEddsaProver,
     ConfidentialEddsaProofResult, ConfidentialEddsaProver, ConfidentialEddsaTransferInputs,
-    EddsaAuthorization, PublicInputs, PublicTransfers, RingTransferProofResult, RingTransferProver,
-    TransferInputUtxo, TransferProofResult, TransferProver,
+    EddsaAuthorization, OwnerAuthorization, PublicInputs, PublicTransfers, RingTransferProofResult,
+    RingTransferProver, TransferInputUtxo, TransferProofResult, TransferProver,
 };
 pub use verify::{
     verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs,

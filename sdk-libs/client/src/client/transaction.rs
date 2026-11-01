@@ -11,7 +11,6 @@ use spr_interface::{
     instruction::{instruction_data::transact::TransactProof, TransactIxData},
     pda,
 };
-use spr_keypair::SigningKey;
 use spr_transaction::instructions::transact::SppProofInputs;
 use tokio::time::Instant;
 
@@ -20,7 +19,8 @@ use crate::{
     error::ClientError,
     prover::{
         transact::witness::{assemble, assemble_confidential_eddsa, AssembledTransfer},
-        verify_confidential_transfer_proof, ProofCompressed, Prover, TransferProofResult,
+        verify_confidential_transfer_proof, OwnerAuthorization, ProofCompressed, Prover,
+        TransferProofResult,
     },
     rpc::{
         compile_message, sign_transaction, AsyncRpc, ComputeBudgetConfig, IndexerRpcConfig,
@@ -96,13 +96,14 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
     /// the transaction message digest inside the proof instead of signing the
     /// transaction, so another account can pay for it. `authority` still
     /// completes the owner's inputs.
-    pub async fn prove_transact_confidential_eddsa(
+    pub async fn prove_transact_confidential_eddsa<'a>(
         &self,
         proof_inputs: SppProofInputs,
         config: Option<IndexerRpcConfig>,
         authority: &dyn ProofAuthority,
-        owner: &SigningKey,
+        owner: impl Into<OwnerAuthorization<'a>>,
     ) -> Result<TransactIxData, ClientError> {
+        let owner = owner.into();
         if let Some(server) = self.indexed_prover() {
             let prepared = IndexedTransferPreparation {
                 transaction: proof_inputs,
@@ -158,12 +159,12 @@ impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
     }
 
     /// See [`AsyncZolanaClient::prove_transact_confidential_eddsa`].
-    pub fn prove_transact_confidential_eddsa(
+    pub fn prove_transact_confidential_eddsa<'a>(
         &self,
         proof_inputs: SppProofInputs,
         config: Option<IndexerRpcConfig>,
         authority: &dyn ProofAuthority,
-        owner: &SigningKey,
+        owner: impl Into<OwnerAuthorization<'a>>,
     ) -> Result<TransactIxData, ClientError> {
         self.block_on(self.client.prove_transact_confidential_eddsa(
             proof_inputs,
@@ -199,7 +200,7 @@ pub struct Submission<'a> {
     /// route.
     pub prover: Option<Arc<dyn Prover>>,
     /// The owner that authorizes inside the proof instead of signing the transaction.
-    pub confidential_eddsa_owner: Option<&'a SigningKey>,
+    pub confidential_eddsa_owner: Option<OwnerAuthorization<'a>>,
 }
 
 impl<'a> Submission<'a> {
@@ -227,8 +228,11 @@ impl<'a> Submission<'a> {
     /// Prepare the transaction with `with_transaction_signers` so it selects a
     /// shape supported by this rail. Every other owner still signs normally.
     #[must_use]
-    pub fn with_confidential_eddsa_owner(mut self, owner: &'a SigningKey) -> Self {
-        self.confidential_eddsa_owner = Some(owner);
+    pub fn with_confidential_eddsa_owner(
+        mut self,
+        owner: impl Into<OwnerAuthorization<'a>>,
+    ) -> Self {
+        self.confidential_eddsa_owner = Some(owner.into());
         self
     }
 
@@ -251,7 +255,7 @@ impl<'a> Submission<'a> {
     ) -> Result<UnsignedMessage, ClientError> {
         let mut owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
         if let Some(owner) = self.confidential_eddsa_owner {
-            let owner = Address::new_from_array(owner.pubkey().as_ed25519()?);
+            let owner = Address::new_from_array(owner.public_key().as_ed25519()?);
             owner_signers.retain(|signer| *signer != owner);
         }
         let proving = async {

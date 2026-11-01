@@ -709,7 +709,7 @@ impl RingHarness {
                         &signer.signing_pubkey(),
                     )?,
                     allow_dummy_inputs: true,
-                    owner: &signer.signing_key,
+                    owner: (&signer.signing_key).into(),
                     ring_program_id: Some(ring),
                     shape,
                 };

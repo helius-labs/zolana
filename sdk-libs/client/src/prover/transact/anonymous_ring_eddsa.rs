@@ -6,9 +6,9 @@ use serde_json::{Map, Value};
 use solana_address::Address;
 use spr_hasher::primitives::{hash_bytes, solana_owner_identity};
 use spr_interface::instruction::instruction_data::transact::TreeContext;
-use spr_keypair::{PublicKey, SigningKey};
+use spr_keypair::PublicKey;
 use spr_transaction::{
-    instructions::transact::{transact_message_hash, PublicTransfers, SppProofInputs},
+    instructions::transact::{PublicTransfers, SppProofInputs},
     utxo::program_id_proof_input_hash,
     ExternalData, SppProofOutputUtxo,
 };
@@ -27,6 +27,7 @@ use crate::{
             assemble_transaction, confidential_marked_output_owner_pk_hashes, validate_shape,
             AssembledTransaction, OwnerMode, PublicInputs, TransferInputUtxo,
         },
+        transact::OwnerAuthorization,
         Shape, TransferInputs, TreeSlotFields,
     },
 };
@@ -44,7 +45,7 @@ pub struct AnonymousRingEddsaProver<'a> {
     pub signer_pk_hashes: Vec<[u8; 32]>,
     pub allow_dummy_inputs: bool,
     /// The hidden owner. Every input it owns carries the zero owner tag.
-    pub owner: &'a SigningKey,
+    pub owner: OwnerAuthorization<'a>,
     pub ring_program_id: Option<Address>,
     pub shape: Shape,
 }
@@ -112,7 +113,7 @@ impl AnonymousRingEddsaProver<'_> {
             &self.blinding_seed,
             self.output_tree_id,
             &cache.external_data_hash,
-            &OwnerMode::AnonymousEddsa(self.owner.pubkey()),
+            &OwnerMode::AnonymousEddsa(self.owner.public_key()),
             self.allow_dummy_inputs,
         )?;
         let published_output_owner_pk_hashes =
@@ -198,7 +199,7 @@ pub fn anonymous_signer_pk_hashes(
 
 pub(crate) struct AnonymousAuthorizationPreparation<'a> {
     pub inputs: &'a [TransferInputUtxo],
-    pub owner: &'a SigningKey,
+    pub owner: OwnerAuthorization<'a>,
     pub private_tx: &'a [u8; 32],
     pub external_data_hash: &'a [u8; 32],
     pub published_owners: &'a [[u8; 32]],
@@ -211,7 +212,7 @@ pub(crate) struct PreparedAnonymousAuthorization {
 
 impl AnonymousAuthorizationPreparation<'_> {
     pub fn prepare(self) -> Result<PreparedAnonymousAuthorization, ClientError> {
-        let owner = self.owner.pubkey();
+        let owner = self.owner.public_key();
         let owner_public_key = owner.as_ed25519()?;
         // The hidden identity is published only when a default-ring UTXO of the
         // hidden owner is spent. A ring-bound hidden spend is anonymous, so it may
@@ -239,7 +240,9 @@ impl AnonymousAuthorizationPreparation<'_> {
             Some(_) => owner_pk_hash,
             None => [0u8; 32],
         };
-        let signed = sign_transact_digest(self.owner, self.private_tx, self.external_data_hash)?;
+        let signed = self
+            .owner
+            .authorize(self.private_tx, self.external_data_hash)?;
 
         Ok(PreparedAnonymousAuthorization {
             authorization: AnonymousEddsaAuthorization {
@@ -251,27 +254,6 @@ impl AnonymousAuthorizationPreparation<'_> {
             default_owner_tag,
         })
     }
-}
-
-/// An owner's Ed25519 signature over the transact message digest, the
-/// authorization every in-circuit signature rail verifies.
-pub(crate) struct SignedTransactDigest {
-    pub owner_public_key: [u8; 32],
-    pub owner_signature: [u8; 64],
-    pub message_digest: [u8; 32],
-}
-
-pub(crate) fn sign_transact_digest(
-    owner: &SigningKey,
-    private_tx: &[u8; 32],
-    external_data_hash: &[u8; 32],
-) -> Result<SignedTransactDigest, ClientError> {
-    let message_digest = transact_message_hash(private_tx, external_data_hash);
-    Ok(SignedTransactDigest {
-        owner_public_key: owner.pubkey().as_ed25519()?,
-        owner_signature: owner.sign_message(&message_digest)?,
-        message_digest,
-    })
 }
 
 /// Which rings the proof's spent hidden-owner UTXOs belong to. Only spends
