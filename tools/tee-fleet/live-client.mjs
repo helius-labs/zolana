@@ -15,7 +15,7 @@ export async function client({ policy, proverUrl }) {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.origin !== new URL(proverUrl).origin)
       throw new Error("unexpected fixture client endpoint");
-    const attesting = url.pathname.endsWith("/tee/v1/attestation");
+    const attesting = url.pathname.endsWith("/attestation");
     if (attesting) observed.attestations++;
     else {
       const headers = new Headers(init?.headers);
