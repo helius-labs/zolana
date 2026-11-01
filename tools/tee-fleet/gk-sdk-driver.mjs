@@ -63,6 +63,10 @@ try {
         probes[i]++;
         response.writeHead(ready[i] ? 200 : 503);
         response.end();
+      } else if (i === 0 && request.url.split("?")[0] === "/v1/fixture/attestation") {
+        // Qualify SDK fallback through GK for an origin with only the legacy quote route.
+        response.writeHead(404, { "content-type": "application/json" });
+        response.end(JSON.stringify({ code: "not_found" }));
       } else void prover.handler(request, response);
     });
     await new Promise((resolve, reject) => {

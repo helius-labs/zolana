@@ -9,7 +9,7 @@ import {
 
 export async function client({ policy, proverUrl }) {
   const source = tufTeePolicy(policy);
-  const observed = { encrypted: 0, attestations: 0 };
+  const observed = { encrypted: 0, attestations: 0, unavailable: 0, posts: [] };
   let evidence;
   const fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -25,8 +25,20 @@ export async function client({ policy, proverUrl }) {
       )
         throw new Error("unencrypted fixture request");
       observed.encrypted++;
+      if (init?.method === "POST")
+        observed.posts.push({
+          key: headers.get("Zolana-Tee-Key-Id"),
+          enc: headers.get("Zolana-Tee-Enc"),
+        });
     }
     const response = await globalThis.fetch(input, init);
+    if (response.status === 503) {
+      const error = await response
+        .clone()
+        .json()
+        .catch(() => undefined);
+      if (error?.code === "tee_generation_unavailable") observed.unavailable++;
+    }
     if (!attesting || !response.ok) return response;
     const bytes = await readBoundedBody(response, 1 << 20);
     evidence = {
@@ -58,9 +70,9 @@ export async function client({ policy, proverUrl }) {
       const prover = await value.attestProver({ timeoutMs: 120_000 });
       return { platform: prover.platform, key: bytesToHex(prover.hpkePublicKey) };
     },
-    async prove() {
-      await value.checkProverProvingKeys({ timeoutMs: 120_000 });
-      const proof = await value.proofService.prove(transferFixtureInputs(), { timeoutMs: 180_000 });
+    async prove(timeoutMs = 180_000) {
+      await value.checkProverProvingKeys({ timeoutMs: Math.min(timeoutMs, 120_000) });
+      const proof = await value.proofService.prove(transferFixtureInputs(), { timeoutMs });
       return {
         a: bytesToHex(proof.a),
         b: bytesToHex(proof.b),

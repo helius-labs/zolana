@@ -412,3 +412,8 @@ the committed verifying key; three more complete before their responses are
 dropped. Synthetic attestations do not qualify AWS hardware, production signing
 custody, deployed config delivery or downstream billing. The historical live AWS
 qualification remains separate.
+
+The same pinned local bundle can qualify the isolated live AWS fleet without a
+GK deployment. This is an explicit operator run, not part of the scheduled
+synthetic CI job. See [live local GK qualification](../tools/tee-fleet/README.md#live-aws-through-local-gk-auth-and-health)
+for prerequisites, the `run-gk.mjs --live` command and coverage boundaries.

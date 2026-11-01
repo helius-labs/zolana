@@ -12,12 +12,16 @@ import { build } from "esbuild";
 import { writeJson } from "./artifacts.mjs";
 import { launchBrowser } from "./browser.mjs";
 import { gkRouter } from "./gk.mjs";
+import { integrationRouter } from "./gk-live.mjs";
+import { createReadStream } from "node:fs";
 import { createMockGateway, listen, recipientId } from "./gateway.mjs";
 
 const execute = promisify(execFile);
 const verifier = process.env.ZOLANA_TEE_PROOF_VERIFIER;
 const gkBinary = process.env.ZOLANA_TEE_GK_BINARY;
-if (!gkBinary)
+const integrated = Boolean(process.env.GK_TEST_URL);
+const log = integrated ? console.error : console.log;
+if (!gkBinary && !integrated)
   throw new Error("ZOLANA_TEE_GK_BINARY must select the real Heimdall qualification binary");
 if (
   process.env.ZOLANA_TEE_REAL_OUTAGE === "1" ||
@@ -26,8 +30,8 @@ if (
   throw new Error(
     "This harness qualifies recipient routing; production health/control-plane outages require a deployed GK test environment",
   );
-const manifestPath = process.argv[2];
-const output = process.argv[3];
+const manifestPath = process.env.ZOLANA_TEE_LIVE_MANIFEST ?? process.argv[2];
+const output = process.env.ZOLANA_TEE_LIVE_OUTPUT ?? process.argv[3];
 if (!manifestPath || !output || !verifier)
   throw new Error(
     "usage: ZOLANA_TEE_PROOF_VERIFIER=<tee_policy_prove binary> node tools/tee-fleet/live.mjs <public-manifest.json> <output-directory>",
@@ -40,10 +44,12 @@ if (
 )
   throw new Error("expected the isolated PRI-285 test fleet");
 const rootJson = await readFile(resolve(dirname(manifestPath), manifest.rootFile), "utf8");
-await mkdir(output, { recursive: true });
+await mkdir(output); // Never overwrite a previous qualification run.
 const staging = await mkdtemp(fileURLToPath(new URL(".tmp-live-", import.meta.url)));
 const servers = [];
 let browser;
+let router;
+let nodeClient;
 
 function aws(region, ...args) {
   try {
@@ -128,7 +134,10 @@ async function saveProof(name, proof) {
 
 try {
   const deployments = manifest.deployments.map(backend);
-  const router = await gkRouter({ deployments, binary: gkBinary });
+  router = await (integrated ? integrationRouter : gkRouter)({
+    deployments,
+    binary: gkBinary,
+  });
   servers.push({ close: router.close });
   const origin = router.origin;
   const browserFile = join(staging, "browser.mjs");
@@ -147,17 +156,22 @@ try {
     );
   });
   servers.push(assets);
-  // Keep the client-facing test credential separate from regional origin keys.
-  const apiKey = randomBytes(24).toString("hex");
-  const front = createMockGateway({
-    apiKey,
-    origin,
-    originApiKey: router.originApiKey,
-    allowedOrigins: [assets.url],
-  });
-  const publicServer = await listen(front.handler);
-  servers.push(publicServer);
-  const proverUrl = `${publicServer.url}/v1/zolana?api-key=${apiKey}`;
+  let proverUrl;
+  if (integrated) {
+    proverUrl = `${origin}/v1/fixture?api-key=${process.env.GK_TEST_KEY}`;
+  } else {
+    // Keep the client-facing test credential separate from regional origin keys.
+    const apiKey = randomBytes(24).toString("hex");
+    const front = createMockGateway({
+      apiKey,
+      origin,
+      originApiKey: router.originApiKey,
+      allowedOrigins: [assets.url],
+    });
+    const publicServer = await listen(front.handler);
+    servers.push(publicServer);
+    proverUrl = `${publicServer.url}/v1/zolana?api-key=${apiKey}`;
+  }
   const policy = {
     network: manifest.network,
     rootJson,
@@ -199,8 +213,9 @@ try {
     }
     await saveProof(name, JSON.parse(await readFile(path, "utf8")));
   };
-  let nodeClient;
+  const initialMetering = integrated ? (await router.readStats()).meteringUnits : undefined;
   for (const entry of deployments) {
+    log(JSON.stringify({ phase: "node-rust", region: entry.region }));
     await only(entry.id);
     const client = await sdk.client({
       proverUrl,
@@ -212,7 +227,12 @@ try {
     assert.equal(recipientId(Buffer.from(attestation.key, "hex")), entry.recipientId);
     await saveProof(`node-${entry.id}`, await client.prove());
     await writeJson(join(output, `node-${entry.id}-attestation.json`), client.evidence());
-    report.node.push({ id: entry.id, region: entry.region, ...client.observed, verified: true });
+    report.node.push({
+      id: entry.id,
+      region: entry.region,
+      ...structuredClone(client.observed),
+      verified: true,
+    });
     await nativeProof(`rust-${entry.id}`);
     report.rust.push({ id: entry.id, region: entry.region, verified: true });
   }
@@ -227,6 +247,7 @@ try {
     evidence: () => page.evaluate(() => window.liveClient.evidence()),
   };
   for (const entry of deployments) {
+    log(JSON.stringify({ phase: "browser", region: entry.region }));
     await only(entry.id);
     const attestation = await page.evaluate(
       async (options) => {
@@ -253,7 +274,15 @@ try {
     await saveProof("browser-failover", proof);
     await saveProof("node-failover", await nodeClient.prove());
     assert.equal((await router.readStats()).forwarded[previous.id], before);
-    assert.ok((await router.readStats()).unavailable > 0);
+    assert.notEqual(nodeClient.observed.posts.at(-1).key, nodeClient.observed.posts.at(-2).key);
+    assert.notEqual(nodeClient.observed.posts.at(-1).enc, nodeClient.observed.posts.at(-2).enc);
+    const browserPosts = await page.evaluate(() => window.liveClient.observed.posts);
+    assert.notEqual(browserPosts.at(-1).key, browserPosts.at(-2).key);
+    assert.notEqual(browserPosts.at(-1).enc, browserPosts.at(-2).enc);
+    if (integrated) {
+      assert.ok(nodeClient.observed.unavailable > 0);
+      assert.ok(await page.evaluate(() => window.liveClient.observed.unavailable > 0));
+    } else assert.ok((await router.readStats()).unavailable > 0);
     await only(previous.id);
     const rustProof = resolve(output, "rust-failover.json");
     let attested = false;
@@ -298,12 +327,92 @@ try {
       staleRecipientForwarded: false,
     };
   }
-  if (process.argv.includes("--lifecycle")) {
+  if (integrated) {
+    // Cached ciphertext remains routable during draining; fresh quotes move elsewhere.
+    deployments.forEach((entry) => router.setAvailable(entry.id, true));
+    await router.sync();
+    const cached = await nodeClient.attest();
+    const cachedId = recipientId(Buffer.from(cached.key, "hex"));
+    const drained = deployments.find((entry) => entry.recipientId === cachedId);
+    assert.ok(drained);
+    router.setDraining(drained.id, true);
+    await router.sync();
+    const before = (await router.readStats()).forwarded[drained.id];
+    await saveProof("node-draining-cached", await nodeClient.prove());
+    assert.ok((await router.readStats()).forwarded[drained.id] > before);
+    const fresh = await sdk.client({
+      proverUrl,
+      policy: { ...policy, cacheDirectory: resolve(output, "fresh-node-cache") },
+    });
+    const freshQuote = await fresh.attest();
+    assert.notEqual(recipientId(Buffer.from(freshQuote.key, "hex")), cachedId);
+    await saveProof("node-draining-fresh", await fresh.prove());
+    router.setDraining(drained.id, false);
+    await router.sync();
+
+    deployments.forEach((entry) => router.setAvailable(entry.id, false));
+    await router.sync();
+    const unavailable = JSON.stringify((await router.readStats()).forwarded);
+    await assert.rejects(nodeClient.prove(5000));
+    await assert.rejects(page.evaluate(() => window.liveClient.prove(5000)));
+    await assert.rejects(nativeProof("all-unavailable"));
+    assert.equal(JSON.stringify((await router.readStats()).forwarded), unavailable);
+    deployments.forEach((entry) => router.setAvailable(entry.id, true));
+    await router.sync();
+    await saveProof("node-recovered", await nodeClient.prove());
+    await saveProof("browser-recovered", await browserClient.prove());
+    await nativeProof("rust-recovered");
+
+    // Consume each encrypted POST at a live origin, then discard its response locally.
+    router.setDropResponse(true);
+    const postCount = (stats) =>
+      Object.values(stats.requests)
+        .flat()
+        .filter((entry) => entry.method === "POST").length;
+    for (const [name, prove] of [
+      ["node", () => nodeClient.prove()],
+      ["browser", () => browserClient.prove()],
+      ["rust", () => nativeProof("lost-response")],
+    ]) {
+      const previous = await router.readStats();
+      await assert.rejects(prove(), `${name}: lost response must not report success`);
+      const current = await router.readStats();
+      assert.equal(
+        postCount(current),
+        postCount(previous) + 1,
+        `${name}: ambiguous POST was replayed`,
+      );
+      assert.equal(current.dropped, previous.dropped + 1);
+    }
+    router.setDropResponse(false);
+    const stats = await router.readStats();
+    assert.equal(
+      stats.meteringUnits - initialMetering,
+      stats.billableUnits,
+      "live response metering mismatch",
+    );
+    report.health = {
+      authenticatedProbes: stats.probes,
+      allUnavailableForwarded: false,
+      recovered: true,
+    };
+    report.draining = { cachedProofVerified: true, freshQuoteMoved: true };
+    report.lostResponses = { consumedPosts: stats.dropped, replayed: false };
+    report.metering = {
+      units: stats.meteringUnits - initialMetering,
+      expectedUnits: stats.billableUnits,
+    };
+  }
+  if (process.argv.includes("--lifecycle") || process.env.ZOLANA_TEE_LIFECYCLE_INPUT) {
     report.lifecycle = [];
-    const commands = createInterface({ input: process.stdin });
+    const commands = createInterface({
+      input: process.env.ZOLANA_TEE_LIFECYCLE_INPUT
+        ? createReadStream(process.env.ZOLANA_TEE_LIFECYCLE_INPUT)
+        : process.stdin,
+    });
     let approvedPolicy = await nodeClient.policy();
     await writeJson(join(output, "qualification.json"), report);
-    console.log(JSON.stringify({ phase: "ready", policy: approvedPolicy }));
+    log(JSON.stringify({ phase: "ready", policy: approvedPolicy }));
     try {
       for await (const line of commands) {
         const command = JSON.parse(line);
@@ -332,9 +441,10 @@ try {
           }
           approvedPolicy = await nodeClient.policy();
           const before = { ...(await router.readStats()).forwarded };
-          await saveProof(`node-policy-${command.revision}`, await nodeClient.prove());
-          await saveProof(`browser-policy-${command.revision}`, await browserClient.prove());
-          await nativeProof(`rust-policy-${command.revision}`);
+          const phase = `policy-${command.revision}-${report.lifecycle.length + 1}`;
+          await saveProof(`node-${phase}`, await nodeClient.prove());
+          await saveProof(`browser-${phase}`, await browserClient.prove());
+          await nativeProof(`rust-${phase}`);
           if (command.retired) {
             assert.equal(
               (await router.readStats()).forwarded[command.retired],
@@ -344,6 +454,7 @@ try {
           report.lifecycle.push({
             action: "policy",
             revision: command.revision,
+            proofPrefix: phase,
             verified: true,
             retiredRecipientForwarded: false,
           });
@@ -385,14 +496,23 @@ try {
           });
         } else throw new Error("unknown lifecycle command");
         await writeJson(join(output, "qualification.json"), report);
-        console.log(JSON.stringify({ phase: "complete", action: command.action }));
+        log(JSON.stringify({ phase: "complete", action: command.action }));
       }
     } finally {
       commands.close();
     }
   }
   await writeJson(join(output, "qualification.json"), report);
-  console.log(JSON.stringify(report, null, 2));
+  log(JSON.stringify(report, null, 2));
+} catch (error) {
+  if (integrated && router)
+    await writeJson(join(output, "failure.json"), {
+      code: error.code,
+      check: error.details?.check,
+      observed: nodeClient?.observed,
+      stats: await router.readStats(),
+    });
+  throw error;
 } finally {
   await browser?.close();
   for (const server of servers.reverse()) await server.close();

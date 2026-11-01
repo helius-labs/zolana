@@ -1,8 +1,9 @@
 # TEE fleet qualification
 
-Production recipient routing lives in Gatekeeper/Heimdall. This repository
-contains a small mock for SDK tests and a driver for Heimdall's real REST
-frontend. Both use the same public prover routes and recipient headers.
+Production recipient routing lives in Gatekeeper/Heimdall. The full local
+integration runs real authentication, routing and health components with either
+synthetic provers or the isolated live AWS fleet. The smaller mock and REST-only
+harness remain available for focused SDK tests.
 
 ```text
 SDK → test authentication/CORS proxy → Heimdall → regional provers
@@ -11,8 +12,9 @@ SDK → test authentication/CORS proxy → Heimdall → regional provers
 The outer test proxy strips the caller API key while preserving the remaining
 query bytes authenticated by HPKE. It never retries an upstream request.
 Heimdall selects the recipient and attaches its configured origin credential.
-The loopback harness bypasses production authentication, billing, rate limits,
-Config Service delivery and the health controller. It is not a deployable GK.
+This older REST-only harness bypasses authentication, billing, rate limits,
+Config Service delivery and the health controller. The full integration below
+adds the real local auth and health components; neither harness is a GK deployment.
 
 ## Local tests
 
@@ -136,3 +138,42 @@ Build the SDK/CPU-prover tools using `python3 tools/tee-fleet/build-sdk-test.py 
 bundles only from the reviewed checkout or its trusted CI build, not an
 untrusted download. See [the CI guide](../../.github/CI.md#combined-sdk--gatekeeper-qualification)
 for all three browser commands and coverage limits.
+
+## Live AWS through local GK auth and health
+
+Build the pinned GK bundle as above and the native verifier:
+
+```sh
+cargo build -p spr-client --features tee-tuf --example tee_policy_prove --locked
+ZOLANA_TEE_PROOF_VERIFIER="$PWD/target/debug/examples/tee_policy_prove" \
+  node tools/tee-fleet/run-gk.mjs /absolute/gk-test-bundle --live \
+  /absolute/reviewed-test-manifest.json /absolute/new-output-directory
+```
+
+Repeat with `ZOLANA_TEST_BROWSER=firefox` and `webkit`, using new output directories.
+This opt-in command reads credentials only from the owned test stacks. It never
+publishes metadata, changes AWS resources or deploys GK. Renew expired test policy
+separately with the reviewed publisher before running it.
+
+Three authenticated loopback bridges forward ciphertext to the actual regional
+provers. They translate the neutral fixture route prefix to the deployed prover
+prefix and hold regional credentials only in memory. They preserve the encrypted
+route/query contract and cannot decrypt payloads. `/ready` is forwarded to the
+actual origins; injected local readiness failures go through GK's real checker,
+supervisor and admin handler. No disabled flags are set by the driver.
+
+The test verifies Node/Rust/browser proofs in every region, cached-recipient
+failover, all-down refusal and recovery, draining, metering and no POST replay
+when a bridge discards a completed upstream response. It exports public proofs,
+quotes and a qualification report. Losing an encrypted response does not reveal
+whether its plaintext contained a proof or a prover error.
+
+For policy lifecycle tests in this mode, set `ZOLANA_TEE_LIFECYCLE_INPUT` to a
+local FIFO carrying the same commands documented above. Keep its writer open
+through the test; stdin is reserved for GK's controller. Progress is on stderr.
+Clients retain their policy caches while higher revisions are published,
+revocations are tested, signed metadata expires, and renewed metadata is served.
+
+Deployment permissions, actual Config Service distribution, public edge/TLS,
+distributed rate-limit convergence and downstream billing delivery remain
+outside this local integration. Production signing custody is also separate.
