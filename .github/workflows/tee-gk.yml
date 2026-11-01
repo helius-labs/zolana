@@ -1,0 +1,90 @@
+name: SDK with Gatekeeper
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 3 * * *'
+
+permissions:
+  contents: read
+concurrency:
+  group: sdk-gk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || vars.TEE_GK_CI_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Read the reviewed GK revision
+        id: gk
+        shell: bash
+        run: |
+          revision=$(cat tools/tee-fleet/gk-revision.txt)
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          repository: helius-labs/monorepo
+          ref: ${{ steps.gk.outputs.revision }}
+          path: .gk-source
+          token: ${{ secrets.MONOREPO_CI_READ_TOKEN }}
+          persist-credentials: false
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y capnproto protobuf-compiler libssl-dev clang lld
+      - uses: ./.github/actions/setup-rust
+        with:
+          shared-key: tee-gk
+          install-just: 'false'
+          private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - name: Build SDK/prover tools and fetch the pinned test proving key
+        run: python3 tools/tee-fleet/build-sdk-test.py "$RUNNER_TEMP/sdk-proof-tools"
+      - name: Build the exact GK test bundle
+        working-directory: .gk-source/rust-services/gatekeeper
+        env:
+          SKIP_CONFIG_VALIDATION: '1'
+        run: python3 scripts/build-tee-test-bundle.py "$RUNNER_TEMP/gk-bundle"
+      - name: Upload local test tools
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tee-proof-tools
+          path: |
+            ${{ runner.temp }}/sdk-proof-tools
+            ${{ runner.temp }}/gk-bundle
+          retention-days: 1
+          if-no-files-found: error
+
+  qualify:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build:ts
+      - name: Install browser
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: npx playwright install --with-deps "$BROWSER"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: tee-proof-tools
+          path: ${{ runner.temp }}/tee-proof-tools
+      - name: Qualify proofs, health failover and no replay
+        env:
+          ZOLANA_TEST_BROWSER: ${{ matrix.browser }}
+        run: node tools/tee-fleet/run-gk.mjs "$RUNNER_TEMP/tee-proof-tools/gk-bundle" "$RUNNER_TEMP/tee-proof-tools/sdk-proof-tools"

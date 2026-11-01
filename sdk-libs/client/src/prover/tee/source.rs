@@ -160,7 +160,7 @@ impl TeePolicySource {
     }
 
     #[cfg(test)]
-    pub(super) fn expire_for_test(&self) {
+    pub(crate) fn expire_for_test(&self) {
         self.state().unwrap().accepted.as_mut().unwrap().at -=
             self.interval + Duration::from_secs(1);
     }

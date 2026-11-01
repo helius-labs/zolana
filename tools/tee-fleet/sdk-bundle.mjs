@@ -12,6 +12,8 @@ export async function sdkBundle(authority, platform, outfile) {
       export { ZolanaClient } from ${JSON.stringify(new URL("client/index.js", dist).pathname)};
       export { ProverClient } from ${JSON.stringify(new URL("client/prover/client.js", dist).pathname)};
       export { teeFleetPolicyFromJson } from ${JSON.stringify(new URL("client/prover/tee/fleet.js", dist).pathname)};
+      export { expectedProvingKey } from ${JSON.stringify(new URL("interface/proving-keys.js", dist).pathname)};
+      export { TeePolicySource } from ${JSON.stringify(new URL("client/prover/tee/source.js", dist).pathname)};
       export { TeeSession } from ${JSON.stringify(new URL("client/prover/tee/session.js", dist).pathname)};
       export { composeSignal } from ${JSON.stringify(new URL("client/internal.js", dist).pathname)};
     `,

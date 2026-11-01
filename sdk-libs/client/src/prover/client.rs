@@ -3721,3 +3721,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, feature = "reqwest"))]
+mod gk_integration;

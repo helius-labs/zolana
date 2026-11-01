@@ -104,6 +104,12 @@ impl TeeSession {
         }
     }
 
+    #[cfg(all(test, feature = "reqwest"))]
+    pub(crate) fn with_test_anchors(mut self, anchors: Anchors) -> Self {
+        self.anchors = anchors;
+        self
+    }
+
     /// Runs `attest` while no other attestation of this session runs.
     pub async fn attest_exclusive<F: Future<Output = AttestResult>>(
         &self,

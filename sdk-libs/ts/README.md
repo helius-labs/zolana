@@ -312,9 +312,9 @@ target is a browser.
 The ordinary client entry point remains browser-compatible. `TeePolicySource`
 from `@heliuslabs/zolana/client` accepts an application-authorized loader in
 either environment; that loader must authenticate its publisher and persist
-its rollback state. The built-in TypeScript TUF loader is Node-only. Browser-native
-verification, the production Helius signing root/preset, and regional recipient
-routing are subsequent work; no `heliusTee` preset is shipped yet. The
+its rollback state. Built-in signed providers are available for Node and browsers.
+Regional recipient routing is implemented in GK; deployment and production
+signing custody remain activation gates. No `heliusTee` preset is shipped yet. The
 [Rust client](../client/README.md) supplies the matching source boundary and
 an opt-in native TUF provider.
 

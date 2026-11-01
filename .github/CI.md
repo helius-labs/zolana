@@ -374,3 +374,41 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     **Runs:**
 
     1. PR-only push policy: `bash`.
+
+## Combined SDK / Gatekeeper qualification
+
+[SDK with Gatekeeper](workflows/tee-gk.yml) runs manually and, when
+`TEE_GK_CI_ENABLED=true`, nightly. One preparation job builds the GK test bundle
+from the exact monorepo commit in `tools/tee-fleet/gk-revision.txt`, plus this
+checkout's Rust SDK driver and CPU prover. Chromium, Firefox and WebKit consume
+those artifacts within the same workflow run, so qualification does not depend
+on the retention of an older monorepo CI artifact.
+
+`MONOREPO_CI_READ_TOKEN` needs Contents read access to monorepo; it grants no
+publishing or deployment capability. The bundle source revision and executable
+hashes are checked before execution. The preparation job also uses the existing
+`PRIVATE_LIBS_TOKEN` for private Rust build dependencies.
+
+Local equivalent, using a bundle built in a clean monorepo checkout:
+
+```sh
+npm ci
+npm run build:ts
+npx playwright install chromium firefox webkit
+python3 tools/tee-fleet/build-sdk-test.py /absolute/sdk-proof-tools
+node tools/tee-fleet/run-gk.mjs /absolute/gk-test-bundle /absolute/sdk-proof-tools
+ZOLANA_TEST_BROWSER=firefox node tools/tee-fleet/run-gk.mjs /absolute/gk-test-bundle /absolute/sdk-proof-tools
+ZOLANA_TEST_BROWSER=webkit node tools/tee-fleet/run-gk.mjs /absolute/gk-test-bundle /absolute/sdk-proof-tools
+```
+
+Requires Docker, IPv6 loopback and free local port 4222. It runs the real GK auth,
+rate-limit, config reload, health-check/supervisor/admin and metering components,
+then Node/Rust/browser SDK requests against three synthetic attested HPKE
+origins and a local CPU prover. The builder downloads only the pinned 2x2 key.
+Assertions include health-driven recipient refusal, fresh encryption,
+automatic recovery, exact metering and no POST replay after a consumed request's
+response is lost. Six returned Groth16 proofs are independently verified against
+the committed verifying key; three more complete before their responses are
+dropped. Synthetic attestations do not qualify AWS hardware, production signing
+custody, deployed config delivery or downstream billing. The historical live AWS
+qualification remains separate.

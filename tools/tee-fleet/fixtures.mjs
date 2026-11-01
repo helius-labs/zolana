@@ -124,7 +124,11 @@ export function fixtureAuthority() {
   };
 }
 
-export async function fixtureProver(authority, index) {
+export async function fixtureProver(
+  authority,
+  index,
+  { prefix = PREFIX, credentialHeader = "x-api-key", prove } = {},
+) {
   const suite = new CipherSuite({
     kem: new DhkemX25519HkdfSha256(),
     kdf: new HkdfSha256(),
@@ -145,12 +149,12 @@ export async function fixtureProver(authority, index) {
       if (
         url.searchParams.has("api-key") ||
         request.headers.authorization ||
-        request.headers["x-api-key"] !== faults.apiKey
+        request.headers[credentialHeader] !== faults.apiKey
       )
         throw new Error("gateway leaked credential");
       if (
-        url.pathname === `${PREFIX}/attestation` ||
-        url.pathname === `${PREFIX}/tee/v1/attestation`
+        url.pathname === `${prefix}/attestation` ||
+        url.pathname === `${prefix}/tee/v1/attestation`
       ) {
         const nonce = hexToBytes(url.searchParams.get("nonce") ?? "");
         if (nonce.length !== 32) throw new Error("invalid nonce");
@@ -182,7 +186,15 @@ export async function fixtureProver(authority, index) {
         info: utf8ToBytes("zolana/prover-tee/v1"),
       });
       const plaintext = new Uint8Array(
-        await context.open(ciphertext, utf8ToBytes(requestAad(request.method, request.url))),
+        await context.open(
+          ciphertext,
+          utf8ToBytes(
+            requestAad(
+              request.method,
+              request.url.startsWith(`${prefix}/`) ? request.url.slice(prefix.length) : request.url,
+            ),
+          ),
+        ),
       );
       stats.decrypted++;
       stats.requests.push({
@@ -190,9 +202,20 @@ export async function fixtureProver(authority, index) {
         path: url.pathname,
         query: url.search,
         length: plaintext.length,
+        enc: request.headers["zolana-tee-enc"],
       });
-      plaintext.fill(0);
+      let proof;
+      try {
+        if (prove && request.headers["x-sync"] !== "true") throw new Error("sync header missing");
+        proof = prove ? await prove(plaintext) : undefined;
+      } finally {
+        plaintext.fill(0);
+      }
       faults.afterDecryption?.();
+      if (faults.dropResponse) {
+        response.destroy();
+        return;
+      }
       if (faults.delayMs) {
         await new Promise((resolve) => {
           const timer = setTimeout(resolve, faults.delayMs);
@@ -208,13 +231,19 @@ export async function fixtureProver(authority, index) {
         await context.export(utf8ToBytes("zolana/prover-tee/v1/response"), 32),
       );
       const nonce = new Uint8Array(randomBytes(12));
-      const body = utf8ToBytes(JSON.stringify({ status: `fixture-region-${index}`, circuits: [] }));
+      const body = utf8ToBytes(
+        JSON.stringify({ ...proof, status: `fixture-region-${index}`, circuits: [] }),
+      );
       const result = concatBytes(
         nonce,
         gcm(key, nonce).encrypt(concatBytes(Uint8Array.of(0, 200), body)),
       );
       key.fill(0);
-      response.writeHead(200, { "content-type": "application/octet-stream", "zolana-tee": "v1" });
+      response.writeHead(200, {
+        "content-type": "application/octet-stream",
+        "zolana-tee": "v1",
+        "x-helius-metering-units": "3",
+      });
       response.end(result);
     } catch {
       stats.failed++;

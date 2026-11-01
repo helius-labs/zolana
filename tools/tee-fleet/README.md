@@ -118,3 +118,21 @@ port) with a reviewed SDK policy. Never use a production API key. In tests,
 `gateway.faults.dropRequest`/`dropResponse` remove headers, and
 `router.setAvailable`/`setDraining` control generation selection. These controls
 are JavaScript methods, not public HTTP routes.
+
+## Combined auth and health integration
+
+The monorepo `tee_integration` test can launch `gk-sdk-driver.mjs` with
+`GK_SDK_TEST_DRIVER` set to its absolute path. The test supplies its authenticated
+loopback URL and synthetic caller key; the driver supplies three IPv6 loopback
+provers. Readiness failures go through the real checker, supervisor and admin
+handler. Neither side writes disabled-origin flags for this SDK phase.
+
+`run-gk.mjs /absolute/test-bundle /absolute/sdk-proof-tools` runs that test from a source/hash-checked bundle.
+Build the SDK/CPU-prover tools using `python3 tools/tee-fleet/build-sdk-test.py /absolute/sdk-proof-tools`
+(the output directory must be new). Build the GK bundle in a clean monorepo checkout with
+`python3 scripts/build-tee-test-bundle.py /absolute/new-bundle` from
+`rust-services/gatekeeper`, then review and pin that exact commit in
+`gk-revision.txt`. The manifest detects accidental source/binary mismatches; obtain
+bundles only from the reviewed checkout or its trusted CI build, not an
+untrusted download. See [the CI guide](../../.github/CI.md#combined-sdk--gatekeeper-qualification)
+for all three browser commands and coverage limits.
