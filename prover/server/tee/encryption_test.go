@@ -273,6 +273,7 @@ func TestWrapAllowsOnlyPlainPublicRoutes(t *testing.T) {
 	for _, path := range []string{
 		"/auth", "/ready", "/health", "/proving-keys",
 		"/v1/zolana/proving-keys", AttestationPath, "/v1/zolana" + AttestationPath,
+		LegacyAttestationPath, GatewayPrefix + LegacyAttestationPath,
 	} {
 		t.Run(path, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, path, nil)

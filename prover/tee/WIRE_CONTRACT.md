@@ -4,10 +4,10 @@ This contract lets a client encrypt a prover request to a key that only a measur
 Each platform proves the environment its own way and carries the same 64-byte binding.
 JSON fields are snake_case, and byte fields and the `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext` values are lowercase hex.
 
-| Method | Request | Result |
-|--------|---------|--------|
-| `GET /tee/v1/attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key | `platform`, `hpke_public_key`, `gpu` and `evidence` |
-| any prover route, encrypted | `Zolana-Tee: v1`, `Zolana-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Zolana-Tee-Ciphertext` | the inner status, `Zolana-Tee: v1`, and the encrypted status and body |
+| Method                                         | Request                                                                                                         | Result                                                                |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `GET /tee/v1/attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key                                                                            | `platform`, `hpke_public_key`, `gpu` and `evidence`                   |
+| any prover route, encrypted                    | `Zolana-Tee: v1`, `Zolana-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Zolana-Tee-Ciphertext` | the inner status, `Zolana-Tee: v1`, and the encrypted status and body |
 
 A TEE prover rejects a request without `Zolana-Tee` before reading its body, except on `/auth`, `/ready`, `/health`, `/proving-keys` and the attestation route.
 The proof routes, `/proving-keys` and the attestation route also answer under the `/v1/zolana` gateway prefix.
@@ -123,8 +123,20 @@ hint computed locally from the verified 32-byte HPKE public key:
 recipient_id = hex(SHA-256("zolana/prover-tee/v1/recipient" || hpke_public_key))
 ```
 
-A recipient router maps that identifier to an operator-configured generation
-and backend. It may select any healthy deployment for a fresh attestation;
+Gatekeeper maps that identifier to an origin inside the selected service pool.
+`GET /v1/zolana/attestation` is the public attestation route; the former
+`/v1/zolana/tee/v1/attestation` remains an alias. Direct provers serve both
+`/attestation` and `/tee/v1/attestation`. The protocol and HPKE domain stay v1.
+New SDKs try the legacy alias once on 404 or unsealed `400 tee_required`, within
+the original three-attempt attestation budget, with a fresh nonce.
+
+The SDK sends `Zolana-Tee-Accept` on attestation requests when keys are pinned:
+1–32 unique, comma-separated lowercase 64-hex recipient IDs, without spaces.
+GK chooses an enabled, non-draining origin in that set. An omitted hint permits
+any enabled, non-draining origin for legacy clients. Quotes still undergo full
+client verification; the hint is neither policy nor evidence. No intersection
+returns the same pre-forward refusal as an unavailable encrypted recipient;
+
 it must never send ciphertext for an unknown or unavailable key to a different
 recipient. The identifier is public and grants no trust or authorization.
 Attestation, paired PCR/key pins, policy expiry and HPKE verification still
@@ -135,16 +147,19 @@ Before forwarding, an unknown or unavailable recipient produces an unencrypted
 cached recipient, obtain fresh evidence and encrypt again, at most once within
 the original call deadline. A proxy must never emit that code after forwarding
 the request or automatically replay a POST: its previous recipient may have
-acted. Other upstream errors do not trigger this recipient retry. Existing
+acted. Other upstream errors do not trigger this recipient retry. An ambiguous
+transport failure on an encrypted proof POST returns the SDK's outcome-unknown
+error without automatic replay. An unmarked upstream 503 is mapped to 502 so
+an origin cannot accidentally masquerade as a pre-forward router refusal.
+Existing
 Nitro `400 tee_decryption_failed` recovery remains supported.
 
 Direct provers accept an omitted identifier for existing clients, but reject
 a supplied mismatch or duplicate with `400 tee_recipient_mismatch` before
 decryption. A multi-recipient router requires the identifier. Proxies must
-allow `Zolana-Tee-Key-Id` in request forwarding and browser preflights; the
+allow `Zolana-Tee-Key-Id` and `Zolana-Tee-Accept` in request forwarding and browser preflights; the
 response `Zolana-Tee` marker must be forwarded and exposed to browsers.
 `testdata/recipient_ids.json` pins the derivation across Go, Rust and TS.
-
 
 ## Encryption
 
@@ -190,16 +205,16 @@ An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover 
 
 ## Errors
 
-| Status | `code` | Cause |
-|--------|--------|-------|
-| 400 | `invalid_nonce` | the nonce is not 32 bytes of hex |
-| 401 | `unauthorized` | the API key is missing or wrong |
-| 429 | `attestation_busy` | quote capacity is exhausted, retry after the `Retry-After` seconds |
-| 503 | `attestation_unavailable` | the prover cannot produce attestation evidence |
-| 400 | `tee_version_unsupported` | `Zolana-Tee` names another version |
-| 400 | `tee_required` | a request outside the plaintext routes has no `Zolana-Tee` |
-| 400 | `tee_request_malformed` | an encrypted HEAD, a missing or non-hex `Zolana-Tee-Enc` or GET `Zolana-Tee-Ciphertext`, a `Zolana-Tee-Enc` not of 32 bytes, or a body over the size cap |
-| 400 | `tee_decryption_failed` | the encrypted request does not decrypt under the held key |
+| Status | `code`                    | Cause                                                                                                                                                    |
+| ------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `invalid_nonce`           | the nonce is not 32 bytes of hex                                                                                                                         |
+| 401    | `unauthorized`            | the API key is missing or wrong                                                                                                                          |
+| 429    | `attestation_busy`        | quote capacity is exhausted, retry after the `Retry-After` seconds                                                                                       |
+| 503    | `attestation_unavailable` | the prover cannot produce attestation evidence                                                                                                           |
+| 400    | `tee_version_unsupported` | `Zolana-Tee` names another version                                                                                                                       |
+| 400    | `tee_required`            | a request outside the plaintext routes has no `Zolana-Tee`                                                                                               |
+| 400    | `tee_request_malformed`   | an encrypted HEAD, a missing or non-hex `Zolana-Tee-Enc` or GET `Zolana-Tee-Ciphertext`, a `Zolana-Tee-Enc` not of 32 bytes, or a body over the size cap |
+| 400    | `tee_decryption_failed`   | the encrypted request does not decrypt under the held key                                                                                                |
 
 ## Test vectors
 

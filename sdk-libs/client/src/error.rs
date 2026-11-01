@@ -240,6 +240,9 @@ pub enum ClientError {
     #[error("prover server error: {0}")]
     ProverServer(String),
 
+    #[error("prover outcome unknown; the encrypted proof request was not replayed")]
+    ProverOutcomeUnknown,
+
     #[error("indexer proof data not ready")]
     IndexerProofDataNotReady,
 

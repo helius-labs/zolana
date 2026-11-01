@@ -6,7 +6,8 @@ import { Transform } from "node:stream";
 
 export const PREFIX = "/v1/zolana";
 export const KEY_ID = "zolana-tee-key-id";
-const ATTESTATION = "/tee/v1/attestation";
+const ATTESTATION = "/attestation";
+const LEGACY_ATTESTATION = "/tee/v1/attestation";
 const MAX_BODY = 64 * 1024 * 1024 + 16;
 const REQUEST_HEADERS = [
   "content-type",
@@ -14,6 +15,7 @@ const REQUEST_HEADERS = [
   "zolana-tee-enc",
   "zolana-tee-ciphertext",
   KEY_ID,
+  "zolana-tee-accept",
   "x-sync",
   "x-async",
   "x-prover-timing",
@@ -69,7 +71,11 @@ function route(request) {
   // GK trims trailing slashes. Reject encoded paths and ambiguous path forms.
   const normalized = path?.replace(/\/+$/u, "");
   const bare = normalized?.startsWith(`${PREFIX}/`) ? normalized.slice(PREFIX.length) : undefined;
-  const metadata = bare === ATTESTATION || bare === "/proving-keys" || bare === "/health";
+  const metadata =
+    bare === ATTESTATION ||
+    bare === LEGACY_ATTESTATION ||
+    bare === "/proving-keys" ||
+    bare === "/health";
   const get = metadata || /^\/prove\/[a-zA-Z0-9_-]{1,128}\/status$/u.test(bare ?? "");
   const post = /^\/prove\/[a-zA-Z0-9_-]{1,128}(?:\/indexed)?$/u.test(bare ?? "");
   if (!bare || !((request.method === "GET" && get) || (request.method === "POST" && post))) {
@@ -321,9 +327,21 @@ export function createRecipientRouter({ deployments, timeoutMs = 600_000 }) {
         fail(response, 400, "tee_required");
         return;
       }
-      const available = entries.filter((e) => e.available && !e.draining);
+      const accepted = singleHeader(request, "zolana-tee-accept")?.split(",");
+      if (
+        accepted &&
+        (accepted.length > 32 ||
+          new Set(accepted).size !== accepted.length ||
+          accepted.some((id) => !/^[0-9a-f]{64}$/u.test(id)))
+      ) {
+        fail(response, 400, "tee_selection_invalid");
+        return;
+      }
+      const available = entries.filter(
+        (e) => e.available && !e.draining && (!accepted || accepted.includes(e.recipientId)),
+      );
       entry = available[next++ % available.length];
-      if (matched.bare === ATTESTATION) stats.attestations++;
+      if (matched.bare === ATTESTATION || matched.bare === LEGACY_ATTESTATION) stats.attestations++;
     }
     if (!entry) {
       // This response is emitted only BEFORE forwarding; re-attest + re-encrypt is safe.

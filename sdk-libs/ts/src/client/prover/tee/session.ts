@@ -1,5 +1,5 @@
 import { equalBytes } from "@noble/curves/utils.js";
-import { bytesToHex, randomBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+import { bytesToHex, hexToBytes, randomBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import {
   TransportFailure,
@@ -22,6 +22,7 @@ import {
   attestationRetryDelayMs,
 } from "../retry.js";
 import {
+  HEADER_ACCEPT,
   HEADER_ENC,
   HEADER_KEY_ID,
   HEADER_CIPHERTEXT,
@@ -29,6 +30,7 @@ import {
   RESPONSE_NONCE_SIZE,
   VERSION,
   encryptRequest,
+  recipientId,
   type EncryptedRequest,
 } from "./encryption.js";
 import {
@@ -133,6 +135,7 @@ export class TeeSession {
     signal: ComposedSignal,
   ): Promise<AttestedProver> {
     let delay: bigint | undefined;
+    let legacy = false;
     for (let attempt = 1; ; attempt++) {
       if (delay !== undefined) {
         try {
@@ -143,9 +146,17 @@ export class TeeSession {
         }
       }
       const pending = this.#resolvePolicy(signal);
-      if (pending instanceof Promise) await pending;
+      const approved = pending instanceof Promise ? await pending : pending;
+      const policies =
+        "kind" in approved ? approved.deployments.map((entry) => entry.policy) : [approved];
+      const accepted = policies
+        .flatMap((policy) =>
+          policy.hpkePublicKey === undefined ? [] : [recipientId(hexToBytes(policy.hpkePublicKey))],
+        )
+        .join(",");
       const nonce = randomBytes(NONCE_SIZE);
       const url = new URL(attestationUrl);
+      if (legacy) url.pathname = url.pathname.replace(/\/attestation$/u, "/tee/v1/attestation");
       setUrlQuery(url, "nonce", bytesToHex(nonce));
       const request = composeSignal(
         { signal: signal.signal, timeoutMs: ATTESTATION_TIMEOUT_MS },
@@ -154,13 +165,28 @@ export class TeeSession {
       try {
         let response: Response;
         try {
-          response = await fetch(url, { redirect: "error", signal: request.signal });
+          response = await fetch(url, {
+            redirect: "error",
+            signal: request.signal,
+            ...(accepted === "" ? {} : { headers: { [HEADER_ACCEPT]: accepted } }),
+          });
         } catch {
           if (signal.signal.aborted) throw requestError("attest", signal);
           if (attempt >= MAX_ATTEMPTS) {
             throw request.timedOut() ? requestError("attest", request) : refused("unavailable");
           }
           delay = RETRY_DELAY_MS;
+          continue;
+        }
+        if (
+          !legacy &&
+          attempt < MAX_ATTEMPTS &&
+          !url.pathname.endsWith("/tee/v1/attestation") &&
+          (await legacyAttestation(response))
+        ) {
+          if (!response.bodyUsed) await response.body?.cancel();
+          legacy = true;
+          delay = undefined;
           continue;
         }
         if (!response.ok) {
@@ -172,7 +198,7 @@ export class TeeSession {
                   Date.now(),
                 )
               : undefined;
-          await response.body?.cancel();
+          if (!response.bodyUsed) await response.body?.cancel();
           if (delay === undefined) throw refused("unavailable");
           continue;
         }
@@ -225,7 +251,10 @@ export class TeeSession {
       const current = pending instanceof Promise ? await pending : pending;
       if (!permits(current, key, fingerprint)) throw refused("policy_changed");
       const response = await fetched(call, prepared.init);
-      if (response === undefined) return undefined;
+      if (response === undefined) {
+        if (call.method === "POST") throw new ClientError("CLIENT_PROVER_OUTCOME_UNKNOWN");
+        return undefined;
+      }
       if (resent) return prepared.finish(response);
       const checked = await recipientFailure(response, keyPerBoot);
       if (!checked.retry) return prepared.finish(checked.response);
@@ -442,3 +471,19 @@ async function recipientFailure(
 
 const encryptionError = (check: string): ClientError =>
   new ClientError("CLIENT_PROVER_TEE_ENCRYPTION", { details: { check } });
+
+async function legacyAttestation(response: Response): Promise<boolean> {
+  if (response.status === 404) return true;
+  if (response.status !== 400 || response.headers.has(HEADER_VERSION)) return false;
+  try {
+    const answer: unknown = await readBoundedJson(response, MAX_ERROR_BYTES);
+    return (
+      typeof answer === "object" &&
+      answer !== null &&
+      "code" in answer &&
+      answer.code === "tee_required"
+    );
+  } catch {
+    return false;
+  }
+}

@@ -4,11 +4,13 @@ use std::{
     env,
     path::{Path, PathBuf},
     process::Command,
-    sync::atomic::{AtomicBool, Ordering},
     thread::sleep,
 };
 use std::{
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant, SystemTime},
 };
 
@@ -908,27 +910,41 @@ impl AsyncProverClient {
         let deadline = call
             .timeout
             .map(|timeout| tokio::time::Instant::now() + timeout);
+        let submitted = AtomicBool::new(false);
         if let Some(deadline) = deadline {
-            return tokio::time::timeout_at(deadline, self.call_inner(&call, Some(deadline)))
-                .await
-                .unwrap_or_else(|_| {
-                    Err(CallError::Connect(ApiError::HttpClient(
-                        "prover operation deadline exceeded".into(),
-                    )))
-                });
+            return tokio::time::timeout_at(
+                deadline,
+                self.call_inner(&call, Some(deadline), &submitted),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                if submitted.load(Ordering::Relaxed)
+                    && self.has_tee()
+                    && call.method == http::Method::POST
+                {
+                    return Err(CallError::Refused(ClientError::ProverOutcomeUnknown));
+                }
+                Err(CallError::Connect(ApiError::HttpClient(
+                    "prover operation deadline exceeded".into(),
+                )))
+            });
         }
-        self.call_inner(&call, None).await
+        self.call_inner(&call, None, &submitted).await
     }
 
     async fn call_inner(
         &self,
         call: &Call<'_>,
         deadline: Option<tokio::time::Instant>,
+        submitted: &AtomicBool,
     ) -> Result<(StatusCode, String), CallError> {
-        match self.exchange(call, deadline).await? {
+        match self.exchange(call, deadline, submitted).await? {
             Answer::KeyLost { recipient, .. } => {
+                submitted.store(false, Ordering::Relaxed);
                 recipient.forget();
-                self.exchange(call, deadline).await.map(Answer::into_parts)
+                self.exchange(call, deadline, submitted)
+                    .await
+                    .map(Answer::into_parts)
             }
             answer => Ok(answer.into_parts()),
         }
@@ -938,6 +954,7 @@ impl AsyncProverClient {
         &self,
         call: &Call<'_>,
         deadline: Option<tokio::time::Instant>,
+        submitted: &AtomicBool,
     ) -> Result<Answer<'_>, CallError> {
         let recipient = self.recipient().await.map_err(CallError::Refused)?;
         let mut prepared = call.prepare(recipient, &self.endpoint)?;
@@ -950,10 +967,14 @@ impl AsyncProverClient {
             )));
         }
         let request = prepared.request(call);
-        let response = self
-            .send_http(request)
-            .await
-            .map_err(CallError::transport)?;
+        submitted.store(true, Ordering::Relaxed);
+        let response = self.send_http(request).await.map_err(|error| {
+            if recipient.is_some() && call.method == http::Method::POST {
+                CallError::Refused(ClientError::ProverOutcomeUnknown)
+            } else {
+                CallError::transport(error)
+            }
+        })?;
         let is_encrypted = TeeSession::is_encrypted(&response.headers);
         prepared.finish(response.status, is_encrypted, &response.body)
     }
@@ -996,14 +1017,22 @@ impl AsyncProverClient {
     /// Retries a transport failure and a busy or unavailable answer, each try
     /// with a fresh nonce.
     async fn attest_with(&self, tee: &TeeSession) -> Result<AttestedProver, ClientError> {
+        let mut legacy = false;
         let mut attempt = 0;
         loop {
             attempt += 1;
             tee.refresh_policy().await?;
             let nonce = TeeSession::nonce()?;
-            let request = HttpRequest::get(self.endpoint.attestation_url(&nonce)?)
+            let mut request = HttpRequest::get(self.endpoint.attestation_url(&nonce, legacy)?)
                 .with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
                 .with_body_limit(MAX_ATTESTATION_BYTES);
+            if let Some(ids) = tee.accepted_recipients()? {
+                request.headers.insert(
+                    spr_prover_tee::HEADER_ACCEPT,
+                    ids.parse()
+                        .map_err(|_| ClientError::Prover("invalid recipient selection".into()))?,
+                );
+            }
             let response = match self.send_http(request).await {
                 Ok(response) => response,
                 Err(_) if attempt < PROVE_MAX_ATTEMPTS => {
@@ -1012,6 +1041,18 @@ impl AsyncProverClient {
                 }
                 Err(error) => return Err(attestation_unreachable(attempt, error)),
             };
+            let legacy_route = response.status == StatusCode::NOT_FOUND
+                || (response.status == StatusCode::BAD_REQUEST
+                    && !response
+                        .headers
+                        .contains_key(spr_prover_tee::HEADER_VERSION)
+                    && response.body.len() <= 4096
+                    && serde_json::from_slice::<serde_json::Value>(&response.body)
+                        .is_ok_and(|body| body["code"] == "tee_required"));
+            if legacy_route && !legacy && attempt < PROVE_MAX_ATTEMPTS {
+                legacy = true;
+                continue;
+            }
             if let Some(delay) = attestation_retry_delay(
                 response.status,
                 retry_after(&response.headers, SystemTime::now()),
@@ -1060,7 +1101,10 @@ impl AsyncProverClient {
         let mut delivery = delivery;
         let (status, text) = loop {
             let (status, text) = self.post(&url, body, delivery).await?;
-            if status == StatusCode::TOO_MANY_REQUESTS && delivery == Delivery::InResponse {
+            if !self.has_tee()
+                && status == StatusCode::TOO_MANY_REQUESTS
+                && delivery == Delivery::InResponse
+            {
                 delivery = Delivery::Queued;
                 continue;
             }
@@ -1086,6 +1130,12 @@ impl AsyncProverClient {
         body: &str,
         delivery: Delivery,
     ) -> Result<(StatusCode, String), ClientError> {
+        if self.has_tee() {
+            return self
+                .call(Call::post(url, body, delivery, self.proof_timeout))
+                .await
+                .map_err(|error| error.into_client_error("request"));
+        }
         let mut attempt = 0;
         loop {
             attempt += 1;
@@ -1619,7 +1669,7 @@ mod tests {
     fn assert_proxy_requests(proxy: MockServer, socks: bool) {
         let requests = proxy.requests();
         assert_eq!(requests.len(), 3);
-        assert!(requests[0].path.contains("/tee/v1/attestation?nonce="));
+        assert!(requests[0].path.contains("/attestation?nonce="));
         assert!(requests[0].body.is_empty());
         assert!(requests[1..].iter().all(|request| request.encrypted));
         let requests = &requests[1..];
@@ -1794,11 +1844,7 @@ mod tests {
     #[test]
     fn prover_start_command_forwards_redis_url() {
         assert_eq!(
-            prover_start_command(
-                "'/tmp/zolana cli'",
-                3002,
-                Some("redis://localhost:6379/15")
-            ),
+            prover_start_command("'/tmp/zolana cli'", 3002, Some("redis://localhost:6379/15")),
             "'/tmp/zolana cli' dev prover start --prover-port 3002 --redis-url 'redis://localhost:6379/15'"
         );
     }
@@ -1854,7 +1900,7 @@ mod tests {
 
     fn assert_only_attestation_was_asked(requests: &[RecordedRequest]) {
         assert_eq!(requests.len(), 1);
-        assert!(requests[0].path.starts_with("/tee/v1/attestation?nonce="));
+        assert!(requests[0].path.starts_with("/attestation?nonce="));
     }
 
     fn unattested_answers() -> [MockResponse; 2] {
@@ -1933,7 +1979,7 @@ mod tests {
         assert_eq!(requests.len(), 3);
         assert!(requests
             .iter()
-            .all(|request| request.path.starts_with("/tee/v1/attestation?nonce=")));
+            .all(|request| request.path.starts_with("/attestation?nonce=")));
     }
 
     fn oversized_attestation() -> MockResponse {
@@ -2025,7 +2071,7 @@ mod tests {
         let kinds: Vec<_> = requests
             .iter()
             .map(|request| {
-                if request.path.starts_with("/tee/v1/attestation?nonce=") {
+                if request.path.starts_with("/attestation?nonce=") {
                     "attest"
                 } else {
                     assert!(request.encrypted, "{} sent in plaintext", request.path);
@@ -2037,6 +2083,45 @@ mod tests {
             kinds,
             ["attest", "/proving-keys", "attest", "/proving-keys"]
         );
+    }
+
+    #[test]
+    fn an_old_prover_can_be_attested_through_the_legacy_alias() {
+        for refusal in [
+            MockResponse::json(404, json!({})),
+            MockResponse::json(400, json!({"code": "tee_required"})),
+        ] {
+            let now = now_secs();
+            let server = MockServer::respond_with(vec![refusal, nitro_attestation(now)]);
+            let mut client = ProverClient::new(server.url().to_string());
+            client.client.tee = Tee::On(Box::new(nitro_session(now)));
+            client.attest().unwrap();
+            let requests = server.requests();
+            assert_eq!(requests.len(), 2);
+            assert!(requests[0].path.starts_with("/attestation?nonce="));
+            assert!(requests[1].path.starts_with("/tee/v1/attestation?nonce="));
+            assert_ne!(
+                requests[0].path.split_once("nonce=").unwrap().1,
+                requests[1].path.split_once("nonce=").unwrap().1
+            );
+        }
+    }
+
+    #[test]
+    fn encrypted_post_is_not_replayed_after_a_lost_response() {
+        let now = now_secs();
+        let server =
+            MockServer::respond_then_hold(vec![nitro_attestation(now), MockResponse::disconnect()]);
+        let mut client = ProverClient::new(server.url().to_string());
+        client.client.tee = Tee::On(Box::new(nitro_session(now)));
+        assert!(matches!(
+            client.send("{}", Delivery::InResponse, &test_key()),
+            Err(ClientError::ProverOutcomeUnknown)
+        ));
+        let requests = server.requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].path, "/prove/test");
+        assert!(requests[1].encrypted);
     }
 
     #[test]
@@ -2957,7 +3042,7 @@ mod tests {
                 ProofRoute::Complete.url(&endpoint, &key).unwrap(),
                 ProofRoute::Indexed.url(&endpoint, &key).unwrap(),
                 endpoint.status_url(&key, "gateway-job").unwrap(),
-                endpoint.attestation_url(&[0; 32]).unwrap(),
+                endpoint.attestation_url(&[0; 32], false).unwrap(),
                 endpoint.url(PROVING_KEYS_PATH).unwrap(),
             ];
             assert_eq!(

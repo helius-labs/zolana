@@ -732,6 +732,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	var proverHandler http.Handler = proverMux
 	if config.TEE != nil {
 		handleBoth(proverMux, tee.AttestationPath, config.TEE.AttestationHandler())
+		handleBoth(proverMux, tee.LegacyAttestationPath, config.TEE.AttestationHandler())
 		proverHandler = config.TEE.Wrap(proverMux)
 	}
 
@@ -749,6 +750,7 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 			tee.HeaderVersion,
 			tee.HeaderEnc,
 			tee.HeaderKeyID,
+			"Zolana-Tee-Accept",
 			tee.HeaderCiphertext,
 		}),
 		handlers.AllowedOrigins([]string{"*"}),

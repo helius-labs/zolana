@@ -86,6 +86,14 @@ impl TeePolicy {
         &self.pins
     }
 
+    /// A configured recipient pin, before attestation authenticates the key.
+    pub fn hpke_public_key(&self) -> Option<[u8; 32]> {
+        match self.pins() {
+            PlatformPolicy::AwsNitro(pins) => pins.hpke_public_key,
+            PlatformPolicy::DstackTdx(pins) => Some(pins.hpke_public_key),
+        }
+    }
+
     pub fn gpu(&self) -> GpuRequirement {
         self.gpu
     }

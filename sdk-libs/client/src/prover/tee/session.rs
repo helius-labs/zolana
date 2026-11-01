@@ -177,6 +177,26 @@ impl TeeSession {
         self.check_policy_time()
     }
 
+    pub(crate) fn accepted_recipients(&self) -> Result<Option<String>, ClientError> {
+        self.check_policy_time()?;
+        let ids = |fleet: &TeeFleetPolicy| {
+            fleet
+                .deployments()
+                .iter()
+                .filter_map(|entry| entry.policy.hpke_public_key())
+                .map(|key| super::recipient_id(&key))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        Ok(match &self.policy {
+            SessionPolicy::Single(policy) => policy
+                .hpke_public_key()
+                .map(|key| super::recipient_id(&key)),
+            SessionPolicy::Fleet(fleet) => Some(ids(fleet)),
+            SessionPolicy::Source(_) => Some(ids(self.resolved_policy()?.as_ref())),
+        })
+    }
+
     pub(crate) fn check_policy_time(&self) -> Result<(), ClientError> {
         match &self.policy {
             SessionPolicy::Single(_) => {}

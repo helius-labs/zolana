@@ -11,12 +11,21 @@ import { setTimeout as delay } from "node:timers/promises";
 import { build } from "esbuild";
 import { writeJson } from "./artifacts.mjs";
 import { launchBrowser } from "./browser.mjs";
-import { managedRouter } from "./managed.mjs";
-import { createMockGateway, createRecipientRouter, listen, recipientId } from "./gateway.mjs";
+import { gkRouter } from "./gk.mjs";
+import { createMockGateway, listen, recipientId } from "./gateway.mjs";
 
 const execute = promisify(execFile);
 const verifier = process.env.ZOLANA_TEE_PROOF_VERIFIER;
-const managedBinary = process.env.ZOLANA_TEE_ROUTER_BINARY;
+const gkBinary = process.env.ZOLANA_TEE_GK_BINARY;
+if (!gkBinary)
+  throw new Error("ZOLANA_TEE_GK_BINARY must select the real Heimdall qualification binary");
+if (
+  process.env.ZOLANA_TEE_REAL_OUTAGE === "1" ||
+  process.env.ZOLANA_TEE_CONTROL_PLANE_OUTAGE === "1"
+)
+  throw new Error(
+    "This harness qualifies recipient routing; production health/control-plane outages require a deployed GK test environment",
+  );
 const manifestPath = process.argv[2];
 const output = process.argv[3];
 if (!manifestPath || !output || !verifier)
@@ -72,10 +81,13 @@ function backend(entry) {
     !outputs.ApiKeySecret.startsWith(`arn:aws:secretsmanager:${entry.region}:558215002830:secret:`)
   )
     throw new Error("unexpected origin credential reference");
-  const apiKey = managedBinary
-    ? undefined
-    : aws(entry.region, "secretsmanager", "get-secret-value", "--secret-id", outputs.ApiKeySecret)
-        .SecretString;
+  const apiKey = aws(
+    entry.region,
+    "secretsmanager",
+    "get-secret-value",
+    "--secret-id",
+    outputs.ApiKeySecret,
+  ).SecretString;
   return {
     id: entry.id,
     region: entry.region,
@@ -116,27 +128,9 @@ async function saveProof(name, proof) {
 
 try {
   const deployments = manifest.deployments.map(backend);
-  let router;
-  let origin;
-  if (managedBinary) {
-    router = await managedRouter({ deployments, binary: managedBinary, output });
-    servers.push({ close: router.close });
-    origin = router.origin;
-  } else {
-    const local = createRecipientRouter({ deployments });
-    router = {
-      ...local,
-      sync: async () => {},
-      restore: async () => {},
-      readStats: async () => local.stats,
-      failGeneration: async (id) => {
-        for (const entry of deployments) local.setAvailable(entry.id, entry.id !== id);
-      },
-    };
-    const server = await listen(router.handler);
-    servers.push(server);
-    origin = server.url;
-  }
+  const router = await gkRouter({ deployments, binary: gkBinary });
+  servers.push({ close: router.close });
+  const origin = router.origin;
   const browserFile = join(staging, "browser.mjs");
   const nodeFile = join(staging, "node.mjs");
   await bundle("node", nodeFile);
@@ -302,55 +296,6 @@ try {
       browserVerified: true,
       rustVerified: true,
       staleRecipientForwarded: false,
-    };
-  }
-  if (router.metadata?.realOutage) {
-    await router.restore();
-    const restored = deployments.at(-1);
-    await only(restored.id);
-    const attested = await nodeClient.attest();
-    assert.equal(recipientId(Buffer.from(attested.key, "hex")), restored.recipientId);
-    await saveProof("node-restored-generation", await nodeClient.prove());
-    await writeJson(
-      join(output, "node-restored-generation-attestation.json"),
-      nodeClient.evidence(),
-    );
-    report.restoredGeneration = { id: restored.id, recipientUnchanged: true, proofVerified: true };
-  }
-  if (process.env.ZOLANA_TEE_CONTROL_PLANE_OUTAGE === "1") {
-    assert.ok(managedBinary, "control-plane qualification requires the managed router");
-    const affected = deployments.find((entry) => entry.region === "us-east-1");
-    assert.ok(affected);
-    await only(affected.id);
-    const nodeQuote = await nodeClient.attest();
-    const browserQuote = await browserClient.attest();
-    for (const quote of [nodeQuote, browserQuote])
-      assert.equal(recipientId(Buffer.from(quote.key, "hex")), affected.recipientId);
-    await saveProof("node-before-control-plane", await nodeClient.prove());
-    await saveProof("browser-before-control-plane", await browserClient.prove());
-    await router.failControlPlane(affected.region);
-    const before = (await router.readStats()).forwarded[affected.id];
-    await saveProof("node-control-plane-failover", await nodeClient.prove());
-    await saveProof("browser-control-plane-failover", await browserClient.prove());
-    await nativeProof("rust-control-plane-failover");
-    assert.equal((await router.readStats()).forwarded[affected.id], before);
-    await router.restoreControlPlane();
-    await only(affected.id);
-    const restored = await nodeClient.attest();
-    assert.equal(recipientId(Buffer.from(restored.key, "hex")), affected.recipientId);
-    await saveProof("node-control-plane-restored", await nodeClient.prove());
-    await writeJson(
-      join(output, "node-control-plane-restored-attestation.json"),
-      nodeClient.evidence(),
-    );
-    report.controlPlane = {
-      affectedRegion: affected.region,
-      nodeVerified: true,
-      browserVerified: true,
-      rustVerified: true,
-      coldRouterRecovered: true,
-      staleRecipientForwarded: false,
-      restoredRecipientUnchanged: true,
     };
   }
   if (process.argv.includes("--lifecycle")) {

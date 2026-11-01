@@ -105,12 +105,13 @@ authenticate updates; the revision field alone provides no rollback protection.
 An expired fleet rejects requests even if a key is cached. The `network`
 argument checks the file's label, not the Solana RPC's actual network.
 
-Independent keys behind one URL require a recipient router. SDK encrypted
+Independent keys behind one URL use recipient routing in Gatekeeper. SDK encrypted
 requests carry `Zolana-Tee-Key-Id`, derived from the verified key; the router
 must forward to that recipient rather than round-robin ciphertext. A
 `503 tee_generation_unavailable` emitted before forwarding causes one fresh
 attestation and newly encrypted retry. Direct legacy clients may omit the
-header. See the [test gateway](../../tools/tee-fleet/README.md).
+header. Policy publishing remains static; TUF is an optional policy provider,
+independent of routing. See the [test gateway](../../tools/tee-fleet/README.md).
 
 ### Signed fleet policy sources
 
@@ -187,10 +188,10 @@ is still pending. Regional routing and failover remain separate parts of PRI-285
 
 ## Mainnet: v0.6.0-alpha
 
-| Network | Photon RPC | Nitro prover |
-| --- | --- | --- |
-| Mainnet | `https://dgcj4pjarvo65.cloudfront.net` | `https://d3ky2kt0ntqxt1.cloudfront.net` |
-| Devnet-e | `https://d34xe1hqb2ibg2.cloudfront.net` | `https://dd73hh473h6ha.cloudfront.net` |
+| Network  | Photon RPC                              | Nitro prover                            |
+| -------- | --------------------------------------- | --------------------------------------- |
+| Mainnet  | `https://dgcj4pjarvo65.cloudfront.net`  | `https://d3ky2kt0ntqxt1.cloudfront.net` |
+| Devnet-e | `https://d34xe1hqb2ibg2.cloudfront.net` | `https://dd73hh473h6ha.cloudfront.net`  |
 
 [mainnet-v0.6.0-alpha.json](deployments/mainnet-v0.6.0-alpha.json) contains the
 mainnet PCR0–PCR2 and HPKE key. The measurements come from
@@ -244,10 +245,10 @@ The prover uses the source pinned by
 Its client prover runs Aeglos CPU in a Nitro Enclave and fetches indexed proof
 data from Photon. Supply this reviewed policy explicitly when using this deployment.
 
-| Service | URL |
-| --- | --- |
-| Client TEE prover | `https://dd73hh473h6ha.cloudfront.net` |
-| Photon JSON-RPC | `https://d34xe1hqb2ibg2.cloudfront.net` |
+| Service           | URL                                     |
+| ----------------- | --------------------------------------- |
+| Client TEE prover | `https://dd73hh473h6ha.cloudfront.net`  |
+| Photon JSON-RPC   | `https://d34xe1hqb2ibg2.cloudfront.net` |
 
 Supply the URL and reviewed policy. In Rust:
 

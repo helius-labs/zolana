@@ -65,8 +65,12 @@ impl ProverEndpoint {
     }
 
     /// Where the prover quotes `nonce`.
-    pub(crate) fn attestation_url(&self, nonce: &[u8]) -> Result<Url, ClientError> {
-        let mut url = self.url(ATTESTATION_PATH)?;
+    pub(crate) fn attestation_url(&self, nonce: &[u8], legacy: bool) -> Result<Url, ClientError> {
+        let mut url = self.url(if legacy {
+            spr_prover_tee::LEGACY_ATTESTATION_PATH
+        } else {
+            ATTESTATION_PATH
+        })?;
         url.query_pairs_mut()
             .append_pair("nonce", &hex::encode(nonce));
         Ok(url)

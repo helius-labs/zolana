@@ -698,9 +698,12 @@ describe("prover request routing", () => {
       code: "CLIENT_PROVER_TEE_ATTESTATION",
       details: { check: "unavailable" },
     });
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(new URL(String(fetch.mock.calls[1]?.[0])).pathname).toBe(
+      "/v1/zolana/tee/v1/attestation",
+    );
     const [url, init] = fetch.mock.calls[0] ?? [];
-    expect(new URL(String(url)).pathname).toBe("/v1/zolana/tee/v1/attestation");
+    expect(new URL(String(url)).pathname).toBe("/v1/zolana/attestation");
     expect(new URL(String(url)).searchParams.get("nonce")).toMatch(/^[0-9a-f]{64}$/u);
     expect(new Request(String(url), init).method).toBe("GET");
     expect(init?.body).toBeUndefined();

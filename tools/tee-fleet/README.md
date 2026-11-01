@@ -1,16 +1,18 @@
 # TEE fleet qualification
 
-The harness connects Node, Rust and browser clients through one loopback URL:
+Production recipient routing lives in Gatekeeper/Heimdall. This repository
+contains a small mock for SDK tests and a driver for Heimdall's real REST
+frontend. Both use the same public prover routes and recipient headers.
 
 ```text
-SDK → mock GK → recipient router → regional provers
+SDK → test authentication/CORS proxy → Heimdall → regional provers
 ```
 
-Mock GK implements API-key authentication, CORS, header allowlists and the
-[prover routes](../../prover/tee/WIRE_CONTRACT.md#recipient-routing). It strips
-the outer API key while preserving the remaining query bytes authenticated by
-HPKE. It never retries an upstream request. Indexer/wallet routes, billing and
-rate limiting are outside the harness.
+The outer test proxy strips the caller API key while preserving the remaining
+query bytes authenticated by HPKE. It never retries an upstream request.
+Heimdall selects the recipient and attaches its configured origin credential.
+The loopback harness bypasses production authentication, billing, rate limits,
+Config Service delivery and the health controller. It is not a deployable GK.
 
 ## Local tests
 
@@ -44,46 +46,38 @@ and stay in memory.
 ```sh
 npm run build:ts
 cargo build -p spr-client --features tee-tuf --example tee_policy_prove
-go -C prover/server build -o /absolute/tee-router ./cmd/tee-router
-ZOLANA_TEE_ROUTER_BINARY=/absolute/tee-router \
+# In the companion monorepo checkout, from rust-services/gatekeeper:
+# cargo build -p heimdall-proxy --features compat-harness --example tee_routing_harness
+ZOLANA_TEE_GK_BINARY=/absolute/tee_routing_harness \
 ZOLANA_TEE_PROOF_VERIFIER="$PWD/target/debug/examples/tee_policy_prove" \
-ZOLANA_TEE_REAL_OUTAGE=1 \
-ZOLANA_TEE_CONTROL_PLANE_OUTAGE=1 \
   node tools/tee-fleet/live.mjs manifest.json /absolute/qualification-output
 ```
 
-Use a fresh output directory for each run and browser engine. On macOS, run
-`caffeinate -i node ...` to keep the qualification host awake through the real
-freshness deadlines. Without `ZOLANA_TEE_ROUTER_BINARY`, the driver uses the
-in-process recipient router instead of the Go service.
-
-The managed run starts two independent Go routers behind round-robin mock GK.
-It publishes identical, conditional revisions to three private S3 mirrors and
-waits for both routers to converge. A temporary IAM role grants access only to
-that run's registry objects and regional origin secrets. The operator identity
-owns publication and fault injection; router processes receive read-only
-credentials. Cleanup removes the temporary role.
+Use a fresh output directory for every run and browser engine. `live.mjs`
+requires the real Heimdall binary. Credentials are read from the owned stacks
+and passed over stdin, never command arguments or public artifacts. Loopback
+observation proxies count forwarding but do not select recipients or retry.
 
 Node, Rust and the selected browser load the signed CDN policy, verify AWS
-attestations, and generate encrypted proofs in every region. All proof exports
-are checked against the committed on-chain Groth16 verifying key. The driver
-also verifies cached-recipient failover, including a Rust stdin barrier between
-attestation and the first encrypted request.
+attestations, and generate encrypted proofs in every region. Every proof is
+checked against the committed on-chain Groth16 verifying key. Cached-recipient
+failover includes a Rust stdin barrier between attestation and submission.
+Availability changes update Heimdall's actual disabled-origin flags. This does
+not qualify production health detection or control-plane outages; those need
+a deployed GK test environment. The old standalone router's historical outage
+evidence remains tied to its original commit.
 
-- `ZOLANA_TEE_REAL_OUTAGE=1` stops and restarts `zolana-enclave@0.service` on
-  the owned test instance through SSM. Both routers must observe health loss
-  with the registry entry still enabled. Restoration checks the sealed key is
-  unchanged and verifies another proof. Cleanup restores any stopped service.
-- `ZOLANA_TEE_CONTROL_PLANE_OUTAGE=1` blocks US S3 and Secrets Manager
-  connections through a loopback CONNECT proxy that preserves TLS. It waits
-  past the actual five-minute credential lifetime, checks fresh mirror reads,
-  cold-starts a router during the fault, and proves through the remaining
-  regions without stale-recipient forwarding. It then restores access.
+For local SDK/browser coverage through the real frontend, run:
 
-Reports contain proofs, public quotes/nonces, registry versions, role policies
-and observations. They contain no credentials. The control-plane fault simulates
-regional API connection loss, not a complete AWS-region outage. Production trust
-custody, deployment and real GK integration require separate qualification.
+```sh
+ZOLANA_TEE_GK_BINARY=/absolute/tee_routing_harness npm run test:tee-fleet
+```
+
+`gk.test.mjs` covers approved-key selection with all three origins live,
+credential forwarding, cached requests while draining, failover and browser
+CORS. It skips when the optional binary is absent. Other tests use the small
+in-process mock and retain policy lifecycle, cancellation and transport fault
+coverage. Synthetic attestations never qualify AWS roots or produce ZK proofs.
 
 ## Policy renewal, revocation and expiry
 
@@ -92,7 +86,12 @@ Add `--lifecycle` to keep clients open after the initial qualification. After
 command on stdin (IDs must exist in the manifest):
 
 ```json
-{"action":"policy","revision":2,"available":["eu-north-1","us-east-1","ap-southeast-1"],"retired":"ap-southeast-1"}
+{
+  "action": "policy",
+  "revision": 2,
+  "available": ["eu-north-1", "us-east-1", "ap-southeast-1"],
+  "retired": "ap-southeast-1"
+}
 ```
 
 The retired generation stays routable for cached ciphertext but is excluded

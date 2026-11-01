@@ -469,7 +469,7 @@ fn assert_only_attested(requests: &[HttpRequest]) {
     assert!(
         requests[0]
             .url
-            .starts_with("http://127.0.0.1:3001/v1/zolana/tee/v1/attestation?"),
+            .starts_with("http://127.0.0.1:3001/v1/zolana/attestation?"),
         "{}",
         requests[0].url
     );

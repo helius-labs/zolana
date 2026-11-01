@@ -10,7 +10,7 @@ and browsers.
 
 Breaking
 
-- Encrypted prover requests include `Zolana-Tee-Key-Id` → allow it in gateway forwarding and prover/browser CORS before upgrading.
+- Encrypted prover requests include `Zolana-Tee-Key-Id` and attestation requests include `Zolana-Tee-Accept` → allow both in browser CORS and enable recipient routing before upgrading.
 - `ZolanaClient` now defaults to `proofDataSource: "prover"` for Helius API URLs too → configure indexed proving on the upstream or set `proofDataSource: "client"` to retain SDK-fetched proof data.
 - `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
 - `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
@@ -24,7 +24,7 @@ Added
 
 Changed
 
-- `ProverClient` includes an attested recipient key identifier on encrypted requests and re-attests once when the router reports that generation unavailable before forwarding.
+- `ProverClient` uses `/attestation` with a bounded fallback for older provers, selects from approved recipient keys, re-attests once after an explicit pre-forward refusal, and reports `CLIENT_PROVER_OUTCOME_UNKNOWN` without replaying an encrypted proof after a lost connection.
 - A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
 
 Fixed

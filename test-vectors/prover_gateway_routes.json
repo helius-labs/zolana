@@ -1,5 +1,5 @@
 {
-  "source": "https://github.com/helius-labs/monorepo/blob/3d40292ae562dd204f28d25b4edef49caed6648c/ts-services/cloudflare/workers/helius-router/src/util.ts#L1018-L1032",
+  "source": "https://github.com/helius-labs/monorepo/blob/6428c29fe7c496830b753a918d046da3e58b8eaf/ts-services/cloudflare/workers/helius-router/src/util.ts",
   "base_urls": [
     "https://mainnet.helius-rpc.com/v1/zolana?api-key=fixture-key",
     "https://devnet.helius-rpc.com/v1/zolana?api-key=fixture-key",
@@ -7,7 +7,7 @@
   ],
   "key": "transfer_confidential_2_2.key",
   "routes": {
-    "attestation": "/v1/zolana/tee/v1/attestation",
+    "attestation": "/v1/zolana/attestation",
     "proving_keys": "/v1/zolana/proving-keys",
     "complete": "/v1/zolana/prove/transfer_confidential_2_2",
     "indexed": "/v1/zolana/prove/transfer_confidential_2_2/indexed",

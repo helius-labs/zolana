@@ -109,7 +109,10 @@ impl TeeFleetPolicy {
             if age == 0 || age > MAX_SAFE_INTEGER {
                 return Err(invalid("max_age_secs"));
             }
-            let key = pinned_key(&entry.policy).ok_or_else(|| invalid("hpke_public_key"))?;
+            let key = entry
+                .policy
+                .hpke_public_key()
+                .ok_or_else(|| invalid("hpke_public_key"))?;
             let has_measurements = match entry.policy.pins() {
                 PlatformPolicy::AwsNitro(pins) => !pins.measurements.is_empty(),
                 PlatformPolicy::DstackTdx(pins) => !pins.measurements.is_empty(),
@@ -150,7 +153,7 @@ impl TeeFleetPolicy {
     pub fn deployment_for_key(&self, key: &[u8; 32]) -> Option<&TeeDeployment> {
         self.deployments
             .iter()
-            .find(|entry| pinned_key(&entry.policy).as_ref() == Some(key))
+            .find(|entry| entry.policy.hpke_public_key().as_ref() == Some(key))
     }
 
     pub fn check_time(&self, now_secs: u64) -> Result<(), TeeError> {
@@ -183,13 +186,6 @@ impl TeeFleetPolicy {
             .deployment_for_key(&attestation.hpke_public_key)
             .ok_or(TeeError::HpkeKeyMismatch)?;
         verify_with(attestation, &deployment.policy, nonce, now_secs, anchors)
-    }
-}
-
-fn pinned_key(policy: &TeePolicy) -> Option<[u8; 32]> {
-    match policy.pins() {
-        PlatformPolicy::AwsNitro(pins) => pins.hpke_public_key,
-        PlatformPolicy::DstackTdx(pins) => Some(pins.hpke_public_key),
     }
 }
 

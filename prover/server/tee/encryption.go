@@ -105,7 +105,7 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 func publicPlaintextPath(path string) bool {
 	switch path {
 	case "/auth", "/ready", "/health", "/proving-keys", GatewayPrefix + "/proving-keys",
-		AttestationPath, GatewayPrefix + AttestationPath:
+		AttestationPath, GatewayPrefix + AttestationPath, LegacyAttestationPath, GatewayPrefix + LegacyAttestationPath:
 		return true
 	default:
 		return false

@@ -223,7 +223,7 @@ fn assert_constructor_attested_only(server: MockIndexerServer) {
         .collect::<Vec<_>>();
     assert_eq!(
         urls.iter().map(url::Url::path).collect::<Vec<_>>(),
-        ["/v1/zolana/tee/v1/attestation"],
+        ["/v1/zolana/attestation"],
         "a rejected attestation must prevent proof and indexer requests"
     );
     let url = urls.first().unwrap();

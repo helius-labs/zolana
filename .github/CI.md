@@ -184,12 +184,10 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     5. `prover/server/tee`: `go test`.
     6. TEE release tests: `python3 scripts/test_release_tee.py`.
 
-    [TEE router](workflows/tee-router.yml) separately checks router/command,
-    TEE/logging, Go manifest, router Dockerfile and workflow changes, including
-    draft PRs. It runs `go test -race ./router ./cmd/tee-router ./tee`,
-    `go vet ./router ./cmd/tee-router`, and builds `Dockerfile.router`. The
-    routing checks require no AWS credentials or real provers; live S3 and
-    three-region qualification remains an explicit operator exercise.
+    Recipient routing is qualified in the companion Gatekeeper PR. The
+    local fleet harness can run the real Heimdall frontend; see
+    [qualification commands](../tools/tee-fleet/README.md). The synthetic
+    SDK/browser suite runs without AWS credentials.
 
 6. [Async prover](workflows/async-prover.yml)
 
