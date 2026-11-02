@@ -119,7 +119,10 @@ function inputs(): ProverInputs {
   };
 }
 
-describe("configured TEE prover", () => {
+// The deployed enclave lags a pull request that changes the wire contract or the
+// proving keys until its next release, so this runs where it describes the
+// deployment: on main, not on pull requests, which leave the URL unset.
+describe.skipIf(!process.env["ZOLANA_TEE_PROVER_URL"])("configured TEE prover", () => {
   it("attests and returns an encrypted valid proof with a caller-supplied URL and policy", async () => {
     const required = (name: string): string => {
       const value = process.env[name];
