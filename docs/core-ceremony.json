@@ -189,10 +189,10 @@
   "zopro_manifest_sha256": "fe32860709dc0ae625462e26d0fb6b49ac31e681fee97e2bb531b8674eb54fc7",
   "zopro_proofs_verified": 41,
   "publication_verification": {
-    "gnark_objects_verified": 135,
+    "gnark_objects_verified": 136,
     "zopro_objects_verified": 41,
-    "pending": [
-      "full ranged CDN hash check of unchanged batch_address-append_40_4999.key"
-    ]
+    "pending": [],
+    "report": "core-ceremony-publication.json",
+    "report_sha256": "77fb1964b38e900b8ff841eae61cb22038ef677d7137f8fdee5af61fea517632"
   }
 }
