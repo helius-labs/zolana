@@ -285,6 +285,25 @@ export function composeSignal(context: RequestContext | undefined, method: strin
   }
 }
 
+/**
+ * Settles with `promise`, or rejects with `aborted()` once `signal` aborts, even
+ * when the work behind `promise`, such as an injected fetch, ignores the signal.
+ */
+export function untilAborted<T>(
+  promise: Promise<T>,
+  signal: ComposedSignal,
+  aborted: () => unknown,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const abort = (): void => reject(aborted());
+    if (signal.signal.aborted) abort();
+    else signal.signal.addEventListener("abort", abort, { once: true });
+    void promise
+      .then(resolve, reject)
+      .finally(() => signal.signal.removeEventListener("abort", abort));
+  });
+}
+
 export function requestError(method: string, signal: ComposedSignal): ClientError {
   return new ClientError(
     signal.timedOut()

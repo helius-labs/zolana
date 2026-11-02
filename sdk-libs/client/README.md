@@ -70,16 +70,21 @@ client builds one that proves every submission that way. Either prover only
 proves what the client hands it, so the client fetches the proof data itself
 and nothing reaches a prover server.
 
-A remote prover requires a caller-supplied URL and policy. Load a reviewed
-policy JSON from a deployment release with `TeePolicy::from_file_json`, then
-pass it to `ProverClient::with_tee` or `AsyncProverClient::with_tee`:
+A remote prover requires a caller-supplied URL and policy. The SDK pins who
+signs each network's prover policy, so a client follows new prover releases
+without an SDK release. It downloads the signed policy every five minutes and
+never uses it past its expiry:
 
 ```rust
-let policy = TeePolicy::from_file_json(&std::fs::read_to_string(policy_path)?)?;
-let prover = ProverClient::new(prover_url).with_tee(policy);
+let prover = ProverClient::new(prover_url)
+    .with_signed_tee(SignedTeePolicy::for_network("mainnet")?);
 ```
 
-The SDK embeds no deployment URLs or policies. The same policy parameter works
+An application that reviews each release itself can instead load that
+release's policy JSON with `TeePolicy::from_file_json` and pass it to
+`with_tee`, or its own signers to `SignedTeePolicy::new(url, PolicySigners::new(network, keys, threshold)?)`.
+
+The SDK embeds no prover URLs. The same policy parameter works
 with a direct prover URL, a unified Helius API URL or a proxy path. Remote calls
 without a policy fail before HTTP. Only loopback development without a proxy
 permits plaintext. The explicit `for_tree_batches()` mode permits public

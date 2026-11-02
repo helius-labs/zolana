@@ -115,7 +115,6 @@ const AWS_NITRO_ROOT_G1 = hexToBytes(
 export const AWS_NITRO: PlatformModule<AwsNitroPolicy> = Object.freeze({
   platform: "aws-nitro",
   hostsGpu: false,
-  keyPerBoot: true,
   anchors: Object.freeze([AWS_NITRO_ROOT_G1]),
   policy: (fields, common) => {
     const hpkePublicKey = fields.optionalHex("hpke_public_key", 32);

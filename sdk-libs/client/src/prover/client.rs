@@ -37,7 +37,10 @@ use crate::{
         proof::{proof_from_value, Proof},
         proving_key::{ExpectedProvingKey, ProverKeys, ProvingKeyReport},
         requests,
-        tee::{AttestedProver, TeeError, TeePolicy, TeeSession, MAX_ATTESTATION_BYTES},
+        tee::{
+            AttestedProver, SignedTeePolicy, TeeError, TeePolicy, TeeSession,
+            MAX_ATTESTATION_BYTES, MAX_SIGNED_POLICY_BYTES,
+        },
     },
 };
 
@@ -338,6 +341,13 @@ impl ProverClient {
     #[must_use]
     pub fn with_tee(mut self, policy: TeePolicy) -> Self {
         self.client = self.client.with_tee(policy);
+        self
+    }
+
+    /// See [`AsyncProverClient::with_signed_tee`].
+    #[must_use]
+    pub fn with_signed_tee(mut self, policy: SignedTeePolicy) -> Self {
+        self.client = self.client.with_signed_tee(policy);
         self
     }
 
@@ -756,6 +766,14 @@ impl AsyncProverClient {
         self
     }
 
+    /// As [`Self::with_tee`], under the policy downloaded from `policy`'s URL
+    /// once its signers sign it.
+    #[must_use]
+    pub fn with_signed_tee(mut self, policy: SignedTeePolicy) -> Self {
+        self.tee = Tee::On(Box::new(TeeSession::signed(policy)));
+        self
+    }
+
     /// Plaintext to any prover, every proof but a nullifier-tree batch refused.
     #[must_use]
     pub fn for_tree_batches(mut self) -> Self {
@@ -915,8 +933,26 @@ impl AsyncProverClient {
             Tee::On(session) => session,
             Tee::Broken(error) => return Err(ClientError::Tee(error.clone())),
         };
-        let key = session.key_or_attest(|| self.attest_with(session)).await?;
+        let policy = self.tee_policy(session).await?;
+        let key = session
+            .key_or_attest(&policy, || self.attest_with(session))
+            .await?;
         Ok(Some(Recipient { session, key }))
+    }
+
+    async fn tee_policy(&self, session: &TeeSession) -> Result<Arc<TeePolicy>, ClientError> {
+        session
+            .policy(|url| async move {
+                let request = HttpRequest::get(url)
+                    .with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                    .with_body_limit(MAX_SIGNED_POLICY_BYTES);
+                let response = self
+                    .send_http(request)
+                    .await
+                    .map_err(|_| TeeError::SignedPolicy("unavailable"))?;
+                Ok((response.status, response.body))
+            })
+            .await
     }
 
     /// Attest the prover now against the [`Self::with_tee`] policy.
@@ -926,11 +962,14 @@ impl AsyncProverClient {
             Tee::On(session) => session,
             Tee::Broken(error) => return Err(ClientError::Tee(error.clone())),
         };
-        tee.attest_exclusive(|| self.attest_with(tee)).await
+        let policy = self.tee_policy(tee).await?;
+        tee.attest_exclusive(&policy, || self.attest_with(tee))
+            .await
     }
 
     /// Retries a transport failure and a busy or unavailable answer, each try
-    /// with a fresh nonce.
+    /// with a fresh nonce, and verifies the answer under the policy in force
+    /// once it arrives, which may have expired or changed in the meantime.
     async fn attest_with(&self, tee: &TeeSession) -> Result<AttestedProver, ClientError> {
         let mut attempt = 0;
         loop {
@@ -957,7 +996,8 @@ impl AsyncProverClient {
                 continue;
             }
             TeeSession::check_attestation_len(response.body.len())?;
-            return tee.accept(&nonce, response.status, &response.body);
+            let policy = self.tee_policy(tee).await?;
+            return tee.accept(&policy, &nonce, response.status, &response.body);
         }
     }
 
@@ -1352,7 +1392,9 @@ mod tests {
 
     use super::super::indexed::IndexedProofRequest;
     use super::*;
-    use crate::prover::tee::{FixtureSession, NitroFixture};
+    use crate::prover::tee::{
+        FixtureSession, NitroFixture, PolicyPayload, PolicySigners, POLICY_DOMAIN,
+    };
 
     #[derive(Debug)]
     struct NoRequests;
@@ -1985,6 +2027,59 @@ mod tests {
         assert!(server.requests().is_empty());
     }
 
+    #[test]
+    fn an_attestation_answered_after_its_policy_expired_sends_nothing() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let now = now_secs();
+        let expires_at = now + 2;
+        let fixture = NitroFixture::at([0; 32], now);
+        let signer = SigningKey::from_bytes(&[1; 32]);
+        let payload = serde_json::to_vec(&PolicyPayload {
+            network: "fixture".into(),
+            version: 1,
+            expires_at,
+            policy: fixture.policy().clone(),
+        })
+        .unwrap();
+        let signature = signer.sign(&[POLICY_DOMAIN, &payload].concat());
+        let file = json!({
+            "payload": hex::encode(&payload),
+            "signatures": [{
+                "public_key": hex::encode(signer.verifying_key().as_bytes()),
+                "signature": hex::encode(signature.to_bytes()),
+            }],
+        });
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(200, file.clone()),
+            MockResponse::computed(move |request| {
+                while now_secs() < expires_at {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                nitro_attestation(now).resolve(request)
+            }),
+            MockResponse::json(200, file),
+        ]);
+        let signers =
+            PolicySigners::new("fixture", vec![signer.verifying_key().to_bytes()], 1).unwrap();
+        let policy = SignedTeePolicy::new(format!("{}/policy", server.url()), signers).unwrap();
+        let mut client = ProverClient::new(server.url().to_string());
+        client.client.tee = Tee::On(Box::new(
+            TeeSession::signed(policy).trusting(fixture.anchors()),
+        ));
+        let error = client.check_proving_keys().unwrap_err();
+        assert!(
+            matches!(error, ClientError::Tee(TeeError::SignedPolicy("expired"))),
+            "{error}"
+        );
+        let paths: Vec<_> = server
+            .requests()
+            .into_iter()
+            .map(|request| request.path.split('?').next().unwrap().to_owned())
+            .collect();
+        assert_eq!(paths, ["/policy", "/tee/v1/attestation", "/policy"]);
+    }
+
     #[tokio::test]
     async fn an_async_lost_key_is_attested_again_and_the_call_resent() {
         let now = now_secs();
@@ -2021,7 +2116,9 @@ mod tests {
         let Tee::On(session) = &client.client.tee else {
             panic!("the client lost its session");
         };
-        assert!(session.attested_key().is_some());
+        assert!(session
+            .attested_key(&session.fresh_policy().unwrap())
+            .is_some());
     }
 
     #[test]

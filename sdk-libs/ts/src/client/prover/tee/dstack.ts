@@ -49,7 +49,6 @@ type EventLogEntry = Readonly<{
 export const DSTACK_TDX: PlatformModule<DstackTdxPolicy> = Object.freeze({
   platform: "dstack-tdx",
   hostsGpu: true,
-  keyPerBoot: false,
   anchors: Object.freeze([]),
   policy: (fields, common) =>
     Object.freeze({

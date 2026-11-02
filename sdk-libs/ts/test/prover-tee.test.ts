@@ -662,6 +662,30 @@ describe("attestation retries", () => {
     }
   });
 
+  it("gives up on attempts that ignore their deadline, then attests again", async () => {
+    vi.useFakeTimers();
+    try {
+      const session = new TeeSession(livePolicy);
+      const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+      const hung = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>(() => undefined));
+      const stalled = session
+        .attest(hung, attestationUrl, composeSignal(undefined, "attest"))
+        .catch((caught: unknown) => caught);
+      await vi.advanceTimersByTimeAsync(3 * 30_000 + 2 * 2_000);
+      expect(await stalled).toMatchObject({ code: "CLIENT_TIMEOUT" });
+      expect(hung).toHaveBeenCalledTimes(3);
+      const answered = vi.fn<typeof globalThis.fetch>(() =>
+        Promise.resolve(Response.json({ quote: "00" })),
+      );
+      await expect(
+        session.attest(answered, attestationUrl, composeSignal(undefined, "attest")),
+      ).rejects.toMatchObject({ details: { check: "malformed_attestation" } });
+      expect(answered).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lets a joining call time out while the shared attestation hangs", async () => {
     const hung = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>(() => undefined));
     const session = new TeeSession(livePolicy);
@@ -812,12 +836,16 @@ describe("a prover that lost the attested key", () => {
   const attestation = ["/tee/v1/attestation", false] as const;
   const health = ["/health", true] as const;
 
-  it.each([false, true])(
-    "re-attests a Nitro enclave once and resends encrypted, key pinned %s",
-    async (pinKey) => {
+  it.each([
+    ["aws-nitro", false],
+    ["aws-nitro", true],
+    ["dstack-tdx", false],
+  ] as const)(
+    "re-attests %s once and resends encrypted, key pinned %s",
+    async (platform, pinKey) => {
       expect(
         await calls(
-          "aws-nitro",
+          platform,
           refusal("tee_decryption_failed"),
           refusedWith("tee_decryption_failed"),
           pinKey,
@@ -826,11 +854,22 @@ describe("a prover that lost the attested key", () => {
     },
   );
 
-  it.each([
-    ["a dstack key loss, its key is pinned", "dstack-tdx", "tee_decryption_failed"],
-    ["a malformed request", "aws-nitro", "tee_request_malformed"],
-  ] as const)("does not resend %s", async (_name, platform, code) => {
-    expect(await calls(platform, refusal(code), refusedWith(code))).toEqual([attestation, health]);
+  it("does not resend a malformed request", async () => {
+    const code = "tee_request_malformed";
+    expect(await calls("aws-nitro", refusal(code), refusedWith(code))).toEqual([
+      attestation,
+      health,
+    ]);
+  });
+
+  it("passes an oversized refusal through without waiting on it or resending", async () => {
+    const oversized = (): Response => new Response("x".repeat(5000), { status: 400 });
+    expect(
+      await calls("aws-nitro", oversized, {
+        code: "CLIENT_PROVER_HTTP",
+        details: { status: 400 },
+      }),
+    ).toEqual([attestation, health]);
   });
 
   it("reads an unreadable refusal as no key loss", async () => {

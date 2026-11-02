@@ -12,13 +12,20 @@ Breaking
 - `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
 - `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
 
+Added
+
+- `SignedTeePolicy.forNetwork("mainnet")`, passed as `proverTee` or `tee`, downloads the network's prover policy from a file that a quorum of the signers the SDK pins signs, so a new prover release needs no SDK release; `new SignedTeePolicy({ url, network, publicKeys, threshold })` names other signers.
+
 Changed
 
 - A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
+- A prover of any platform that answers `tee_decryption_failed` is attested again and the call resent once, so a client follows a gateway onto a new release.
 
 Fixed
 
 - `ProverClient` sends proofs and status polls to key-specific paths on Helius API URLs, including indexed proofs, instead of the older keyless routes.
+- An unencrypted 400 above 4 KiB from an attested prover hung the call; it now reaches the caller as its HTTP status.
+- An injected `fetch` that ignored cancellation could leave a TEE attestation or signed-policy download pending, blocking every later call; each now gives way at its deadline and the next call tries again.
 
 ## 0.6.0-alpha — 2026-10-29
 
