@@ -352,10 +352,21 @@ impl Downloaded {
         lock(&self.current)
             .as_ref()
             .filter(|current| {
-                current.checked.elapsed() < self.source.refresh
+                current.checked.elapsed() < current.policy.max_age()
                     && now_secs().is_ok_and(|now| now < current.expires_at)
             })
             .map(|current| Arc::clone(&current.policy))
+    }
+
+    /// Ages the policy in force past its freshness, so the next call downloads again.
+    #[cfg(test)]
+    fn stale(&self) {
+        if let Some(current) = lock(&self.current).as_mut() {
+            let max_age = current.policy.max_age();
+            current.checked = Instant::now()
+                .checked_sub(max_age)
+                .unwrap_or_else(Instant::now);
+        }
     }
 
     /// Refuses an older version, or another payload under the same version.
@@ -491,7 +502,7 @@ mod tests {
     }
 
     /// Signed by any two of the keys of seeds 1, 2 and 3.
-    fn signed(refresh: Duration) -> TeeSession {
+    fn signed() -> TeeSession {
         let keys = [1, 2, 3]
             .map(|seed| {
                 SigningKey::from_bytes(&[seed; 32])
@@ -500,10 +511,7 @@ mod tests {
             })
             .to_vec();
         let signers = PolicySigners::new("fixture", keys, 2).unwrap();
-        TeeSession::signed(SignedTeePolicy {
-            refresh,
-            ..SignedTeePolicy::new("https://policy.example/p.json", signers).unwrap()
-        })
+        TeeSession::signed(SignedTeePolicy::new("https://policy.example/p.json", signers).unwrap())
     }
 
     fn file(version: u64, max_age_secs: u64) -> Vec<u8> {
@@ -536,11 +544,15 @@ mod tests {
             .unwrap()
     }
 
+    /// Downloads again whatever policy is in force.
     async fn download(
         session: &TeeSession,
         status: u16,
         body: Vec<u8>,
     ) -> Result<Arc<TeePolicy>, ClientError> {
+        if let Policy::Signed(signed) = &session.policy {
+            signed.stale();
+        }
         session
             .policy(|_url| async move { Ok((StatusCode::from_u16(status).unwrap(), body)) })
             .await
@@ -548,7 +560,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_signed_policy_is_downloaded_again_only_once_stale() {
-        let session = signed(Duration::from_secs(300));
+        let session = signed();
         let first = download(&session, 200, file(2, 600)).await.unwrap();
         let downloads = AtomicUsize::new(0);
         let again = session
@@ -564,7 +576,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_attestation_stands_only_under_the_policy_that_accepted_it() {
-        let session = signed(Duration::ZERO);
+        let session = signed();
         let v2 = download(&session, 200, file(2, 600)).await.unwrap();
         attest(&session, &v2, &AtomicUsize::new(0)).unwrap();
         let same = download(&session, 200, file(2, 600)).await.unwrap();
@@ -576,7 +588,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_refused_download_keeps_the_policy_in_force() {
-        let session = signed(Duration::ZERO);
+        let session = signed();
         let v3 = download(&session, 200, file(3, 600)).await.unwrap();
         for (status, body) in [
             (503, Vec::new()),
@@ -600,7 +612,7 @@ mod tests {
 
     #[tokio::test]
     async fn calls_waiting_on_a_failed_download_share_its_failure() {
-        let session = signed(Duration::ZERO);
+        let session = signed();
         let downloads = AtomicUsize::new(0);
         let call = || {
             session.policy(|_url| async {
@@ -638,7 +650,7 @@ mod tests {
 
     #[tokio::test]
     async fn without_a_policy_in_force_a_refused_download_fails() {
-        let session = signed(Duration::ZERO);
+        let session = signed();
         let one_signer = signed_file(2, 600, &[1]);
         for (status, body, check) in [
             (503, Vec::new(), "unavailable"),

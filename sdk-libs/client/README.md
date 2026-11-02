@@ -72,8 +72,9 @@ and nothing reaches a prover server.
 
 A remote prover requires a caller-supplied URL and policy. The SDK pins who
 signs each network's prover policy, so a client follows new prover releases
-without an SDK release. It downloads the signed policy every five minutes and
-never uses it past its expiry:
+without an SDK release. It downloads the signed policy again whenever it
+attests again, every `max_age_secs` of the policy, and never uses it past its
+expiry:
 
 ```rust
 let prover = ProverClient::new(prover_url)

@@ -15,7 +15,6 @@ import type { TeePolicy } from "./registry.js";
 /** Prefixes the payload bytes a signer signs. */
 const DOMAIN = utf8ToBytes("zolana/prover-tee/v1/policy");
 const MAX_FILE_BYTES = 64 * 1024;
-const REFRESH_MS = 5 * 60_000;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
 /** Where a network's signed policy lives and who signs it. */
@@ -64,7 +63,8 @@ type Current = Readonly<{
 
 /**
  * A policy published at `url` as one file that a quorum of pinned keys signs.
- * It is downloaded again every five minutes and never used past its expiry.
+ * It is downloaded again once it is `max_age_secs` old, when the client also attests
+ * again, and never used past its expiry.
  */
 export class SignedTeePolicy {
   readonly #url: URL;
@@ -108,11 +108,12 @@ export class SignedTeePolicy {
     return new SignedTeePolicy({ ...preset, network });
   }
 
-  /** The policy in force, downloading the file again with `fetch` once five minutes old. */
+  /** The policy in force, downloading the file again with `fetch` once `max_age_secs` old. */
   current(fetch: typeof globalThis.fetch = checkedFetch(undefined)): Promise<TeePolicy> {
     const current = this.#current;
     const age = current === undefined ? -1 : Date.now() - current.checkedAt;
-    if (current !== undefined && age >= 0 && age < REFRESH_MS && !expired(current)) {
+    const fresh = current !== undefined && age >= 0 && age < current.policy.maxAgeSecs * 1000;
+    if (current !== undefined && fresh && !expired(current)) {
       return Promise.resolve(current.policy);
     }
     this.#download ??= this.#refresh(fetch).finally(() => {

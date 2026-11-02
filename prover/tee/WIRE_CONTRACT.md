@@ -101,7 +101,7 @@ A client pins the network, the signers' keys and how many of them must sign.
 It refuses a malformed file, counts a valid signature of each pinned key once, ignores well-formed signatures of other keys, and refuses a file with fewer, for another network, or at or after `expires_at`.
 `version` and `max_age_secs` start at 1, and they and `expires_at` are integers of at most 2^53 minus 1.
 It refuses a lower `version` than one it accepted, and another payload under the same version.
-It downloads the file again every five minutes, keeps the policy it holds while a download fails until that policy expires, and attests again under a new payload.
+It downloads the file again once the policy it holds is `max_age_secs` old, which is also when it attests again, keeps that policy while a download fails until it expires, and attests again under a new payload.
 It verifies an attestation under the policy in force when the answer arrives, not when the call began.
 
 ## Encryption
