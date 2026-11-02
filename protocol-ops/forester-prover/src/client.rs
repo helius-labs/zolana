@@ -4,7 +4,11 @@ use crate::{
     key::{check_report, ExpectedProvingKey, ProvingKeyReport},
     proof, BatchAddressAppendInputs, Error,
 };
-use reqwest::{blocking::Client, redirect::Policy, StatusCode};
+use reqwest::{
+    blocking::{Client, Response},
+    redirect::Policy,
+    StatusCode,
+};
 use serde_json::Value;
 use std::{
     path::PathBuf,
@@ -72,7 +76,12 @@ impl ProverClient {
         }
     }
     pub fn check_indexed(&self) -> Result<()> {
-        if self.get("/health")?.get("indexed").and_then(Value::as_bool) != Some(true) {
+        let response = self.fetch("/health")?;
+        // A gateway routes no /health, so a prover behind one serves no indexed proofs.
+        if response.status() == StatusCode::NOT_FOUND {
+            return Err(Error::ProverIndexerUnconfigured);
+        }
+        if body(response)?.get("indexed").and_then(Value::as_bool) != Some(true) {
             return Err(Error::ProverIndexerUnconfigured);
         }
         Ok(())
@@ -116,31 +125,19 @@ impl ProverClient {
     fn url(&self, path: &str) -> Result<Url> {
         endpoint_url(self.remote()?.0, path)
     }
-    fn get(&self, path: &str) -> Result<Value> {
+    fn fetch(&self, path: &str) -> Result<Response> {
         let (_, http) = self.remote()?;
-        let response = http
-            .get(self.url(path)?)
+        http.get(self.url(path)?)
             .timeout(Duration::from_secs(30))
             .send()
-            .map_err(http_error)?;
-        let status = response.status();
-        let body: Value = response.json().map_err(http_error)?;
-        if !status.is_success() {
-            return Err(failure(status, &body));
-        }
-        Ok(body)
+            .map_err(http_error)
+    }
+    fn get(&self, path: &str) -> Result<Value> {
+        body(self.fetch(path)?)
     }
     fn send(&self, body: &str, key: &ExpectedProvingKey, indexed: bool) -> Result<Value> {
         let (_, http) = self.remote()?;
-        let gateway = is_gateway(self.remote()?.0);
-        if gateway && indexed {
-            return Err(Error::ProverIndexerUnconfigured);
-        }
-        let mut path = if gateway {
-            "/prove".into()
-        } else {
-            key.prove_path()
-        };
+        let mut path = key.prove_path();
         if indexed {
             path.push_str("/indexed");
         }
@@ -173,19 +170,14 @@ impl ProverClient {
         }
         if value.get("proof").is_none() {
             if let Some(job) = value.get("jobId").and_then(Value::as_str) {
-                return self.poll(job, key, gateway);
+                return self.poll(job, key);
             }
         }
         Ok(value)
     }
-    fn poll(&self, job: &str, key: &ExpectedProvingKey, gateway: bool) -> Result<Value> {
+    fn poll(&self, job: &str, key: &ExpectedProvingKey) -> Result<Value> {
         let (_, http) = self.remote()?;
-        let path = if gateway {
-            "/prove".into()
-        } else {
-            key.prove_path()
-        };
-        let mut url = self.url(&format!("{path}/status"))?;
+        let mut url = self.url(&format!("{}/status", key.prove_path()))?;
         url.query_pairs_mut().append_pair("jobId", job);
         let started = Instant::now();
         let mut interval = Duration::from_millis(25);
@@ -234,13 +226,13 @@ fn endpoint_url(base: &str, path: &str) -> Result<Url> {
         .extend(path.split('/').filter(|part| !part.is_empty()));
     Ok(url)
 }
-fn is_gateway(base: &str) -> bool {
-    Url::parse(base).ok().is_some_and(|url| {
-        url.path().trim_end_matches('/') == "/v1/spr"
-            && url
-                .host_str()
-                .is_some_and(|host| host == "helius-rpc.com" || host.ends_with(".helius-rpc.com"))
-    })
+fn body(response: Response) -> Result<Value> {
+    let status = response.status();
+    let body: Value = response.json().map_err(http_error)?;
+    if !status.is_success() {
+        return Err(failure(status, &body));
+    }
+    Ok(body)
 }
 fn failure(status: StatusCode, value: &Value) -> Error {
     match value.get("code").and_then(Value::as_str) {
@@ -379,6 +371,31 @@ mod tests {
         assert!(matches!(
             proof_attempt,
             Err(Error::ProvingKeyMismatch { .. })
+        ));
+        handle.join().unwrap();
+    }
+    #[test]
+    fn a_gateway_base_keeps_per_key_indexed_routes_and_serves_no_health() {
+        let (endpoint, handle) = server(vec![
+            (
+                "POST /v1/spr/prove/batch_address-append_40_10/indexed?api-key=secret ",
+                409,
+                serde_json::json!({"code":"indexer_not_ready"}),
+            ),
+            (
+                "GET /v1/spr/health?api-key=secret ",
+                404,
+                serde_json::json!({}),
+            ),
+        ]);
+        let prover = ProverClient::new(endpoint.replace("?", "/v1/spr?")).unwrap();
+        assert!(matches!(
+            prover.prove_indexed(&request()),
+            Err(Error::IndexerProofDataNotReady)
+        ));
+        assert!(matches!(
+            prover.check_indexed(),
+            Err(Error::ProverIndexerUnconfigured)
         ));
         handle.join().unwrap();
     }
