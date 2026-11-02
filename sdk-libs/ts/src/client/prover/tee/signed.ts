@@ -35,18 +35,29 @@ type Signers = Readonly<{ network: string; keys: readonly string[]; threshold: n
  * Each network's policy URL and signers. `test/prover-tee-signed.test.ts`
  * pins it to the Rust client's `src/prover/tee/signers.json`.
  */
-export const NETWORKS: Readonly<Record<string, Omit<SignedTeePolicyConfig, "network">>> =
-  Object.freeze({
-    mainnet: {
-      url: "https://d3gbdb0egjwcw9.cloudfront.net/tee-policy/mainnet.json",
-      publicKeys: [
-        "1fe5d29c79064ea17a16308452040b799df8aeaaae588d44a527a8da9ffa924a",
-        "f90d4e9b178f0262cbf8b40482a6a6459c50001825f5c3dbf3d26aa2f38d70ef",
-        "2afe6599217e9a1b8424d228603c31735ab26db5f07b916c7a357636b56797ef",
-      ],
-      threshold: 2,
-    },
-  });
+export const NETWORKS = Object.freeze({
+  mainnet: {
+    url: "https://d3gbdb0egjwcw9.cloudfront.net/tee-policy/mainnet.json",
+    publicKeys: [
+      "1fe5d29c79064ea17a16308452040b799df8aeaaae588d44a527a8da9ffa924a",
+      "f90d4e9b178f0262cbf8b40482a6a6459c50001825f5c3dbf3d26aa2f38d70ef",
+      "2afe6599217e9a1b8424d228603c31735ab26db5f07b916c7a357636b56797ef",
+    ],
+    threshold: 2,
+  },
+  devnet: {
+    url: "https://d3gbdb0egjwcw9.cloudfront.net/tee-policy/devnet.json",
+    publicKeys: [
+      "1fe5d29c79064ea17a16308452040b799df8aeaaae588d44a527a8da9ffa924a",
+      "f90d4e9b178f0262cbf8b40482a6a6459c50001825f5c3dbf3d26aa2f38d70ef",
+      "2afe6599217e9a1b8424d228603c31735ab26db5f07b916c7a357636b56797ef",
+    ],
+    threshold: 2,
+  },
+} satisfies Record<string, Omit<SignedTeePolicyConfig, "network">>);
+
+/** A network whose signed policy the SDK pins. */
+export type TeeNetwork = keyof typeof NETWORKS;
 
 type Current = Readonly<{
   policy: TeePolicy;
@@ -95,8 +106,8 @@ export class SignedTeePolicy {
     });
   }
 
-  /** The signed policy the SDK pins for `network`, such as `mainnet`. */
-  static forNetwork(network: string): SignedTeePolicy {
+  /** The signed policy the SDK pins for `network`. */
+  static forNetwork(network: TeeNetwork): SignedTeePolicy {
     const preset = Object.hasOwn(NETWORKS, network) ? NETWORKS[network] : undefined;
     if (preset === undefined) throw invalidPolicy("network");
     return new SignedTeePolicy({ ...preset, network });

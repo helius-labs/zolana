@@ -26,6 +26,25 @@ const REFRESH: Duration = Duration::from_secs(300);
 /// Each network's policy URL and signers.
 const NETWORKS: &str = include_str!("tee/signers.json");
 
+/// A network whose signed policy the SDK pins in `tee/signers.json`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TeeNetwork {
+    Mainnet,
+    Devnet,
+}
+
+impl TeeNetwork {
+    pub const ALL: [Self; 2] = [Self::Mainnet, Self::Devnet];
+
+    /// The name `signers.json` and the signed policy use.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mainnet => "mainnet",
+            Self::Devnet => "devnet",
+        }
+    }
+}
+
 /// A policy published at `url` as a [`SignedPolicyFile`] that `signers` sign.
 /// A client downloads it again every five minutes and never uses it past its expiry.
 #[derive(Clone, Debug)]
@@ -54,8 +73,12 @@ impl SignedTeePolicy {
         })
     }
 
-    /// The signed policy the SDK pins for `network`, such as `mainnet`.
-    pub fn for_network(network: &str) -> Result<Self, TeeError> {
+    /// The signed policy the SDK pins for `network`.
+    pub fn for_network(network: TeeNetwork) -> Self {
+        Self::pinned(network.as_str()).expect("signers.json pins every TeeNetwork")
+    }
+
+    fn pinned(network: &str) -> Result<Self, TeeError> {
         #[derive(serde::Deserialize)]
         struct Network {
             url: String,
@@ -97,9 +120,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mainnet_is_pinned_and_other_networks_are_not() {
-        let mainnet = SignedTeePolicy::for_network("mainnet").unwrap();
-        assert!(mainnet.url.ends_with("/tee-policy/mainnet.json"));
-        assert!(SignedTeePolicy::for_network("nowhere").is_err());
+    fn signers_json_pins_exactly_the_tee_networks() {
+        for network in TeeNetwork::ALL {
+            let policy = SignedTeePolicy::for_network(network);
+            assert!(policy
+                .url
+                .ends_with(&format!("/tee-policy/{}.json", network.as_str())));
+        }
+        let pinned: BTreeMap<String, serde_json::Value> = serde_json::from_str(NETWORKS).unwrap();
+        assert_eq!(pinned.len(), TeeNetwork::ALL.len());
+        assert!(SignedTeePolicy::pinned("nowhere").is_err());
     }
 }
