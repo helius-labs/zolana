@@ -84,12 +84,15 @@ jobs:
     timeout-minutes: 120
     env:
       AGAVE_VERSION: v4.2.2
-      # Independent of the local prover URL that just test-ts-e2e supplies.
-      ZOLANA_TEE_PROVER_URL: ${{ vars.ZOLANA_TEE_PROVER_URL }}
-      ZOLANA_TEE_PROVER_POLICY: ${{ github.workspace }}/${{ vars.ZOLANA_TEE_PROVER_POLICY }}
+      # Independent of the local prover URL that just test-ts-e2e supplies. The
+      # live enclave test describes the deployment, which lags a pull request
+      # until its release, so pull requests leave it unset and the test skips.
+      ZOLANA_TEE_PROVER_URL: ${{ github.event_name != 'pull_request' && vars.ZOLANA_TEE_PROVER_URL || '' }}
+      ZOLANA_TEE_PROVER_POLICY: ${{ github.event_name != 'pull_request' && format('{0}/{1}', github.workspace, vars.ZOLANA_TEE_PROVER_POLICY) || '' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Check live TEE test configuration
+        if: github.event_name != 'pull_request'
         env:
           POLICY_PATH: ${{ vars.ZOLANA_TEE_PROVER_POLICY }}
         run: |
