@@ -22,8 +22,9 @@ The new gnark key set is `proving-keys/78751f5d1c591777` on the existing public
 CDN, `https://d3gbdb0egjwcw9.cloudfront.net`. It contains 41 replacement keys
 and 95 unchanged objects copied from the previous set. The separate zopro
 manifest pins converted core keys to the same gnark hashes. All 41 converted keys also
-generate and verify proofs with the mobile prover engine. Publication and
-full-byte CDN verification must finish before this branch is merged.
+generate and verify proofs with the mobile prover engine. All 136 gnark and
+41 zopro objects passed full-byte CDN size and SHA-256 verification; the
+[publication record](core-ceremony-publication.json) lists the checked objects.
 
 The unchanged 73.9 GB batch-4999 file requires ranged CDN downloads; this
 rotation does not regenerate it or add it to the core ceremony.
