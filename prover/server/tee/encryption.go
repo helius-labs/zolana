@@ -58,6 +58,8 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 			rejectEncrypted(w, codeDecryptionFailed)
 			return
 		}
+		defer clear(plaintext)
+		defer clear(responseKey)
 		inner := r.Clone(r.Context())
 		inner.Body = io.NopCloser(bytes.NewReader(plaintext))
 		inner.ContentLength = int64(len(plaintext))

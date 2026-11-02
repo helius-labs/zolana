@@ -65,7 +65,11 @@ Keep policies in `prover/tee/deployments` for code review. Publish reviewed
 policies as versioned JSON assets on the corresponding GitHub release, together
 with checksums and measured-build provenance. An application can download the
 chosen policy from that release, verify its checksum and bundle it with its
-configuration. The SDK never downloads a policy or follows a mutable latest pin.
+configuration, so the SDK follows no mutable pin. Alternatively `SignedTeePolicy`
+downloads the network's policy from a file that a quorum of the signers the SDK
+pins has signed, reads it again every `max_age_secs` and after a prover loses
+its key, keeps it through failed downloads until it expires, and never uses it
+past its expiry; see the wire contract's signed policy section.
 A deployment policy can be used by an older SDK when its policy schema,
 attestation protocol, wire format and circuit set remain compatible; an image
 rebuild or key rotation alone does not require an SDK release.
