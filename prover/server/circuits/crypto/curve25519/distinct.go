@@ -36,6 +36,10 @@ func AssertDistinct(api frontend.API, f *nonnative.Field, a, b *nonnative.Elemen
 	}
 	lay := f.Layout()
 	cut := (lay.NbLimbs + 1) / 2
+	// Each packed difference stays below 2^(cut*LimbBits+1) and must not wrap.
+	if cut*lay.LimbBits+1 >= api.Compiler().FieldBitLen() {
+		panic("curve25519: packed halves can wrap the native field")
+	}
 	mask := new(big.Int).Sub(Pow2(cut*lay.LimbBits), big.NewInt(1))
 	p := f.Modulus()
 	pl := new(big.Int).And(p, mask)
