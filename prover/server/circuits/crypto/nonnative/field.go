@@ -120,6 +120,10 @@ func (f *Field) Bounded(limbs []frontend.Variable, widths []int) *Element {
 	e := &Element{limbs: limbs, lo: make([]*big.Int, len(limbs)), hi: make([]*big.Int, len(limbs))}
 	total := 0
 	for i, w := range widths {
+		// The aggregate bound below assumes every lower limb fits the layout.
+		if i < len(widths)-1 && w > f.layout.LimbBits {
+			panic("nonnative: lower limb wider than the layout")
+		}
 		e.lo[i] = new(big.Int)
 		e.hi[i] = new(big.Int).Sub(pow2(w), big.NewInt(1))
 		total = i*f.layout.LimbBits + w
