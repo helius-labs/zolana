@@ -12,6 +12,7 @@
 //	   outputs, and uses fewer constraints than separate key expansions.
 //	7 - A forged key-byte spread lookup is rejected even when the claimed
 //	   ciphertext matches the substituted key.
+//	8 - Encryption deferred past the table commitment stops compilation.
 package aes
 
 import (
@@ -23,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -491,4 +493,27 @@ func mustHex(t *testing.T, s string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// Invariant 8: Stops encryption deferred past the table commitment.
+type deferredCtrCircuit struct {
+	Key       [32]frontend.Variable
+	Nonce     [12]frontend.Variable
+	Plaintext [16]frontend.Variable
+}
+
+func (c *deferredCtrCircuit) Define(api frontend.API) error {
+	aesCipher := NewCipher(api, c.Key)
+	api.Compiler().Defer(func(api frontend.API) error {
+		aesCipher.CTREncrypt(c.Nonce, c.Plaintext[:])
+		return nil
+	})
+	return nil
+}
+
+func TestDeferredEncryptionRejectsCompilation(t *testing.T) {
+	_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &deferredCtrCircuit{})
+	if err == nil || !strings.Contains(err.Error(), "aes: lookup tables already committed") {
+		t.Fatalf("deferred encryption: %v", err)
+	}
 }
