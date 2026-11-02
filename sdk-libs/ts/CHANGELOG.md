@@ -14,6 +14,7 @@ Breaking
 
 Changed
 
+- `PROVING_KEY_SHA256S` pins the 41 core transfer and merge keys from the completed ceremony → deploy the matching prover and on-chain verifier before using these keys.
 - A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
 
 Fixed
