@@ -45,13 +45,14 @@ const SIGNERS = {
   threshold: 2,
 } as const;
 
-export const NETWORKS = Object.freeze({
-  mainnet: { url: "https://d3gbdb0egjwcw9.cloudfront.net/tee-policy/mainnet.json", ...SIGNERS },
-  devnet: { url: "https://d3gbdb0egjwcw9.cloudfront.net/tee-policy/devnet.json", ...SIGNERS },
-} satisfies Record<string, Omit<SignedTeePolicyConfig, "network">>);
-
 /** A network whose signed policy the SDK pins. */
-export type TeeNetwork = keyof typeof NETWORKS;
+export type TeeNetwork = "mainnet" | "devnet";
+
+export const NETWORKS: Readonly<Record<TeeNetwork, Omit<SignedTeePolicyConfig, "network">>> =
+  Object.freeze({
+    mainnet: { url: "https://d3gbdb0egjwcw9.cloudfront.net/tee-policy/mainnet.json", ...SIGNERS },
+    devnet: { url: "https://d3gbdb0egjwcw9.cloudfront.net/tee-policy/devnet.json", ...SIGNERS },
+  });
 
 type Current = Readonly<{
   policy: TeePolicy;
