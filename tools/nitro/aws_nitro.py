@@ -43,7 +43,7 @@ DISK_GB = 30
 # An enclave cannot take CPU 0's core.
 PARENT_VCPUS = 4
 PARENT_MIB = 16384
-MIN_ENCLAVE_MIB = 25600
+MIN_ENCLAVE_MIB = 28672
 TEE_CHECK = ("cargo", "run", "-q", "-p", "xtask", "--", "tee-check")
 VERIFY_TIMEOUT = 1800
 

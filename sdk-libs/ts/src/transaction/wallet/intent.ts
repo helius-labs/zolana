@@ -65,6 +65,13 @@ export type TransactionIntent =
       ringProgramId: Address;
       asset: Address;
       amount: bigint;
+    }>
+  | Readonly<{
+      kind: "ringDeposit";
+      ringProgramId: Address;
+      asset: Address;
+      amount: bigint;
+      recipient: ShieldedAddress;
     }>;
 
 /**
@@ -115,6 +122,7 @@ const KIND_TAGS = {
   ringDelegate: 8,
   ringMerge: 9,
   multiTransfer: 10,
+  ringDeposit: 11,
 } as const;
 const BOUNDARY_TAGS = { entry: 0, transfer: 1, exit: 2 } as const;
 
@@ -200,6 +208,12 @@ export function intentHash(intent: TransactionIntent): Bytes32 {
       hash.update(addressBytes(intent.ringProgramId));
       hash.update(addressBytes(intent.asset));
       hash.update(u64(intent.amount));
+      break;
+    case "ringDeposit":
+      hash.update(addressBytes(intent.ringProgramId));
+      hash.update(addressBytes(intent.asset));
+      hash.update(u64(intent.amount));
+      hash.update(intent.recipient.toBytes());
       break;
   }
   return hash.digest() as Bytes32;
@@ -319,7 +333,8 @@ export function checkTransactData(
   intent: TransactionIntent,
   mismatch: (field: string) => Error,
 ): void {
-  if (intent.kind === "merge" || intent.kind === "ringMerge") throw mismatch("kind");
+  if (intent.kind === "merge" || intent.kind === "ringMerge" || intent.kind === "ringDeposit")
+    throw mismatch("kind");
   if (intent.kind === "withdrawal" || intent.kind === "ringWithdrawal") {
     const transfer = data.interfaceTransfers[0];
     if (data.interfaceTransfers.length !== 1 || transfer === undefined) {
@@ -560,6 +575,16 @@ export function checkTransactionIntent(
       checkIntentFields(intent, ["kind", "ringProgramId", "asset", "amount"], mismatch);
       checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
       checkAmount(intent.amount, mismatch);
+      return;
+    case "ringDeposit":
+      checkIntentFields(
+        intent,
+        ["kind", "ringProgramId", "asset", "amount", "recipient"],
+        mismatch,
+      );
+      checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
+      checkAmount(intent.amount, mismatch);
+      checkShieldedRecipient(intent.recipient, mismatch);
       return;
     default:
       throw mismatch("kind");

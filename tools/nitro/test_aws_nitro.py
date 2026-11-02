@@ -1408,6 +1408,14 @@ class ImageTests(unittest.TestCase):
             any(fnmatch.fnmatchcase("batch_address-append_40_4999", p) for p in patterns)
         )
 
+    def test_minimum_enclave_passes_the_boot_memory_check(self):
+        keys_mib = int(re.search(r"^keys_mib=(\d+)$", ENTRYPOINT, re.M).group(1))
+        reserved, floor = map(
+            int,
+            re.search(r"memory_mib - keys_mib - (\d+)\)\)\n.*-ge (\d+) \]", ENTRYPOINT).groups(),
+        )
+        self.assertGreaterEqual(aws_nitro.MIN_ENCLAVE_MIB, keys_mib + reserved + floor + 1024)
+
     def test_enclave_runs_the_nitro_tee_without_a_key_or_public_listener(self):
         self.assertIn("--tee nitro", ENTRYPOINT)
         self.assertNotIn("PROVER_API_KEY", ENTRYPOINT)

@@ -156,6 +156,38 @@ describe("intent hash", () => {
   });
 });
 
+describe("a ring deposit intent", () => {
+  it("approves as its own kind, never as a ring entry, and authorizes no transact", () => {
+    const deposit: TransactionIntent = {
+      kind: "ringDeposit",
+      ringProgramId: RING,
+      asset: USDC,
+      amount: 1_000_000n,
+      recipient: fixedKeypair(7).shieldedAddress(),
+    };
+    const entry: TransactionIntent = {
+      ...deposit,
+      kind: "ringTransfer",
+      boundary: "entry",
+      defaultFunding: 0n,
+    };
+    // Pinned from a hash recomputed outside the SDK.
+    expect(hex(intentHash(deposit))).toBe(
+      "c957625b9fc70b4e8dba487d0b66b76ec3e29ac0003bb08648396f88e633e048",
+    );
+    expect(() => checkIntentApproval(approveIntent(deposit), deposit, mismatch)).not.toThrow();
+    expect(() => checkIntentApproval(approveIntent(entry), deposit, mismatch)).toThrowError(
+      "mismatch intentHash",
+    );
+    expect(() =>
+      Reflect.apply(intentHash, undefined, [{ ...deposit, defaultFunding: 0n }]),
+    ).toThrowError(expect.objectContaining({ details: { field: "intent.shape" } }));
+    expect(() =>
+      Reflect.apply(checkTransactData, undefined, [{ interfaceTransfers: [] }, deposit, mismatch]),
+    ).toThrowError("mismatch kind");
+  });
+});
+
 describe("prepared and data checks", () => {
   function preparedWith(
     overrides: Partial<{
