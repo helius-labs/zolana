@@ -75,30 +75,26 @@ impl SignedTeePolicy {
 
     /// The signed policy the SDK pins for `network`.
     pub fn for_network(network: TeeNetwork) -> Self {
-        Self::pinned(network.as_str()).expect("signers.json pins every TeeNetwork")
-    }
-
-    fn pinned(network: &str) -> Result<Self, TeeError> {
         #[derive(serde::Deserialize)]
         struct Network {
             url: String,
             public_keys: Vec<String>,
             threshold: usize,
         }
-        let unknown = || TeeError::Policy(format!("the SDK pins no signed policy for {network}"));
+        let network = network.as_str();
+        let unknown = format!("signers.json pins no policy for {network}");
         let mut networks: BTreeMap<String, Network> =
-            serde_json::from_str(NETWORKS).map_err(|_| unknown())?;
-        let found = networks.remove(network).ok_or_else(unknown)?;
+            serde_json::from_str(NETWORKS).expect(&unknown);
+        let found = networks.remove(network).expect(&unknown);
         let keys = found
             .public_keys
             .iter()
             .map(|key| hex::decode(key).ok()?.try_into().ok())
             .collect::<Option<_>>()
-            .ok_or_else(unknown)?;
-        Self::new(
-            found.url,
-            PolicySigners::new(network, keys, found.threshold)?,
-        )
+            .expect(&unknown);
+        PolicySigners::new(network, keys, found.threshold)
+            .and_then(|signers| Self::new(found.url, signers))
+            .expect(&unknown)
     }
 }
 
@@ -129,6 +125,5 @@ mod tests {
         }
         let pinned: BTreeMap<String, serde_json::Value> = serde_json::from_str(NETWORKS).unwrap();
         assert_eq!(pinned.len(), TeeNetwork::ALL.len());
-        assert!(SignedTeePolicy::pinned("nowhere").is_err());
     }
 }

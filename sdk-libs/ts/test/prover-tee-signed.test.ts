@@ -125,7 +125,7 @@ describe("a prover client under a signed policy", () => {
       paths.push(path);
       if (path === "/policy.json")
         return Promise.resolve(files.shift()?.() ?? new Response(null, { status: 404 }));
-      if (path === "/tee/v1/attestation") {
+      if (path === "/attestation") {
         if (answeredAt !== undefined) now.mockReturnValue(answeredAt * 1000);
         return Promise.resolve(Response.json(live["attestation"]));
       }
@@ -152,7 +152,7 @@ describe("a prover client under a signed policy", () => {
     const { paths, health } = client([served(file(2, [1, 2]))]);
     await health();
     await health();
-    expect(paths).toEqual(["/policy.json", "/tee/v1/attestation", "/health", "/health"]);
+    expect(paths).toEqual(["/policy.json", "/attestation", "/health", "/health"]);
   });
 
   it("sends nothing without a quorum of pinned signers", async () => {
@@ -182,10 +182,10 @@ describe("a prover client under a signed policy", () => {
     }
     expect(paths).toEqual([
       "/policy.json",
-      "/tee/v1/attestation",
+      "/attestation",
       "/health",
       "/policy.json",
-      "/tee/v1/attestation",
+      "/attestation",
       "/health",
       "/policy.json",
       "/health",
@@ -201,7 +201,7 @@ describe("a prover client under a signed policy", () => {
     await expect(prover.health()).rejects.toMatchObject({
       details: { check: "policy_unavailable" },
     });
-    expect(paths).toEqual(["/policy.json", "/tee/v1/attestation", "/health", "/policy.json"]);
+    expect(paths).toEqual(["/policy.json", "/attestation", "/health", "/policy.json"]);
   });
 
   it("gives up on a download that ignores its deadline and downloads again", async () => {
@@ -215,7 +215,7 @@ describe("a prover client under a signed policy", () => {
       await vi.advanceTimersByTimeAsync(30_000);
       expect(await stalled).toBeInstanceOf(Error);
       await health();
-      expect(paths).toEqual(["/policy.json", "/policy.json", "/tee/v1/attestation", "/health"]);
+      expect(paths).toEqual(["/policy.json", "/policy.json", "/attestation", "/health"]);
     } finally {
       vi.useRealTimers();
     }
@@ -226,7 +226,7 @@ describe("a prover client under a signed policy", () => {
     await expect(prover.health()).rejects.toMatchObject({
       details: { check: "policy_unavailable" },
     });
-    expect(paths).toEqual(["/policy.json", "/tee/v1/attestation", "/policy.json"]);
+    expect(paths).toEqual(["/policy.json", "/attestation", "/policy.json"]);
   });
 
   it.each([

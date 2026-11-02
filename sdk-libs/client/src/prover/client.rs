@@ -2077,7 +2077,7 @@ mod tests {
             .into_iter()
             .map(|request| request.path.split('?').next().unwrap().to_owned())
             .collect();
-        assert_eq!(paths, ["/policy", "/tee/v1/attestation", "/policy"]);
+        assert_eq!(paths, ["/policy", "/attestation", "/policy"]);
     }
 
     #[tokio::test]

@@ -666,7 +666,7 @@ describe("attestation retries", () => {
     vi.useFakeTimers();
     try {
       const session = new TeeSession(livePolicy);
-      const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+      const attestationUrl = new URL("https://prover.invalid/attestation");
       const hung = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>(() => undefined));
       const stalled = session
         .attest(hung, attestationUrl, composeSignal(undefined, "attest"))

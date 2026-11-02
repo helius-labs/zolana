@@ -193,10 +193,7 @@ mod tests {
         );
         // Every parameter stays, not just the key.
         assert_eq!(
-            url(
-                "https://gateway.invalid/v1/spr?a=1&api-key=k",
-                PROVE_PATH
-            ),
+            url("https://gateway.invalid/v1/spr?a=1&api-key=k", PROVE_PATH),
             "https://gateway.invalid/v1/spr/prove?a=1&api-key=k"
         );
         assert_eq!(
@@ -217,8 +214,7 @@ mod tests {
             "https://gateway.invalid/zolana/prove/merge_52_1/status?api-key=k&jobId=job-1"
         );
         // The gateway hostname does not change the key-specific poll route.
-        let helius =
-            ProverEndpoint::parse("https://beta-devnet.helius-rpc.com/v1/spr?api-key=k");
+        let helius = ProverEndpoint::parse("https://beta-devnet.helius-rpc.com/v1/spr?api-key=k");
         assert_eq!(
             String::from(helius.status_url(&key, "job-1").unwrap()),
             "https://beta-devnet.helius-rpc.com/v1/spr/prove/merge_52_1/status?api-key=k&jobId=job-1"
