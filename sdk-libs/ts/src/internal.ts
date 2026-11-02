@@ -64,6 +64,7 @@ export {
   rightHashChain,
 } from "./transaction/internal.js";
 export { checkedBytes } from "./keypair/bytes.js";
+export { SHIELDED_ADDRESS_LENGTH } from "./keypair/shielded.js";
 export { checkedBytes as checkedClientBytes } from "./client/internal.js";
 export { prepareMerge } from "./flows/merge.js";
 export { prepareMerge as prepareProverMerge } from "./client/prover/merge.js";

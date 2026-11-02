@@ -17,6 +17,8 @@ Added
 
 Changed
 
+- `ZolanaClient.checkProverProvingKeys()` requires the 41 core transfer and merge keys from the completed ceremony → deploy the matching prover and on-chain verifier before using these keys.
+- A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
 - A prover of any platform that answers `tee_decryption_failed` is attested again, under a freshly read signed policy, and the call resent once, so a client follows a gateway onto a new release.
 
 Fixed
@@ -69,6 +71,8 @@ Added
 - `ZolanaClient.proveConfidentialEddsaTransact` authorizes one owner inside the proof and returns the remaining transaction signers, while `signTransactMessage` and `transactMessageDigest` expose the signed statement.
 - `PrivateTransactionParams.owner` lets transfer, withdrawal and split builders accept an owner signature inside the proof while another account pays the transaction fee.
 - `ConfidentialTransfer.withConfidentialEddsaShape` and `selectConfidentialEddsaShape` select among twelve proof shapes with up to 48 inputs and 16 outputs.
+- `TransactionIntent` kind `ringDeposit` shows an approval handler a ring deposit and its recipient, and the private transaction builders and `ZolanaClient` refuse to prove a transaction under that intent.
+- `@heliuslabs/zolana/internal` exports `writeTransactOutput`, `writeOwnerTag`, `readData` and `SHIELDED_ADDRESS_LENGTH`, so an extension codec writes transact outputs and reads `Data` fields in the SDK layout.
 - `@heliuslabs/zolana/internal` exposes the building blocks an extension
   package composes, and the `.d.ts` files keep `@internal` declarations such
   as `Wallet._replace`, both outside semver.

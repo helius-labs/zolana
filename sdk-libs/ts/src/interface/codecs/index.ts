@@ -225,7 +225,7 @@ export function writeTreeContext(writer: Writer, value: TreeContext): void {
     .u16(value.nullifierTreeRootIndex, "treeContext.nullifierTreeRootIndex");
 }
 
-function writeOwnerTag(writer: Writer, value: OwnerTag): void {
+export function writeOwnerTag(writer: Writer, value: OwnerTag): void {
   switch (value.kind) {
     case "inline":
       writer.u8(0, "ownerTag.kind").bytes(value.value, 32, "ownerTag.value");
@@ -319,7 +319,7 @@ function writeInterfaceTransfer(
   }
 }
 
-function writeOutput(writer: Writer, value: TransactOutput): void {
+export function writeTransactOutput(writer: Writer, value: TransactOutput): void {
   writer.bytes(value.utxoHash, 32, "output.utxoHash");
   writeOwnerTag(writer, value.ownerTag);
   writer.option(value.data, (output, data) => {
@@ -338,7 +338,7 @@ function writeTransactExternalData(writer: Writer, value: TransactExternalData):
     .option(value.dataHash, (output, hash) => output.bytes(hash, 32, "dataHash"))
     .option(value.ringDataHash, (output, hash) => output.bytes(hash, 32, "ringDataHash"))
     .u8(value.outputs.length, "outputs.length");
-  for (const output of value.outputs) writeOutput(writer, output);
+  for (const output of value.outputs) writeTransactOutput(writer, output);
   writer.u8(value.messages.length, "messages.length");
   for (const message of value.messages) {
     writer.bytes(message.viewTag, 32, "message.viewTag");
