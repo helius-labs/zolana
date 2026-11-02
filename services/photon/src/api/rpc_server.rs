@@ -214,7 +214,7 @@ mod tests {
             r#"{"method":"getMerkleProofs","method":"getUserRecords","id":7}"#,
         ] {
             let response = client
-                .post(format!("{url}/v1/zolana/getUserRecords/"))
+                .post(format!("{url}/v1/spr/getUserRecords/"))
                 .header("content-type", "application/json")
                 .body(body)
                 .send()
@@ -239,7 +239,7 @@ mod tests {
             GetUserRecords::NAME,
         ] {
             let response = client
-                .post(format!("{url}/v1/zolana/{method}?q=%61"))
+                .post(format!("{url}/v1/spr/{method}?q=%61"))
                 .json(&serde_json::json!({"jsonrpc":"2.0", "method":method, "id":7}))
                 .send()
                 .await

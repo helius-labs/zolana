@@ -8,13 +8,14 @@ a download catalog for gnark and zopro artifacts.
 
 Breaking
 
+- The Helius gateway path moves from `/v1/zolana` to `/v1/spr`, prover attestation from `/tee/v1/attestation` to `/attestation`, and the encrypted-request headers from `Zolana-Tee*` to `Spr-Tee*` → run a prover from this release; earlier provers accept none of them.
 - `ZolanaClient` now defaults to `proofDataSource: "prover"` for Helius API URLs too → configure indexed proving on the upstream or set `proofDataSource: "client"` to retain SDK-fetched proof data.
 - `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
 - `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
 
 Changed
 
-- A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
+- A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/spr` gateway instead of redirecting proofs to a deployment-specific endpoint.
 
 Fixed
 

@@ -2,15 +2,15 @@
 
 This contract lets a client encrypt a prover request to a key that only a measured confidential computing environment holds.
 Each platform proves the environment its own way and carries the same 64-byte binding.
-JSON fields are snake_case, and byte fields and the `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext` values are lowercase hex.
+JSON fields are snake_case, and byte fields and the `Spr-Tee-Enc` and `Spr-Tee-Ciphertext` values are lowercase hex.
 
 | Method | Request | Result |
 |--------|---------|--------|
-| `GET /tee/v1/attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key | `platform`, `hpke_public_key`, `gpu` and `evidence` |
-| any prover route, encrypted | `Zolana-Tee: v1`, `Zolana-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Zolana-Tee-Ciphertext` | the inner status, `Zolana-Tee: v1`, and the encrypted status and body |
+| `GET /attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key | `platform`, `hpke_public_key`, `gpu` and `evidence` |
+| any prover route, encrypted | `Spr-Tee: v1`, `Spr-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Spr-Tee-Ciphertext` | the inner status, `Spr-Tee: v1`, and the encrypted status and body |
 
-A TEE prover rejects a request without `Zolana-Tee` before reading its body, except on `/auth`, `/ready`, `/health`, `/proving-keys` and the attestation route.
-The proof routes, `/proving-keys` and the attestation route also answer under the `/v1/zolana` gateway prefix.
+A TEE prover rejects a request without `Spr-Tee` before reading its body, except on `/auth`, `/ready`, `/health`, `/proving-keys` and the attestation route.
+The proof routes, `/proving-keys` and the attestation route also answer under the `/v1/spr` gateway prefix.
 
 ## Attestation
 
@@ -91,8 +91,8 @@ An `aws-nitro` policy pins `measurements` (`pcr0`, `pcr1`, `pcr2`) and can also 
 
 The client encrypts a request body with HPKE base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM.
 The recipient is `hpke_public_key`, and the info is `zolana/prover-tee/v1`.
-`Zolana-Tee-Enc` carries the encapsulated key.
-A GET carries its encrypted bytes in `Zolana-Tee-Ciphertext`, because fetch refuses a GET body.
+`Spr-Tee-Enc` carries the encapsulated key.
+A GET carries its encrypted bytes in `Spr-Tee-Ciphertext`, because fetch refuses a GET body.
 Every other method carries them as an `application/octet-stream` body.
 The AAD is the method, the route and the query without its `api-key` parameters:
 
@@ -101,14 +101,14 @@ aad = METHOD " " route [ "?" query ]
 ```
 
 The route is the path below the prover's base, such as `/prove/transfer_2_2`.
-A client drops the path of the prover URL it was given, and the prover drops a leading `/v1/zolana` once, so the route stays the same wherever a proxy mounts the prover.
+A client drops the path of the prover URL it was given, and the prover drops a leading `/v1/spr` once, so the route stays the same wherever a proxy mounts the prover.
 The query keeps its pairs in order and drops empty pairs and every pair whose key is `api-key`.
 The AAD omits `?` when no pair remains.
 The answer is AES-256-GCM with a fresh random 12-byte nonce and empty AAD, under the 32-byte HPKE export `zolana/prover-tee/v1/response`.
 Its wire bytes are the nonce, ciphertext and 16-byte tag.
 Its plaintext is the status as a big-endian `u16`, then the body.
 A replayed request derives the same response key, but each answer gets an independent nonce.
-A client refuses a 2xx answer without `Zolana-Tee: v1`.
+A client refuses a 2xx answer without `Spr-Tee: v1`.
 A 400 `tee_decryption_failed` answer means the request does not decrypt under the key the prover holds.
 On `aws-nitro`, where a boot key changes at every boot, the client then attests again and resends the call once.
 A resent proof request costs only a second proof, because an encrypted prover runs each request synchronously and keeps no job state.
@@ -123,11 +123,11 @@ The AAD never covers it, so a proxy can move or strip it.
 
 ## Proxies
 
-A proxy can serve the prover under any path, and delivers the route bare or under `/v1/zolana`.
+A proxy can serve the prover under any path, and delivers the route bare or under `/v1/spr`.
 It keeps the non-credential query pairs as sent.
-It forwards `Zolana-Tee`, `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext`, and passes octet-stream bodies through unchanged.
-For browsers it allows the three headers in CORS preflight and exposes `Zolana-Tee`.
-An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover tries to decrypt it.
+It forwards `Spr-Tee`, `Spr-Tee-Enc` and `Spr-Tee-Ciphertext`, and passes octet-stream bodies through unchanged.
+For browsers it allows the three headers in CORS preflight and exposes `Spr-Tee`.
+An authorization subrequest to the prover must drop `Spr-Tee`, or the prover tries to decrypt it.
 
 ## Errors
 
@@ -137,9 +137,9 @@ An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover 
 | 401 | `unauthorized` | the API key is missing or wrong |
 | 429 | `attestation_busy` | quote capacity is exhausted, retry after the `Retry-After` seconds |
 | 503 | `attestation_unavailable` | the prover cannot produce attestation evidence |
-| 400 | `tee_version_unsupported` | `Zolana-Tee` names another version |
-| 400 | `tee_required` | a request outside the plaintext routes has no `Zolana-Tee` |
-| 400 | `tee_request_malformed` | an encrypted HEAD, a missing or non-hex `Zolana-Tee-Enc` or GET `Zolana-Tee-Ciphertext`, a `Zolana-Tee-Enc` not of 32 bytes, or a body over the size cap |
+| 400 | `tee_version_unsupported` | `Spr-Tee` names another version |
+| 400 | `tee_required` | a request outside the plaintext routes has no `Spr-Tee` |
+| 400 | `tee_request_malformed` | an encrypted HEAD, a missing or non-hex `Spr-Tee-Enc` or GET `Spr-Tee-Ciphertext`, a `Spr-Tee-Enc` not of 32 bytes, or a body over the size cap |
 | 400 | `tee_decryption_failed` | the encrypted request does not decrypt under the held key |
 
 ## Test vectors

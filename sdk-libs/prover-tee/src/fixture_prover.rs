@@ -36,7 +36,7 @@ impl FixtureProver {
     }
 
     /// Opens a request sent as `method request_uri`, with `enc` from
-    /// `Zolana-Tee-Enc` and `body` the encrypted bytes.
+    /// `Spr-Tee-Enc` and `body` the encrypted bytes.
     pub fn open(
         &self,
         method: &str,
@@ -106,7 +106,7 @@ mod tests {
             let sent = EncryptedRequest::encrypt(
                 &prover.hpke_public_key(),
                 "POST",
-                &format!("/v1/zolana/prove/transfer_2_2?{name}=k&jobId=%61%31&q=a%20b+c"),
+                &format!("/v1/spr/prove/transfer_2_2?{name}=k&jobId=%61%31&q=a%20b+c"),
                 br#"{"inputs":["secret"]}"#,
             )
             .unwrap();
@@ -115,7 +115,7 @@ mod tests {
             let opened = prover
                 .open(
                     "POST",
-                    "/v1/zolana/prove/transfer_2_2?jobId=%61%31&q=a%20b+c",
+                    "/v1/spr/prove/transfer_2_2?jobId=%61%31&q=a%20b+c",
                     &enc,
                     &sent.body,
                 )
@@ -123,12 +123,12 @@ mod tests {
             assert_eq!(opened.plaintext, br#"{"inputs":["secret"]}"#);
             assert_eq!(&opened.response_key, sent.response_key());
             assert!(prover
-                .open("POST", "/v1/zolana/prove/merge_8_1", &enc, &sent.body)
+                .open("POST", "/v1/spr/prove/merge_8_1", &enc, &sent.body)
                 .is_err());
             assert!(prover
                 .open(
                     "POST",
-                    "/v1/zolana/prove/transfer_2_2?jobId=a1&q=a%20b+c",
+                    "/v1/spr/prove/transfer_2_2?jobId=a1&q=a%20b+c",
                     &enc,
                     &sent.body
                 )

@@ -688,7 +688,7 @@ describe("prover request routing", () => {
       .fn<typeof globalThis.fetch>()
       .mockResolvedValue(new Response(null, { status: 404 }));
     const prover = new ProverClient({
-      url: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
+      url: "https://beta-devnet.helius-rpc.com/v1/spr?api-key=k",
       tee: readTeePolicy(
         new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
       ),
@@ -700,7 +700,7 @@ describe("prover request routing", () => {
     });
     expect(fetch).toHaveBeenCalledTimes(1);
     const [url, init] = fetch.mock.calls[0] ?? [];
-    expect(new URL(String(url)).pathname).toBe("/v1/zolana/tee/v1/attestation");
+    expect(new URL(String(url)).pathname).toBe("/v1/spr/attestation");
     expect(new URL(String(url)).searchParams.get("nonce")).toMatch(/^[0-9a-f]{64}$/u);
     expect(new Request(String(url), init).method).toBe("GET");
     expect(init?.body).toBeUndefined();

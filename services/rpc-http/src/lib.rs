@@ -168,7 +168,7 @@ mod tests {
                 .oneshot(
                     HttpRequest::builder()
                         .method("POST")
-                        .uri("/v1/zolana/ring/health/")
+                        .uri("/v1/spr/ring/health/")
                         .body(HttpBody::from(body.clone()))
                         .unwrap(),
                 )
@@ -189,7 +189,7 @@ mod tests {
             .oneshot(
                 HttpRequest::builder()
                     .method("POST")
-                    .uri("/v1/zolana/ring/health/?q=%61")
+                    .uri("/v1/spr/ring/health/?q=%61")
                     .body(HttpBody::from(body))
                     .unwrap(),
             )
@@ -221,7 +221,7 @@ mod tests {
             for path in [
                 "/".to_owned(),
                 format!("/{method}"),
-                format!("/v1/zolana/ring/{method}/?api-key=test"),
+                format!("/v1/spr/ring/{method}/?api-key=test"),
             ] {
                 let response = service
                     .clone()
@@ -268,7 +268,7 @@ mod tests {
             let response = service
                 .clone()
                 .oneshot(
-                    HttpRequest::post("/v1/zolana/ring/health?api-key=ignored")
+                    HttpRequest::post("/v1/spr/ring/health?api-key=ignored")
                         .body(HttpBody::from(body))
                         .expect("request"),
                 )
@@ -311,9 +311,9 @@ mod tests {
             ("//", None),
             ("/health", Some("health")),
             ("/health/", Some("health")),
-            ("/v1/zolana/ring/ringStatus", Some("ringStatus")),
+            ("/v1/spr/ring/ringStatus", Some("ringStatus")),
             (
-                "/v1/zolana/ring/getDecryptedTransactions/",
+                "/v1/spr/ring/getDecryptedTransactions/",
                 Some("getDecryptedTransactions"),
             ),
         ] {

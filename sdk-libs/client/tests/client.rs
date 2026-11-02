@@ -160,7 +160,7 @@ fn url_constructors_apply_the_supplied_policy_before_proving() {
         ))
         .unwrap();
         let server = MockIndexerServer::respond_with(vec![json!({})]);
-        let prover_url = format!("{}/v1/zolana?api-key=fixture", server.url());
+        let prover_url = format!("{}/v1/spr?api-key=fixture", server.url());
         let rpc = MockSubmitRpc::new(Signature::default());
         let client = if insecure_http {
             ZolanaClient::from_urls_allowing_insecure_http(
@@ -195,7 +195,7 @@ async fn async_url_constructors_apply_the_supplied_policy_before_proving() {
         ))
         .unwrap();
         let server = MockIndexerServer::respond_with(vec![json!({})]);
-        let prover_url = format!("{}/v1/zolana?api-key=fixture", server.url());
+        let prover_url = format!("{}/v1/spr?api-key=fixture", server.url());
         let rpc = MockSubmitRpc::new(Signature::default());
         let client = if insecure_http {
             AsyncZolanaClient::from_urls_allowing_insecure_http(
@@ -223,7 +223,7 @@ fn assert_constructor_attested_only(server: MockIndexerServer) {
         .collect::<Vec<_>>();
     assert_eq!(
         urls.iter().map(url::Url::path).collect::<Vec<_>>(),
-        ["/v1/zolana/tee/v1/attestation"],
+        ["/v1/spr/attestation"],
         "a rejected attestation must prevent proof and indexer requests"
     );
     let url = urls.first().unwrap();

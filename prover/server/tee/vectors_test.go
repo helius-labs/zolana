@@ -42,16 +42,16 @@ type aadCase struct {
 // which paths drop the gateway prefix.
 var aadTargets = [][2]string{
 	{"GET", "/health"},
-	{"POST", "/v1/zolana/prove/transfer_2_2?api-key=k"},
-	{"POST", "/v1/zolana/v1/zolana/prove/x"},
-	{"POST", "/v1/zolanax/prove/x"},
-	{"GET", "/v1/zolana?jobId=a"},
+	{"POST", "/v1/spr/prove/transfer_2_2?api-key=k"},
+	{"POST", "/v1/spr/v1/spr/prove/x"},
+	{"POST", "/v1/sprx/prove/x"},
+	{"GET", "/v1/spr?jobId=a"},
 	{"GET", "/prove/merge_8_1/status?api-key=k&jobId=a1"},
 	{"GET", "/prove/merge_8_1/status?jobId=a1&api-key=k"},
-	{"GET", "/tee/v1/attestation?nonce=ab&api-key=k1&api-key=k2"},
+	{"GET", "/attestation?nonce=ab&api-key=k1&api-key=k2"},
 	{"GET", "/prove/x?api-keys=v&api-key"},
 	{"GET", "/prove/x?&&jobId=a&"},
-	{"POST", "/v1/zolana/prove/transfer_2_2?api%2Dkey=k&jobId=%61%31&q=a%20b+c"},
+	{"POST", "/v1/spr/prove/transfer_2_2?api%2Dkey=k&jobId=%61%31&q=a%20b+c"},
 	{"GET", "/prove/x?%61pi-key=a&api-%6Bey=b&%61%70%69%2d%6b%65%79=c&jobId=a"},
 	{"GET", "/prove/x?api-key=k&API-KEY=keep&api+key=keep&api%2Bkey=keep&bad%=keep"},
 	{"GET", "/prove/x??api-key=keep&jobId=a"},
@@ -80,7 +80,7 @@ func TestVectors(t *testing.T) {
 	gpuNonce := GPUNonce(nonce, publicKey)
 
 	if os.Getenv("ZOLANA_TEE_WRITE_VECTORS") != "" {
-		method, uri := "POST", "/v1/zolana/prove/transfer_2_2?api-key=k"
+		method, uri := "POST", "/v1/spr/prove/transfer_2_2?api-key=k"
 		plaintext := []byte(`{"inputs":["secret"]}`)
 		enc, ciphertext, responseKey := encryptRequest(t, publicKey, method, uri, plaintext)
 		responseBody := []byte(`{"proof":"ok"}`)

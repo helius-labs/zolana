@@ -134,8 +134,8 @@ describe("configured TEE prover", () => {
       expect(url.origin).toBe(proverUrl.origin);
       if (url.pathname.startsWith(proofPathPrefix)) {
         const headers = new Headers(init?.headers);
-        expect(headers.get("Zolana-Tee")).toBe("v1");
-        expect(headers.get("Zolana-Tee-Enc")).toMatch(/^[0-9a-f]{64}$/u);
+        expect(headers.get("Spr-Tee")).toBe("v1");
+        expect(headers.get("Spr-Tee-Enc")).toMatch(/^[0-9a-f]{64}$/u);
         expect(headers.get("content-type")).toBe("application/octet-stream");
         expect(init?.body).toBeInstanceOf(Uint8Array);
         encryptedProofCalls++;

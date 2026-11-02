@@ -13,7 +13,7 @@ describe("caller-supplied prover policy", () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
     for (const url of [
       "https://prover.example",
-      "https://mainnet.helius-rpc.com/v1/zolana?api-key=k",
+      "https://mainnet.helius-rpc.com/v1/spr?api-key=k",
     ]) {
       const prover = new ProverClient({ url, fetch });
       for (const call of [
@@ -55,7 +55,7 @@ describe("caller-supplied prover policy", () => {
     try {
       for (const base of [
         "https://prover.example",
-        "https://mainnet.helius-rpc.com/v1/zolana",
+        "https://mainnet.helius-rpc.com/v1/spr",
         "https://api.example/prover",
       ]) {
         const sent: string[] = [];
@@ -64,11 +64,10 @@ describe("caller-supplied prover policy", () => {
           sent.push(url.pathname);
           expect(url.origin).toBe(new URL(base).origin);
           expect(url.searchParams.get("api-key")).toBe("k");
-          if (url.pathname.endsWith("/tee/v1/attestation"))
-            return Response.json(fixture["attestation"]);
+          if (url.pathname.endsWith("/attestation")) return Response.json(fixture["attestation"]);
           const headers = new Headers(init?.headers);
-          expect(headers.get("Zolana-Tee")).toBe("v1");
-          expect(headers.get("Zolana-Tee-Ciphertext")).toMatch(/^[0-9a-f]+$/u);
+          expect(headers.get("Spr-Tee")).toBe("v1");
+          expect(headers.get("Spr-Tee-Ciphertext")).toMatch(/^[0-9a-f]+$/u);
           return new Response(null, { status: 404 });
         };
         const endpoint = `${base}?api-key=k`;
@@ -81,8 +80,8 @@ describe("caller-supplied prover policy", () => {
         await expect(prover.checkProvingKeys()).rejects.toThrow();
         const path = new URL(base).pathname.replace(/\/$/u, "");
         expect(sent).toEqual([
-          `${path}/tee/v1/attestation`,
-          `${path}/tee/v1/attestation`,
+          `${path}/attestation`,
+          `${path}/attestation`,
           `${path}/proving-keys`,
         ]);
         sent.length = 0;
@@ -97,7 +96,7 @@ describe("caller-supplied prover policy", () => {
           code: "CLIENT_PROVER_TEE_ATTESTATION",
           details: expect.objectContaining({ check: "measurement" }),
         });
-        expect(sent).toEqual([`${path}/tee/v1/attestation`]);
+        expect(sent).toEqual([`${path}/attestation`]);
       }
     } finally {
       now.mockRestore();

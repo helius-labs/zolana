@@ -1450,7 +1450,7 @@ mod tests {
             };
             let (private_key, _) = X25519HkdfSha256::derive_keypair(b"proxy test enclave");
             let enc = <X25519HkdfSha256 as Kem>::EncappedKey::from_bytes(
-                &hex::decode(header("zolana-tee-enc")).unwrap(),
+                &hex::decode(header("spr-tee-enc")).unwrap(),
             )
             .unwrap();
             let mut receiver = hpke::setup_receiver::<AesGcm256, HkdfSha256, X25519HkdfSha256>(
@@ -1466,7 +1466,7 @@ mod tests {
             let uri = &url[url::Position::BeforePath..];
             let method = request.header.split_whitespace().next().unwrap();
             let ciphertext = if method == "GET" {
-                hex::decode(header("zolana-tee-ciphertext")).unwrap()
+                hex::decode(header("spr-tee-ciphertext")).unwrap()
             } else {
                 request.body.clone()
             };
@@ -1509,7 +1509,7 @@ mod tests {
     fn assert_proxy_requests(proxy: MockServer, socks: bool) {
         let requests = proxy.requests();
         assert_eq!(requests.len(), 3);
-        assert!(requests[0].path.contains("/tee/v1/attestation?nonce="));
+        assert!(requests[0].path.contains("/attestation?nonce="));
         assert!(requests[0].body.is_empty());
         assert!(requests[1..].iter().all(|request| request.encrypted));
         let requests = &requests[1..];
@@ -1533,7 +1533,7 @@ mod tests {
     fn only_a_loopback_prover_takes_plaintext() {
         for remote in [
             "https://prover.example",
-            "https://devnet.helius-rpc.com/v1/zolana?api-key=k",
+            "https://devnet.helius-rpc.com/v1/spr?api-key=k",
         ] {
             assert!(
                 matches!(
@@ -1744,7 +1744,7 @@ mod tests {
 
     fn assert_only_attestation_was_asked(requests: &[RecordedRequest]) {
         assert_eq!(requests.len(), 1);
-        assert!(requests[0].path.starts_with("/tee/v1/attestation?nonce="));
+        assert!(requests[0].path.starts_with("/attestation?nonce="));
     }
 
     fn unattested_answers() -> [MockResponse; 2] {
@@ -1823,7 +1823,7 @@ mod tests {
         assert_eq!(requests.len(), 3);
         assert!(requests
             .iter()
-            .all(|request| request.path.starts_with("/tee/v1/attestation?nonce=")));
+            .all(|request| request.path.starts_with("/attestation?nonce=")));
     }
 
     fn oversized_attestation() -> MockResponse {
@@ -1915,7 +1915,7 @@ mod tests {
         let kinds: Vec<_> = requests
             .iter()
             .map(|request| {
-                if request.path.starts_with("/tee/v1/attestation?nonce=") {
+                if request.path.starts_with("/attestation?nonce=") {
                     "attest"
                 } else {
                     assert!(request.encrypted, "{} sent in plaintext", request.path);
@@ -2939,7 +2939,7 @@ mod tests {
             MockResponse::json(202, json!({"jobId":"indexed-queued", "status":"queued"})),
             MockResponse::json(200, json!({"status":"completed", "result":{"proof":proof}})),
         ]);
-        let proof = queued_prover_client(&format!("{}/v1/zolana?api-key=secret", server.url()))
+        let proof = queued_prover_client(&format!("{}/v1/spr?api-key=secret", server.url()))
             .prove_indexed(&request)
             .unwrap();
         assert_eq!(proof.resolution.trees[0].id, 3);
@@ -2947,9 +2947,9 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/v1/zolana/prove/transfer_confidential_1_2/indexed?api-key=secret",
-                "/v1/zolana/prove/transfer_confidential_1_2/indexed?api-key=secret",
-                "/v1/zolana/prove/transfer_confidential_1_2/status?api-key=secret&jobId=indexed-queued",
+                "/v1/spr/prove/transfer_confidential_1_2/indexed?api-key=secret",
+                "/v1/spr/prove/transfer_confidential_1_2/indexed?api-key=secret",
+                "/v1/spr/prove/transfer_confidential_1_2/status?api-key=secret&jobId=indexed-queued",
             ],
         );
         assert!(requests[0].sync_requested);
@@ -3484,7 +3484,7 @@ mod tests {
             }),
             encrypted: header.lines().any(|line| {
                 let lower = line.to_ascii_lowercase();
-                lower.strip_prefix("zolana-tee:").map(str::trim) == Some("v1")
+                lower.strip_prefix("spr-tee:").map(str::trim) == Some("v1")
             }),
         }
     }
@@ -3500,7 +3500,7 @@ mod tests {
     }
 
     fn write_encrypted_response(stream: &mut TcpStream, body: &[u8]) {
-        write!(stream, "HTTP/1.1 200 OK\r\nzolana-tee: v1\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).unwrap();
+        write!(stream, "HTTP/1.1 200 OK\r\nspr-tee: v1\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).unwrap();
         stream.write_all(body).unwrap();
     }
 

@@ -5,10 +5,10 @@ import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { ZOLANA_GATEWAY_PATH } from "../../../endpoint.js";
 import { ClientError } from "../../error.js";
 
-export const HEADER_VERSION = "Zolana-Tee";
-export const HEADER_ENC = "Zolana-Tee-Enc";
+export const HEADER_VERSION = "Spr-Tee";
+export const HEADER_ENC = "Spr-Tee-Enc";
 /** Carries the encrypted bytes of a GET, fetch refuses a GET body. */
-export const HEADER_CIPHERTEXT = "Zolana-Tee-Ciphertext";
+export const HEADER_CIPHERTEXT = "Spr-Tee-Ciphertext";
 export const VERSION = "v1";
 export const RESPONSE_NONCE_SIZE = 12;
 
