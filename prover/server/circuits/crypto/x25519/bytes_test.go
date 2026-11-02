@@ -10,6 +10,7 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/nonnative"
 )
 
 func TestBytePackingRejectsForgedHints(t *testing.T) {
@@ -124,5 +125,23 @@ func TestAssertCanonicalRejectsAliases(t *testing.T) {
 		if got := cs.IsSolved(witness) == nil; got != row.ok {
 			t.Fatalf("u=%s accepted=%v", row.value, got)
 		}
+	}
+}
+
+// One 255-bit limb would compare the whole output modulo the native field.
+type wideOutputCircuit struct {
+	Limb frontend.Variable
+}
+
+func (c *wideOutputCircuit) Define(api frontend.API) error {
+	f := nonnative.NewFor(api, prime(), nonnative.Layout{NbLimbs: 1, LimbBits: 255, PieceBits: 15})
+	outputBytes(api, f, f.Bounded([]frontend.Variable{c.Limb}, f.ReducedWidths()))
+	return nil
+}
+
+func TestOutputBytesRejectsWideChunk(t *testing.T) {
+	_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &wideOutputCircuit{})
+	if err == nil || !strings.Contains(err.Error(), "output chunk above 2^240") {
+		t.Fatalf("wide output chunk: %v", err)
 	}
 }

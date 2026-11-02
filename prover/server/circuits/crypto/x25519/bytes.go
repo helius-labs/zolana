@@ -85,6 +85,10 @@ func outputBytes(api frontend.API, f *nonnative.Field, shared *nonnative.Element
 	// 2. Bound the bytes and choose two chunks that each fit below 2^240.
 	cut := min(240/f.Layout().LimbBits, len(shared.Limbs())-1)
 	cutBits := cut * f.Layout().LimbBits
+	// A chunk at or above 2^240 could alias modulo the native field.
+	if 255-cutBits > 240 {
+		panic("x25519: layout leaves an output chunk above 2^240")
+	}
 	byteCut, remaining := cutBits/8, cutBits%8
 	for i := range out {
 		if remaining == 0 || i != byteCut {
