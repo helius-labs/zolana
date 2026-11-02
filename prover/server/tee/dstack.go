@@ -53,6 +53,7 @@ func (d *dstack) key(ctx context.Context) (hpke.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer clear(secret)
 	return deriveKey(secret)
 }
 

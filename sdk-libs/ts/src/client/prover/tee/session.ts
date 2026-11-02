@@ -215,6 +215,8 @@ export class TeeSession {
       if (this.#attested !== undefined && equalBytes(this.#attested.key, key)) {
         this.#attested = undefined;
       }
+      // The gateway may have switched releases; the signed policy may already approve the new one.
+      if (this.#policy instanceof SignedTeePolicy) this.#policy.invalidate();
     }
   }
 

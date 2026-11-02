@@ -122,6 +122,13 @@ export class SignedTeePolicy {
     return this.#download;
   }
 
+  /** Downloads again at the next call: a prover that lost its key has likely changed release. */
+  invalidate(): void {
+    if (this.#current !== undefined) {
+      this.#current = Object.freeze({ ...this.#current, checkedAt: Number.NEGATIVE_INFINITY });
+    }
+  }
+
   /** A failed download keeps a policy that has not expired. */
   async #refresh(fetch: typeof globalThis.fetch): Promise<TeePolicy> {
     const current = this.#current;

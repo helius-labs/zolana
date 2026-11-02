@@ -101,7 +101,7 @@ A client pins the network, the signers' keys and how many of them must sign.
 It refuses a malformed file, counts a valid signature of each pinned key once, ignores well-formed signatures of other keys, and refuses a file with fewer, for another network, or at or after `expires_at`.
 `version` and `max_age_secs` start at 1, and they and `expires_at` are integers of at most 2^53 minus 1.
 It refuses a lower `version` than one it accepted, and another payload under the same version.
-It downloads the file again once the policy it holds is `max_age_secs` old, which is also when it attests again, keeps that policy while a download fails until it expires, and attests again under a new payload.
+It downloads the file again once the policy it holds is `max_age_secs` old, which is also when it attests again, and before it attests again after `tee_decryption_failed`; it keeps that policy while a download fails until it expires, and attests again under a new payload.
 It verifies an attestation under the policy in force when the answer arrives, not when the call began.
 
 ## Encryption
@@ -145,6 +145,8 @@ It keeps the non-credential query pairs as sent.
 It forwards `Spr-Tee`, `Spr-Tee-Enc` and `Spr-Tee-Ciphertext`, and passes octet-stream bodies through unchanged.
 For browsers it allows the three headers in CORS preflight and exposes `Spr-Tee`.
 An authorization subrequest to the prover must drop `Spr-Tee`, or the prover tries to decrypt it.
+A proxy that serves several releases moves every region to the new release in one step, since each release holds its own key.
+In the seconds the regions move apart, a client can attest at one release and send to the other; the prover answers `tee_decryption_failed`, and the client reads the signed policy again, attests again and resends once, so the move costs a client one extra attestation and at most one failed call.
 
 ## Errors
 

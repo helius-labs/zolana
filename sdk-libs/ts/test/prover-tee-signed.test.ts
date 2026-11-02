@@ -109,7 +109,11 @@ describe("a prover client under a signed policy", () => {
    * Serves `files` in turn at /policy.json and records every path asked for.
    * The clock moves to `answeredAt` when the attestation is asked.
    */
-  function client(files: (() => Response | Promise<Response>)[], answeredAt?: number) {
+  function client(
+    files: (() => Response | Promise<Response>)[],
+    answeredAt?: number,
+    answers: (() => Response)[] = [],
+  ) {
     vi.restoreAllMocks();
     const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
     const fill = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
@@ -129,7 +133,9 @@ describe("a prover client under a signed policy", () => {
         if (answeredAt !== undefined) now.mockReturnValue(answeredAt * 1000);
         return Promise.resolve(Response.json(live["attestation"]));
       }
-      return Promise.resolve(Response.json({ code: "done" }, { status: 418 }));
+      return Promise.resolve(
+        answers.shift()?.() ?? Response.json({ code: "done" }, { status: 418 }),
+      );
     };
     const tee = new SignedTeePolicy({
       url: "https://policy.invalid/policy.json",
@@ -187,6 +193,24 @@ describe("a prover client under a signed policy", () => {
       "/policy.json",
       "/attestation",
       "/health",
+      "/policy.json",
+      "/attestation",
+      "/health",
+      "/policy.json",
+      "/attestation",
+      "/health",
+    ]);
+  });
+
+  it("reads the policy again when the prover lost the key, before attesting again", async () => {
+    const lost = served({ code: "tee_decryption_failed" }, 400);
+    const { paths, health } = client(
+      [served(file(2, [1, 2])), served(file(3, [2, 3]))],
+      undefined,
+      [lost],
+    );
+    await health();
+    expect(paths).toEqual([
       "/policy.json",
       "/attestation",
       "/health",

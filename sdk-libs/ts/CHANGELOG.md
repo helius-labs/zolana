@@ -17,7 +17,7 @@ Added
 
 Changed
 
-- A prover of any platform that answers `tee_decryption_failed` is attested again and the call resent once, so a client follows a gateway onto a new release.
+- A prover of any platform that answers `tee_decryption_failed` is attested again, under a freshly read signed policy, and the call resent once, so a client follows a gateway onto a new release.
 
 Fixed
 

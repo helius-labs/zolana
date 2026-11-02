@@ -254,7 +254,9 @@ impl TeeSession {
                 .is_ok_and(|failure| failure.code == DECRYPTION_FAILED)
     }
 
-    /// Uncaches `key` unless another attestation already replaced it.
+    /// Uncaches `key` unless another attestation already replaced it, and reads
+    /// a signed policy again before the next attestation: a prover that lost the
+    /// key has likely changed release, which the policy may already approve.
     pub fn forget(&self, key: &[u8; 32]) {
         let mut attested = lock(&self.attested);
         if attested
@@ -262,6 +264,9 @@ impl TeeSession {
             .is_some_and(|(prover, _, _)| prover.hpke_public_key == *key)
         {
             *attested = None;
+        }
+        if let Policy::Signed(signed) = &self.policy {
+            signed.stale();
         }
     }
 
@@ -359,7 +364,6 @@ impl Downloaded {
     }
 
     /// Ages the policy in force past its freshness, so the next call downloads again.
-    #[cfg(test)]
     fn stale(&self) {
         if let Some(current) = lock(&self.current).as_mut() {
             let max_age = current.policy.max_age();
@@ -584,6 +588,20 @@ mod tests {
         assert_eq!(session.attested_key(&same), Some([7; 32]));
         let v3 = download(&session, 200, file(3, 600)).await.unwrap();
         assert_eq!(session.attested_key(&v3), None);
+    }
+
+    #[tokio::test]
+    async fn a_lost_key_reads_the_signed_policy_again() {
+        let session = signed();
+        let v2 = download(&session, 200, file(2, 600)).await.unwrap();
+        assert!(session.fresh_policy().is_some());
+        session.forget(&[9; 32]);
+        assert!(session.fresh_policy().is_none());
+        let v3 = session
+            .policy(|_url| async { Ok((StatusCode::OK, file(3, 600))) })
+            .await
+            .unwrap();
+        assert!(!Arc::ptr_eq(&v2, &v3));
     }
 
     #[tokio::test]
