@@ -236,7 +236,7 @@ fn endpoint_url(base: &str, path: &str) -> Result<Url> {
 }
 fn is_gateway(base: &str) -> bool {
     Url::parse(base).ok().is_some_and(|url| {
-        url.path().trim_end_matches('/') == "/v1/zolana"
+        url.path().trim_end_matches('/') == "/v1/spr"
             && url
                 .host_str()
                 .is_some_and(|host| host == "helius-rpc.com" || host.ends_with(".helius-rpc.com"))
@@ -400,11 +400,11 @@ mod tests {
     #[test]
     fn urls_preserve_gateway_queries_and_mask_credentials() {
         let url = endpoint_url(
-            "https://prover.example/v1/zolana?api-key=secret&region=eu",
+            "https://prover.example/v1/spr?api-key=secret&region=eu",
             "/prove/batch_address-append_40_10",
         )
         .unwrap();
-        assert_eq!(redact_api_key(url.as_str()), "https://prover.example/v1/zolana/prove/batch_address-append_40_10?api-key=redacted&region=eu");
+        assert_eq!(redact_api_key(url.as_str()), "https://prover.example/v1/spr/prove/batch_address-append_40_10?api-key=redacted&region=eu");
     }
     #[test]
     fn proving_key_startup_check_rejects_stale_batch_keys() {

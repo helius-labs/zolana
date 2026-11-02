@@ -421,7 +421,7 @@ describe("ZolanaClient", () => {
     for (const config of [
       {
         solanaRpcUrl: RPC_URL,
-        proverUrl: "https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k",
+        proverUrl: "https://beta-devnet.helius-rpc.com/v1/spr?api-key=k",
       },
     ]) {
       expect(new ZolanaClient(config).proofDataSource).toBe("prover");
@@ -1225,10 +1225,10 @@ describe("prover indexer fetching", () => {
       });
       const instance = new ZolanaClient({
         proofDataSource: "prover",
-        proverUrl: "http://127.0.0.1:3001/v1/zolana?api-key=secret",
+        proverUrl: "http://127.0.0.1:3001/v1/spr?api-key=secret",
         fetch,
       });
-      const indexedUrl = `http://127.0.0.1:3001/v1/zolana/prove/${ring === undefined ? "transfer_confidential_2_2" : "transfer_ring_2_2"}/indexed?api-key=secret`;
+      const indexedUrl = `http://127.0.0.1:3001/v1/spr/prove/${ring === undefined ? "transfer_confidential_2_2" : "transfer_ring_2_2"}/indexed?api-key=secret`;
       const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
       try {
         const result =
@@ -1243,7 +1243,7 @@ describe("prover indexer fetching", () => {
           expect(String(fetch.mock.calls[1]?.[0])).toBe(indexedUrl);
           expect(new Headers(fetch.mock.calls[1]?.[1]?.headers).get("X-Async")).toBe("true");
           expect(String(fetch.mock.calls[2]?.[0])).toBe(
-            "http://127.0.0.1:3001/v1/zolana/prove/transfer_ring_2_2/status?api-key=secret&jobId=indexed-job",
+            "http://127.0.0.1:3001/v1/spr/prove/transfer_ring_2_2/status?api-key=secret&jobId=indexed-job",
           );
         }
         expect(String(fetch.mock.calls[0]?.[0])).toBe(indexedUrl);

@@ -10,7 +10,7 @@ use super::{TeeError, API_KEY_PARAM, HPKE_INFO, RESPONSE_EXPORT};
 
 /// The path the Helius gateway serves the prover under. The prover answers
 /// every route under it with the same handler as the bare route.
-const GATEWAY_PREFIX: &str = "/v1/zolana";
+const GATEWAY_PREFIX: &str = "/v1/spr";
 
 /// One request encrypted to the attested key, holding the key that decrypts its answer.
 pub struct EncryptedRequest {

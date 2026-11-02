@@ -642,7 +642,7 @@ func RunWithQueue(config *Config, redisQueue *RedisQueue, keyManager *common.Laz
 // gatewayPrefix is the path namespace the Helius gateway exposes this service
 // under. Gatekeeper forwards the request path verbatim -- heimdall-proxy's
 // HttpRestOrigin replaces the origin path with the incoming one and has no
-// prefix rewriting -- so a REST service reached through /v1/zolana/* has to
+// prefix rewriting -- so a REST service reached through /v1/spr/* has to
 // answer on that path itself. ts-services/lana-api does the same thing with a
 // two-path controller.
 //

@@ -471,7 +471,7 @@ class AttestationTests(unittest.TestCase):
                     request = urlopen.call_args.args[0]
                     self.assertRegex(
                         request.full_url,
-                        r"^https://x/tee/v1/attestation\?nonce=[0-9a-f]{64}$",
+                        r"^https://x/attestation\?nonce=[0-9a-f]{64}$",
                     )
                     self.assertEqual(request.get_header("X-api-key"), "secret")
                 else:
@@ -1153,14 +1153,14 @@ class HostTests(unittest.TestCase):
         allowed = re.search(r'Access-Control-Allow-Headers "([^"]*)"', text).group(1)
         exposed = re.search(r'Access-Control-Expose-Headers "([^"]*)"', text).group(1)
         for header in (
-            "Zolana-Tee",
-            "Zolana-Tee-Enc",
-            "Zolana-Tee-Ciphertext",
+            "Spr-Tee",
+            "Spr-Tee-Enc",
+            "Spr-Tee-Ciphertext",
             "X-API-Key",
             "Authorization",
         ):
             self.assertIn(header, allowed.split(","))
-        self.assertIn("Zolana-Tee", exposed.split(","))
+        self.assertIn("Spr-Tee", exposed.split(","))
         self.assertNotIn("proxy_set_body", text)
 
     def test_measurements_require_matching_build_and_description(self):

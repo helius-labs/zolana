@@ -21,7 +21,7 @@ describe("resolveClientEndpoints", () => {
   it("serves the indexer from a Helius RPC host's zolana namespace", () => {
     const resolved = resolveClientEndpoints({ solanaRpcUrl: HELIUS });
     expect(resolved.solana).toBe(HELIUS);
-    expect(String(resolved.photon)).toBe("https://devnet.helius-rpc.com/v1/zolana?api-key=k");
+    expect(String(resolved.photon)).toBe("https://devnet.helius-rpc.com/v1/spr?api-key=k");
     const custom = resolveClientEndpoints({ solanaRpcUrl: "https://devnet.helius-rpc.com/custom" });
     expect(custom.photon).toBe("https://devnet.helius-rpc.com/custom");
   });
@@ -34,7 +34,7 @@ describe("resolveClientEndpoints", () => {
     ]) {
       const rpc = `https://${host}/?api-key=k`;
       const resolved = resolveClientEndpoints({ solanaRpcUrl: rpc });
-      const gateway = `https://${host}/v1/zolana?api-key=k`;
+      const gateway = `https://${host}/v1/spr?api-key=k`;
       expect([String(resolved.solana), String(resolved.photon), String(resolved.prover)]).toEqual([
         rpc,
         gateway,

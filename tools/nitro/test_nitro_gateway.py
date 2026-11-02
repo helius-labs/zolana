@@ -46,7 +46,7 @@ for _ in range(80):
     except OSError:
         pass
     time.sleep(0.25)
-for path in ('/ready', '/prove/transfer_confidential_2_3', '/tee/v1/attestation?nonce=00'):
+for path in ('/ready', '/prove/transfer_confidential_2_3', '/attestation?nonce=00'):
     assert request(path)[0] == 401, path
     assert request(path, {{'X-API-Key': 'wrong'}})[0] == 401, path
     assert request(path, {{'X-API-Key': 'secret'}})[0] == 200, path
@@ -55,19 +55,19 @@ for path in ('/ready', '/prove/transfer_confidential_2_3', '/tee/v1/attestation?
     assert request(path + sep + 'api-key=secret')[0] == 200, path
 assert request('/proving-keys')[0] == 200
 body = bytes(range(256)) * 4
-headers = {{'X-API-Key': 'secret', 'Content-Type': 'application/octet-stream', 'Zolana-Tee': 'v1', 'Zolana-Tee-Enc': 'ab' * 32}}
-status, echoed, _ = request('/v1/zolana/prove/merge_8_1?a=1&api-key=secret&b=2', headers, body, 'POST')
+headers = {{'X-API-Key': 'secret', 'Content-Type': 'application/octet-stream', 'Spr-Tee': 'v1', 'Spr-Tee-Enc': 'ab' * 32}}
+status, echoed, _ = request('/v1/spr/prove/merge_8_1?a=1&api-key=secret&b=2', headers, body, 'POST')
 echoed = json.loads(echoed)
 assert status == 200 and bytes.fromhex(echoed['body']) == body, echoed
-assert echoed['path'] == '/v1/zolana/prove/merge_8_1?a=1&api-key=secret&b=2', echoed['path']
-assert echoed['headers']['Zolana-Tee'] == 'v1' and echoed['headers']['Zolana-Tee-Enc'] == 'ab' * 32
+assert echoed['path'] == '/v1/spr/prove/merge_8_1?a=1&api-key=secret&b=2', echoed['path']
+assert echoed['headers']['Spr-Tee'] == 'v1' and echoed['headers']['Spr-Tee-Enc'] == 'ab' * 32
 assert echoed['headers']['Content-Type'] == 'application/octet-stream'
-status, echoed, _ = request('/ready', {{'X-API-Key': 'secret', 'Zolana-Tee': 'v1', 'Zolana-Tee-Ciphertext': 'cd' * 40}})
-assert json.loads(echoed)['headers']['Zolana-Tee-Ciphertext'] == 'cd' * 40
-status, _, headers = request('/ready', {{'Origin': 'https://app.example', 'Access-Control-Request-Headers': 'zolana-tee'}}, method='OPTIONS')
+status, echoed, _ = request('/ready', {{'X-API-Key': 'secret', 'Spr-Tee': 'v1', 'Spr-Tee-Ciphertext': 'cd' * 40}})
+assert json.loads(echoed)['headers']['Spr-Tee-Ciphertext'] == 'cd' * 40
+status, _, headers = request('/ready', {{'Origin': 'https://app.example', 'Access-Control-Request-Headers': 'spr-tee'}}, method='OPTIONS')
 assert status == 204 and headers['Access-Control-Allow-Origin'] == '*', status
-assert 'Zolana-Tee-Ciphertext' in headers['Access-Control-Allow-Headers']
-assert 'Zolana-Tee' in request('/ready', {{'X-API-Key': 'secret'}})[2]['Access-Control-Expose-Headers']
+assert 'Spr-Tee-Ciphertext' in headers['Access-Control-Allow-Headers']
+assert 'Spr-Tee' in request('/ready', {{'X-API-Key': 'secret'}})[2]['Access-Control-Expose-Headers']
 ports = [json.loads(request('/ready', {{'X-API-Key': 'secret'}})[1])['port'] for _ in range(4)]
 assert sorted(ports) == sorted({INGRESS} * 2) and ports[0] != ports[1], ports
 """

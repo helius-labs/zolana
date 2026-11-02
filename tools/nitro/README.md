@@ -63,8 +63,8 @@ A request enters CloudFront over HTTPS and reaches the nginx gateway on port 300
 The gateway checks the API key through a local authorizer on port 3004.
 The authorizer reads the key from Secrets Manager and accepts it in `X-API-Key`, as a Bearer token, or as the `api-key` query parameter.
 `/proving-keys` stays public, as on the prover.
-The gateway keeps the path and the query, forwards the `Zolana-Tee`, `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext` headers, and passes bodies through unchanged.
-For browsers it allows those headers in CORS preflight and exposes `Zolana-Tee`.
+The gateway keeps the path and the query, forwards the `Spr-Tee`, `Spr-Tee-Enc` and `Spr-Tee-Ciphertext` headers, and passes bodies through unchanged.
+For browsers it allows those headers in CORS preflight and exposes `Spr-Tee`.
 It proxies round robin with keepalive to one `socat` per enclave.
 Enclave `i` has CID `16 + i`, and its `socat` listens on `127.0.0.1` port `3003 + 2i` and connects to vsock port 3001 of that CID.
 Inside the enclave a second `socat` forwards vsock port 3001 to the prover on `127.0.0.1:3001`.
@@ -81,7 +81,7 @@ Proving keys download on first use into a tmpfs in enclave memory and verify aga
 The parent cannot read an encrypted request or its answer.
 It sees the request path, the query, the timing and the sizes.
 The path names the proving key, so the parent learns the circuit shape of each proof.
-The enclave rejects a request without `Zolana-Tee` outside the attestation, `/auth`, `/ready`, `/health` and `/proving-keys` routes.
+The enclave rejects a request without `Spr-Tee` outside the attestation, `/auth`, `/ready`, `/health` and `/proving-keys` routes.
 CloudFront and the parent have read that request by then, so point only attesting clients at a deployment.
 
 ## Sizing

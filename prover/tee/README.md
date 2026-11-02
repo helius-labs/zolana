@@ -46,7 +46,7 @@ policy. `xtask loadtest` accepts `--prover-tee-policy <file>` too, and refuses
 a remote prover without one before loading wallets or starting workers.
 `xtask tee-check <url> --policy <file>` attests and checks encrypted
 proving-key digests. For a unified Helius API, callers may supply the same
-`/v1/zolana` base URL for Photon and the prover, with the appropriate policy;
+`/v1/spr` base URL for Photon and the prover, with the appropriate policy;
 the SDK keeps its query authentication on the attestation and encrypted calls.
 
 A server started with `--tee` rejects a plaintext request before reading its body, except on the attestation, `/auth`, `/ready`, `/health` and `/proving-keys` routes.
