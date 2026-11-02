@@ -81,7 +81,9 @@ func TestSlopeGuard(t *testing.T) {
 				}
 				return cs.IsSolved(wit) == nil
 			}
-			pp := new(big.Int).Mul(p, p)
+			nonzero := func(mu, sum *big.Int) bool {
+				return new(big.Int).Mod(mu, p).Sign() != 0 && new(big.Int).Mod(sum, p).Sign() != 0
+			}
 			count := 0
 			for k := int64(-1); k <= 1; k++ {
 				for n := int64(-8); n <= 8; n++ {
@@ -93,12 +95,7 @@ func TestSlopeGuard(t *testing.T) {
 						if !fits(mu) || !fits(lambda) {
 							continue
 						}
-						native := new(big.Int).Sub(new(big.Int).Mul(sum, sum), pp)
-						native.Mul(native, sum).Mul(native, mu).Mod(native, q)
-						if (mu.Sign() == 0 || new(big.Int).Mod(sum, p).Sign() == 0) && native.Sign() != 0 {
-							t.Fatalf("zero modulo p escapes the native product, mu%s sum%s", mu, sum)
-						}
-						if check(mu, lambda) != (native.Sign() != 0) {
+						if check(mu, lambda) != nonzero(mu, sum) {
 							t.Fatalf("k%d n%d epsilon%d mu%s lambda%s", k, n, epsilon, mu, lambda)
 						}
 						count++
@@ -107,6 +104,10 @@ func TestSlopeGuard(t *testing.T) {
 			}
 			if check(big.NewInt(0), big.NewInt(1)) {
 				t.Fatal("zero mu accepted")
+			}
+			// mu = q projects to native zero, but neither factor is zero modulo p.
+			if !check(q, big.NewInt(0)) {
+				t.Fatal("mu equal to the native modulus rejected")
 			}
 			for _, sum := range []*big.Int{new(big.Int), p, new(big.Int).Neg(p)} {
 				lambda := new(big.Int).Div(sum, big.NewInt(3))
