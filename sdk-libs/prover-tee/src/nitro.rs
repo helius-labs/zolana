@@ -25,7 +25,7 @@ use super::{
     platform::TeePlatform,
     policy::hex_pin,
     verify::{Claims, Measured},
-    TeeError,
+    TeeError, MAX_INTEGER,
 };
 
 /// AWS Nitro Enclaves root G1, SHA-256 of the DER pinned in a test.
@@ -37,8 +37,6 @@ const MAX_CABUNDLE: usize = 8;
 const MAX_DEPTH: usize = 16;
 const REPEATED_KEY: &str = "the document repeats a key or has one not text or integer";
 const COSE_SIGN1_TAG: u64 = 18;
-/// `Number.MAX_SAFE_INTEGER`, the TS client reads no larger integer exactly.
-const MAX_INTEGER: u64 = (1 << 53) - 1;
 
 pub struct Nitro;
 
@@ -98,7 +96,6 @@ enum Key<'a> {
 
 impl TeePlatform for Nitro {
     const HOSTS_GPU: bool = false;
-    const ROTATES_KEY_PER_BOOT: bool = true;
     const ANCHORS: Self::Anchors = AWS_NITRO_ROOT_G1;
     type Evidence = NitroEvidence;
     type Policy = NitroPolicy;

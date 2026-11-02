@@ -8,6 +8,7 @@ mod fixture_prover;
 mod nitro;
 mod platform;
 mod policy;
+mod signed;
 #[cfg(test)]
 mod tests;
 mod verify;
@@ -22,6 +23,10 @@ pub use nitro::fixture::Fixture as NitroFixture;
 pub use nitro::{NitroIdentity, NitroMeasurement, NitroPolicy};
 pub use platform::{Anchors, Platform, PlatformIdentity, PlatformPolicy};
 pub use policy::{GpuRequirement, TeePolicy, TeePolicyFile};
+pub use signed::{
+    PolicyPayload, PolicySignature, PolicySigners, SignedPolicyFile, MAX_SIGNED_POLICY_BYTES,
+    POLICY_DOMAIN,
+};
 pub use verify::{inspect, verify, verify_with, AttestedIdentity, AttestedProver};
 
 use thiserror::Error;
@@ -40,6 +45,8 @@ const REPORT_DOMAIN: &[u8] = b"zolana/prover-tee/v1/report";
 const HPKE_INFO: &[u8] = b"zolana/prover-tee/v1";
 const RESPONSE_EXPORT: &[u8] = b"zolana/prover-tee/v1/response";
 const API_KEY_PARAM: &str = "api-key";
+/// `Number.MAX_SAFE_INTEGER`, the TS client reads no larger integer exactly.
+const MAX_INTEGER: u64 = (1 << 53) - 1;
 
 /// Why the prover was not trusted with a request.
 #[derive(Clone, Debug, Error)]
@@ -49,6 +56,8 @@ pub enum TeeError {
     NoPolicy,
     #[error("TEE policy is malformed, {0}")]
     Policy(String),
+    #[error("signed TEE policy refused, {0}")]
+    SignedPolicy(&'static str),
     #[error("attestation is malformed, {0}")]
     MalformedAttestation(String),
     #[error("TDX quote verification failed, {0}")]

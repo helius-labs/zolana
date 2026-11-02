@@ -103,7 +103,6 @@ pub(super) struct Collateral {
 
 impl TeePlatform for Dstack {
     const HOSTS_GPU: bool = true;
-    const ROTATES_KEY_PER_BOOT: bool = false;
     const ANCHORS: Self::Anchors = ();
     type Evidence = Box<DstackEvidence>;
     type Policy = DstackPolicy;

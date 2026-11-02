@@ -44,8 +44,7 @@ import {
 } from "../../services/transport.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
-import type { TeePolicy } from "./tee/registry.js";
-import { TeeSession, sendCall, type ProverCall } from "./tee/session.js";
+import { TeeSession, sendCall, type ProverCall, type ProverTee } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
 import type {
   EddsaOwnerAuthorization,
@@ -156,7 +155,7 @@ export class ProverClient {
        * Encrypts every call, health and key checks included, to a prover that
        * attests to the supplied policy. Required for every remote prover.
        */
-      tee?: TeePolicy;
+      tee?: ProverTee;
     }>,
   ) {
     const candidate: unknown = input;

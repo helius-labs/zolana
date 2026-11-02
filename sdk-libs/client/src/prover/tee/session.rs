@@ -1,6 +1,6 @@
 use std::{
     future::Future,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -8,8 +8,9 @@ use http::StatusCode;
 use rand_core::{OsRng, TryRngCore};
 
 use super::{
-    verify_with, Anchors, Attestation, AttestedProver, EncryptedRequest, TeeError, TeePolicy,
-    HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE, VERSION,
+    verify_with, Anchors, Attestation, AttestedProver, EncryptedRequest, SignedPolicyFile,
+    SignedTeePolicy, TeeError, TeePolicy, HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE,
+    VERSION,
 };
 use crate::error::ClientError;
 
@@ -19,13 +20,41 @@ const DECRYPTION_FAILED: &str = "tee_decryption_failed";
 
 /// Attestation state one prover client shares across its requests.
 pub(crate) struct TeeSession {
-    policy: TeePolicy,
+    policy: Policy,
     anchors: Anchors,
-    attested: Mutex<Option<(AttestedProver, Instant)>>,
-    // One attestation at a time, the server answers only a few quotes at once.
-    attesting: tokio::sync::Mutex<()>,
-    // Bumped per finished attestation, a waiting call takes its failure instead of retrying.
-    outcome: Mutex<(u64, Option<SharedFailure>)>,
+    // An attestation counts only under the policy that accepted it.
+    attested: Mutex<Option<(AttestedProver, Instant, Arc<TeePolicy>)>>,
+    // The server answers only a few quotes at once.
+    attesting: Flight<Arc<TeePolicy>>,
+}
+
+enum Policy {
+    Fixed(Arc<TeePolicy>),
+    Signed(Box<Downloaded>),
+}
+
+/// A signed policy and what its downloads found.
+struct Downloaded {
+    source: SignedTeePolicy,
+    current: Mutex<Option<Current>>,
+    downloading: Flight<()>,
+}
+
+/// Runs one at a time. A call that waited on a run that failed under the same
+/// `K` takes that failure instead of running again.
+struct Flight<K> {
+    running: tokio::sync::Mutex<()>,
+    // Bumped per finished run.
+    last: Mutex<(u64, Option<(SharedFailure, K)>)>,
+}
+
+/// The accepted file's policy, version, payload and expiry.
+struct Current {
+    policy: Arc<TeePolicy>,
+    version: u64,
+    payload: Vec<u8>,
+    expires_at: u64,
+    checked: Instant,
 }
 
 #[derive(Clone)]
@@ -52,81 +81,127 @@ impl From<SharedFailure> for ClientError {
     }
 }
 
+impl<K> Flight<K> {
+    fn new() -> Self {
+        Self {
+            running: tokio::sync::Mutex::new(()),
+            last: Mutex::new((0, None)),
+        }
+    }
+
+    fn round(&self) -> u64 {
+        lock(&self.last).0
+    }
+
+    /// The failure of a run that finished since `round` under a `K` that `same` accepts.
+    fn failed_since(&self, round: u64, same: impl FnOnce(&K) -> bool) -> Option<ClientError> {
+        let last = lock(&self.last);
+        let (failure, under) = last.1.as_ref().filter(|_| last.0 != round)?;
+        same(under).then(|| failure.clone().into())
+    }
+
+    fn settle<T>(&self, result: &Result<T, ClientError>, under: K) {
+        let mut last = lock(&self.last);
+        last.0 += 1;
+        last.1 = result
+            .as_ref()
+            .err()
+            .map(|error| (SharedFailure::from(error), under));
+    }
+}
+
 impl TeeSession {
     pub fn new(policy: TeePolicy) -> Self {
+        Self::with_policy(Policy::Fixed(Arc::new(policy)))
+    }
+
+    pub fn signed(source: SignedTeePolicy) -> Self {
+        Self::with_policy(Policy::Signed(Box::new(Downloaded {
+            source,
+            current: Mutex::new(None),
+            downloading: Flight::new(),
+        })))
+    }
+
+    fn with_policy(policy: Policy) -> Self {
         Self {
             policy,
             anchors: Anchors::PRODUCTION,
             attested: Mutex::new(None),
-            attesting: tokio::sync::Mutex::new(()),
-            outcome: Mutex::new((0, None)),
+            attesting: Flight::new(),
         }
     }
 
     #[cfg(test)]
-    pub(super) fn trusting(policy: TeePolicy, anchors: Anchors) -> Self {
-        Self {
-            anchors,
-            ..Self::new(policy)
+    pub(crate) fn trusting(self, anchors: Anchors) -> Self {
+        Self { anchors, ..self }
+    }
+
+    /// The policy in force, downloaded again with `fetch` once stale.
+    pub async fn policy<F: Future<Output = Result<(StatusCode, Vec<u8>), ClientError>>>(
+        &self,
+        fetch: impl FnOnce(String) -> F,
+    ) -> Result<Arc<TeePolicy>, ClientError> {
+        match &self.policy {
+            Policy::Fixed(policy) => Ok(Arc::clone(policy)),
+            Policy::Signed(signed) => signed.policy(fetch).await,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn fresh_policy(&self) -> Option<Arc<TeePolicy>> {
+        match &self.policy {
+            Policy::Fixed(policy) => Some(Arc::clone(policy)),
+            Policy::Signed(signed) => signed.fresh(),
         }
     }
 
     /// Runs `attest` while no other attestation of this session runs.
     pub async fn attest_exclusive<F: Future<Output = AttestResult>>(
         &self,
+        policy: &Arc<TeePolicy>,
         attest: impl FnOnce() -> F,
     ) -> AttestResult {
-        let _attesting = self.attesting.lock().await;
-        self.settle(attest().await)
+        let _running = self.attesting.running.lock().await;
+        let result = attest().await;
+        self.attesting.settle(&result, Arc::clone(policy));
+        result
     }
 
     /// The cached key, else the outcome of the attestation this call waited on, else `attest`.
     pub async fn key_or_attest<F: Future<Output = AttestResult>>(
         &self,
+        policy: &Arc<TeePolicy>,
         attest: impl FnOnce() -> F,
     ) -> Result<[u8; 32], ClientError> {
-        if let Some(key) = self.attested_key() {
+        if let Some(key) = self.attested_key(policy) {
             return Ok(key);
         }
-        let round = self.round();
-        let _attesting = self.attesting.lock().await;
-        if let Some(joined) = self.joined(round) {
-            return joined;
+        let round = self.attesting.round();
+        let _running = self.attesting.running.lock().await;
+        if let Some(key) = self.attested_key(policy) {
+            return Ok(key);
         }
-        self.settle(attest().await)
-            .map(|prover| prover.hpke_public_key)
-    }
-
-    fn round(&self) -> u64 {
-        lock(&self.outcome).0
-    }
-
-    /// What a call that waited since `round` takes, `None` when it must attest itself.
-    fn joined(&self, round: u64) -> Option<Result<[u8; 32], ClientError>> {
-        if let Some(key) = self.attested_key() {
-            return Some(Ok(key));
+        if let Some(error) = self
+            .attesting
+            .failed_since(round, |under| Arc::ptr_eq(under, policy))
+        {
+            return Err(error);
         }
-        let outcome = lock(&self.outcome);
-        if outcome.0 == round {
-            return None;
-        }
-        outcome.1.clone().map(|failure| Err(failure.into()))
+        let result = attest().await;
+        self.attesting.settle(&result, Arc::clone(policy));
+        result.map(|prover| prover.hpke_public_key)
     }
 
-    fn settle(&self, result: AttestResult) -> AttestResult {
-        let mut outcome = lock(&self.outcome);
-        outcome.0 += 1;
-        outcome.1 = result.as_ref().err().map(SharedFailure::from);
-        result
-    }
-
-    /// The key of the last attestation still inside the policy's max age.
-    pub fn attested_key(&self) -> Option<[u8; 32]> {
+    /// The key of the last attestation `policy` accepted, still inside its max age.
+    pub fn attested_key(&self, policy: &Arc<TeePolicy>) -> Option<[u8; 32]> {
         let attested = lock(&self.attested);
         attested
             .as_ref()
-            .filter(|(_, at)| at.elapsed() < self.policy.max_age())
-            .map(|(prover, _)| prover.hpke_public_key)
+            .filter(|(_, at, accepted)| {
+                Arc::ptr_eq(accepted, policy) && at.elapsed() < policy.max_age()
+            })
+            .map(|(prover, _, _)| prover.hpke_public_key)
     }
 
     pub fn nonce() -> Result<[u8; NONCE_SIZE], ClientError> {
@@ -147,9 +222,10 @@ impl TeeSession {
         Ok(())
     }
 
-    /// Verifies the attestation answer for `nonce` and caches the prover.
+    /// Verifies the attestation answer for `nonce` against `policy` and caches the prover.
     pub fn accept(
         &self,
+        policy: &Arc<TeePolicy>,
         nonce: &[u8; NONCE_SIZE],
         status: StatusCode,
         body: &[u8],
@@ -162,22 +238,18 @@ impl TeeSession {
         }
         let attestation: Attestation = serde_json::from_slice(body)
             .map_err(|e| TeeError::MalformedAttestation(e.to_string()))?;
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| ClientError::Prover("system clock is before 1970".into()))?
-            .as_secs();
-        let prover = verify_with(attestation, &self.policy, nonce, now, &self.anchors)?;
-        *lock(&self.attested) = Some((prover.clone(), Instant::now()));
+        let prover = verify_with(attestation, policy, nonce, now_secs()?, &self.anchors)?;
+        *lock(&self.attested) = Some((prover.clone(), Instant::now(), Arc::clone(policy)));
         Ok(prover)
     }
 
-    pub fn lost_key(&self, status: StatusCode, body: &[u8]) -> bool {
+    /// The prover holds another key than the call was encrypted to, and read nothing.
+    pub fn lost_key(status: StatusCode, body: &[u8]) -> bool {
         #[derive(serde::Deserialize)]
         struct Failure {
             code: String,
         }
-        self.policy.platform().rotates_key_per_boot()
-            && status == StatusCode::BAD_REQUEST
+        status == StatusCode::BAD_REQUEST
             && serde_json::from_slice::<Failure>(body)
                 .is_ok_and(|failure| failure.code == DECRYPTION_FAILED)
     }
@@ -187,7 +259,7 @@ impl TeeSession {
         let mut attested = lock(&self.attested);
         if attested
             .as_ref()
-            .is_some_and(|(prover, _)| prover.hpke_public_key == *key)
+            .is_some_and(|(prover, _, _)| prover.hpke_public_key == *key)
         {
             *attested = None;
         }
@@ -235,6 +307,98 @@ impl TeeSession {
     }
 }
 
+impl Downloaded {
+    /// A failed download keeps the accepted policy until it expires.
+    async fn policy<F: Future<Output = Result<(StatusCode, Vec<u8>), ClientError>>>(
+        &self,
+        fetch: impl FnOnce(String) -> F,
+    ) -> Result<Arc<TeePolicy>, ClientError> {
+        if let Some(policy) = self.fresh() {
+            return Ok(policy);
+        }
+        let round = self.downloading.round();
+        let _running = self.downloading.running.lock().await;
+        if let Some(policy) = self.fresh() {
+            return Ok(policy);
+        }
+        if let Some(error) = self.downloading.failed_since(round, |()| true) {
+            return Err(error);
+        }
+        let downloaded = fetch(self.source.url.clone()).await;
+        let now = now_secs()?;
+        let downloaded = downloaded.and_then(|answer| self.verified(answer, now));
+        let result = {
+            let mut current = lock(&self.current);
+            match downloaded {
+                Ok(next) => {
+                    let policy = Arc::clone(&next.policy);
+                    *current = Some(next);
+                    Ok(policy)
+                }
+                Err(error) => match current.as_mut().filter(|kept| now < kept.expires_at) {
+                    Some(kept) => {
+                        kept.checked = Instant::now();
+                        Ok(Arc::clone(&kept.policy))
+                    }
+                    None => Err(error),
+                },
+            }
+        };
+        self.downloading.settle(&result, ());
+        result
+    }
+
+    fn fresh(&self) -> Option<Arc<TeePolicy>> {
+        lock(&self.current)
+            .as_ref()
+            .filter(|current| {
+                current.checked.elapsed() < self.source.refresh
+                    && now_secs().is_ok_and(|now| now < current.expires_at)
+            })
+            .map(|current| Arc::clone(&current.policy))
+    }
+
+    /// Refuses an older version, or another payload under the same version.
+    fn verified(
+        &self,
+        (status, body): (StatusCode, Vec<u8>),
+        now: u64,
+    ) -> Result<Current, ClientError> {
+        if !status.is_success() {
+            return Err(TeeError::SignedPolicy("unavailable").into());
+        }
+        let (approved, payload) = SignedPolicyFile::verify(&body, &self.source.signers, now)?;
+        let current = lock(&self.current);
+        let previous = current.as_ref();
+        if previous.is_some_and(|previous| {
+            approved.version < previous.version
+                || (approved.version == previous.version && payload != previous.payload)
+        }) {
+            return Err(TeeError::SignedPolicy("rollback").into());
+        }
+        let policy = previous
+            .filter(|previous| previous.payload == payload)
+            .map_or_else(
+                || Arc::new(approved.policy),
+                |previous| Arc::clone(&previous.policy),
+            );
+        Ok(Current {
+            policy,
+            version: approved.version,
+            payload,
+            expires_at: approved.expires_at,
+            checked: Instant::now(),
+        })
+    }
+}
+
+fn now_secs() -> Result<u64, ClientError> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| ClientError::Prover("system clock is before 1970".into()))?
+        .as_secs())
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
@@ -249,21 +413,24 @@ mod tests {
         time::Duration,
     };
 
-    use super::*;
-    use crate::prover::tee::Platform;
+    use ed25519_dalek::{Signer, SigningKey};
+    use serde_json::{json, Value};
 
-    fn session() -> TeeSession {
-        TeeSession::new(
-            TeePolicy::from_json(include_str!(
-                "../../../../../prover/tee/testdata/probe_policy.json"
-            ))
-            .unwrap(),
-        )
+    use super::*;
+    use crate::prover::tee::{Platform, PolicySigners, POLICY_DOMAIN};
+
+    const PROBE: &str = include_str!("../../../../../prover/tee/testdata/probe_policy.json");
+
+    fn session() -> (TeeSession, Arc<TeePolicy>) {
+        let session = TeeSession::new(TeePolicy::from_json(PROBE).unwrap());
+        let policy = session.fresh_policy().unwrap();
+        (session, policy)
     }
 
     /// Stands in for `accept`, caching the prover the way a verified attestation does.
     fn attest(
         session: &TeeSession,
+        policy: &Arc<TeePolicy>,
         attestations: &AtomicUsize,
     ) -> Result<AttestedProver, ClientError> {
         attestations.fetch_add(1, Ordering::SeqCst);
@@ -275,18 +442,19 @@ mod tests {
             tcb_status: Some("UpToDate".into()),
             gpu_verified: false,
         };
-        *session.attested.lock().unwrap() = Some((prover.clone(), Instant::now()));
+        *session.attested.lock().unwrap() =
+            Some((prover.clone(), Instant::now(), Arc::clone(policy)));
         Ok(prover)
     }
 
     #[tokio::test]
     async fn concurrent_calls_share_one_attestation() {
-        let session = session();
+        let (session, policy) = session();
         let attestations = AtomicUsize::new(0);
         let call = || {
-            session.key_or_attest(|| async {
+            session.key_or_attest(&policy, || async {
                 tokio::time::sleep(Duration::from_millis(50)).await;
-                attest(&session, &attestations)
+                attest(&session, &policy, &attestations)
             })
         };
         let keys = futures::future::join_all((0..4).map(|_| call())).await;
@@ -296,20 +464,20 @@ mod tests {
 
     #[test]
     fn a_lost_key_is_forgotten_only_while_still_cached() {
-        let session = session();
-        attest(&session, &AtomicUsize::new(0)).unwrap();
+        let (session, policy) = session();
+        attest(&session, &policy, &AtomicUsize::new(0)).unwrap();
         session.forget(&[8; 32]);
-        assert_eq!(session.attested_key(), Some([7; 32]));
+        assert_eq!(session.attested_key(&policy), Some([7; 32]));
         session.forget(&[7; 32]);
-        assert_eq!(session.attested_key(), None);
+        assert_eq!(session.attested_key(&policy), None);
     }
 
     #[tokio::test]
     async fn calls_waiting_on_a_failed_attestation_share_its_failure() {
-        let session = session();
+        let (session, policy) = session();
         let attestations = AtomicUsize::new(0);
         let call = || {
-            session.key_or_attest(|| async {
+            session.key_or_attest(&policy, || async {
                 attestations.fetch_add(1, Ordering::SeqCst);
                 tokio::time::sleep(Duration::from_millis(50)).await;
                 Err(TeeError::ReportDataMismatch.into())
@@ -320,5 +488,166 @@ mod tests {
         assert!(results
             .iter()
             .all(|result| matches!(result, Err(ClientError::Tee(TeeError::ReportDataMismatch)))));
+    }
+
+    /// Signed by any two of the keys of seeds 1, 2 and 3.
+    fn signed(refresh: Duration) -> TeeSession {
+        let keys = [1, 2, 3]
+            .map(|seed| {
+                SigningKey::from_bytes(&[seed; 32])
+                    .verifying_key()
+                    .to_bytes()
+            })
+            .to_vec();
+        let signers = PolicySigners::new("fixture", keys, 2).unwrap();
+        TeeSession::signed(SignedTeePolicy {
+            refresh,
+            ..SignedTeePolicy::new("https://policy.example/p.json", signers).unwrap()
+        })
+    }
+
+    fn file(version: u64, max_age_secs: u64) -> Vec<u8> {
+        signed_file(version, max_age_secs, &[1, 2])
+    }
+
+    /// The probe policy as `version`, signed by the keys of `seeds`.
+    fn signed_file(version: u64, max_age_secs: u64, seeds: &[u8]) -> Vec<u8> {
+        let mut policy: Value = serde_json::from_str(PROBE).unwrap();
+        policy["max_age_secs"] = max_age_secs.into();
+        let payload = serde_json::to_vec(&json!({
+            "network": "fixture",
+            "version": version,
+            "expires_at": 4_000_000_000u64,
+            "policy": policy,
+        }))
+        .unwrap();
+        let message = [POLICY_DOMAIN, &payload].concat();
+        let signatures: Vec<_> = seeds
+            .iter()
+            .map(|&seed| {
+                let key = SigningKey::from_bytes(&[seed; 32]);
+                json!({
+                    "public_key": hex::encode(key.verifying_key().to_bytes()),
+                    "signature": hex::encode(key.sign(&message).to_bytes()),
+                })
+            })
+            .collect();
+        serde_json::to_vec(&json!({ "payload": hex::encode(payload), "signatures": signatures }))
+            .unwrap()
+    }
+
+    async fn download(
+        session: &TeeSession,
+        status: u16,
+        body: Vec<u8>,
+    ) -> Result<Arc<TeePolicy>, ClientError> {
+        session
+            .policy(|_url| async move { Ok((StatusCode::from_u16(status).unwrap(), body)) })
+            .await
+    }
+
+    #[tokio::test]
+    async fn a_signed_policy_is_downloaded_again_only_once_stale() {
+        let session = signed(Duration::from_secs(300));
+        let first = download(&session, 200, file(2, 600)).await.unwrap();
+        let downloads = AtomicUsize::new(0);
+        let again = session
+            .policy(|_url| async {
+                downloads.fetch_add(1, Ordering::SeqCst);
+                Ok((StatusCode::OK, file(3, 600)))
+            })
+            .await
+            .unwrap();
+        assert!(Arc::ptr_eq(&first, &again));
+        assert_eq!(downloads.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn an_attestation_stands_only_under_the_policy_that_accepted_it() {
+        let session = signed(Duration::ZERO);
+        let v2 = download(&session, 200, file(2, 600)).await.unwrap();
+        attest(&session, &v2, &AtomicUsize::new(0)).unwrap();
+        let same = download(&session, 200, file(2, 600)).await.unwrap();
+        assert!(Arc::ptr_eq(&v2, &same));
+        assert_eq!(session.attested_key(&same), Some([7; 32]));
+        let v3 = download(&session, 200, file(3, 600)).await.unwrap();
+        assert_eq!(session.attested_key(&v3), None);
+    }
+
+    #[tokio::test]
+    async fn a_refused_download_keeps_the_policy_in_force() {
+        let session = signed(Duration::ZERO);
+        let v3 = download(&session, 200, file(3, 600)).await.unwrap();
+        for (status, body) in [
+            (503, Vec::new()),
+            (200, b"{}".to_vec()),
+            (200, file(2, 600)),
+            (200, file(3, 601)),
+        ] {
+            let kept = download(&session, status, body).await.unwrap();
+            assert!(Arc::ptr_eq(&v3, &kept));
+        }
+        let Policy::Signed(signed) = &session.policy else {
+            panic!("a signed session");
+        };
+        for older in [file(2, 600), file(3, 601)] {
+            assert!(matches!(
+                signed.verified((StatusCode::OK, older), 0),
+                Err(ClientError::Tee(TeeError::SignedPolicy("rollback")))
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn calls_waiting_on_a_failed_download_share_its_failure() {
+        let session = signed(Duration::ZERO);
+        let downloads = AtomicUsize::new(0);
+        let call = || {
+            session.policy(|_url| async {
+                downloads.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                Ok((StatusCode::SERVICE_UNAVAILABLE, Vec::new()))
+            })
+        };
+        let results = futures::future::join_all((0..4).map(|_| call())).await;
+        assert_eq!(downloads.load(Ordering::SeqCst), 1);
+        assert!(results.iter().all(|result| matches!(
+            result,
+            Err(ClientError::Tee(TeeError::SignedPolicy("unavailable")))
+        )));
+    }
+
+    #[test]
+    fn an_attestation_failure_reaches_only_calls_under_its_policy() {
+        let (session, policy) = session();
+        let other = Arc::new(TeePolicy::from_json(PROBE).unwrap());
+        let flight = &session.attesting;
+        let round = flight.round();
+        flight.settle::<()>(
+            &Err(TeeError::ReportDataMismatch.into()),
+            Arc::clone(&policy),
+        );
+        assert!(flight
+            .failed_since(round, |under| Arc::ptr_eq(under, &other))
+            .is_none());
+        assert!(matches!(
+            flight.failed_since(round, |under| Arc::ptr_eq(under, &policy)),
+            Some(ClientError::Tee(TeeError::ReportDataMismatch))
+        ));
+    }
+
+    #[tokio::test]
+    async fn without_a_policy_in_force_a_refused_download_fails() {
+        let session = signed(Duration::ZERO);
+        let one_signer = signed_file(2, 600, &[1]);
+        for (status, body, check) in [
+            (503, Vec::new(), "unavailable"),
+            (200, one_signer, "signature"),
+        ] {
+            assert!(matches!(
+                download(&session, status, body).await,
+                Err(ClientError::Tee(TeeError::SignedPolicy(refused))) if refused == check
+            ));
+        }
     }
 }

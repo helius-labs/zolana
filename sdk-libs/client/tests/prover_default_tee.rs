@@ -8,7 +8,10 @@ use spr_client::{
     prover::{
         indexed::ProofDataSource,
         known_proving_keys,
-        tee::{verify, Attestation, Platform, PlatformPolicy, TeeError, TeePolicy},
+        tee::{
+            verify, Attestation, Platform, PlatformPolicy, PolicySigners, SignedTeePolicy,
+            TeeError, TeePolicy,
+        },
         verify_proof_statement, Delivery, ExpectedProvingKey, ProveRequest, ProverClient,
     },
     ClientError, Prover,
@@ -167,13 +170,34 @@ fn the_mainnet_deployment_attests_and_verifies_an_encrypted_fixture_proof() {
     );
 }
 
+/// Through any gateway, under the network's signed policy.
+#[test]
+#[ignore = "contacts a live TEE prover and generates one synthetic transfer proof"]
+fn a_signed_policy_attests_and_verifies_an_encrypted_fixture_proof() {
+    let env = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("supply {name}"));
+    let keys = env("ZOLANA_TEE_POLICY_SIGNERS")
+        .split(',')
+        .map(|key| hex::decode(key).unwrap().try_into().unwrap())
+        .collect();
+    let signers = PolicySigners::new(
+        env("ZOLANA_TEE_POLICY_NETWORK"),
+        keys,
+        env("ZOLANA_TEE_POLICY_THRESHOLD").parse().unwrap(),
+    )
+    .unwrap();
+    let policy = SignedTeePolicy::new(env("ZOLANA_TEE_POLICY_URL"), signers).unwrap();
+    assert_proves(ProverClient::new(env("ZOLANA_TEE_PROVER_URL")).with_signed_tee(policy));
+}
+
 fn assert_encrypted_fixture_proof(url_env: &str, policy_env: &str) {
     let url = std::env::var(url_env).expect("supply the live prover URL");
     let policy_path = std::env::var(policy_env).expect("supply the reviewed policy file");
     let policy = TeePolicy::from_file_json(&std::fs::read_to_string(policy_path).unwrap()).unwrap();
-    let prover = ProverClient::new(url)
-        .with_tee(policy)
-        .with_proof_timeout(Duration::from_secs(180));
+    assert_proves(ProverClient::new(url).with_tee(policy));
+}
+
+fn assert_proves(prover: ProverClient) {
+    let prover = prover.with_proof_timeout(Duration::from_secs(180));
     assert!(prover.has_tee());
     let attested = prover
         .attest()

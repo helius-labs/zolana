@@ -4,6 +4,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
 
 import {
+  SignedTeePolicy,
   teePolicyFromJson,
   ZolanaClient,
   compressProof,
@@ -120,18 +121,34 @@ function inputs(): ProverInputs {
 
 describe("configured TEE prover", () => {
   it("attests and returns an encrypted valid proof with a caller-supplied URL and policy", async () => {
-    const endpoint = process.env["ZOLANA_TEE_PROVER_URL"];
+    const required = (name: string): string => {
+      const value = process.env[name];
+      if (value === undefined) throw new Error(`Supply ${name}`);
+      return value;
+    };
+    const endpoint = required("ZOLANA_TEE_PROVER_URL");
+    // A reviewed policy file, or else the network's signed policy.
     const policyPath = process.env["ZOLANA_TEE_PROVER_POLICY"];
-    if (endpoint === undefined || policyPath === undefined)
-      throw new Error("Supply ZOLANA_TEE_PROVER_URL and ZOLANA_TEE_PROVER_POLICY");
-    const policyJson: unknown = JSON.parse(readFileSync(policyPath, "utf8"));
-    const policy = teePolicyFromJson(policyJson);
+    const policy =
+      policyPath === undefined
+        ? new SignedTeePolicy({
+            url: required("ZOLANA_TEE_POLICY_URL"),
+            network: required("ZOLANA_TEE_POLICY_NETWORK"),
+            publicKeys: required("ZOLANA_TEE_POLICY_SIGNERS").split(","),
+            threshold: Number(required("ZOLANA_TEE_POLICY_THRESHOLD")),
+          })
+        : teePolicyFromJson(JSON.parse(readFileSync(policyPath, "utf8")) as unknown);
     const proverUrl = new URL(endpoint);
+    // The prover, and the signed policy's host when there is one.
+    const origins = [proverUrl.origin];
+    if (policy instanceof SignedTeePolicy) {
+      origins.push(new URL(required("ZOLANA_TEE_POLICY_URL")).origin);
+    }
     const proofPathPrefix = `${proverUrl.pathname.replace(/\/+$/u, "")}/prove/`;
     let encryptedProofCalls = 0;
     const observedFetch: typeof globalThis.fetch = async (resource, init) => {
       const url = new URL(resource instanceof Request ? resource.url : resource);
-      expect(url.origin).toBe(proverUrl.origin);
+      expect(origins).toContain(url.origin);
       if (url.pathname.startsWith(proofPathPrefix)) {
         const headers = new Headers(init?.headers);
         expect(headers.get("Zolana-Tee")).toBe("v1");
@@ -155,7 +172,9 @@ describe("configured TEE prover", () => {
     });
     const attested = await client.attestProver({ timeoutMs: 120_000 });
     expect(attested.platform).toBe("aws-nitro");
-    expect(bytesToHex(attested.hpkePublicKey)).toBe(policy.hpkePublicKey);
+    if (!(policy instanceof SignedTeePolicy)) {
+      expect(bytesToHex(attested.hpkePublicKey)).toBe(policy.hpkePublicKey);
+    }
     const proof = await client.proofService.prove(inputs(), { timeoutMs: 180_000 });
     // prove() checks the returned proving-key digest; compression additionally
     // validates the proof's G1/G2 points before producing on-chain proof bytes.

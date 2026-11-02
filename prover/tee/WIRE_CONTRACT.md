@@ -61,7 +61,7 @@ The checks:
 
 An AWS Nitro Enclave without a GPU.
 The enclave draws its HPKE key at boot or derives it from a seed that an AWS KMS key releases, and it never exports the key.
-The KMS key policy releases the seed to the host only inside an enclave with the PCR0, PCR1 and PCR2 of the deployment, so all enclaves of a KMS deployment hold the same key.
+The KMS key policy releases the seed to the host only inside an enclave with the PCR0, PCR1 and PCR2 of the release, and every region of the release copies one seed, so all enclaves of a KMS release hold the same key.
 `evidence` holds `document`, the attestation document the Nitro Secure Module signs, a COSE_Sign1 structure.
 The prover requests it with `user_data` set to report_data, `nonce` set to the client's nonce, and `public_key` set to `hpke_public_key`.
 
@@ -87,6 +87,23 @@ A policy is a JSON object with `platform`, the platform's pins, `gpu` (`required
 A `dstack-tdx` policy pins `app_id`, `hpke_public_key`, `key_provider_id`, `os_image_hashes`, `measurements` (`mrtd`, `rtmr0`, `rtmr1`, `rtmr2`), `compose_hashes` and `tcb_statuses`.
 An `aws-nitro` policy pins `measurements` (`pcr0`, `pcr1`, `pcr2`) and can also pin `hpke_public_key`, which stays the same across boots only on a KMS deployment.
 
+### Signed policy
+
+A network publishes its policy as one JSON file of `payload` and `signatures`, so a new release needs no new client.
+`payload` is the hex of a JSON object with `network`, `version`, `expires_at` in Unix seconds and `policy`, a bare policy.
+Each signature holds a `public_key` and the Ed25519 `signature` of:
+
+```
+message = "zolana/prover-tee/v1/policy" || payload
+```
+
+A client pins the network, the signers' keys and how many of them must sign.
+It refuses a malformed file, counts a valid signature of each pinned key once, ignores well-formed signatures of other keys, and refuses a file with fewer, for another network, or at or after `expires_at`.
+`version` and `max_age_secs` start at 1, and they and `expires_at` are integers of at most 2^53 minus 1.
+It refuses a lower `version` than one it accepted, and another payload under the same version.
+It downloads the file again every five minutes, keeps the policy it holds while a download fails until that policy expires, and attests again under a new payload.
+It verifies an attestation under the policy in force when the answer arrives, not when the call began.
+
 ## Encryption
 
 The client encrypts a request body with HPKE base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM.
@@ -110,7 +127,7 @@ Its plaintext is the status as a big-endian `u16`, then the body.
 A replayed request derives the same response key, but each answer gets an independent nonce.
 A client refuses a 2xx answer without `Zolana-Tee: v1`.
 A 400 `tee_decryption_failed` answer means the request does not decrypt under the key the prover holds.
-On `aws-nitro`, where a boot key changes at every boot, the client then attests again and resends the call once.
+The client then attests again and resends the call once, because a boot key changes at every boot and a release key at every release.
 A resent proof request costs only a second proof, because an encrypted prover runs each request synchronously and keeps no job state.
 An unencrypted failure reaches the caller as unauthenticated, so load shedding and retries still work.
 
@@ -149,3 +166,4 @@ An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover 
 `ikm` derives the prover key with RFC 9180 `DeriveKeyPair`.
 `testdata/nitro_cbor_cases.json` pins whether a client accepts each `aws-nitro` case when it trusts `root` in place of the AWS root.
 A case holds a full COSE_Sign1, or a payload the test signs with `leaf_key` into a tagged COSE_Sign1.
+`testdata/signed_policy.json` pins whether a client accepts each signed policy file, from test signers whose seeds it names.

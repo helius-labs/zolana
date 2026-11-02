@@ -23,7 +23,6 @@ export type PlatformModule<Policy extends Readonly<{ platform: string }>> = Read
   platform: Policy["platform"];
   /** False refuses a GPU requirement and any GPU verdict. */
   hostsGpu: boolean;
-  keyPerBoot: boolean;
   /** DER roots, empty when the verifier library pins its own. */
   anchors: readonly Uint8Array[];
   policy: (fields: PolicyFields, common: PolicyCommon) => Policy;

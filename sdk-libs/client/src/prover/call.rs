@@ -170,7 +170,7 @@ impl<'s> Prepared<'s> {
         let Some(Encrypted { recipient, request }) = &self.encrypted else {
             return Ok(Answer::Done(status, plain()));
         };
-        if !is_encrypted && recipient.session.lost_key(status, body) {
+        if !is_encrypted && TeeSession::lost_key(status, body) {
             return Ok(Answer::KeyLost {
                 recipient: *recipient,
                 status,
@@ -286,10 +286,10 @@ mod tests {
     }
 
     #[test]
-    fn only_a_rotating_platform_re_attests_on_decryption_failure() {
+    fn every_platform_re_attests_on_decryption_failure() {
         let nitro = NitroFixture::default().session();
         assert!(re_attests(&nitro, "tee_decryption_failed"));
-        assert!(!re_attests(&session(), "tee_decryption_failed"));
+        assert!(re_attests(&session(), "tee_decryption_failed"));
     }
 
     #[test]
