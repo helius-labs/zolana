@@ -14,88 +14,88 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
   "batch_address-append_40_4999.key":
     "367fd7d2f534810ec684b7dbbadfd90dc65550d26989a2f2945d4719702001de",
-  "merge_24_1.key": "459cefcc03b48ecf9629dd494e9b6441ffd05833123b47473338a7e0dc8fa63d",
-  "merge_52_1.key": "5c1bc43dc2d84753c40c3c30e4b319d441efdab80440bba16de1e1bbf613fbd4",
-  "merge_8_1.key": "babf71dc8da512f9a35c5d9b6f39297c4727b14ab70c9e1e5f5e5822838765c8",
+  "merge_24_1.key": "be917f00eb2f0436e8083ff5b32ffab5f4d6d360c189e84e6022bdad4658167d",
+  "merge_52_1.key": "2b0a595827d9e4a0c9f643e8b197e964a772c69ae50ba3e02109f0b372ecbebd",
+  "merge_8_1.key": "cb59ca915a79b1abf49b9f9fa997835e7da185c8b6293f5a4a977cf603a4d380",
   "merge_ring_24_1.key": "bfe4cd6e25924ed83bb42ad79131fe63fa893f8c4b9585198f0920bc96f99576",
   "merge_ring_52_1.key": "bd2dfceea6f081551a52c21f77cad14fa0656f1a68551a9352d6e607695d51c9",
   "merge_ring_8_1.key": "635f9f6d7d74447f2313264c691b818bc6a5611aedb0dcca3abd24405919d4a4",
   "transfer_confidential_12_2.key":
-    "f97bd750648a767ea2f660f713f1e9139d7355f41f26dce274f50ac9bc3a1b9c",
+    "663d0de50bc0e6947492cad785ea5d34db51bfddeb59a5ed22d4722cf16a9190",
   "transfer_confidential_12_4.key":
-    "79625237ff8d673999cf3c78b5998d53ca9acc838d3d7bccbbb288ba3a0947af",
+    "cecc67b4395dd1476d6a1c9d59d42c43b3f22ddb93f329892d4e8f8ebcebc7ed",
   "transfer_confidential_12_8.key":
-    "a6caf80326c6fc3ea4f987aa37c76e9dd9532e82cdf65f1bef50c14abc5a2dda",
+    "6637d73f12bb2255019a487910e9804bab103b4324e108bc520dd6c0b6ba09fc",
   "transfer_confidential_16_2.key":
-    "c1567923bb8195606eb66cda4ddcff0ab7145de1b89c0f8c926d41e7e41fda12",
+    "11951e7ef3f79f163a2c8aa9555651d9fba23424150da4701b7cc56f5b45d83f",
   "transfer_confidential_16_4.key":
-    "7b0c7f94baff6297bb3158359eec1b4489b28e4eda20347c1ed24b06847a8e44",
+    "841988d4b2fc5f7366b7b823ec8abb58bf0b051b30319040935a5597f1681bce",
   "transfer_confidential_16_8.key":
-    "60269cff6c59500a50cb5b6539a3aab3fc6c102a6f216e5ff4bafcb8c7a9fcfd",
+    "f8420af31bfb34ea029c5646769065ffc261c499b517f868542af0e0577c2676",
   "transfer_confidential_1_16.key":
-    "6b3d6d3a0cf6d3befa4fab316d3190e4c4ee1867c6d9de71a2de8cbb1bc2c383",
+    "17c0f2a1d4494a3db56b332b2adc6a989a798c59f4683b649c4dac412bc82e26",
   "transfer_confidential_1_2.key":
-    "63fec3e6284bf47f0095803859efffd5a948629501622c3227042c6718ba19d5",
+    "c0b5c1a1081136911a6ad5496fb989ed26d85b09e983a4d5048cff96e0833d85",
   "transfer_confidential_1_4.key":
-    "36f94d0133e555e3860e045580dcc2f0d7b5c8968946b14c5be7d01adb0e0055",
+    "4dea477eb3accc708975c4f258a9a58b8d5e21d2cc0dfa28ad47ba46b0fe7bff",
   "transfer_confidential_1_8.key":
-    "6910a9621bb9452e5925d0e790b74e6d27f3b3a1fe1d288305cde48171957522",
+    "8bbdb200e1d6147ad03ef55e13e8271eca2973bf2ae59fe2f10f9e21b1def490",
   "transfer_confidential_24_2.key":
-    "b5b33814223d17e9b1db4a24268b5eda24af36a9af8062dfb08e6a1391346ac4",
+    "07d52d5f44e69013a47da95507c99dc2c4d0d1a3b16cd5d988bdacce069f6332",
   "transfer_confidential_24_4.key":
-    "97d6b9a29667cf9388a964fdc2e81da09a8dffc50a7da7d1910a79393c6bd470",
+    "694d6414fcc0392512eb7e071a3b28f30c8bb82adcb56962ccbf79807dc22c83",
   "transfer_confidential_2_16.key":
-    "e284fc565ad50220159af043b3ef4395d00704dff4f4585eed46a0b540b1fcf5",
+    "cebe6bb76188f3989dc011f7839f04867a8e8d448b6faa2a15a5f5f6e6a23901",
   "transfer_confidential_2_2.key":
-    "5c6d38f60464c7d3704b2b1edd93ac6c826d0df8827293884d7b30690fc204f8",
+    "51380b1264737ebd4d31f40ebf6874db039078ce998d4fa187c049ace99798bb",
   "transfer_confidential_2_4.key":
-    "1fc6a07b1e968dec87592dbf58ecbe92c0c5d7dd0e5e589c08dbf80796224f2b",
+    "835d0d4c5ff4d4be96902faa4cb2fe2ee2e413afe678729e853351e6c31c156b",
   "transfer_confidential_2_8.key":
-    "c33f83f029f46e0d1f977eea479aa62d475985db2ffda509297d4b297430fac3",
+    "0b38f1f375024c6109c6b9027da8778c1140fc499ae45f52d5997f3d7e3f7529",
   "transfer_confidential_32_2.key":
-    "785153ba7ad8cc3a8a16e54ebbbbb6d001635f2e81bc5b4785803b860ce03a87",
+    "7cb3a9c9662eee23effcfa495e0346fc30f383968ec1f3b7f330926f753dcd44",
   "transfer_confidential_3_2.key":
-    "1da53f2a56462417253b26cb0effd9d4fbb8a11bda720e7921c49cda7e5e6316",
+    "72379691c3b515ff939a9e57fa52204489bdae376642a4e675c0b8830118b097",
   "transfer_confidential_3_4.key":
-    "35cfb48e07cd38f3c1b49e81f20ee4c74940f6f6c7fc7230ece1c17ac56f45ea",
+    "e6ed1362e59289b59bc11b93c85df9ebfbe7dfc8ba5f99a254273320ca07e7c9",
   "transfer_confidential_3_8.key":
-    "01f87529ca7ffd1d7d91fb74e5eb7c6222a3a7ad62dfa479dc7e07bd96af01ce",
+    "c41930ae5c21f8c582eb6c0c597e13b3bb249efcb85a756e4289cbb5c70e5a0b",
   "transfer_confidential_40_2.key":
-    "e5ba9e619453c669848c111607665b610d7b924826ce5580848dddf2a31da9de",
+    "1c307ca4ff52000e4e85f06e93437de826a2796b77233d5728d84216fdf6b2d4",
   "transfer_confidential_48_2.key":
-    "644482bbb1fab113ee9a9c1b91f884ebfe6a5864e004e641ff200a4b170afcc6",
+    "f429ba983f78510004cdbba9eeb8d26c494d1f1e13a943408ff6badf78025218",
   "transfer_confidential_49_2.key":
-    "53cbbd93ac9c53a87d5883b15b3b81c88afc1e9f45a86c1e63e24193c75b2774",
+    "3534fc22d19956fe1f1f897f316cf37310350a1678e58dc84a2cfce6989f449c",
   "transfer_confidential_4_16.key":
-    "c186822727ca00edbd96ba4db248d8629f08cc2281a9d3805d270ee2f6fb3098",
+    "8fbd730435bc5a5467b2184254f7080a7f75e135c5bcc5c633d76b0744e75bb4",
   "transfer_confidential_4_2.key":
-    "967d32c97e0a1e1150cd3f5e3a69bf86f1beb44a1f1143563f42e4ee98ce7c6f",
+    "d9298a68c83261700a4d3eab6a1922aab19e625a843d9df50628c3ec86e43aee",
   "transfer_confidential_4_4.key":
-    "049cf9701bec7a414bcd064351acd3f10a2f4c69aaa10953d355c0513a302070",
+    "99e9a089100e820d8b539e45e24e48d61b113a43ea0e86ecbe979167b92d6a2b",
   "transfer_confidential_4_8.key":
-    "7df8bf5e2e8baf9bf4b8340c21c852707c45ee07cf0bef064f24d7a90857910b",
+    "900598583206f654dd29cbe26d973cd258775b9c9c7413d061fa0616c1dbb3e3",
   "transfer_confidential_5_16.key":
-    "be93ae4e719a890e8f5e68348ec891a691e9b44127271972dd1a30ea93487e54",
+    "086961ca937381318413976c4e9b508541d2ab2bc758e1b28d9d9a99d66f27a4",
   "transfer_confidential_5_2.key":
-    "eb62fdaf21552d00292ba6513d0b5aa49b93db1975b909eecbe92d2625e09aa5",
+    "c5dfa2067fec93936aef24b748378516c40ef0a4f6987118e36285893864d45a",
   "transfer_confidential_5_4.key":
-    "ef1729f5d24b5a7d0cf0f906e71e3e63ab31ae02491ef2140c7e3b7e7b68f1fc",
+    "9cb1497158d00e87dec62de29886f5d91fd0359ce15e77a9b3e0e26008e724cb",
   "transfer_confidential_5_8.key":
-    "04cde7cd928e58001b5ad3bb1213aa789eec2da7bc0215c9bb445a17321f2bea",
+    "54e80daa5cfda22be5f1e82541fa0b798c83ccd34591e3b8b90104c8cb372577",
   "transfer_confidential_6_2.key":
-    "d86a46274b6558c4bb13bce72a8f511f6b8f3c399125449ac67731e2bdcebfee",
+    "226387d770058209d40029988d6f3ab154c42a0802ee066284db4c8db886ca40",
   "transfer_confidential_6_4.key":
-    "2b523a9575c6e3263898a9afa2f3a3ee24f9f74b27baa76e8f6676cf988a0861",
+    "c5ada6e9644e4853fc91a56cef7318fec9026c08475b8794a0e8026c80310171",
   "transfer_confidential_6_8.key":
-    "90011b7811805a1fe784a99062088fb5a04c4169b9c1a59f30e8b40fee864dd7",
+    "801717d5356cc171cb2b560562c292b21ccdef00c8e7deda6e827235d4cd8a6d",
   "transfer_confidential_8_16.key":
-    "6b03e0b636de7a4722a1829aa103919ed6ce67defe47c32d432eb09d73a4a188",
+    "88a98eee4be2853492e70dbbfb17a1e80bdedbe4d33b5cea9fe9ece97c945d19",
   "transfer_confidential_8_2.key":
-    "c10606362880adb6747617f127aaffa08a2df314146d7f996f5c9de659edfb7b",
+    "b64dcce8e5a55ae0f120bd32118f5bfdaf88f48bb3a3860e9cae9bac1611135e",
   "transfer_confidential_8_4.key":
-    "d44b087de72260f6149e14098ba458ab44e565ca4c9e3ed575f3d4b5bd476b47",
+    "74638c0bdf583defcf094fb7188e1fec98bedc2451680a850495e8015bb4384b",
   "transfer_confidential_8_8.key":
-    "3fce685c5cfe6bc4ed1c11a74c4b9168c8d99e5b0cd2229a1217c3918c791a94",
+    "501577f4062fe597a80ed22831c5b0e65e0a7a524283ce5e2f98c5868f7e8296",
   "transfer_confidential_eddsa_16_16.key":
     "ae94b617ae3f7ed4c2ba2df7cc4bae3afeda89090f025b2b153dc127e3028e37",
   "transfer_confidential_eddsa_16_8.key":
