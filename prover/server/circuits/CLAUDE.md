@@ -5,3 +5,8 @@
 5. prover/server/server implements the prover server that clients call to get proofs
 6. non _test.go files must not contain any code that is only used in tests
 7. crypto/ holds generic cryptography and never imports protocol packages
+8. a gadget checks each precondition that compilation can decide in the code that relies on it, and the check fails compilation. Witness-value bounds and canonicality stay caller obligations that constraints prove.
+   - a deferred argument refuses queries after it snapshots them, and a row table refuses inserts after its first lookup
+   - a builder keeps its own copy of every slice it holds for deferred use
+   - a hint encoder checks the domain its decoder assumes
+   - a failed optimization precondition falls back, and a failed correctness precondition panics
