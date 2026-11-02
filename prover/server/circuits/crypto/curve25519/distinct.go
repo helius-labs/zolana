@@ -77,30 +77,9 @@ func PackedNonzero(q *big.Int, in, out []*big.Int) error {
 	return nil
 }
 
-// AssertSlopeGuard proves mu*(mu+2*lambda) != 0 mod p for balanced slopes.
+// AssertSlopeGuard proves mu*(mu+2*lambda) != 0 mod the prime p, so neither factor is zero mod p.
 func AssertSlopeGuard(api frontend.API, f *nonnative.Field, lambda, mu *nonnative.Element) {
-	p := f.Modulus()
-	bitsPerLimb := f.Layout().LimbBits
-	offset := new(big.Int)
-	for i, w := range f.ReducedWidths() {
-		offset.Add(offset, new(big.Int).Lsh(Pow2(w-1), uint(i*bitsPerLimb)))
-	}
-	maximum := new(big.Int).Sub(new(big.Int).Sub(Pow2(p.BitLen()), big.NewInt(1)), offset)
-	if offset.Cmp(maximum) > 0 {
-		maximum.Set(offset)
-	}
-	if maximum.Cmp(p) >= 0 || new(big.Int).Mul(maximum, big.NewInt(3)).Cmp(new(big.Int).Lsh(p, 1)) >= 0 {
-		panic("curve25519: slope guard needs |mu|<p and |mu+2*lambda|<2p")
-	}
-	native := func(e *nonnative.Element) frontend.Variable {
-		sum := frontend.Variable(0)
-		for i, l := range e.Limbs() {
-			sum = api.Add(sum, api.Mul(l, Pow2(i*bitsPerLimb)))
-		}
-		return sum
-	}
-	m := native(mu)
-	s := api.Add(m, api.Mul(native(lambda), 2))
-	// Zero mod p is the integer 0 or +/-p here, a native collision only rejects.
-	api.AssertIsDifferent(api.Mul(m, s, api.Sub(api.Mul(s, s), new(big.Int).Mul(p, p))), 0)
+	sum := f.Lin([]int64{1, 2}, mu, lambda)
+	product := f.EvalProjected(nonnative.T(1, mu, sum))
+	AssertDistinct(api, f, product, f.Const(new(big.Int)))
 }
