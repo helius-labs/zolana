@@ -1,4 +1,5 @@
 import { concatBytes, equalBytes } from "../../interface/bytes.js";
+import type { Reader as FieldReader } from "../../interface/internal.js";
 import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.js";
 import type { Bytes34 } from "../../keypair/bytes.js";
 import { ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -317,20 +318,39 @@ function dataRecordTag(kind: DataRecord["kind"]): number {
   }
 }
 
-function readData(reader: Reader): Data {
+function dataRecordKind(tag: number): DataRecord["kind"] {
+  switch (tag) {
+    case 1:
+      return "ringData";
+    case 2:
+      return "utxoData";
+    case 3:
+      return "memo";
+    default:
+      throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "dataRecordTag", tag });
+  }
+}
+
+function readDataRecords(reader: Reader): Data {
   const count = reader.u8();
   const records: DataRecord[] = [];
   for (let index = 0; index < count; index++) {
     const tag = reader.u8();
     const bytes = reader.take(reader.u16());
-    const kind = tag === 1 ? "ringData" : tag === 2 ? "utxoData" : tag === 3 ? "memo" : undefined;
-    if (!kind) {
-      throw new TransactionError("TRANSACTION_DESERIALIZE", {
-        field: "dataRecordTag",
-        tag,
-      });
-    }
-    records.push({ kind, bytes });
+    records.push({ kind: dataRecordKind(tag), bytes });
+  }
+  return new Data(records);
+}
+
+export function readData(reader: FieldReader, name: string): Data {
+  const count = reader.u8(`${name}.length`);
+  const records: DataRecord[] = [];
+  for (let index = 0; index < count; index++) {
+    const kind = dataRecordKind(reader.u8(`${name}.tag`));
+    records.push({
+      kind,
+      bytes: reader.bytes(reader.u16(`${name}.bytes.length`), `${name}.bytes`),
+    });
   }
   return new Data(records);
 }
@@ -343,7 +363,7 @@ export function encodeData(data: Data): Uint8Array {
 
 export function decodeData(bytes: Uint8Array): Data {
   const reader = new Reader(bytes);
-  const data = readData(reader);
+  const data = readDataRecords(reader);
   reader.exact();
   return data;
 }
@@ -371,7 +391,7 @@ export function decodeConfidential(bytes: Uint8Array): ConfidentialOutputPlainte
     amount,
     blinding,
     ...(ringProgramId === undefined ? {} : { ringProgramId }),
-    data: readData(reader),
+    data: readDataRecords(reader),
   };
   reader.exact();
   return result;
@@ -462,15 +482,15 @@ export function decodePlaintextTransfer(
       ownerPublicKey,
       ...(spl === undefined ? {} : { spl }),
       ...(solAmount === undefined ? {} : { solAmount }),
-      splData: readData(reader),
-      solData: readData(reader),
+      splData: readDataRecords(reader),
+      solData: readDataRecords(reader),
     };
   });
   const recipientSlots = Array.from({ length: reader.u8() }, (): TransferPlaintextRecipient => ({
     ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
     assetId: reader.u64(),
     amount: reader.u64(),
-    data: readData(reader),
+    data: readDataRecords(reader),
   }));
   reader.exact();
   return {
@@ -569,7 +589,7 @@ export function decodeSplitBundle(bytes: Uint8Array): SplitBundlePlaintext {
     assetId: reader.u64(),
     assetAmount: reader.u64(),
     blindingSeed: reader.take(32) as Bytes32,
-    data: readData(reader),
+    data: readDataRecords(reader),
   };
   reader.exact();
   return result;
