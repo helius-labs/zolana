@@ -7,7 +7,7 @@
           "format": "gnark",
           "sha256": "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
           "size": 136666912,
-          "url": "https://d3gbdb0egjwcw9.cloudfront.net/proving-keys/78751f5d1c591777/batch_address-append_40_10.key"
+          "url": "https://d3gbdb0egjwcw9.cloudfront.net/proving-keys/99205806fef72189/batch_address-append_40_10.key"
         }
       ]
     },
@@ -18,7 +18,7 @@
           "format": "gnark",
           "sha256": "51380b1264737ebd4d31f40ebf6874db039078ce998d4fa187c049ace99798bb",
           "size": 16407649,
-          "url": "https://d3gbdb0egjwcw9.cloudfront.net/proving-keys/78751f5d1c591777/transfer_confidential_2_2.key"
+          "url": "https://d3gbdb0egjwcw9.cloudfront.net/proving-keys/99205806fef72189/transfer_confidential_2_2.key"
         },
         {
           "format": "zopro",
