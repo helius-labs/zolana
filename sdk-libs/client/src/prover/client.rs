@@ -37,7 +37,10 @@ use crate::{
         proof::{proof_from_value, Proof},
         proving_key::{ExpectedProvingKey, ProverKeys, ProvingKeyReport},
         requests,
-        tee::{AttestedProver, TeeError, TeePolicy, TeeSession, MAX_ATTESTATION_BYTES},
+        tee::{
+            AttestedProver, SignedTeePolicy, TeeError, TeePolicy, TeeSession,
+            MAX_ATTESTATION_BYTES, MAX_SIGNED_POLICY_BYTES,
+        },
     },
 };
 
@@ -338,6 +341,13 @@ impl ProverClient {
     #[must_use]
     pub fn with_tee(mut self, policy: TeePolicy) -> Self {
         self.client = self.client.with_tee(policy);
+        self
+    }
+
+    /// See [`AsyncProverClient::with_signed_tee`].
+    #[must_use]
+    pub fn with_signed_tee(mut self, policy: SignedTeePolicy) -> Self {
+        self.client = self.client.with_signed_tee(policy);
         self
     }
 
@@ -756,6 +766,14 @@ impl AsyncProverClient {
         self
     }
 
+    /// As [`Self::with_tee`], under the policy downloaded from `policy`'s URL
+    /// once its signers sign it.
+    #[must_use]
+    pub fn with_signed_tee(mut self, policy: SignedTeePolicy) -> Self {
+        self.tee = Tee::On(Box::new(TeeSession::signed(policy)));
+        self
+    }
+
     /// Plaintext to any prover, every proof but a nullifier-tree batch refused.
     #[must_use]
     pub fn for_tree_batches(mut self) -> Self {
@@ -915,8 +933,26 @@ impl AsyncProverClient {
             Tee::On(session) => session,
             Tee::Broken(error) => return Err(ClientError::Tee(error.clone())),
         };
-        let key = session.key_or_attest(|| self.attest_with(session)).await?;
+        let policy = self.tee_policy(session).await?;
+        let key = session
+            .key_or_attest(&policy, || self.attest_with(session))
+            .await?;
         Ok(Some(Recipient { session, key }))
+    }
+
+    async fn tee_policy(&self, session: &TeeSession) -> Result<Arc<TeePolicy>, ClientError> {
+        session
+            .policy(|url| async move {
+                let request = HttpRequest::get(url)
+                    .with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                    .with_body_limit(MAX_SIGNED_POLICY_BYTES);
+                let response = self
+                    .send_http(request)
+                    .await
+                    .map_err(|_| TeeError::SignedPolicy("unavailable"))?;
+                Ok((response.status, response.body))
+            })
+            .await
     }
 
     /// Attest the prover now against the [`Self::with_tee`] policy.
@@ -926,11 +962,14 @@ impl AsyncProverClient {
             Tee::On(session) => session,
             Tee::Broken(error) => return Err(ClientError::Tee(error.clone())),
         };
-        tee.attest_exclusive(|| self.attest_with(tee)).await
+        let policy = self.tee_policy(tee).await?;
+        tee.attest_exclusive(&policy, || self.attest_with(tee))
+            .await
     }
 
     /// Retries a transport failure and a busy or unavailable answer, each try
-    /// with a fresh nonce.
+    /// with a fresh nonce, and verifies the answer under the policy in force
+    /// once it arrives, which may have expired or changed in the meantime.
     async fn attest_with(&self, tee: &TeeSession) -> Result<AttestedProver, ClientError> {
         let mut attempt = 0;
         loop {
@@ -957,7 +996,8 @@ impl AsyncProverClient {
                 continue;
             }
             TeeSession::check_attestation_len(response.body.len())?;
-            return tee.accept(&nonce, response.status, &response.body);
+            let policy = self.tee_policy(tee).await?;
+            return tee.accept(&policy, &nonce, response.status, &response.body);
         }
     }
 
@@ -1352,7 +1392,9 @@ mod tests {
 
     use super::super::indexed::IndexedProofRequest;
     use super::*;
-    use crate::prover::tee::{FixtureSession, NitroFixture};
+    use crate::prover::tee::{
+        FixtureSession, NitroFixture, PolicyPayload, PolicySigners, POLICY_DOMAIN,
+    };
 
     #[derive(Debug)]
     struct NoRequests;
@@ -1450,7 +1492,7 @@ mod tests {
             };
             let (private_key, _) = X25519HkdfSha256::derive_keypair(b"proxy test enclave");
             let enc = <X25519HkdfSha256 as Kem>::EncappedKey::from_bytes(
-                &hex::decode(header("zolana-tee-enc")).unwrap(),
+                &hex::decode(header("spr-tee-enc")).unwrap(),
             )
             .unwrap();
             let mut receiver = hpke::setup_receiver::<AesGcm256, HkdfSha256, X25519HkdfSha256>(
@@ -1466,7 +1508,7 @@ mod tests {
             let uri = &url[url::Position::BeforePath..];
             let method = request.header.split_whitespace().next().unwrap();
             let ciphertext = if method == "GET" {
-                hex::decode(header("zolana-tee-ciphertext")).unwrap()
+                hex::decode(header("spr-tee-ciphertext")).unwrap()
             } else {
                 request.body.clone()
             };
@@ -1509,7 +1551,7 @@ mod tests {
     fn assert_proxy_requests(proxy: MockServer, socks: bool) {
         let requests = proxy.requests();
         assert_eq!(requests.len(), 3);
-        assert!(requests[0].path.contains("/tee/v1/attestation?nonce="));
+        assert!(requests[0].path.contains("/attestation?nonce="));
         assert!(requests[0].body.is_empty());
         assert!(requests[1..].iter().all(|request| request.encrypted));
         let requests = &requests[1..];
@@ -1533,7 +1575,7 @@ mod tests {
     fn only_a_loopback_prover_takes_plaintext() {
         for remote in [
             "https://prover.example",
-            "https://devnet.helius-rpc.com/v1/zolana?api-key=k",
+            "https://devnet.helius-rpc.com/v1/spr?api-key=k",
         ] {
             assert!(
                 matches!(
@@ -1744,7 +1786,7 @@ mod tests {
 
     fn assert_only_attestation_was_asked(requests: &[RecordedRequest]) {
         assert_eq!(requests.len(), 1);
-        assert!(requests[0].path.starts_with("/tee/v1/attestation?nonce="));
+        assert!(requests[0].path.starts_with("/attestation?nonce="));
     }
 
     fn unattested_answers() -> [MockResponse; 2] {
@@ -1823,7 +1865,7 @@ mod tests {
         assert_eq!(requests.len(), 3);
         assert!(requests
             .iter()
-            .all(|request| request.path.starts_with("/tee/v1/attestation?nonce=")));
+            .all(|request| request.path.starts_with("/attestation?nonce=")));
     }
 
     fn oversized_attestation() -> MockResponse {
@@ -1915,7 +1957,7 @@ mod tests {
         let kinds: Vec<_> = requests
             .iter()
             .map(|request| {
-                if request.path.starts_with("/tee/v1/attestation?nonce=") {
+                if request.path.starts_with("/attestation?nonce=") {
                     "attest"
                 } else {
                     assert!(request.encrypted, "{} sent in plaintext", request.path);
@@ -1985,6 +2027,59 @@ mod tests {
         assert!(server.requests().is_empty());
     }
 
+    #[test]
+    fn an_attestation_answered_after_its_policy_expired_sends_nothing() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let now = now_secs();
+        let expires_at = now + 2;
+        let fixture = NitroFixture::at([0; 32], now);
+        let signer = SigningKey::from_bytes(&[1; 32]);
+        let payload = serde_json::to_vec(&PolicyPayload {
+            network: "fixture".into(),
+            version: 1,
+            expires_at,
+            policy: fixture.policy().clone(),
+        })
+        .unwrap();
+        let signature = signer.sign(&[POLICY_DOMAIN, &payload].concat());
+        let file = json!({
+            "payload": hex::encode(&payload),
+            "signatures": [{
+                "public_key": hex::encode(signer.verifying_key().as_bytes()),
+                "signature": hex::encode(signature.to_bytes()),
+            }],
+        });
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(200, file.clone()),
+            MockResponse::computed(move |request| {
+                while now_secs() < expires_at {
+                    thread::sleep(Duration::from_millis(50));
+                }
+                nitro_attestation(now).resolve(request)
+            }),
+            MockResponse::json(200, file),
+        ]);
+        let signers =
+            PolicySigners::new("fixture", vec![signer.verifying_key().to_bytes()], 1).unwrap();
+        let policy = SignedTeePolicy::new(format!("{}/policy", server.url()), signers).unwrap();
+        let mut client = ProverClient::new(server.url().to_string());
+        client.client.tee = Tee::On(Box::new(
+            TeeSession::signed(policy).trusting(fixture.anchors()),
+        ));
+        let error = client.check_proving_keys().unwrap_err();
+        assert!(
+            matches!(error, ClientError::Tee(TeeError::SignedPolicy("expired"))),
+            "{error}"
+        );
+        let paths: Vec<_> = server
+            .requests()
+            .into_iter()
+            .map(|request| request.path.split('?').next().unwrap().to_owned())
+            .collect();
+        assert_eq!(paths, ["/policy", "/attestation", "/policy"]);
+    }
+
     #[tokio::test]
     async fn an_async_lost_key_is_attested_again_and_the_call_resent() {
         let now = now_secs();
@@ -2021,7 +2116,9 @@ mod tests {
         let Tee::On(session) = &client.client.tee else {
             panic!("the client lost its session");
         };
-        assert!(session.attested_key().is_some());
+        assert!(session
+            .attested_key(&session.fresh_policy().unwrap())
+            .is_some());
     }
 
     #[test]
@@ -2939,7 +3036,7 @@ mod tests {
             MockResponse::json(202, json!({"jobId":"indexed-queued", "status":"queued"})),
             MockResponse::json(200, json!({"status":"completed", "result":{"proof":proof}})),
         ]);
-        let proof = queued_prover_client(&format!("{}/v1/zolana?api-key=secret", server.url()))
+        let proof = queued_prover_client(&format!("{}/v1/spr?api-key=secret", server.url()))
             .prove_indexed(&request)
             .unwrap();
         assert_eq!(proof.resolution.trees[0].id, 3);
@@ -2947,9 +3044,9 @@ mod tests {
         assert_paths(
             &requests,
             [
-                "/v1/zolana/prove/transfer_confidential_1_2/indexed?api-key=secret",
-                "/v1/zolana/prove/transfer_confidential_1_2/indexed?api-key=secret",
-                "/v1/zolana/prove/transfer_confidential_1_2/status?api-key=secret&jobId=indexed-queued",
+                "/v1/spr/prove/transfer_confidential_1_2/indexed?api-key=secret",
+                "/v1/spr/prove/transfer_confidential_1_2/indexed?api-key=secret",
+                "/v1/spr/prove/transfer_confidential_1_2/status?api-key=secret&jobId=indexed-queued",
             ],
         );
         assert!(requests[0].sync_requested);
@@ -3484,7 +3581,7 @@ mod tests {
             }),
             encrypted: header.lines().any(|line| {
                 let lower = line.to_ascii_lowercase();
-                lower.strip_prefix("zolana-tee:").map(str::trim) == Some("v1")
+                lower.strip_prefix("spr-tee:").map(str::trim) == Some("v1")
             }),
         }
     }
@@ -3500,7 +3597,7 @@ mod tests {
     }
 
     fn write_encrypted_response(stream: &mut TcpStream, body: &[u8]) {
-        write!(stream, "HTTP/1.1 200 OK\r\nzolana-tee: v1\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).unwrap();
+        write!(stream, "HTTP/1.1 200 OK\r\nspr-tee: v1\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).unwrap();
         stream.write_all(body).unwrap();
     }
 

@@ -154,12 +154,12 @@ fn serve_truncated_body() -> String {
 }
 
 fn gateway(base: &str, key: &str) -> String {
-    format!("{base}/v1/zolana?api-key={key}")
+    format!("{base}/v1/spr?api-key={key}")
 }
 
 const GATEWAY_PATHS: [&str; 2] = [
-    "/v1/zolana/prove/test?api-key=test-key",
-    "/v1/zolana/prove/test/status?api-key=test-key&jobId=job-1",
+    "/v1/spr/prove/test?api-key=test-key",
+    "/v1/spr/prove/test/status?api-key=test-key&jobId=job-1",
 ];
 
 /// The failure is the one expected, and the key is not in its text.

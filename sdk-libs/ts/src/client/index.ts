@@ -67,6 +67,12 @@ export type {
   TeePolicy,
 } from "./prover/tee/registry.js";
 export type { AttestedProver } from "./prover/tee/verify.js";
+export {
+  SignedTeePolicy,
+  type SignedTeePolicyConfig,
+  type TeeNetwork,
+} from "./prover/tee/signed.js";
+export type { ProverTee } from "./prover/tee/session.js";
 export { signTransactMessage, transactMessageDigest } from "./prover/assembly.js";
 export { compressProof, parseProof } from "./prover/proof.js";
 export type {

@@ -20,11 +20,11 @@ use spr_client::{
 };
 use zeroize::Zeroizing;
 
-const PROVER_URL: &str = "http://127.0.0.1:3001/v1/zolana?api-key=secret";
-const PROVE_URL: &str = "http://127.0.0.1:3001/v1/zolana/prove/test?api-key=secret";
+const PROVER_URL: &str = "http://127.0.0.1:3001/v1/spr?api-key=secret";
+const PROVE_URL: &str = "http://127.0.0.1:3001/v1/spr/prove/test?api-key=secret";
 const STATUS_URL: &str =
-    "http://127.0.0.1:3001/v1/zolana/prove/test/status?api-key=secret&jobId=job-1";
-const PROVING_KEYS_URL: &str = "http://127.0.0.1:3001/v1/zolana/proving-keys?api-key=secret";
+    "http://127.0.0.1:3001/v1/spr/prove/test/status?api-key=secret&jobId=job-1";
+const PROVING_KEYS_URL: &str = "http://127.0.0.1:3001/v1/spr/proving-keys?api-key=secret";
 
 struct Request(Delivery);
 
@@ -359,7 +359,7 @@ fn assert_only_attested(requests: &[HttpRequest]) {
     assert!(
         requests[0]
             .url
-            .starts_with("http://127.0.0.1:3001/v1/zolana/tee/v1/attestation?"),
+            .starts_with("http://127.0.0.1:3001/v1/spr/attestation?"),
         "{}",
         requests[0].url
     );
@@ -392,7 +392,7 @@ async fn an_async_tee_client_attests_through_the_client() {
 async fn remote_clients_without_a_supplied_policy_never_reach_http() {
     for url in [
         "https://prover.example",
-        "https://api.example/v1/zolana?api-key=secret",
+        "https://api.example/v1/spr?api-key=secret",
     ] {
         let (http, requests) = FakeClient::answering(vec![]);
         let error = ProverClient::with_client(url.into(), http)

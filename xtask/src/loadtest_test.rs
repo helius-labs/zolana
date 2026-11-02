@@ -26,7 +26,7 @@ fn parse_with_policy(label: &str, json: &str) -> Result<Options> {
         std::process::id()
     ));
     fs::write(&path, json).unwrap();
-    let mut args = arguments("https://prover.example/v1/zolana");
+    let mut args = arguments("https://prover.example/v1/spr");
     args.extend(["--prover-tee-policy".into(), path.display().to_string()]);
     let result = Options::parse(args);
     fs::remove_file(path).unwrap();
@@ -43,7 +43,7 @@ fn supplied_bare_and_wrapped_policies_reach_the_loadtest_options() {
         let options = parse_with_policy(label, &json).unwrap();
         assert_eq!(
             (options.prover_url.as_str(), options.prover_tee),
-            ("https://prover.example/v1/zolana", Some(expected.clone())),
+            ("https://prover.example/v1/spr", Some(expected.clone())),
             "the supplied URL and policy must stay together"
         );
     }
@@ -53,7 +53,7 @@ fn supplied_bare_and_wrapped_policies_reach_the_loadtest_options() {
 fn remote_provers_without_a_policy_fail_before_loading_wallets() {
     for prover in [
         "https://prover.example",
-        "https://mainnet.helius-rpc.com/v1/zolana?api-key=fixture",
+        "https://mainnet.helius-rpc.com/v1/spr?api-key=fixture",
         "http://10.0.0.1:3001",
     ] {
         let error = Options::parse(arguments(prover)).err().unwrap();

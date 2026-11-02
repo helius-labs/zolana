@@ -7,7 +7,7 @@
   "report_data_no_gpu": "b862900309ded091670546a72ac72e6aefcd3bb1da1516d739933ce9fc025ad366fbddd3915b948749c809916909f902e57e354ffdff2c0e731080994283216a",
   "gpu_nonce": "a60303f260939f6351f9ae36813887f29d56809a05f5379712dc1f3ce039405d",
   "method": "POST",
-  "request_uri": "/v1/zolana/prove/transfer_2_2?api-key=k",
+  "request_uri": "/v1/spr/prove/transfer_2_2?api-key=k",
   "enc": "6828aaf2fb92da6438ad6cd76426049a00d0c346e4499c342c8c371f7d6d535f",
   "ciphertext": "134095a0847bb8e110f928050dee72caf80eff78146bb422cc7a1080730bcff1f12bbc5d9f",
   "plaintext": "{\"inputs\":[\"secret\"]}",
@@ -23,23 +23,23 @@
     },
     {
       "method": "POST",
-      "request_target": "/v1/zolana/prove/transfer_2_2?api-key=k",
+      "request_target": "/v1/spr/prove/transfer_2_2?api-key=k",
       "aad": "POST /prove/transfer_2_2"
     },
     {
       "method": "POST",
-      "request_target": "/v1/zolana/v1/zolana/prove/x",
-      "aad": "POST /v1/zolana/prove/x"
+      "request_target": "/v1/spr/v1/spr/prove/x",
+      "aad": "POST /v1/spr/prove/x"
     },
     {
       "method": "POST",
-      "request_target": "/v1/zolanax/prove/x",
-      "aad": "POST /v1/zolanax/prove/x"
+      "request_target": "/v1/sprx/prove/x",
+      "aad": "POST /v1/sprx/prove/x"
     },
     {
       "method": "GET",
-      "request_target": "/v1/zolana?jobId=a",
-      "aad": "GET /v1/zolana?jobId=a"
+      "request_target": "/v1/spr?jobId=a",
+      "aad": "GET /v1/spr?jobId=a"
     },
     {
       "method": "GET",
@@ -53,8 +53,8 @@
     },
     {
       "method": "GET",
-      "request_target": "/tee/v1/attestation?nonce=ab\u0026api-key=k1\u0026api-key=k2",
-      "aad": "GET /tee/v1/attestation?nonce=ab"
+      "request_target": "/attestation?nonce=ab\u0026api-key=k1\u0026api-key=k2",
+      "aad": "GET /attestation?nonce=ab"
     },
     {
       "method": "GET",
@@ -68,7 +68,7 @@
     },
     {
       "method": "POST",
-      "request_target": "/v1/zolana/prove/transfer_2_2?api%2Dkey=k\u0026jobId=%61%31\u0026q=a%20b+c",
+      "request_target": "/v1/spr/prove/transfer_2_2?api%2Dkey=k\u0026jobId=%61%31\u0026q=a%20b+c",
       "aad": "POST /prove/transfer_2_2?jobId=%61%31\u0026q=a%20b+c"
     },
     {

@@ -252,7 +252,7 @@ func TestWrapRefusesPlainWitnessBeforeReadingOrDispatch(t *testing.T) {
 	s := testServer(t)
 	for _, path := range []string{
 		"/prove/merge_8_1", "/prove/merge_8_1/indexed", "/prove",
-		"/v1/zolana/prove/merge_8_1", "/v1/zolana/prove", "/future-proof-route",
+		"/v1/spr/prove/merge_8_1", "/v1/spr/prove", "/future-proof-route",
 	} {
 		t.Run(path, func(t *testing.T) {
 			body := strings.NewReader(`{"privateWitness":"secret"}`)
@@ -272,7 +272,7 @@ func TestWrapAllowsOnlyPlainPublicRoutes(t *testing.T) {
 	s := testServer(t)
 	for _, path := range []string{
 		"/auth", "/ready", "/health", "/proving-keys",
-		"/v1/zolana/proving-keys", AttestationPath, "/v1/zolana" + AttestationPath,
+		"/v1/spr/proving-keys", AttestationPath, "/v1/spr" + AttestationPath,
 	} {
 		t.Run(path, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, path, nil)

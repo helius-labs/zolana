@@ -1,0 +1,16 @@
+{
+  "mainnet": {
+    "url": "https://d3gbdb0egjwcw9.cloudfront.net/tee-policy/mainnet.json",
+    "public_keys": [
+      "1fe5d29c79064ea17a16308452040b799df8aeaaae588d44a527a8da9ffa924a"
+    ],
+    "threshold": 1
+  },
+  "devnet": {
+    "url": "https://d3gbdb0egjwcw9.cloudfront.net/tee-policy/devnet.json",
+    "public_keys": [
+      "1fe5d29c79064ea17a16308452040b799df8aeaaae588d44a527a8da9ffa924a"
+    ],
+    "threshold": 1
+  }
+}

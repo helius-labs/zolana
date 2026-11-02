@@ -2,15 +2,15 @@
 
 This contract lets a client encrypt a prover request to a key that only a measured confidential computing environment holds.
 Each platform proves the environment its own way and carries the same 64-byte binding.
-JSON fields are snake_case, and byte fields and the `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext` values are lowercase hex.
+JSON fields are snake_case, and byte fields and the `Spr-Tee-Enc` and `Spr-Tee-Ciphertext` values are lowercase hex.
 
 | Method | Request | Result |
 |--------|---------|--------|
-| `GET /tee/v1/attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key | `platform`, `hpke_public_key`, `gpu` and `evidence` |
-| any prover route, encrypted | `Zolana-Tee: v1`, `Zolana-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Zolana-Tee-Ciphertext` | the inner status, `Zolana-Tee: v1`, and the encrypted status and body |
+| `GET /attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key | `platform`, `hpke_public_key`, `gpu` and `evidence` |
+| any prover route, encrypted | `Spr-Tee: v1`, `Spr-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Spr-Tee-Ciphertext` | the inner status, `Spr-Tee: v1`, and the encrypted status and body |
 
-A TEE prover rejects a request without `Zolana-Tee` before reading its body, except on `/auth`, `/ready`, `/health`, `/proving-keys` and the attestation route.
-The proof routes, `/proving-keys` and the attestation route also answer under the `/v1/zolana` gateway prefix.
+A TEE prover rejects a request without `Spr-Tee` before reading its body, except on `/auth`, `/ready`, `/health`, `/proving-keys` and the attestation route.
+The proof routes, `/proving-keys` and the attestation route also answer under the `/v1/spr` gateway prefix.
 
 ## Attestation
 
@@ -61,7 +61,7 @@ The checks:
 
 An AWS Nitro Enclave without a GPU.
 The enclave draws its HPKE key at boot or derives it from a seed that an AWS KMS key releases, and it never exports the key.
-The KMS key policy releases the seed to the host only inside an enclave with the PCR0, PCR1 and PCR2 of the deployment, so all enclaves of a KMS deployment hold the same key.
+The KMS key policy releases the seed to the host only inside an enclave with the PCR0, PCR1 and PCR2 of the release, and every region of the release copies one seed, so all enclaves of a KMS release hold the same key.
 `evidence` holds `document`, the attestation document the Nitro Secure Module signs, a COSE_Sign1 structure.
 The prover requests it with `user_data` set to report_data, `nonce` set to the client's nonce, and `public_key` set to `hpke_public_key`.
 
@@ -87,12 +87,29 @@ A policy is a JSON object with `platform`, the platform's pins, `gpu` (`required
 A `dstack-tdx` policy pins `app_id`, `hpke_public_key`, `key_provider_id`, `os_image_hashes`, `measurements` (`mrtd`, `rtmr0`, `rtmr1`, `rtmr2`), `compose_hashes` and `tcb_statuses`.
 An `aws-nitro` policy pins `measurements` (`pcr0`, `pcr1`, `pcr2`) and can also pin `hpke_public_key`, which stays the same across boots only on a KMS deployment.
 
+### Signed policy
+
+A network publishes its policy as one JSON file of `payload` and `signatures`, so a new release needs no new client.
+`payload` is the hex of a JSON object with `network`, `version`, `expires_at` in Unix seconds and `policy`, a bare policy.
+Each signature holds a `public_key` and the Ed25519 `signature` of:
+
+```
+message = "zolana/prover-tee/v1/policy" || payload
+```
+
+A client pins the network, the signers' keys and how many of them must sign.
+It refuses a malformed file, counts a valid signature of each pinned key once, ignores well-formed signatures of other keys, and refuses a file with fewer, for another network, or at or after `expires_at`.
+`version` and `max_age_secs` start at 1, and they and `expires_at` are integers of at most 2^53 minus 1.
+It refuses a lower `version` than one it accepted, and another payload under the same version.
+It downloads the file again once the policy it holds is `max_age_secs` old, which is also when it attests again, and before it attests again after `tee_decryption_failed`; it keeps that policy while a download fails until it expires, and attests again under a new payload.
+It verifies an attestation under the policy in force when the answer arrives, not when the call began.
+
 ## Encryption
 
 The client encrypts a request body with HPKE base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM.
 The recipient is `hpke_public_key`, and the info is `zolana/prover-tee/v1`.
-`Zolana-Tee-Enc` carries the encapsulated key.
-A GET carries its encrypted bytes in `Zolana-Tee-Ciphertext`, because fetch refuses a GET body.
+`Spr-Tee-Enc` carries the encapsulated key.
+A GET carries its encrypted bytes in `Spr-Tee-Ciphertext`, because fetch refuses a GET body.
 Every other method carries them as an `application/octet-stream` body.
 The AAD is the method, the route and the query without its `api-key` parameters:
 
@@ -101,16 +118,16 @@ aad = METHOD " " route [ "?" query ]
 ```
 
 The route is the path below the prover's base, such as `/prove/transfer_2_2`.
-A client drops the path of the prover URL it was given, and the prover drops a leading `/v1/zolana` once, so the route stays the same wherever a proxy mounts the prover.
+A client drops the path of the prover URL it was given, and the prover drops a leading `/v1/spr` once, so the route stays the same wherever a proxy mounts the prover.
 The query keeps its pairs in order and drops empty pairs and every pair whose key is `api-key`.
 The AAD omits `?` when no pair remains.
 The answer is AES-256-GCM with a fresh random 12-byte nonce and empty AAD, under the 32-byte HPKE export `zolana/prover-tee/v1/response`.
 Its wire bytes are the nonce, ciphertext and 16-byte tag.
 Its plaintext is the status as a big-endian `u16`, then the body.
 A replayed request derives the same response key, but each answer gets an independent nonce.
-A client refuses a 2xx answer without `Zolana-Tee: v1`.
+A client refuses a 2xx answer without `Spr-Tee: v1`.
 A 400 `tee_decryption_failed` answer means the request does not decrypt under the key the prover holds.
-On `aws-nitro`, where a boot key changes at every boot, the client then attests again and resends the call once.
+The client then attests again and resends the call once, because a boot key changes at every boot and a release key at every release.
 A resent proof request costs only a second proof, because an encrypted prover runs each request synchronously and keeps no job state.
 An unencrypted failure reaches the caller as unauthenticated, so load shedding and retries still work.
 
@@ -123,11 +140,13 @@ The AAD never covers it, so a proxy can move or strip it.
 
 ## Proxies
 
-A proxy can serve the prover under any path, and delivers the route bare or under `/v1/zolana`.
+A proxy can serve the prover under any path, and delivers the route bare or under `/v1/spr`.
 It keeps the non-credential query pairs as sent.
-It forwards `Zolana-Tee`, `Zolana-Tee-Enc` and `Zolana-Tee-Ciphertext`, and passes octet-stream bodies through unchanged.
-For browsers it allows the three headers in CORS preflight and exposes `Zolana-Tee`.
-An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover tries to decrypt it.
+It forwards `Spr-Tee`, `Spr-Tee-Enc` and `Spr-Tee-Ciphertext`, and passes octet-stream bodies through unchanged.
+For browsers it allows the three headers in CORS preflight and exposes `Spr-Tee`.
+An authorization subrequest to the prover must drop `Spr-Tee`, or the prover tries to decrypt it.
+A proxy that serves several releases moves every region to the new release in one step, since each release holds its own key.
+In the seconds the regions move apart, a client can attest at one release and send to the other; the prover answers `tee_decryption_failed`, and the client reads the signed policy again, attests again and resends once, so the move costs a client one extra attestation and at most one failed call.
 
 ## Errors
 
@@ -137,9 +156,9 @@ An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover 
 | 401 | `unauthorized` | the API key is missing or wrong |
 | 429 | `attestation_busy` | quote capacity is exhausted, retry after the `Retry-After` seconds |
 | 503 | `attestation_unavailable` | the prover cannot produce attestation evidence |
-| 400 | `tee_version_unsupported` | `Zolana-Tee` names another version |
-| 400 | `tee_required` | a request outside the plaintext routes has no `Zolana-Tee` |
-| 400 | `tee_request_malformed` | an encrypted HEAD, a missing or non-hex `Zolana-Tee-Enc` or GET `Zolana-Tee-Ciphertext`, a `Zolana-Tee-Enc` not of 32 bytes, or a body over the size cap |
+| 400 | `tee_version_unsupported` | `Spr-Tee` names another version |
+| 400 | `tee_required` | a request outside the plaintext routes has no `Spr-Tee` |
+| 400 | `tee_request_malformed` | an encrypted HEAD, a missing or non-hex `Spr-Tee-Enc` or GET `Spr-Tee-Ciphertext`, a `Spr-Tee-Enc` not of 32 bytes, or a body over the size cap |
 | 400 | `tee_decryption_failed` | the encrypted request does not decrypt under the held key |
 
 ## Test vectors
@@ -149,3 +168,4 @@ An authorization subrequest to the prover must drop `Zolana-Tee`, or the prover 
 `ikm` derives the prover key with RFC 9180 `DeriveKeyPair`.
 `testdata/nitro_cbor_cases.json` pins whether a client accepts each `aws-nitro` case when it trusts `root` in place of the AWS root.
 A case holds a full COSE_Sign1, or a payload the test signs with `leaf_key` into a tagged COSE_Sign1.
+`testdata/signed_policy.json` pins whether a client accepts each signed policy file, from test signers whose seeds it names.

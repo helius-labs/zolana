@@ -34,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
             or parse_qs(url.query).get('api-key', [''])[0]
         )
         code = 204 if url.path == '/auth' else 200
-        public = url.path in ('/proving-keys', '/v1/zolana/proving-keys')
+        public = url.path in ('/proving-keys', '/v1/spr/proving-keys')
         if self.server.server_port == 3003 and not public and not hmac.compare_digest(key, 'secret'):
             code = 401
         self.send_response(code)
@@ -77,14 +77,14 @@ for attempt in range(40):
     if all(listening(port) for port in (3003, 8784, 3001)):
         break
     time.sleep(0.25)
-for path in ('/ready', '/indexer', '/indexer/readiness', '/prove/indexed', '/v1/zolana/prove/indexed', '/proving-keys/extra'):
+for path in ('/ready', '/indexer', '/indexer/readiness', '/prove/indexed', '/v1/spr/prove/indexed', '/proving-keys/extra'):
     expect(401, path)
     expect(401, path, 'wrong')
     code, _, cors = request(path, 'secret')
     assert code == 200 and cors == ['*'], (path, code, cors)
     expect(401, path, 'wrong', query=True)
     expect(200, path, 'secret', query=True)
-for path in ('/proving-keys', '/v1/zolana/proving-keys'):
+for path in ('/proving-keys', '/v1/spr/proving-keys'):
     for key in (None, 'wrong', 'secret'):
         expect(200, path, key)
 assert request('/_authorize', 'secret')[0] == 404

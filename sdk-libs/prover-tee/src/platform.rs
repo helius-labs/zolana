@@ -12,7 +12,6 @@ use super::{
 /// Sealed by its private module.
 pub trait TeePlatform {
     const HOSTS_GPU: bool;
-    const ROTATES_KEY_PER_BOOT: bool;
     const ANCHORS: Self::Anchors;
     type Evidence;
     type Policy;
@@ -95,12 +94,6 @@ macro_rules! platforms {
                 }
             }
 
-            /// A prover answering `tee_decryption_failed` is worth attesting again.
-            pub const fn rotates_key_per_boot(self) -> bool {
-                match self {
-                    $(Self::$variant => <$module::$platform as TeePlatform>::ROTATES_KEY_PER_BOOT),+
-                }
-            }
         }
 
         impl PlatformPolicy {

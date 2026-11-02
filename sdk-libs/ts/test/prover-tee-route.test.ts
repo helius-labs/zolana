@@ -66,8 +66,8 @@ it.each(
           return Response.json(live["attestation"]);
         }
         const headers = new Headers(init?.headers);
-        expect(headers.get("Zolana-Tee")).toBe("v1");
-        expect(headers.get("Zolana-Tee-Enc")).toMatch(/^[0-9a-f]{64}$/u);
+        expect(headers.get("Spr-Tee")).toBe("v1");
+        expect(headers.get("Spr-Tee-Enc")).toMatch(/^[0-9a-f]{64}$/u);
         expect(headers.get("Content-Type")).toBe("application/octet-stream");
         expect(init?.body).toBeInstanceOf(Uint8Array);
         return new Response(null, { status: 404 });
@@ -76,7 +76,7 @@ it.each(
     const key = expectedProvingKey({ circuit: "transfer-confidential", nInputs: 2, nOutputs: 2 });
     await expect(prover.send('{"private":"synthetic"}', route, key)).rejects.toThrow();
     expect(sent).toEqual([gatewayContract.routes.attestation, path]);
-    expect(sealed).toEqual([`POST ${path.replace("/v1/zolana", "")}?flag&tenant=a%20b`]);
+    expect(sealed).toEqual([`POST ${path.replace("/v1/spr", "")}?flag&tenant=a%20b`]);
   } finally {
     random.mockRestore();
     now.mockRestore();

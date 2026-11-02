@@ -129,9 +129,9 @@ http {
         proxy_hide_header Access-Control-Expose-Headers;
         auth_request /_authorize;
         add_header Access-Control-Allow-Origin "*" always;
-        add_header Access-Control-Allow-Headers "Content-Type,Authorization,X-API-Key,X-Prover-Timing,X-Request-ID,X-Sync,X-Async,Zolana-Tee,Zolana-Tee-Enc,Zolana-Tee-Ciphertext" always;
+        add_header Access-Control-Allow-Headers "Content-Type,Authorization,X-API-Key,X-Prover-Timing,X-Request-ID,X-Sync,X-Async,Spr-Tee,Spr-Tee-Enc,Spr-Tee-Ciphertext" always;
         add_header Access-Control-Allow-Methods "GET,POST,OPTIONS" always;
-        add_header Access-Control-Expose-Headers "Server-Timing,X-Prover-Timing,X-Request-ID,Zolana-Tee" always;
+        add_header Access-Control-Expose-Headers "Server-Timing,X-Prover-Timing,X-Request-ID,Spr-Tee" always;
         if ($request_method = OPTIONS) { return 204; }
         location = /_authorize {
             internal;
@@ -141,9 +141,9 @@ http {
         + """?$request_query;
             proxy_pass_request_body off;
             proxy_set_header Content-Length "";
-            proxy_set_header Zolana-Tee "";
+            proxy_set_header Spr-Tee "";
         }
-        location ~ ^/(v1/zolana/)?proving-keys$ {
+        location ~ ^/(v1/spr/)?proving-keys$ {
             auth_request off;
             proxy_pass """
         + prover

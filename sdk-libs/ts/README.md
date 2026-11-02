@@ -154,27 +154,30 @@ The public dashboard reports protocol and service health.
 
 **Mainnet:** Photon RPC is `https://dgcj4pjarvo65.cloudfront.net` and the
 Nitro prover is `https://d3ky2kt0ntqxt1.cloudfront.net`. These are deployment
-examples; the SDK embeds no deployment URLs or policies. Supply your URLs and
-a reviewed policy from the deployment release:
+examples; the SDK embeds no prover URLs. It pins who signs each network's
+prover policy, so a client follows new prover releases without an SDK release:
 
 ```ts
-import { ZolanaClient, teePolicyFromJson } from "@heliuslabs/zolana/client";
-import policyFile from "./prover-policy.json" with { type: "json" };
+import { SignedTeePolicy, ZolanaClient } from "@heliuslabs/zolana/client";
 
 const client = new ZolanaClient({
   solanaRpcUrl: rpcUrl,
   indexerUrl: indexerUrl,
   proverUrl: proverUrl,
-  proverTee: teePolicyFromJson(policyFile),
+  proverTee: SignedTeePolicy.forNetwork("mainnet"),
 });
 ```
 
-A unified Helius `/v1/zolana` base URL can be used for both `indexerUrl` and
+A unified Helius `/v1/spr` base URL can be used for both `indexerUrl` and
 `proverUrl`; policy selection is independent of the URL. Every remote prover
 requires the caller's `proverTee` (`tee` on `ProverClient`) before any HTTP
-request. Take new pins from a reviewed release policy, never from the prover's
-own response. Applications can bundle that versioned JSON and its checksum
-with their configuration; the SDK does not fetch policies automatically.
+request. The client downloads the network's signed policy again whenever it
+attests again, every `max_age_secs` of the policy, and never uses it past its
+expiry. An application that reviews each release
+itself can instead pass that release's policy JSON through `teePolicyFromJson`,
+or its own signers to `new SignedTeePolicy({ url, network, publicKeys,
+threshold })`. Take pins from a reviewed release, never from the prover's own
+response.
 See the [TEE deployment guide](../../prover/tee/README.md) for policy sources
 and measured-build provenance. Attestation signature, certificate, nonce,
 freshness and HPKE-key checks remain required with a supplied policy.

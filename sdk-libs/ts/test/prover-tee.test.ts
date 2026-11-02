@@ -434,7 +434,7 @@ describe("encryption", () => {
 describe("encrypted request shape", () => {
   const call = (method: "GET" | "POST"): ProverCall => ({
     fetch: globalThis.fetch,
-    attestationUrl: new URL("https://prover.example/tee/v1/attestation"),
+    attestationUrl: new URL("https://prover.example/attestation"),
     url: new URL("https://prover.example/prove/merge/status?jobId=a"),
     route: "/prove/merge/status",
     method,
@@ -452,16 +452,16 @@ describe("encrypted request shape", () => {
     const init = encryptedInit(call("GET"), encrypted);
     expect(init.body).toBeUndefined();
     expect(init.headers).toMatchObject({
-      "Zolana-Tee": "v1",
-      "Zolana-Tee-Enc": "ab",
-      "Zolana-Tee-Ciphertext": "0102",
+      "Spr-Tee": "v1",
+      "Spr-Tee-Enc": "ab",
+      "Spr-Tee-Ciphertext": "0102",
     });
   });
 
   it("keeps a POST's encrypted bytes in the body", () => {
     const init = encryptedInit(call("POST"), encrypted);
     expect(init.body).toEqual(new Uint8Array([1, 2]));
-    expect(init.headers).not.toHaveProperty("Zolana-Tee-Ciphertext");
+    expect(init.headers).not.toHaveProperty("Spr-Tee-Ciphertext");
   });
 });
 
@@ -480,7 +480,7 @@ describe("a TEE prover client", () => {
       },
     });
     await expect(prover.checkProvingKeys()).rejects.toThrow(ClientError);
-    expect(requested).toEqual(["/tee/v1/attestation"]);
+    expect(requested).toEqual(["/attestation"]);
   });
 });
 
@@ -505,7 +505,7 @@ it("keeps the cached key independent of the attestation report", async () => {
   try {
     const session = new TeeSession(livePolicy);
     const url = new URL("https://prover.invalid/prove/merge");
-    const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+    const attestationUrl = new URL("https://prover.invalid/attestation");
     const report = await session.attest(fetch, attestationUrl, signal);
     const substituted = await suite.kem.deriveKeyPair(new Uint8Array(32).fill(42));
     report.hpkePublicKey.set(
@@ -525,7 +525,7 @@ it("keeps the cached key independent of the attestation report", async () => {
     const [init] = sent;
     if (init === undefined) throw new Error("no encrypted call");
     const headers = new Headers(init.headers);
-    const enc = hexToBytes(decode.string(headers.get("Zolana-Tee-Enc"), "enc"));
+    const enc = hexToBytes(decode.string(headers.get("Spr-Tee-Enc"), "enc"));
     const receiver = await suite.createRecipientContext({
       recipientKey: substituted,
       enc,
@@ -562,7 +562,7 @@ it("keeps a concurrent attestation report out of an encrypted request", async ()
   const signal = composeSignal(undefined, "attest");
   try {
     const session = new TeeSession(livePolicy);
-    const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+    const attestationUrl = new URL("https://prover.invalid/attestation");
     const substituted = await suite.kem.deriveKeyPair(new Uint8Array(32).fill(42));
     const key = new Uint8Array(await suite.kem.serializePublicKey(substituted.publicKey));
     const report = session.attest(fetch, attestationUrl, signal).then((prover) => {
@@ -583,7 +583,7 @@ it("keeps a concurrent attestation report out of an encrypted request", async ()
     const [init] = sent;
     if (init === undefined) throw new Error("no encrypted call");
     const headers = new Headers(init.headers);
-    const enc = hexToBytes(decode.string(headers.get("Zolana-Tee-Enc"), "enc"));
+    const enc = hexToBytes(decode.string(headers.get("Spr-Tee-Enc"), "enc"));
     const receiver = await suite.createRecipientContext({
       recipientKey: substituted,
       enc,
@@ -650,13 +650,37 @@ describe("attestation retries", () => {
     try {
       const attempt = prover.attest().catch((caught: unknown) => caught);
       await vi.advanceTimersByTimeAsync(4_999);
-      expect(requested).toEqual(["/tee/v1/attestation"]);
+      expect(requested).toEqual(["/attestation"]);
       await vi.advanceTimersByTimeAsync(1);
       const error = await attempt;
       expect(error).toBeInstanceOf(ClientError);
       if (!(error instanceof ClientError)) return;
       expect(error.details).toEqual({ check: "malformed_attestation" });
-      expect(requested).toEqual(["/tee/v1/attestation", "/tee/v1/attestation"]);
+      expect(requested).toEqual(["/attestation", "/attestation"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up on attempts that ignore their deadline, then attests again", async () => {
+    vi.useFakeTimers();
+    try {
+      const session = new TeeSession(livePolicy);
+      const attestationUrl = new URL("https://prover.invalid/attestation");
+      const hung = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>(() => undefined));
+      const stalled = session
+        .attest(hung, attestationUrl, composeSignal(undefined, "attest"))
+        .catch((caught: unknown) => caught);
+      await vi.advanceTimersByTimeAsync(3 * 30_000 + 2 * 2_000);
+      expect(await stalled).toMatchObject({ code: "CLIENT_TIMEOUT" });
+      expect(hung).toHaveBeenCalledTimes(3);
+      const answered = vi.fn<typeof globalThis.fetch>(() =>
+        Promise.resolve(Response.json({ quote: "00" })),
+      );
+      await expect(
+        session.attest(answered, attestationUrl, composeSignal(undefined, "attest")),
+      ).rejects.toMatchObject({ details: { check: "malformed_attestation" } });
+      expect(answered).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
@@ -665,7 +689,7 @@ describe("attestation retries", () => {
   it("lets a joining call time out while the shared attestation hangs", async () => {
     const hung = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>(() => undefined));
     const session = new TeeSession(livePolicy);
-    const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+    const attestationUrl = new URL("https://prover.invalid/attestation");
     const owner = composeSignal(undefined, "attest");
     const joiner = composeSignal({ timeoutMs: 20 }, "attest");
     try {
@@ -693,7 +717,7 @@ describe("attestation retries", () => {
       });
     });
     const session = new TeeSession(livePolicy);
-    const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+    const attestationUrl = new URL("https://prover.invalid/attestation");
     const controller = new AbortController();
     const owner = composeSignal({ signal: controller.signal }, "attest");
     const joiner = composeSignal(undefined, "attest");
@@ -727,7 +751,7 @@ describe("attestation retries", () => {
     const signal = composeSignal(undefined, "attest");
     try {
       const session = new TeeSession(livePolicy);
-      const attestationUrl = new URL("https://prover.invalid/tee/v1/attestation");
+      const attestationUrl = new URL("https://prover.invalid/attestation");
       const provers = await Promise.all(
         [0, 1, 2, 3].map(() => session.attest(fetch, attestationUrl, signal)),
       );
@@ -786,12 +810,12 @@ describe("a prover that lost the attested key", () => {
         const headers = new Headers(init?.headers);
         requested.push([
           path,
-          headers.get("Zolana-Tee") === "v1" &&
-            /^[0-9a-f]{64}$/u.test(headers.get("Zolana-Tee-Enc") ?? "") &&
-            headers.has("Zolana-Tee-Ciphertext"),
+          headers.get("Spr-Tee") === "v1" &&
+            /^[0-9a-f]{64}$/u.test(headers.get("Spr-Tee-Enc") ?? "") &&
+            headers.has("Spr-Tee-Ciphertext"),
         ]);
         return Promise.resolve(
-          path === "/tee/v1/attestation" ? Response.json(live["attestation"]) : answer(),
+          path === "/attestation" ? Response.json(live["attestation"]) : answer(),
         );
       },
     });
@@ -809,15 +833,19 @@ describe("a prover that lost the attested key", () => {
     code: "CLIENT_PROVER_HTTP",
     details: { method: "health", status: 400, reason: code },
   });
-  const attestation = ["/tee/v1/attestation", false] as const;
+  const attestation = ["/attestation", false] as const;
   const health = ["/health", true] as const;
 
-  it.each([false, true])(
-    "re-attests a Nitro enclave once and resends encrypted, key pinned %s",
-    async (pinKey) => {
+  it.each([
+    ["aws-nitro", false],
+    ["aws-nitro", true],
+    ["dstack-tdx", false],
+  ] as const)(
+    "re-attests %s once and resends encrypted, key pinned %s",
+    async (platform, pinKey) => {
       expect(
         await calls(
-          "aws-nitro",
+          platform,
           refusal("tee_decryption_failed"),
           refusedWith("tee_decryption_failed"),
           pinKey,
@@ -826,11 +854,22 @@ describe("a prover that lost the attested key", () => {
     },
   );
 
-  it.each([
-    ["a dstack key loss, its key is pinned", "dstack-tdx", "tee_decryption_failed"],
-    ["a malformed request", "aws-nitro", "tee_request_malformed"],
-  ] as const)("does not resend %s", async (_name, platform, code) => {
-    expect(await calls(platform, refusal(code), refusedWith(code))).toEqual([attestation, health]);
+  it("does not resend a malformed request", async () => {
+    const code = "tee_request_malformed";
+    expect(await calls("aws-nitro", refusal(code), refusedWith(code))).toEqual([
+      attestation,
+      health,
+    ]);
+  });
+
+  it("passes an oversized refusal through without waiting on it or resending", async () => {
+    const oversized = (): Response => new Response("x".repeat(5000), { status: 400 });
+    expect(
+      await calls("aws-nitro", oversized, {
+        code: "CLIENT_PROVER_HTTP",
+        details: { status: 400 },
+      }),
+    ).toEqual([attestation, health]);
   });
 
   it("reads an unreadable refusal as no key loss", async () => {

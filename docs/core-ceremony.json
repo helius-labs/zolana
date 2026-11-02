@@ -1,0 +1,198 @@
+{
+  "source_revision": "ff04c625ceb43c688cd048549e00a5dabc0c6ee6",
+  "integration_source_revision": "af1d693f3eac8cb1d9eb8d4f41b3228b6609cbad",
+  "manifest": {
+    "sha256": "4b2b4465b79b5670d896e18dfb6fb86d02023033e9aeeb43e7a14911cb402079",
+    "size": 31586
+  },
+  "checkpoint": {
+    "sha256": "5c525e4b1547516cf63678c4a235cb2fd05cd1f78a463a3faf44e2ef1cbc41d7",
+    "size": 17855
+  },
+  "export": {
+    "sha256": "ed506cb30158a722fcc9692d44960599e73a4028828b0e6dc6266ec597af8caa",
+    "size": 52982
+  },
+  "compiled_r1cs": {
+    "merge_24_1": {
+      "sha256": "3f0bf6b412669390857e73c16de0f07e9d8ef320706c7ad80028895d50e333f0",
+      "size": 61936587
+    },
+    "merge_52_1": {
+      "sha256": "b32b08f35d866208989755e08fd64b0aed661a653f507e72f0c269a5e20544b2",
+      "size": 133412211
+    },
+    "merge_8_1": {
+      "sha256": "acfff1a46f1978aad4817d3782b36cb25891f4abcc5e70b3996843115d2d96d9",
+      "size": 21166992
+    },
+    "transfer_confidential_12_2": {
+      "sha256": "c93586f5212fc83c4f9522bdd2cc1fa8b986803ab3b2d18bbfb5f1bd74da0244",
+      "size": 32658821
+    },
+    "transfer_confidential_12_4": {
+      "sha256": "9308ba53795909672cca236803ff54ae734cc3512f33f7ee269856bf18b93222",
+      "size": 33131532
+    },
+    "transfer_confidential_12_8": {
+      "sha256": "bf859551cb8b1f2393a90f84656de21b9abb06eb67c5e62df76d7a6cf57e357f",
+      "size": 34237992
+    },
+    "transfer_confidential_16_2": {
+      "sha256": "9d479d6ffdf1580b354d455a5c6c71b2f701815803ab84cfa850f8dbc7994e80",
+      "size": 43214491
+    },
+    "transfer_confidential_16_4": {
+      "sha256": "c73fe486950214b7816772b9844067f796f5db236da31a87702abe791bad46f1",
+      "size": 43684328
+    },
+    "transfer_confidential_16_8": {
+      "sha256": "7bb995f1e00263f691306bac50f392bdb4a268f0b6cc37fb2b0e803917aa46b3",
+      "size": 44801100
+    },
+    "transfer_confidential_1_16": {
+      "sha256": "f52b643b55c488cbf125a34bc942bc908a8e2e8a7e13d0705f56345e95e1bdc1",
+      "size": 7186128
+    },
+    "transfer_confidential_1_2": {
+      "sha256": "aca3fea69fe143e6235bfe73a48de65d1f666a074a1f5b66c7022e78173d449a",
+      "size": 3620361
+    },
+    "transfer_confidential_1_4": {
+      "sha256": "38fc44f826077ee162e5a246e3c6c359d42ddf188b4d08b68fbc05900a28cf43",
+      "size": 4080092
+    },
+    "transfer_confidential_1_8": {
+      "sha256": "d1cb0709da5f859652b9eaede111a0df17e61ddbfd649f9ec0bba03355072cdb",
+      "size": 5179735
+    },
+    "transfer_confidential_24_2": {
+      "sha256": "bbfd1ce1a123d9f5c31f73f3c82087758c3fb55f8a41d387fb6d85649d396de2",
+      "size": 64440006
+    },
+    "transfer_confidential_24_4": {
+      "sha256": "110c6a4d6112222b438f9b152e8a914cf88b7a2091bba2ea81438387aa8370c5",
+      "size": 64915461
+    },
+    "transfer_confidential_2_16": {
+      "sha256": "8bd854bace7d6a71c99789f00d7986d60950c81b0377c3e20db76229907ef45e",
+      "size": 9886740
+    },
+    "transfer_confidential_2_2": {
+      "sha256": "12270333ac9f8733d36bb6c08f05441c015bc0808fbaaa5ee035d1b793c3ce92",
+      "size": 6314652
+    },
+    "transfer_confidential_2_4": {
+      "sha256": "cfd5512a669ea60f2b4f825dfa04e93c9dbd5ec9d8ee467fecaf6c091a14a855",
+      "size": 6777825
+    },
+    "transfer_confidential_2_8": {
+      "sha256": "28b6b4f3f0d0a455e94a1672abf4eb5d0905b77b7a7f9bab5ff8e0fece9599a5",
+      "size": 7872687
+    },
+    "transfer_confidential_32_2": {
+      "sha256": "1e2090e6103ba77f9593e4400dc5342dc1b46dc2e4b45d3eb349417270307dbe",
+      "size": 85596385
+    },
+    "transfer_confidential_3_2": {
+      "sha256": "8c48e58a5572b6dcd0ce54a22a10427b14d285e628c2a926183b4d85f0b65420",
+      "size": 8923099
+    },
+    "transfer_confidential_3_4": {
+      "sha256": "d45c38dc079b9c617cc72bf7a826ca4e8ef302aa5131e5d81f2a0fd8d613517d",
+      "size": 9383986
+    },
+    "transfer_confidential_3_8": {
+      "sha256": "457845019c218547f04858834668015046e58fe49c5234cc7af0a049a10cf4e5",
+      "size": 10472366
+    },
+    "transfer_confidential_40_2": {
+      "sha256": "594cf584aedd5db382c99706447e1904fdccfdb14cfb54ab869167c399489962",
+      "size": 106272195
+    },
+    "transfer_confidential_48_2": {
+      "sha256": "d6ee3c9fcc86bffea56cbb3c22a3ce06f749c664d7b4d7dd5cb0b3b89cb08f24",
+      "size": 127092685
+    },
+    "transfer_confidential_49_2": {
+      "sha256": "9d5c39be3c12771be7e3864db882ce63cea1177f09892ac757b378ee8341141e",
+      "size": 129661970
+    },
+    "transfer_confidential_4_16": {
+      "sha256": "46dc0c05c51b3f2ecd57d495a350154f9ce9118c3204db94ef4dfc40360012d6",
+      "size": 15111512
+    },
+    "transfer_confidential_4_2": {
+      "sha256": "28d5f4e7935fc9d524f5e6bf4bb5451488dc80b81ce3334ca6c33d2a11a05881",
+      "size": 11531376
+    },
+    "transfer_confidential_4_4": {
+      "sha256": "2b8238cc7bce71e374970cb7580895b19b5f235a2b53023f17037ff67ed50b78",
+      "size": 11996238
+    },
+    "transfer_confidential_4_8": {
+      "sha256": "c61ab2f21430957048bc344b8262f13d570998e5a1d69422c0f986f945cbd69b",
+      "size": 13076738
+    },
+    "transfer_confidential_5_16": {
+      "sha256": "8535595c1604db42942a3f468bedcea07fb2d96637c0acb7d83f88af7db5e658",
+      "size": 17817668
+    },
+    "transfer_confidential_5_2": {
+      "sha256": "a1906b058a4c4a926dfbef50be91b3df6dfc091fe7b911073884a6c8dccd9f5d",
+      "size": 14232253
+    },
+    "transfer_confidential_5_4": {
+      "sha256": "aae5767ccd9c89e2af6608d22af13cbeeaf22c57672f393815459473413e19f5",
+      "size": 14694743
+    },
+    "transfer_confidential_5_8": {
+      "sha256": "a2c6e55e55b6a4c19871fc0c4386586bc118ca39f985b655a8978a24e44dc2e6",
+      "size": 15772061
+    },
+    "transfer_confidential_6_2": {
+      "sha256": "54f07ea0b60cacd94edf19b5b6930d69ddab275851bda2d6a7cc5fa50229da36",
+      "size": 16842230
+    },
+    "transfer_confidential_6_4": {
+      "sha256": "0ef36ea5c9fd791100ae1307452c1b5992a1609b55a4908a680c0dbb2d9a2003",
+      "size": 17308366
+    },
+    "transfer_confidential_6_8": {
+      "sha256": "d268fe27ab271af7b41966c578dee6d2cc9db2a61f80139eb30c8f63474cd72c",
+      "size": 18380940
+    },
+    "transfer_confidential_8_16": {
+      "sha256": "77dd68856371da67dda039fcef52b2d846bed5a003ea1a20a2975dac4f2fcc11",
+      "size": 25749644
+    },
+    "transfer_confidential_8_2": {
+      "sha256": "ecb9b082517807f4aa19a92e3712a063af4f54ef3214f15c556c4f3c944bed40",
+      "size": 22147508
+    },
+    "transfer_confidential_8_4": {
+      "sha256": "0601376b82bdcf9809c7ee2d8318b8920d1e457929267de9f45b9f96ad9a3ac4",
+      "size": 22602907
+    },
+    "transfer_confidential_8_8": {
+      "sha256": "41ca1cc0f3074b40a1164e80c79720937fd6ef5e607be5f6cd4990b5964b1dc2",
+      "size": 23691485
+    }
+  },
+  "package_sha256": "95fb176fb38bedfc132cd3107db15857e166b018ed2e58ef5e144849547c8dd6",
+  "keys_prefix": "proving-keys/78751f5d1c591777",
+  "core_keys": 41,
+  "unchanged_s3_keys": 95,
+  "final_release": "https://github.com/helius-labs/spr-ceremony/releases/tag/core-keys-2026-11-02",
+  "integration_evidence": "https://github.com/helius-labs/spr-ceremony/tree/69d3704/docs/evidence/core-integration-2026-11-02",
+  "zopro_converter_revision": "683c0bb3b66c059dd0c0699f44a763cecb309012",
+  "zopro_manifest_sha256": "fe32860709dc0ae625462e26d0fb6b49ac31e681fee97e2bb531b8674eb54fc7",
+  "zopro_proofs_verified": 41,
+  "publication_verification": {
+    "gnark_objects_verified": 136,
+    "zopro_objects_verified": 41,
+    "pending": [],
+    "report": "core-ceremony-publication.json",
+    "report_sha256": "77fb1964b38e900b8ff841eae61cb22038ef677d7137f8fdee5af61fea517632"
+  }
+}

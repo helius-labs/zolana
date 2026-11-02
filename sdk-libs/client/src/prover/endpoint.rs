@@ -181,23 +181,20 @@ mod tests {
             "http://127.0.0.1:3001/prove"
         );
         assert_eq!(
-            url("https://gateway.invalid/v1/zolana?api-key=k", PROVE_PATH),
-            "https://gateway.invalid/v1/zolana/prove?api-key=k"
+            url("https://gateway.invalid/v1/spr?api-key=k", PROVE_PATH),
+            "https://gateway.invalid/v1/spr/prove?api-key=k"
         );
         assert_eq!(
             url(
-                "https://gateway.invalid/v1/zolana/?api-key=k",
+                "https://gateway.invalid/v1/spr/?api-key=k",
                 PROVING_KEYS_PATH
             ),
-            "https://gateway.invalid/v1/zolana/proving-keys?api-key=k"
+            "https://gateway.invalid/v1/spr/proving-keys?api-key=k"
         );
         // Every parameter stays, not just the key.
         assert_eq!(
-            url(
-                "https://gateway.invalid/v1/zolana?a=1&api-key=k",
-                PROVE_PATH
-            ),
-            "https://gateway.invalid/v1/zolana/prove?a=1&api-key=k"
+            url("https://gateway.invalid/v1/spr?a=1&api-key=k", PROVE_PATH),
+            "https://gateway.invalid/v1/spr/prove?a=1&api-key=k"
         );
         assert_eq!(
             url("https://prover.invalid?token=x", PROVE_PATH),
@@ -217,16 +214,15 @@ mod tests {
             "https://gateway.invalid/zolana/prove/merge_52_1/status?api-key=k&jobId=job-1"
         );
         // The gateway hostname does not change the key-specific poll route.
-        let helius =
-            ProverEndpoint::parse("https://beta-devnet.helius-rpc.com/v1/zolana?api-key=k");
+        let helius = ProverEndpoint::parse("https://beta-devnet.helius-rpc.com/v1/spr?api-key=k");
         assert_eq!(
             String::from(helius.status_url(&key, "job-1").unwrap()),
-            "https://beta-devnet.helius-rpc.com/v1/zolana/prove/merge_52_1/status?api-key=k&jobId=job-1"
+            "https://beta-devnet.helius-rpc.com/v1/spr/prove/merge_52_1/status?api-key=k&jobId=job-1"
         );
-        let other = ProverEndpoint::parse("https://gateway.invalid/v1/zolana?api-key=k");
+        let other = ProverEndpoint::parse("https://gateway.invalid/v1/spr?api-key=k");
         assert_eq!(
             String::from(other.status_url(&key, "job-1").unwrap()),
-            "https://gateway.invalid/v1/zolana/prove/merge_52_1/status?api-key=k&jobId=job-1"
+            "https://gateway.invalid/v1/spr/prove/merge_52_1/status?api-key=k&jobId=job-1"
         );
         // A `#` from the server must not push the key into a fragment.
         let url = endpoint.status_url(&key, "a#b&c").unwrap();
@@ -247,8 +243,8 @@ mod tests {
     #[test]
     fn only_the_key_value_is_masked() {
         assert_eq!(
-            redact_api_key("https://gateway.invalid/v1/zolana?a=%20x&api-key=secret&b=2"),
-            "https://gateway.invalid/v1/zolana?a=%20x&api-key=redacted&b=2"
+            redact_api_key("https://gateway.invalid/v1/spr?a=%20x&api-key=secret&b=2"),
+            "https://gateway.invalid/v1/spr?a=%20x&api-key=redacted&b=2"
         );
         assert_eq!(
             redact_api_key("http://127.0.0.1:3001"),

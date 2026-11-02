@@ -1,6 +1,31 @@
 # Changelog
 
-## 0.7.0-alpha — unreleased
+## 0.8.0-alpha — unreleased
+
+Provers serve the Helius gateway under `/v1/spr`, and clients follow prover
+releases through a signed policy the SDK pins per network.
+
+Breaking
+
+- The Helius gateway path moves from `/v1/zolana` to `/v1/spr`, prover attestation from `/tee/v1/attestation` to `/attestation`, and the encrypted-request headers from `Zolana-Tee*` to `Spr-Tee*` → run a prover from this release; earlier provers accept none of them.
+
+Added
+
+- `SignedTeePolicy.forNetwork("mainnet")` or `forNetwork("devnet")`, passed as `proverTee` or `tee`, downloads the network's prover policy from a file that enough of the signers the SDK pins sign, so a new prover release needs no SDK release; `new SignedTeePolicy({ url, network, publicKeys, threshold })` names other signers.
+- `TransactionIntent` kind `ringDeposit` shows an approval handler a ring deposit and its recipient, and the private transaction builders and `ZolanaClient` refuse to prove a transaction under that intent.
+- `@heliuslabs/zolana/internal` exports `writeTransactOutput`, `writeOwnerTag`, `readData` and `SHIELDED_ADDRESS_LENGTH`, so an extension codec writes transact outputs and reads `Data` fields in the SDK layout.
+
+Changed
+
+- `ZolanaClient.checkProverProvingKeys()` requires the 41 core transfer and merge keys from the completed ceremony → deploy the matching prover and on-chain verifier before using these keys.
+- A prover of any platform that answers `tee_decryption_failed` is attested again, under a freshly read signed policy, and the call resent once, so a client follows a gateway onto a new release.
+
+Fixed
+
+- An unencrypted 400 above 4 KiB from an attested prover hung the call; it now reaches the caller as its HTTP status.
+- An injected `fetch` that ignored cancellation could leave a TEE attestation or signed-policy download pending, blocking every later call; each now gives way at its deadline and the next call tries again.
+
+## 0.7.0-alpha — 2026-10-30
 
 Remote provers require a caller-supplied attestation policy, and Helius API
 URLs support indexed proving through their gateway. Proving key checks return
@@ -14,7 +39,7 @@ Breaking
 
 Changed
 
-- A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
+- A Helius RPC URL keeps inherited indexer and prover traffic on its gateway instead of redirecting proofs to a deployment-specific endpoint.
 
 Fixed
 
