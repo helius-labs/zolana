@@ -8,7 +8,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/logging"
 )
 
-const AttestationPath = "/tee/v1/attestation"
+const AttestationPath = "/attestation"
 
 type Attestation struct {
 	Platform      string `json:"platform"`

@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use super::{platform::Evidence, Platform};
 
-/// The body of `GET /tee/v1/attestation`.
+/// The body of `GET /attestation`.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Attestation {
     #[serde(with = "hex")]

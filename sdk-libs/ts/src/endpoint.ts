@@ -14,7 +14,7 @@ export const LOCALNET_PHOTON_ENDPOINT = "http://127.0.0.1:8784";
 export const LOCALNET_PROVER_ENDPOINT = "http://127.0.0.1:3001";
 
 /** Where a Helius RPC host serves the indexer and the prover. */
-export const ZOLANA_GATEWAY_PATH = "/v1/zolana";
+export const ZOLANA_GATEWAY_PATH = "/v1/spr";
 
 const HELIUS_RPC_HOST = /(^|\.)helius-rpc\.com$/u;
 
@@ -53,7 +53,7 @@ export interface ResolvedClientEndpoints {
  * Resolves a config into one URL per service.
  *
  * Each service takes the URL named for it, else `solanaRpcUrl`, else its local
- * default. A Helius RPC root lends the indexer and the prover its `/v1/zolana`
+ * default. A Helius RPC root lends the indexer and the prover its `/v1/spr`
  * namespace. Resolution lives here alone so the local defaults and the named URLs
  * cannot disagree about where a service ended up.
  */

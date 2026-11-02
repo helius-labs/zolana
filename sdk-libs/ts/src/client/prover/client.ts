@@ -87,7 +87,7 @@ const INDEXED_PATH = "/indexed";
 const STATUS_PATH = "/status";
 const HEALTH_PATH = "/health";
 const PROVING_KEYS_PATH = "/proving-keys";
-const ATTESTATION_PATH = "/tee/v1/attestation";
+const ATTESTATION_PATH = "/attestation";
 type Delivery = "inResponse" | "queued";
 type Route = "sync" | "queued" | "indexed";
 /** Maps an indexed refusal body to the caller's error, `undefined` keeps the prover's own. */

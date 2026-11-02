@@ -31,11 +31,11 @@ pub use verify::{inspect, verify, verify_with, AttestedIdentity, AttestedProver}
 
 use thiserror::Error;
 
-pub const ATTESTATION_PATH: &str = "/tee/v1/attestation";
-pub const HEADER_VERSION: &str = "Zolana-Tee";
-pub const HEADER_ENC: &str = "Zolana-Tee-Enc";
+pub const ATTESTATION_PATH: &str = "/attestation";
+pub const HEADER_VERSION: &str = "Spr-Tee";
+pub const HEADER_ENC: &str = "Spr-Tee-Enc";
 /// Carries the encrypted bytes of a GET, fetch refuses a GET body.
-pub const HEADER_CIPHERTEXT: &str = "Zolana-Tee-Ciphertext";
+pub const HEADER_CIPHERTEXT: &str = "Spr-Tee-Ciphertext";
 pub const VERSION: &str = "v1";
 pub const NONCE_SIZE: usize = 32;
 pub const MAX_ATTESTATION_BYTES: usize = 1 << 20;

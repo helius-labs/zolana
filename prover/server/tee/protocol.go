@@ -14,14 +14,14 @@ import (
 
 const (
 	Version       = "v1"
-	HeaderVersion = "Zolana-Tee"
-	HeaderEnc     = "Zolana-Tee-Enc"
+	HeaderVersion = "Spr-Tee"
+	HeaderEnc     = "Spr-Tee-Enc"
 	// HeaderCiphertext carries the encrypted bytes of a GET, fetch refuses a GET body.
-	HeaderCiphertext = "Zolana-Tee-Ciphertext"
+	HeaderCiphertext = "Spr-Tee-Ciphertext"
 	NonceSize        = 32
 	// GatewayPrefix is the path the Helius gateway serves the prover under.
 	// Every route under it runs the same handler as the bare route.
-	GatewayPrefix = "/v1/zolana"
+	GatewayPrefix = "/v1/spr"
 
 	// Domain separation for every hash and HPKE context the protocol binds.
 	reportDomain   = "zolana/prover-tee/v1/report"

@@ -168,7 +168,7 @@ const client = new ZolanaClient({
 });
 ```
 
-A unified Helius `/v1/zolana` base URL can be used for both `indexerUrl` and
+A unified Helius `/v1/spr` base URL can be used for both `indexerUrl` and
 `proverUrl`; policy selection is independent of the URL. Every remote prover
 requires the caller's `proverTee` (`tee` on `ProverClient`) before any HTTP
 request. The client downloads the network's signed policy every five minutes

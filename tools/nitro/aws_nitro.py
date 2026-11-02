@@ -458,7 +458,7 @@ def attestation_policy(measurements, hpke_public_key):
 
 def offered_key(url, api_key):
     request = urllib.request.Request(
-        f"{url}/tee/v1/attestation?nonce={secrets.token_hex(32)}",
+        f"{url}/attestation?nonce={secrets.token_hex(32)}",
         headers={"X-API-Key": api_key},
     )
     with urllib.request.urlopen(request, timeout=60) as response:
