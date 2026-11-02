@@ -111,40 +111,71 @@ func TestInsertAfterLookupRejectsCompilation(t *testing.T) {
 	}
 }
 
-// Writes to a caller slice must not change the deferred relation.
-type callerSliceCircuit struct {
-	A, B      frontend.Variable
-	MutateRow bool `gnark:"-"`
+// Writes to a caller slice or pointer constant must not change the deferred relation.
+type callerWriteCircuit struct {
+	A, B frontend.Variable
+	Mode string `gnark:"-"`
 }
 
-func (c *callerSliceCircuit) Define(api frontend.API) error {
+func (c *callerWriteCircuit) Define(api frontend.API) error {
 	table := New(api, 1)
-	row := []frontend.Variable{c.A}
-	table.Insert(row)
-	if c.MutateRow {
+	switch c.Mode {
+	case "row":
+		row := []frontend.Variable{c.A}
+		table.Insert(row)
 		row[0] = c.B
 		api.AssertIsEqual(table.Lookup(0)[0], c.A)
-		return nil
+	case "result":
+		table.Insert([]frontend.Variable{c.A})
+		out := table.Lookup(0)
+		result := out[0]
+		out[0] = c.B
+		api.AssertIsEqual(result, c.A)
+	case "constant":
+		entry := big.NewInt(1)
+		table.Insert([]frontend.Variable{entry})
+		entry.SetInt64(2)
+		api.AssertIsEqual(table.Lookup(0)[0], 1)
+	case "index":
+		table.Insert([]frontend.Variable{1})
+		table.Insert([]frontend.Variable{2})
+		index := big.NewInt(0)
+		result := table.Lookup(index)[0]
+		index.SetInt64(1)
+		api.AssertIsEqual(result, 1)
 	}
-	out := table.Lookup(0)
-	result := out[0]
-	out[0] = c.B
-	api.AssertIsEqual(result, c.A)
 	return nil
 }
 
-func TestCallerSlicesDoNotAliasTheTable(t *testing.T) {
-	for _, mutateRow := range []bool{true, false} {
-		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &callerSliceCircuit{MutateRow: mutateRow})
+func TestCallerWritesDoNotAliasTheTable(t *testing.T) {
+	for _, mode := range []string{"row", "result", "constant", "index"} {
+		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &callerWriteCircuit{Mode: mode})
 		if err != nil {
 			t.Fatal(err)
 		}
-		w, err := frontend.NewWitness(&callerSliceCircuit{A: 1, B: 2}, ecc.BN254.ScalarField())
+		w, err := frontend.NewWitness(&callerWriteCircuit{A: 1, B: 2}, ecc.BN254.ScalarField())
 		if err != nil {
 			t.Fatal(err)
 		}
 		if err := cs.IsSolved(w); err != nil {
-			t.Errorf("mutate row %v: %v", mutateRow, err)
+			t.Errorf("%s: %v", mode, err)
 		}
+	}
+}
+
+// A lookup into a table without rows can never be satisfied.
+type emptyTableCircuit struct {
+	Index frontend.Variable
+}
+
+func (c *emptyTableCircuit) Define(api frontend.API) error {
+	New(api, 1).Lookup(c.Index)
+	return nil
+}
+
+func TestEmptyTableLookupRejectsCompilation(t *testing.T) {
+	_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &emptyTableCircuit{})
+	if err == nil || !strings.Contains(err.Error(), "lookup table has no rows") {
+		t.Fatalf("empty table lookup: %v", err)
 	}
 }
