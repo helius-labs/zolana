@@ -1,4 +1,4 @@
-//! A policy published as one file that a quorum of pinned Ed25519 keys signs.
+//! A policy published as one file that enough of the pinned Ed25519 keys sign.
 
 use std::collections::BTreeSet;
 
