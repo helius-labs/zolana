@@ -19,6 +19,10 @@ type crtBasis struct {
 
 // Constructs product and square kernels and certifies every tensor coefficient.
 func newCRTBasis(f poly, limbCount int, nativeModulus *big.Int, inverseVandermonde func(degree int) [][]*big.Int) *crtBasis {
+	// CRT needs coprime factors. A repeated root keeps the plain fold.
+	if polyDeg(polyGcd(f, polyDeriv(f, nativeModulus), nativeModulus)) > 0 {
+		return nil
+	}
 	factors := factorSquarefree(f, nativeModulus)
 	total := 0
 	for _, g := range factors {
@@ -140,7 +144,7 @@ func residueColumns(coefficientCount int, g poly, q *big.Int) [][]*big.Int {
 	return columns
 }
 
-// Factors a trusted square-free polynomial over the native field.
+// Factors a square-free polynomial over the native field. newCRTBasis rejects repeated roots.
 func factorSquarefree(f poly, q *big.Int) []poly {
 	var out []poly
 	x := poly{new(big.Int), big.NewInt(1)}
@@ -218,6 +222,15 @@ func polySub(a, b poly, q *big.Int) poly {
 		if i < len(b) {
 			out[i].Sub(out[i], b[i])
 		}
+	}
+	return polyReduce(out, q)
+}
+
+// Returns the formal derivative of a public polynomial modulo q.
+func polyDeriv(a poly, q *big.Int) poly {
+	out := make(poly, max(len(a)-1, 0))
+	for i := range out {
+		out[i] = new(big.Int).Mul(a[i+1], big.NewInt(int64(i+1)))
 	}
 	return polyReduce(out, q)
 }

@@ -287,10 +287,20 @@ func (f *Field) hintInputs(natives []frontend.Variable, elems []*Element) []fron
 	inputs = append(inputs, len(natives))
 	inputs = append(inputs, natives...)
 	for _, e := range elems {
-		inputs = append(inputs, len(e.limbs))
-		inputs = append(inputs, e.limbs...)
+		inputs = f.appendLimbs(inputs, e)
 	}
 	return inputs
+}
+
+// signed() decodes these limbs, so each interval must fit its symmetric native window.
+func (f *Field) appendLimbs(inputs []frontend.Variable, e *Element) []frontend.Variable {
+	half := new(big.Int).Rsh(f.api.Compiler().Field(), 1)
+	for i := range e.limbs {
+		if absMax(e.lo[i], e.hi[i]).Cmp(half) > 0 {
+			panic("nonnative: hint limb exceeds the signed native window")
+		}
+	}
+	return append(append(inputs, len(e.limbs)), e.limbs...)
 }
 
 // Obtain unsigned width-bounded outputs only. Callers must constrain their

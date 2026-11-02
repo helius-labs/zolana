@@ -264,8 +264,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *
 		}
 		inputs = append(inputs, len(elements))
 		for _, e := range elements {
-			inputs = append(inputs, len(e.limbs))
-			inputs = append(inputs, e.limbs...)
+			inputs = f.appendLimbs(inputs, e)
 		}
 		out, err := api.Compiler().NewHint(PlainCheckHint, outputCount, inputs...)
 		if err != nil {
