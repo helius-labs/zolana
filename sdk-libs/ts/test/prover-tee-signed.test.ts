@@ -50,7 +50,7 @@ function file(version: number, seeds: readonly number[], expiresAt = capturedAt 
       network: "fixture",
       version,
       expires_at: expiresAt,
-      policy: { ...policy, max_age_secs: 3600 },
+      policy: { ...policy, max_age_secs: 300 },
     }),
   );
   const message = concatBytes(utf8ToBytes("zolana/prover-tee/v1/policy"), payload);
@@ -168,7 +168,7 @@ describe("a prover client under a signed policy", () => {
     }
   });
 
-  it("attests again under a new version and keeps its policy through a refused download", async () => {
+  it("re-reads the policy whenever it attests again, keeping it through a refused download", async () => {
     const { paths, now, health } = client([
       served(file(2, [1, 2])),
       served(file(3, [2, 3])),
@@ -188,8 +188,10 @@ describe("a prover client under a signed policy", () => {
       "/attestation",
       "/health",
       "/policy.json",
+      "/attestation",
       "/health",
       "/policy.json",
+      "/attestation",
       "/health",
     ]);
   });

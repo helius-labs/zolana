@@ -4,7 +4,7 @@
 
 mod session;
 
-use std::{collections::BTreeMap, time::Duration};
+use std::collections::BTreeMap;
 
 pub use spr_prover_tee::{
     inspect, verify, verify_with, Anchors, Attestation, AttestedIdentity, AttestedProver,
@@ -21,8 +21,6 @@ pub(crate) use spr_prover_tee::NitroFixture;
 
 use super::endpoint::ProverEndpoint;
 
-/// How long a downloaded policy stands before the next call downloads it again.
-const REFRESH: Duration = Duration::from_secs(300);
 /// Each network's policy URL and signers.
 const NETWORKS: &str = include_str!("tee/signers.json");
 
@@ -46,12 +44,12 @@ impl TeeNetwork {
 }
 
 /// A policy published at `url` as a [`SignedPolicyFile`] that `signers` sign.
-/// A client downloads it again every five minutes and never uses it past its expiry.
+/// A client downloads it again once it is `max_age_secs` old, when it also attests
+/// again, and never uses it past its expiry.
 #[derive(Clone, Debug)]
 pub struct SignedTeePolicy {
     url: String,
     signers: PolicySigners,
-    refresh: Duration,
 }
 
 impl SignedTeePolicy {
@@ -66,11 +64,7 @@ impl SignedTeePolicy {
         if !https {
             return Err(TeeError::Policy("signed policy URL is not HTTPS".into()));
         }
-        Ok(Self {
-            url,
-            signers,
-            refresh: REFRESH,
-        })
+        Ok(Self { url, signers })
     }
 
     /// The signed policy the SDK pins for `network`.
