@@ -27,6 +27,7 @@ type spreadTables struct {
 	substitution logderivlookup.Table
 	bytes        logderivlookup.Table
 	chunks       logderivlookup.Table
+	sealed       bool
 }
 
 type compilerStore interface {
@@ -58,6 +59,11 @@ func newSpreadTables(api frontend.API) *spreadTables {
 		panic("aes: BN254 native field required")
 	}
 	t := &spreadTables{api: api}
+	// Registered before the tables, so it runs before their commits snapshot the queries.
+	api.Compiler().Defer(func(frontend.API) error {
+		t.sealed = true
+		return nil
+	})
 	// 1 - Assign packed-byte weights 1, 6^8, 6^16, and 6^24.
 	base := big.NewInt(spreadBase)
 	for byteIndex := range t.byteWeights {
@@ -89,12 +95,20 @@ func (t *spreadTables) substitute(region int, index frontend.Variable) frontend.
 	}
 	regionOffset := region * tableRegionSize
 	lookupIndex := t.api.Add(index, regionOffset)
-	return t.substitution.Lookup(lookupIndex)[0]
+	return t.lookup(t.substitution, lookupIndex)[0]
+}
+
+// gnark never seals a committed table, so a later query would escape its argument.
+func (t *spreadTables) lookup(table logderivlookup.Table, indices ...frontend.Variable) []frontend.Variable {
+	if t.sealed {
+		panic("aes: lookup tables already committed")
+	}
+	return table.Lookup(indices...)
 }
 
 // Bind a witness to a byte and its exact base-six spread representation.
 func (t *spreadTables) spreadByte(value frontend.Variable) frontend.Variable {
-	return t.bytes.Lookup(value)[0]
+	return t.lookup(t.bytes, value)[0]
 }
 
 // Spread a typed byte constant. Its type already supplies the unsigned bound.
@@ -151,7 +165,7 @@ func (t *spreadTables) decodeWordSum(spreadSum frontend.Variable, byteCount int)
 	t.api.AssertIsEqual(spreadSum, recomposed)
 
 	// 3 - Bound each chunk and look up its parity nibble.
-	nibbles := t.chunks.Lookup(chunks...)
+	nibbles := t.lookup(t.chunks, chunks...)
 
 	// 4 - Assemble pairs of parity nibbles into ordinary bytes.
 	decodedBytes := make([]frontend.Variable, byteCount)

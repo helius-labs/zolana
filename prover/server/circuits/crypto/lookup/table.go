@@ -20,6 +20,7 @@ import (
 	"errors"
 	"math/big"
 	"math/bits"
+	"slices"
 
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
@@ -50,23 +51,31 @@ func New(api frontend.API, nbCols int) *Table {
 	return t
 }
 
-// Append a full row. Witness entries remain statements to bind, not trusted constants.
+// Append a copy of a full row. Witness entries remain statements to bind.
+// Lookup hints read the rows present at the query, so inserts close at the first lookup.
 func (t *Table) Insert(row []frontend.Variable) {
 	if t.finalized {
 		panic("lookup table already finalized")
 	}
+	if len(t.indices) > 0 {
+		panic("lookup table already queried")
+	}
 	if len(row) != t.nbCols {
 		panic("row width mismatch")
 	}
-	t.rows = append(t.rows, row)
+	t.rows = append(t.rows, t.own(row))
 }
 
 // Bind index and every returned column to one inserted row through build.
-// No separate numeric-width assumption is needed for arbitrary field columns.
+// The caller gets a copy, so writes to it cannot replace the bound result wires.
 func (t *Table) Lookup(index frontend.Variable) []frontend.Variable {
 	if t.finalized {
 		panic("lookup table already finalized")
 	}
+	if len(t.rows) == 0 {
+		panic("lookup table has no rows")
+	}
+	index = t.own([]frontend.Variable{index})[0]
 	inputs := []frontend.Variable{index, len(t.rows), t.nbCols}
 	for _, row := range t.rows {
 		inputs = append(inputs, row...)
@@ -77,6 +86,17 @@ func (t *Table) Lookup(index frontend.Variable) []frontend.Variable {
 	}
 	t.indices = append(t.indices, index)
 	t.results = append(t.results, out)
+	return slices.Clone(out)
+}
+
+// Copies the slice and every constant in it, so later caller writes cannot reach the deferred relation.
+func (t *Table) own(values []frontend.Variable) []frontend.Variable {
+	out := slices.Clone(values)
+	for i, v := range out {
+		if c, ok := t.api.Compiler().ConstantValue(v); ok {
+			out[i] = c
+		}
+	}
 	return out
 }
 

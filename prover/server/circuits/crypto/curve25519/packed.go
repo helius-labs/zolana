@@ -16,6 +16,10 @@ import (
 func PackCoordinate(api frontend.API, f *nonnative.Field, e *nonnative.Element, group int) []frontend.Variable {
 	limbs := e.Limbs()
 	limbBits := f.Layout().LimbBits
+	// Signed groups need |value| below half the native modulus.
+	if group*limbBits >= api.Compiler().FieldBitLen()-1 {
+		panic("curve25519: packed group exceeds the native field")
+	}
 	var out []frontend.Variable
 	for g := 0; g < len(limbs); g += group {
 		sum := frontend.Variable(0)
@@ -94,6 +98,10 @@ func SelectConstant(api frontend.API, f *nonnative.Field, rows, cols []frontend.
 			continue
 		}
 		width := min(group*lay.LimbBits, fieldBits-i*lay.LimbBits)
+		// A wider constant would reduce modulo the native field below its recorded bound.
+		if width >= api.Compiler().FieldBitLen() {
+			panic("curve25519: packed group exceeds the native field")
+		}
 		mask := new(big.Int).Sub(Pow2(width), big.NewInt(1))
 		value := frontend.Variable(0)
 		for row, rf := range rows {

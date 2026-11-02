@@ -120,6 +120,10 @@ func (f *Field) Bounded(limbs []frontend.Variable, widths []int) *Element {
 	e := &Element{limbs: limbs, lo: make([]*big.Int, len(limbs)), hi: make([]*big.Int, len(limbs))}
 	total := 0
 	for i, w := range widths {
+		// The aggregate bound below assumes every lower limb fits the layout.
+		if i < len(widths)-1 && w > f.layout.LimbBits {
+			panic("nonnative: lower limb wider than the layout")
+		}
 		e.lo[i] = new(big.Int)
 		e.hi[i] = new(big.Int).Sub(pow2(w), big.NewInt(1))
 		total = i*f.layout.LimbBits + w
@@ -287,10 +291,20 @@ func (f *Field) hintInputs(natives []frontend.Variable, elems []*Element) []fron
 	inputs = append(inputs, len(natives))
 	inputs = append(inputs, natives...)
 	for _, e := range elems {
-		inputs = append(inputs, len(e.limbs))
-		inputs = append(inputs, e.limbs...)
+		inputs = f.appendLimbs(inputs, e)
 	}
 	return inputs
+}
+
+// signed() decodes these limbs, so each interval must fit its symmetric native window.
+func (f *Field) appendLimbs(inputs []frontend.Variable, e *Element) []frontend.Variable {
+	half := new(big.Int).Rsh(f.api.Compiler().Field(), 1)
+	for i := range e.limbs {
+		if absMax(e.lo[i], e.hi[i]).Cmp(half) > 0 {
+			panic("nonnative: hint limb exceeds the signed native window")
+		}
+	}
+	return append(append(inputs, len(e.limbs)), e.limbs...)
 }
 
 // Obtain unsigned width-bounded outputs only. Callers must constrain their

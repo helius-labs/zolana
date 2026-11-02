@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/backend/groth16"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
 // CRT product reconstruction matches the folded coefficient calculation.
@@ -108,5 +111,81 @@ func TestCRTBasisCertificationRejectsCorruption(t *testing.T) {
 		b := newCRTBasis(f, 6, q, interpolation)
 		tc.corrupt(b)
 		requirePanic(tc.name, tc.want, func() { tc.certify(b) })
+	}
+}
+
+// 2^425 folds to 19*2^170, so this layout folds by X^5-19X^2 with a double root at zero.
+var repeatedRootLayout = Layout{NbLimbs: 5, LimbBits: 85, PieceBits: 10}
+
+type repeatedRootCircuit struct {
+	A, C [5]frontend.Variable
+	B    frontend.Variable
+}
+
+func (c *repeatedRootCircuit) Define(api frontend.API) error {
+	f := NewFor(api, edProjectionPrime, repeatedRootLayout)
+	a, product := fromLimbs(f, c.A[:]), fromLimbs(f, c.C[:])
+	// Two full-width operands overflow the quotient range, so b gets small proved bounds.
+	f.RangeChecker().Check(c.B, 4)
+	lo, hi := make([]*big.Int, 5), make([]*big.Int, 5)
+	for i := range lo {
+		lo[i], hi[i] = new(big.Int), new(big.Int)
+	}
+	hi[0].SetInt64(15)
+	b := f.WithBounds([]frontend.Variable{c.B, 0, 0, 0, 0}, lo, hi)
+	f.AssertZero(T(1, a, b), T(-1, product))
+	return nil
+}
+
+func TestRepeatedRootFoldMultiplies(t *testing.T) {
+	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &repeatedRootCircuit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := rand.Int(rand.Reader, edProjectionPrime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	product := new(big.Int).Mul(a, big.NewInt(13))
+	product.Mod(product, edProjectionPrime)
+	assign := func(c *big.Int) *repeatedRootCircuit {
+		w := &repeatedRootCircuit{B: 13}
+		for i, l := range repeatedRootLayout.decompose(a, 5) {
+			w.A[i] = l
+		}
+		for i, l := range repeatedRootLayout.decompose(c, 5) {
+			w.C[i] = l
+		}
+		return w
+	}
+	honest, err := frontend.NewWitness(assign(product), ecc.BN254.ScalarField())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cs.IsSolved(honest); err != nil {
+		t.Fatal(err)
+	}
+	wrong := new(big.Int).Add(product, big.NewInt(1))
+	forged, err := frontend.NewWitness(assign(wrong.Mod(wrong, edProjectionPrime)), ecc.BN254.ScalarField())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.IsSolved(forged) == nil {
+		t.Fatal("wrong product accepted")
+	}
+	pk, vk, err := groth16.Setup(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := groth16.Prove(cs, pk, honest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, err := honest.Public()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := groth16.Verify(proof, vk, public); err != nil {
+		t.Fatal(err)
 	}
 }
