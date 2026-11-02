@@ -18,7 +18,6 @@ Added
 Changed
 
 - `ZolanaClient.checkProverProvingKeys()` requires the 41 core transfer and merge keys from the completed ceremony → deploy the matching prover and on-chain verifier before using these keys.
-- A Helius RPC URL keeps inherited indexer and prover traffic on its `/v1/zolana` gateway instead of redirecting proofs to a deployment-specific endpoint.
 - A prover of any platform that answers `tee_decryption_failed` is attested again, under a freshly read signed policy, and the call resent once, so a client follows a gateway onto a new release.
 
 Fixed
