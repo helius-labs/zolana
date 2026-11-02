@@ -9,6 +9,7 @@ import {
   NETWORKS,
   SignedTeePolicy,
   verifySignedTeePolicy,
+  type TeeNetwork,
 } from "../src/client/prover/tee/signed.js";
 import { wireDecoder } from "../src/interface/decode.js";
 
@@ -91,10 +92,11 @@ describe("the networks the SDK pins", () => {
       ),
     );
     expect(() => SignedTeePolicy.forNetwork("mainnet")).not.toThrow();
+    expect(() => SignedTeePolicy.forNetwork("devnet")).not.toThrow();
   });
 
   it("refuses a network it does not pin", () => {
-    expect(() => SignedTeePolicy.forNetwork("nowhere")).toThrow(
+    expect(() => SignedTeePolicy.forNetwork("nowhere" as TeeNetwork)).toThrow(
       expect.objectContaining({ details: { field: "tee.network" } }),
     );
   });

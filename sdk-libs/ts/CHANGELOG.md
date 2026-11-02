@@ -14,7 +14,7 @@ Breaking
 
 Added
 
-- `SignedTeePolicy.forNetwork("mainnet")`, passed as `proverTee` or `tee`, downloads the network's prover policy from a file that a quorum of the signers the SDK pins signs, so a new prover release needs no SDK release; `new SignedTeePolicy({ url, network, publicKeys, threshold })` names other signers.
+- `SignedTeePolicy.forNetwork("mainnet")` or `forNetwork("devnet")`, passed as `proverTee` or `tee`, downloads the network's prover policy from a file that a quorum of the signers the SDK pins signs, so a new prover release needs no SDK release; `new SignedTeePolicy({ url, network, publicKeys, threshold })` names other signers.
 
 Changed
 

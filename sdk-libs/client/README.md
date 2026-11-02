@@ -77,7 +77,7 @@ never uses it past its expiry:
 
 ```rust
 let prover = ProverClient::new(prover_url)
-    .with_signed_tee(SignedTeePolicy::for_network("mainnet")?);
+    .with_signed_tee(SignedTeePolicy::for_network(TeeNetwork::Mainnet));
 ```
 
 An application that reviews each release itself can instead load that
