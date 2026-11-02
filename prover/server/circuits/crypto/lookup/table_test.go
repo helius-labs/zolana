@@ -90,3 +90,61 @@ func TestLateTableMutationRejectsCompilation(t *testing.T) {
 		}
 	}
 }
+
+// The lookup hint reads only the rows inserted before the query.
+type insertAfterLookupCircuit struct {
+	Index frontend.Variable
+}
+
+func (c *insertAfterLookupCircuit) Define(api frontend.API) error {
+	table := New(api, 1)
+	table.Insert([]frontend.Variable{10})
+	table.Lookup(c.Index)
+	table.Insert([]frontend.Variable{20})
+	return nil
+}
+
+func TestInsertAfterLookupRejectsCompilation(t *testing.T) {
+	_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &insertAfterLookupCircuit{})
+	if err == nil || !strings.Contains(err.Error(), "lookup table already queried") {
+		t.Fatalf("insert after lookup: %v", err)
+	}
+}
+
+// Writes to a caller slice must not change the deferred relation.
+type callerSliceCircuit struct {
+	A, B      frontend.Variable
+	MutateRow bool `gnark:"-"`
+}
+
+func (c *callerSliceCircuit) Define(api frontend.API) error {
+	table := New(api, 1)
+	row := []frontend.Variable{c.A}
+	table.Insert(row)
+	if c.MutateRow {
+		row[0] = c.B
+		api.AssertIsEqual(table.Lookup(0)[0], c.A)
+		return nil
+	}
+	out := table.Lookup(0)
+	result := out[0]
+	out[0] = c.B
+	api.AssertIsEqual(result, c.A)
+	return nil
+}
+
+func TestCallerSlicesDoNotAliasTheTable(t *testing.T) {
+	for _, mutateRow := range []bool{true, false} {
+		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &callerSliceCircuit{MutateRow: mutateRow})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w, err := frontend.NewWitness(&callerSliceCircuit{A: 1, B: 2}, ecc.BN254.ScalarField())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cs.IsSolved(w); err != nil {
+			t.Errorf("mutate row %v: %v", mutateRow, err)
+		}
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"errors"
 	"math/big"
 	"math/bits"
+	"slices"
 
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
@@ -50,19 +51,23 @@ func New(api frontend.API, nbCols int) *Table {
 	return t
 }
 
-// Append a full row. Witness entries remain statements to bind, not trusted constants.
+// Append a copy of a full row. Witness entries remain statements to bind.
+// Lookup hints read the rows present at the query, so inserts close at the first lookup.
 func (t *Table) Insert(row []frontend.Variable) {
 	if t.finalized {
 		panic("lookup table already finalized")
 	}
+	if len(t.indices) > 0 {
+		panic("lookup table already queried")
+	}
 	if len(row) != t.nbCols {
 		panic("row width mismatch")
 	}
-	t.rows = append(t.rows, row)
+	t.rows = append(t.rows, slices.Clone(row))
 }
 
 // Bind index and every returned column to one inserted row through build.
-// No separate numeric-width assumption is needed for arbitrary field columns.
+// The caller gets a copy, so writes to it cannot replace the bound result wires.
 func (t *Table) Lookup(index frontend.Variable) []frontend.Variable {
 	if t.finalized {
 		panic("lookup table already finalized")
@@ -77,7 +82,7 @@ func (t *Table) Lookup(index frontend.Variable) []frontend.Variable {
 	}
 	t.indices = append(t.indices, index)
 	t.results = append(t.results, out)
-	return out
+	return slices.Clone(out)
 }
 
 // Commit table, queries, outputs and multiplicities before the challenge.
