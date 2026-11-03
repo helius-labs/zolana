@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0-alpha — unreleased
+## 0.8.0-alpha — 2026-11-03
 
 Provers serve the Helius gateway under `/v1/spr`, and clients follow prover
 releases through a signed policy the SDK pins per network.
