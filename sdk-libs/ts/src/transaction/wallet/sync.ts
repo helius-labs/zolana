@@ -23,6 +23,7 @@ import {
   prooflessUtxo,
   plaintextTransferUtxos,
   readOutputData,
+  readOutputFrame,
   splitBundleUtxos,
   splitEmbeddedKey,
   type ProoflessOutput,
@@ -153,16 +154,21 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
   return { senderSites, recipientSites, mergeSites, unparsedTransactions };
 }
 
+/** Every other scheme byte, known or not, belongs to a custom ring. */
+const WALLET_SCHEMES: ReadonlySet<number> = new Set([
+  EncryptedScheme.proofless,
+  EncryptedScheme.confidential,
+  EncryptedScheme.ringConfidential,
+  EncryptedScheme.split,
+  EncryptedScheme.merge,
+  EncryptedScheme.plaintextTransfer,
+]);
+
 /** A custom ring records the history of its anonymous and deposit transactions. */
 function carriesReservedScheme(tx: IndexedShieldedTransaction): boolean {
   return tx.outputSlots.some((slot) => {
     try {
-      const { scheme } = readOutputData(slot.payload);
-      return (
-        scheme === EncryptedScheme.anonymousRecipient ||
-        scheme === EncryptedScheme.anonymousSender ||
-        scheme === EncryptedScheme.ringDeposit
-      );
+      return !WALLET_SCHEMES.has(readOutputFrame(slot.payload).schemeByte);
     } catch {
       return false;
     }
@@ -599,11 +605,11 @@ class SyncPass {
     if (tx.txViewingPublicKey === undefined || firstNullifier === undefined || salt === undefined) {
       return;
     }
-    if (carriesReservedScheme(tx)) return;
     const txKey = this.#keys.transactionKey({ viewingPublicKey, firstNullifier });
     if (txKey === undefined) return;
     if (!equalBytes(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
     if (this.#processedOutbound.has(index)) return;
+    if (carriesReservedScheme(tx)) return;
     this.#processedOutbound.add(index);
     this.#decodeOutboundSlots(tx, txKey, salt);
   }

@@ -2168,6 +2168,182 @@ describe("wallet sync", () => {
     expect(wallet.privateTransactions()).toEqual([]);
   });
 
+  describe("output schemes on an authored spend", () => {
+    const encryptedFrame = (schemeByte: number): Uint8Array =>
+      Uint8Array.of(1, 2, 0, 0, 0, schemeByte, 7);
+    const spendRow = [expect.objectContaining({ kind: "publicWithdrawal", direction: "outbound" })];
+
+    function walletHolding100(sender: ShieldedKeypair) {
+      const wallet = new Wallet({ identity: sender.shieldedAddress() });
+      const blinding = bytes(31);
+      const input = new Utxo({
+        owner: sender.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 100n,
+        blinding,
+      });
+      const hash = input.hash(sender.nullifierPublicKey(), DEFAULT_TREE_ID);
+      const nullifier = sender.nullifier(hash, blinding);
+      wallet._replace({
+        ...wallet._state(),
+        utxos: [
+          {
+            utxo: input,
+            outputContext: { hash, tree: TREE, leafIndex: 0n },
+            nullifier,
+            spent: false,
+          },
+        ],
+      });
+      return { wallet, nullifier };
+    }
+
+    async function syncAuthoredSpend(payloads: readonly Uint8Array[]) {
+      const sender = ShieldedKeypair.generate();
+      const { wallet, nullifier } = walletHolding100(sender);
+      await decryptWithKeys(LocalShieldedKeys.fromKeypair(sender), {
+        wallet,
+        transactions: [
+          {
+            slot: 3n,
+            txSignature: SIGNATURE,
+            txViewingPublicKey: sender.transactionViewingKey(nullifier).publicKey(),
+            salt: new Uint8Array(16).fill(5) as Bytes16,
+            outputSlots: payloads.map((payload, index) => ({
+              viewTag: sender.viewingPublicKey().x(),
+              outputContext: { hash: bytes(60 + index), tree: TREE, leafIndex: BigInt(index + 1) },
+              payload,
+            })),
+            messages: [],
+            nullifiers: [nullifier],
+            proofless: false,
+          },
+        ],
+      });
+      return wallet.privateTransactions();
+    }
+
+    it.each([
+      EncryptedScheme.anonymousRecipient,
+      EncryptedScheme.anonymousSender,
+      EncryptedScheme.ringDeposit,
+      9,
+      10,
+      11,
+      12,
+      255,
+    ])("records no outbound row for scheme byte %i", async (schemeByte) => {
+      await expect(syncAuthoredSpend([encryptedFrame(schemeByte)])).resolves.toEqual([]);
+    });
+
+    async function syncNoteBesideUnknownScheme(
+      owner: ShieldedKeypair,
+      wallet: Wallet,
+      txKey: ViewingKey,
+      nullifier: Bytes32,
+    ) {
+      const salt = new Uint8Array(16).fill(5) as Bytes16;
+      const note = new Utxo({
+        owner: owner.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 100n,
+        blinding: bytes(32),
+      });
+      const payload = encodeOutputData(
+        EncryptedScheme.confidential,
+        encryptConfidential(
+          txKey,
+          owner.viewingPublicKey(),
+          {
+            assetId: SOL_ASSET_ID,
+            amount: note.amount,
+            blinding: note.blinding,
+            data: note.data,
+          },
+          salt,
+          0,
+        ),
+        "encrypted",
+      );
+      await decryptWithKeys(LocalShieldedKeys.fromKeypair(owner), {
+        wallet,
+        transactions: [
+          {
+            slot: 3n,
+            txSignature: SIGNATURE,
+            txViewingPublicKey: txKey.publicKey(),
+            salt,
+            outputSlots: [
+              {
+                viewTag: owner.signingPublicKey().confidentialViewTag(),
+                outputContext: {
+                  hash: note.hash(owner.nullifierPublicKey(), DEFAULT_TREE_ID),
+                  tree: TREE,
+                  leafIndex: 1n,
+                },
+                payload,
+              },
+              {
+                viewTag: bytes(77),
+                outputContext: { hash: bytes(60), tree: TREE, leafIndex: 2n },
+                payload: encryptedFrame(11),
+              },
+            ],
+            messages: [],
+            nullifiers: [nullifier],
+            proofless: false,
+          },
+        ],
+      });
+      return wallet
+        .utxos()
+        .filter((entry) => !entry.spent)
+        .map((entry) => entry.utxo.amount);
+    }
+
+    it("keeps the sender's change and records no split row", async () => {
+      const sender = ShieldedKeypair.generate();
+      const { wallet, nullifier } = walletHolding100(sender);
+      const txKey = sender.transactionViewingKey(nullifier);
+      await expect(syncNoteBesideUnknownScheme(sender, wallet, txKey, nullifier)).resolves.toEqual([
+        100n,
+      ]);
+      expect(wallet.privateTransactions()).toEqual([]);
+    });
+
+    it("opens a received note", async () => {
+      const recipient = ShieldedKeypair.generate();
+      const wallet = new Wallet({ identity: recipient.shieldedAddress() });
+      const nullifier = bytes(90);
+      const txKey = ShieldedKeypair.generate().transactionViewingKey(nullifier);
+      await expect(
+        syncNoteBesideUnknownScheme(recipient, wallet, txKey, nullifier),
+      ).resolves.toEqual([100n]);
+      expect(wallet.privateTransactions()).toEqual([
+        expect.objectContaining({ kind: "privateTransfer", direction: "inbound" }),
+      ]);
+    });
+
+    it.each([
+      EncryptedScheme.proofless,
+      EncryptedScheme.confidential,
+      EncryptedScheme.ringConfidential,
+      EncryptedScheme.split,
+      EncryptedScheme.merge,
+      EncryptedScheme.plaintextTransfer,
+    ])("records the spend for wallet scheme byte %i", async (schemeByte) => {
+      await expect(syncAuthoredSpend([encryptedFrame(schemeByte)])).resolves.toEqual(spendRow);
+    });
+
+    it.each([
+      ["an unknown encoding tag", Uint8Array.of(9, 2, 0, 0, 0, 11, 7)],
+      ["a truncated body", Uint8Array.of(1, 3, 0, 0, 0, 11, 7)],
+      ["an empty body", Uint8Array.of(1, 0, 0, 0, 0)],
+    ])("records the spend for a malformed frame with %s", async (_case, frame) => {
+      await expect(syncAuthoredSpend([frame])).resolves.toEqual(spendRow);
+    });
+  });
+
   it("recovers ring merges indexed by the first input nullifier", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });

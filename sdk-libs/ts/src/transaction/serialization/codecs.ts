@@ -703,6 +703,15 @@ export function readOutputData(bytes: Uint8Array): Readonly<{
   scheme: EncryptedScheme;
   body: Uint8Array;
 }> {
+  const { encoding, schemeByte, body } = readOutputFrame(bytes);
+  return { encoding, scheme: encryptedSchemeFromByte(schemeByte), body };
+}
+
+export function readOutputFrame(bytes: Uint8Array): Readonly<{
+  encoding: OutputDataEncoding;
+  schemeByte: number;
+  body: Uint8Array;
+}> {
   const reader = new Reader(bytes);
   const encodingTag = reader.u8();
   const blob = reader.take(reader.u32());
@@ -716,7 +725,7 @@ export function readOutputData(bytes: Uint8Array): Readonly<{
   }
   return {
     encoding: outputDataEncodingFromTag(encodingTag),
-    scheme: encryptedSchemeFromByte(blob[0] as number),
+    schemeByte: blob[0] as number,
     body: blob.slice(1),
   };
 }

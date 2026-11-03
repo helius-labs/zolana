@@ -26,6 +26,8 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
+- `syncWallet` recorded the sender's own transaction as a withdrawal or a split when an output used a scheme the SDK does not know, such as a custom ring's, and now records no row for that transaction.
+- `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` on a transaction that holds a confidential output for the wallet beside an output of a reserved or unknown scheme, and now stores that output.
 
 ## 0.8.0-alpha — 2026-11-03
 
