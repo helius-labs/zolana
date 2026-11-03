@@ -91,7 +91,8 @@ cargo run -p photon-indexer --bin photon -- \
 
 `--r2-bucket`/`--r2-prefix`, `--s3-bucket`/`--s3-prefix` and `--gcs-bucket`/`--gcs-prefix` are
 available for remote snapshot storage. S3 takes its region from `AWS_REGION` and its credentials
-from the environment, a profile, or the ECS task or instance role.
+from the environment, the `AWS_PROFILE` profile, or the ECS task or instance role. With
+`AWS_ENDPOINT` set it talks to that S3-compatible store with path-style requests.
 
 ## Operations
 

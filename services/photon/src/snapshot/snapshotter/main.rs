@@ -8,8 +8,8 @@ use photon_indexer::common::{
 };
 use photon_indexer::ingester::fetchers::BlockStreamConfig;
 use photon_indexer::snapshot::{
-    get_snapshot_files_with_metadata, load_byte_stream_from_directory_adapter, DirectoryAdapter,
-    SnapshotFileWithSlots,
+    first_snapshot_block_slot, get_snapshot_files_with_metadata,
+    load_byte_stream_from_directory_adapter, DirectoryAdapter, SnapshotFileWithSlots,
 };
 use std::future::pending;
 use std::io;
@@ -296,8 +296,9 @@ async fn main() -> Result<()> {
             .context("Failed to inspect snapshot source")?;
 
         // A start slot only places an empty store. With files present it must
-        // be where they began, so a service can pass the same flag on every
-        // restart and resume.
+        // be the slot of the first stored block, so a service can pass the same
+        // flag on every restart and resume. The check reads the store, not the
+        // RPC node, which may no longer serve that block.
         let last_indexed_slot = match (args.start_slot, snapshot_files.first()) {
             (Some(start_slot), None) => match start_slot.as_str() {
                 "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
@@ -313,11 +314,11 @@ async fn main() -> Result<()> {
                     let slot = start_slot
                         .parse::<u64>()
                         .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
-                    let begins = fetch_block_parent_slot(&rpc_client, slot).await? + 1;
-                    if first.start_slot != begins {
+                    let origin =
+                        first_snapshot_block_slot(directory_adapter.as_ref(), first).await?;
+                    if origin != slot {
                         bail!(
-                            "The stored snapshots start at slot {}, not at slot {begins} where --start-slot {slot} begins",
-                            first.start_slot
+                            "The stored snapshots start at slot {origin}, not at --start-slot {slot}"
                         );
                     }
                 }
