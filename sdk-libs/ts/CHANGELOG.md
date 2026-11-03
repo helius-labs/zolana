@@ -30,6 +30,7 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
+- `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
 
 ## 0.8.0-alpha — 2026-11-03
 

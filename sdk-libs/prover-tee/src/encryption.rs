@@ -81,16 +81,18 @@ pub fn decrypt_response(key: &[u8; 32], encrypted: &[u8]) -> Result<(u16, Vec<u8
 }
 
 /// The method, route and query minus every `api-key` parameter, so a proxy can
-/// move the credential while the route and job stay bound. The route is the
-/// path without [`GATEWAY_PREFIX`], as the Go prover receives it; a client
-/// passes the path below its prover URL, so a proxy can serve the prover under
-/// any path.
+/// move the credential while the route and job stay bound. The route drops
+/// trailing slashes and then [`GATEWAY_PREFIX`], in the order a gateway trims
+/// and forwards; a client passes the path below its prover URL, so a proxy can
+/// serve the prover under any path.
 pub(crate) fn request_aad(method: &str, request_uri: &str) -> String {
     let (path, query) = request_uri.split_once('?').unwrap_or((request_uri, ""));
+    let path = path.trim_end_matches('/');
     let path = path
         .strip_prefix(GATEWAY_PREFIX)
         .filter(|route| route.starts_with('/'))
         .unwrap_or(path);
+    let path = if path.is_empty() { "/" } else { path };
     let kept: Vec<&str> = query
         .split('&')
         .filter(|pair| {
