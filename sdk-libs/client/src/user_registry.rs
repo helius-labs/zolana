@@ -557,7 +557,7 @@ pub fn resolved_address_from_record(
             nullifier_pubkey: record.nullifier_pubkey,
             viewing_pubkey,
         },
-        view_tag: viewing_pubkey.u(),
+        view_tag: signing_pubkey.confidential_view_tag()?,
     })
 }
 
@@ -929,6 +929,23 @@ mod tests {
     }
 
     #[test]
+    fn resolved_address_view_tag_is_independent_of_viewing_key() {
+        let keypair = ShieldedKeypair::new_ed25519().expect("recipient");
+        let owner = keypair.pubkey();
+        let (_, bump) = user_record_pda(&owner);
+        let mut record = registered_record(owner, bump, &keypair);
+        let before = resolved_address_from_record(owner, &record).expect("before rotation");
+        let rotated = ShieldedKeypair::new_ed25519().expect("rotated viewing key");
+        record.viewing_pubkey = *rotated.viewing_pubkey().as_bytes();
+        let after = resolved_address_from_record(owner, &record).expect("after rotation");
+        assert_eq!(
+            (before.view_tag, after.view_tag),
+            (owner.to_bytes(), owner.to_bytes())
+        );
+        assert_ne!(before.address.viewing_pubkey, after.address.viewing_pubkey);
+    }
+
+    #[test]
     fn resolved_address_from_record_maps_registered_keys() {
         let keypair = ShieldedKeypair::new_ed25519().expect("shielded keypair");
         let owner = keypair.pubkey();
@@ -947,7 +964,7 @@ mod tests {
             resolved.address.viewing_pubkey.as_bytes(),
             keypair.viewing_pubkey().as_bytes()
         );
-        assert_eq!(resolved.view_tag, keypair.recipient_bootstrap_view_tag());
+        assert_eq!(resolved.view_tag, owner.to_bytes());
     }
 
     #[test]
@@ -967,7 +984,7 @@ mod tests {
 
         assert_eq!(resolved.owner, owner);
         assert_eq!(resolved.address.signing_pubkey, keypair.signing_pubkey());
-        assert_eq!(resolved.view_tag, keypair.recipient_bootstrap_view_tag());
+        assert_eq!(resolved.view_tag, owner.to_bytes());
     }
 
     #[test]
