@@ -6,9 +6,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	"github.com/helius-labs/zolana/prover/server/prover/indexed"
@@ -91,6 +93,17 @@ func transferRequest(t *testing.T) []byte {
 		Inputs:  []transfer.InputParamsJSON{{IsDummy: "0x0", Nullifier: "0x64"}, {IsDummy: "0x1", Nullifier: "0xc8"}},
 		Outputs: []transfer.OutputParamsJSON{{}, {}},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+// validTransferRequest is a complete 2x2 transfer-confidential body, which
+// the queue admits.
+func validTransferRequest(t *testing.T) []byte {
+	t.Helper()
+	body, err := os.ReadFile("../prover/request/testdata/transfer-2x2.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +272,7 @@ func TestKeylessQueuedJobIsPolledOnTheKeylessStatusPath(t *testing.T) {
 	readiness.MarkReady()
 	handler := proveHandler{readiness: readiness, redisQueue: queue, enableQueue: true}
 	response := httptest.NewRecorder()
-	handler.handleAsyncProof(response, httptest.NewRequest(http.MethodPost, "/prove", nil), transferRequest(t), common.ProofRequestMeta{CircuitType: common.TransferConfidentialCircuitType})
+	handler.handleAsyncProof(response, httptest.NewRequest(http.MethodPost, "/prove", nil), validTransferRequest(t), common.ProofRequestMeta{CircuitType: common.TransferConfidentialCircuitType})
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("enqueue got %d %q", response.Code, response.Body.String())
 	}
@@ -272,35 +285,25 @@ func TestKeylessQueuedJobIsPolledOnTheKeylessStatusPath(t *testing.T) {
 	}
 }
 
-// A queued job keeps the key its path named, because the worker, not the
-// handler, decodes the body far enough to know its key.
+// A body is held to the key its path named before it is queued, and a job
+// queued by a prover that did not check is held to it again by the worker.
 func TestQueuedJobIsHeldToItsPathKey(t *testing.T) {
-	_, queue := newTestQueue(t)
+	redis, queue := newTestQueue(t)
 	readiness := NewReadiness()
 	readiness.MarkReady()
 	handler := proveHandler{readiness: readiness, redisQueue: queue, enableQueue: true, provingKey: "transfer_confidential_1_2.key"}
 	response := httptest.NewRecorder()
-	handler.handleAsyncProof(response, httptest.NewRequest(http.MethodPost, "/prove/transfer_confidential_1_2", nil), transferRequest(t), common.ProofRequestMeta{CircuitType: common.TransferConfidentialCircuitType})
-	if response.Code != http.StatusAccepted {
+	handler.handleAsyncProof(response, httptest.NewRequest(http.MethodPost, "/prove/transfer_confidential_1_2", nil), validTransferRequest(t), common.ProofRequestMeta{CircuitType: common.TransferConfidentialCircuitType})
+	if response.Code != http.StatusBadRequest || errorCode(t, response) != "proving_key_mismatch" {
 		t.Fatalf("enqueue got %d %q", response.Code, response.Body.String())
 	}
-	var queued struct{ JobID, StatusURL string }
-	if err := json.Unmarshal(response.Body.Bytes(), &queued); err != nil {
-		t.Fatal(err)
-	}
-	if queued.StatusURL != "/prove/transfer_confidential_1_2/status?jobId="+queued.JobID {
-		t.Fatalf("status url %q", queued.StatusURL)
-	}
-	job, err := queue.DequeueProof("zk_transfer_queue", 0)
-	if err != nil || job == nil {
-		t.Fatalf("dequeue: %v", err)
-	}
-	if job.ProvingKey != "transfer_confidential_1_2.key" {
-		t.Fatalf("queued job key %q", job.ProvingKey)
+	if keys := redis.Keys(); len(keys) != 0 {
+		t.Fatalf("a refused body left Redis state: %v", keys)
 	}
 
+	job := &ProofJob{ID: "unchecked", Payload: validTransferRequest(t), ProvingKey: "transfer_confidential_1_2.key", CreatedAt: time.Now()}
 	worker := NewTransferQueueWorker(WorkerConfig{Queue: queue, Keys: common.NewLazyKeyManager(t.TempDir(), &common.DownloadConfig{}), Ready: readyNow()}, NewExecution(1))
-	_, err = worker.generatePreparedProof(&indexed.Resolved{Payload: job.Payload}, job.ProvingKey)
+	_, err := worker.generatePreparedProof(&indexed.Resolved{Payload: job.Payload}, job.ProvingKey)
 	var failure *Error
 	if !errors.As(err, &failure) || failure.Code != "proving_key_mismatch" {
 		t.Fatalf("worker proved a 2x2 body queued on the 1x2 path: %v", err)

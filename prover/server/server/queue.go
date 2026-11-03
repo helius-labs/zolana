@@ -735,6 +735,11 @@ func (rq *RedisQueue) CleanupOldResults() error {
 			Msg("Failed to cleanup old results by time")
 		return err
 	}
+	if pruned, err := rq.pruneIndex(ResultsIndexKey, "zk_results_queue", ""); err != nil {
+		logging.Logger().Error().Err(err).Msg("Failed to prune results index")
+	} else if pruned > 0 {
+		logging.Logger().Info().Int64("pruned_entries", pruned).Msg("Pruned results index")
+	}
 
 	if removed > 0 {
 		logging.Logger().Info().
@@ -889,6 +894,11 @@ func (rq *RedisQueue) CleanupOldFailedJobs() error {
 			Msg("Failed to cleanup old failed jobs")
 		return err
 	}
+	if pruned, err := rq.pruneIndex(FailedIndexKey, "zk_failed_queue", "_failed"); err != nil {
+		logging.Logger().Error().Err(err).Msg("Failed to prune failure index")
+	} else if pruned > 0 {
+		logging.Logger().Info().Int64("pruned_entries", pruned).Msg("Pruned failure index")
+	}
 
 	if removed > 0 {
 		logging.Logger().Info().
@@ -1032,9 +1042,6 @@ func (rq *RedisQueue) cleanupOldRequestsFromQueue(queueName string, cutoffTime t
 				if count > 0 {
 					removedCount++
 
-					// Also clean up the index entry if this is a results/failed queue
-					rq.cleanupIndexEntry(queueName, job.ID)
-
 					logging.Logger().Debug().
 						Str("job_id", job.ID).
 						Str("queue", queueName).
@@ -1046,31 +1053,6 @@ func (rq *RedisQueue) cleanupOldRequestsFromQueue(queueName string, cutoffTime t
 	}
 
 	return removedCount, nil
-}
-
-// cleanupIndexEntry removes the hash index entry for a job being cleaned up.
-// Looks up the inputHash from zk_input_hash_{jobID} and removes from the appropriate index.
-func (rq *RedisQueue) cleanupIndexEntry(queueName string, jobID string) {
-	// Extract original job ID (remove _failed suffix if present)
-	originalJobID := jobID
-	if len(jobID) > 7 && jobID[len(jobID)-7:] == "_failed" {
-		originalJobID = jobID[:len(jobID)-7]
-	}
-
-	// Look up the input hash for this job
-	inputHash, err := rq.Client.Get(rq.Ctx, fmt.Sprintf("zk_input_hash_%s", originalJobID)).Result()
-	if err != nil {
-		// Input hash not found or expired - nothing to clean up
-		return
-	}
-
-	// Remove from the appropriate index based on queue type
-	switch queueName {
-	case "zk_results_queue":
-		rq.RemoveResultIndex(inputHash)
-	case "zk_failed_queue":
-		rq.RemoveFailureIndex(inputHash)
-	}
 }
 
 // ComputeInputHash computes a SHA256 hash of the proof input payload

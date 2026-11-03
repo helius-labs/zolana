@@ -445,19 +445,28 @@ export class ProofInputUtxo {
   }
 
   /**
-   * Compact padding in `treeId`: a dummy over blinding 0 that publishes
-   * nullifier 0, so the instruction leaves it out and SPP creates nothing for
-   * it. The circuit still checks non-inclusion of its derived `nullifier()`,
-   * so it needs a non-inclusion proof like any dummy. It cannot fill input
-   * slot 0. Mirrors Rust `SppProofInputUtxo::compact`.
+   * Compact padding in `treeId`: a dummy that publishes nullifier 0, so the
+   * instruction leaves it out and SPP creates nothing for it. The circuit
+   * still checks non-inclusion of its derived `nullifier()`, so it needs a
+   * non-inclusion proof like any dummy. It cannot fill input slot 0. Mirrors
+   * Rust `SppProofInputUtxo::compact`.
+   *
+   * The blinding defaults to a fresh random value and must stay private. A
+   * publicly known blinding fixes the derived nullifier, and anyone who
+   * publishes that nullifier through an ordinary dummy inserts it into the
+   * tree, after which no compact padding over that blinding can prove
+   * non-inclusion.
    */
-  static compact(treeId: TreeId = DEFAULT_TREE_ID): ProofInputUtxo {
+  static compact(
+    treeId: TreeId = DEFAULT_TREE_ID,
+    blinding: Bytes32 = randomBlinding(),
+  ): ProofInputUtxo {
     const checkedTree = checkedTreeId(treeId);
     const utxo = new Utxo({
       owner: ShieldedPublicKey.zeroed(),
       asset: DUMMY_ASSET,
       amount: 0n,
-      blinding: copy(ZERO_32),
+      blinding: checked<Bytes32>(blinding, 32, "compact blinding"),
     });
     return new ProofInputUtxo({
       utxo,
@@ -477,7 +486,7 @@ export class ProofInputUtxo {
       throw new TransactionError("TRANSACTION_INPUT_TREE_MISMATCH");
     }
     return this.#compact
-      ? ProofInputUtxo.compact(treeId)
+      ? ProofInputUtxo.compact(treeId, this.utxo.blinding)
       : ProofInputUtxo.dummy(this.utxo.blinding, treeId);
   }
 

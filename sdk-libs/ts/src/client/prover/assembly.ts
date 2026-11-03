@@ -225,7 +225,7 @@ export async function authorizeHiddenOwner(
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
     hiddenOwnerSpend(
-      proofInputs.inputUtxos,
+      proofInputs,
       "sign" in owner
         ? (await owner.signingPublicKey()).ed25519()
         : checkedBytes(owner.ownerPublicKey, 32, "owner public key"),
@@ -522,11 +522,7 @@ function prepareTransferUnchecked(
         );
   const hidden =
     plan.data === "anonymousRingEddsa" && authorization !== undefined
-      ? hiddenOwnerSpend(
-          proofInputs.inputUtxos,
-          authorization.ownerPublicKey,
-          outputOwnerFields ?? [],
-        )
+      ? hiddenOwnerSpend(proofInputs, authorization.ownerPublicKey, outputOwnerFields ?? [])
       : undefined;
   const transfers = publicTransfers(proofInputs);
   const publicSlots = transfers.assets.flatMap((asset, index) => [
@@ -758,12 +754,12 @@ function prepareTransferUnchecked(
 }
 
 function hiddenOwnerSpend(
-  inputs: readonly ProofInputUtxo[],
+  proofInputs: SppProofInputs,
   ownerPublicKey: Bytes32,
   publishedOwners: readonly bigint[],
 ): Readonly<{ defaultOwnerTag?: Bytes32; defaultOwnerPublicKeyHash: bigint }> {
   const identity = solanaOwnerIdentity(ownerPublicKey);
-  const hidden = inputs.filter(
+  const hidden = proofInputs.inputUtxos.filter(
     (input) => !input.isDummy() && equalBytes(input.utxo.owner.ownerProofInputHash(), identity),
   );
   // AssertDefaultHiddenOwner skips address slots.
@@ -775,6 +771,20 @@ function hiddenOwnerSpend(
   const leak = boundRing ? publishedOwners.indexOf(bytesToBigInt(identity)) : -1;
   if (leak >= 0) {
     throw new ClientError("CLIENT_ANONYMOUS_PUBLISHED_OWNER", { details: { index: leak } });
+  }
+  // A default-ring spend publishes the identity anyway. Otherwise a dummy
+  // tagged with the hidden owner's key names the sender in the instruction
+  // data: the ring circuit binds no dummy tag, so `publishedOwners` reads it
+  // as zero. Compact padding is the trailing suffix the instruction omits.
+  if (!defaultRing) {
+    const tags = proofInputs.externalData.resolvedOwnerTags;
+    const index = proofInputs.outputs.findIndex((output, slot) => {
+      const tag = tags[slot];
+      return tag !== undefined && output.isDummy() && equalBytes(tag, ownerPublicKey);
+    });
+    if (index >= 0) {
+      throw new ClientError("CLIENT_ANONYMOUS_DUMMY_OWNER_TAG", { details: { index } });
+    }
   }
   return defaultRing
     ? Object.freeze({

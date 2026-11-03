@@ -1,6 +1,6 @@
 use solana_address::Address;
 use spr_interface::N_PUBLIC_SLOTS;
-use spr_keypair::shielded::ShieldedAddress;
+use spr_keypair::{shielded::ShieldedAddress, viewing_key::random_blinding};
 
 use super::{inputs::pad_inputs, shape::is_transact_shape, ConfidentialTransaction};
 use crate::{
@@ -135,7 +135,14 @@ impl ConfidentialTransaction {
         }
 
         // 4. Check output capacity, append dummy outputs and verify balance.
-        let dummy_owner_tag = if self.compact_padding {
+        //    Padding in a custom ring takes a fresh random tag per slot. Ring
+        //    circuits publish zero for every output not encoded as a
+        //    confidential default-ring output, which random dummy data never
+        //    is, so the tag is bound to nothing. Borrowing a participant's tag
+        //    there named an input owner, which in an anonymous proof is the
+        //    hidden signer.
+        let random_dummy_tags = self.ring_program_id.is_some() || self.random_dummy_tags;
+        let dummy_owner_tag = if self.compact_padding || random_dummy_tags {
             None
         } else {
             Some(match self.dummy_owner_tag(&outputs, sender)? {
@@ -161,30 +168,31 @@ impl ConfidentialTransaction {
             });
         }
         // Explicitly empty slots use the same padding mode as appended slots.
+        let padding_tag = || {
+            if random_dummy_tags {
+                Some(random_blinding())
+            } else {
+                dummy_owner_tag
+            }
+        };
         for output in outputs.iter_mut().filter(|output| output.is_dummy()) {
             if self.compact_padding {
                 output.compact = true;
                 output.owner_tag = None;
             } else if !output.compact && output.owner_tag.is_none() {
-                output.owner_tag = dummy_owner_tag;
+                output.owner_tag = padding_tag();
             }
         }
-        outputs.resize(
-            shape.n_outputs(),
-            if self.compact_padding {
-                SppProofOutputUtxo {
-                    ring_program_id: self.ring_program_id,
-                    compact: true,
-                    ..Default::default()
-                }
+        outputs.resize_with(shape.n_outputs(), || SppProofOutputUtxo {
+            ring_program_id: self.ring_program_id,
+            compact: self.compact_padding,
+            owner_tag: if self.compact_padding {
+                None
             } else {
-                SppProofOutputUtxo {
-                    ring_program_id: self.ring_program_id,
-                    owner_tag: dummy_owner_tag,
-                    ..Default::default()
-                }
+                padding_tag()
             },
-        );
+            ..Default::default()
+        });
         for asset in self.assets(&outputs)? {
             let available = self
                 .input_sum(&asset)

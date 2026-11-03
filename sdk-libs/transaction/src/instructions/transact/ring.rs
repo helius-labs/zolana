@@ -32,6 +32,20 @@ impl ConfidentialTransaction {
         Ok(transaction)
     }
 
+    /// Tag every dummy output with a fresh random value instead of a
+    /// participant's signing key. A transaction in a custom ring does this
+    /// already. Call it on a default-ring transaction that a ring rail proves,
+    /// above all an anonymous one: borrowing a participant's tag names an input
+    /// owner, which there is the hidden signer. Confidential rails require
+    /// every dummy tag to name a participant and reject random ones.
+    pub fn with_random_dummy_tags(mut self) -> Result<Self, TransactionError> {
+        if self.padded_inputs.is_some() {
+            return Err(TransactionError::OutputUtxosAlreadyPadded);
+        }
+        self.random_dummy_tags = true;
+        Ok(self)
+    }
+
     /// Transfer to an explicitly selected ring: `Some(address)` selects a custom
     /// ring, and `None` selects the default ring.
     ///

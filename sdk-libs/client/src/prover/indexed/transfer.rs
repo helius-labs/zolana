@@ -279,6 +279,8 @@ impl IndexedTransferPreparation<'_> {
                     private_tx: &private_tx,
                     external_data_hash: &external_hash,
                     published_owners: owners.as_deref().unwrap_or_default(),
+                    outputs: &transaction.output_utxos,
+                    output_owner_tags: &transaction.external_data.resolved_owner_tags,
                 }
                 .prepare()?,
             ),
@@ -979,6 +981,32 @@ mod tests {
         }
     }
 
+    /// Default-ring padding borrows an input owner's tag. On the anonymous
+    /// rail that owner is the hidden signer, and the ring circuit does not bind
+    /// a dummy's tag, so the masked owner vector the proof publishes reads it
+    /// as zero while the instruction names the sender. Preparation refuses it.
+    #[test]
+    fn anonymous_rail_refuses_dummy_tags_naming_the_hidden_owner() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let transaction = address_only_transaction_padded(&owner, false);
+        let hidden = owner.signing_pubkey().confidential_view_tag().unwrap();
+        assert!(transaction
+            .output_utxos
+            .iter()
+            .any(|output| output.is_dummy() && output.owner_tag == Some(hidden)));
+        assert!(matches!(
+            IndexedTransferPreparation {
+                transaction,
+                rail: IndexedTransferRail::AnonymousRingEddsa {
+                    ring: Address::new_from_array([9; 32]),
+                    owner: OwnerAuthorization::SigningKey(&owner.signing_key),
+                },
+            }
+            .prepare(&owner),
+            Err(ClientError::AnonymousRingEddsaDummyTagLeaksIdentity { index: 1 })
+        ));
+    }
+
     #[test]
     fn anonymous_signature_binds_cache_write_address_and_slot() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
@@ -1013,6 +1041,13 @@ mod tests {
     }
     /// An address-only transaction of `owner`, with one zero-amount output.
     fn address_only_transaction(owner: &ShieldedKeypair) -> SppProofInputs {
+        address_only_transaction_padded(owner, true)
+    }
+
+    fn address_only_transaction_padded(
+        owner: &ShieldedKeypair,
+        random_dummy_tags: bool,
+    ) -> SppProofInputs {
         let sender = owner.shielded_address().unwrap();
         let payer = sender.solana_address().unwrap();
         let address = SppProofInputUtxo::new_address(
@@ -1029,6 +1064,9 @@ mod tests {
                 payer,
             )
             .unwrap();
+        if random_dummy_tags {
+            transaction = transaction.with_random_dummy_tags().unwrap();
+        }
         transaction
             .add_output_utxo(SppProofOutputUtxo::new(Mint::SOL, 0, sender).unwrap())
             .unwrap();

@@ -100,6 +100,7 @@ pub struct ConfidentialTransaction {
     ring_program_id: Option<Address>,
     padded_inputs: Option<Vec<SppProofInputUtxo>>,
     compact_padding: bool,
+    random_dummy_tags: bool,
     transaction_signers: Option<Vec<Address>>,
 }
 
@@ -266,6 +267,7 @@ impl ConfidentialTransaction {
             ring_program_id: None,
             padded_inputs: None,
             compact_padding: false,
+            random_dummy_tags: false,
             transaction_signers: None,
         })
     }

@@ -52,6 +52,23 @@ var (
 		},
 	)
 
+	// Requests refused because the concurrent body read bound was full.
+	BodyReadsShedTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "prover_body_reads_shed_total",
+			Help: "Total number of proof requests rejected before their body was read, at the concurrent body read limit",
+		},
+	)
+
+	// Async submissions refused because their queue was full.
+	QueueSubmissionsShedTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "prover_queue_submissions_shed_total",
+			Help: "Total number of asynchronous proof requests rejected because their queue held its maximum number of pending jobs",
+		},
+		[]string{"queue"},
+	)
+
 	QueueWaitTime = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "prover_queue_wait_time_seconds",

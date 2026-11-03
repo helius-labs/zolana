@@ -247,13 +247,27 @@ impl SppProofInputUtxo {
         })
     }
 
-    /// Create compact padding in the given tree: a dummy over blinding 0 that
-    /// publishes nullifier 0, so the instruction leaves it out and SPP creates
-    /// nothing for it. The circuit still checks non-inclusion of its derived
-    /// [`nullifier`](Self::nullifier), so it needs a non-inclusion witness like
-    /// any dummy. It cannot fill input slot 0.
+    /// Create compact padding in the given tree with a fresh random blinding:
+    /// a dummy that publishes nullifier 0, so the instruction leaves it out and
+    /// SPP creates nothing for it. The circuit still checks non-inclusion of
+    /// its derived [`nullifier`](Self::nullifier), so it needs a non-inclusion
+    /// witness like any dummy. It cannot fill input slot 0.
+    ///
+    /// The blinding must stay private and fresh. A publicly known blinding
+    /// fixes the derived nullifier, and anyone who publishes that nullifier
+    /// through an ordinary dummy inserts it into the tree, after which no
+    /// compact padding over that blinding can prove non-inclusion.
     pub fn compact(tree_id: u16) -> Result<Self, TransactionError> {
-        let mut input = Self::dummy_with_blinding([0u8; 32], tree_id)?;
+        Self::compact_with_blinding(random_blinding(), tree_id)
+    }
+
+    /// Create compact padding over the supplied blinding. See
+    /// [`compact`](Self::compact) for why the blinding must be private.
+    pub fn compact_with_blinding(
+        blinding: [u8; 32],
+        tree_id: u16,
+    ) -> Result<Self, TransactionError> {
+        let mut input = Self::dummy_with_blinding(blinding, tree_id)?;
         input.compact = true;
         Ok(input)
     }

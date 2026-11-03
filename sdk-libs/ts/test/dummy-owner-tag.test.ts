@@ -8,6 +8,7 @@ import {
   SigningKey,
   poseidon,
   randomBlinding,
+  randomSalt,
   sha256Bytes,
 } from "../src/keypair/index.js";
 import {
@@ -17,6 +18,7 @@ import {
   SOL_MINT,
   Utxo,
   WithdrawalTarget,
+  encodeConfidentialSlots,
   privateTxBlinding,
   privateTxHash,
   transactOutputBlinding,
@@ -281,5 +283,59 @@ describe("dummy output owner tags", () => {
       expect(signed.messageHash()).toEqual(sha256Bytes(concatBytes(byHand, externalDataHash)));
       expectDerivedBlindings(prepared, signed);
     }
+  });
+});
+
+// Ring circuits bind no dummy tag: they publish zero for every output that is
+// not a confidential default-ring encoding. A participant's tag there would
+// name an input owner, which in an anonymous proof is the hidden signer, so
+// every ring dummy draws its own random tag. Mirrors Rust
+// `mixed_rings_and_relayed_owner_tags_match_recovered_owners`.
+describe("ring dummy output owner tags", () => {
+  const ring = address("Ring111111111111111111111111111111111111111");
+
+  it.each([
+    ["a custom ring", (transfer: ConfidentialTransfer) => transfer.withRingProgramId(ring)],
+    ["an explicit opt-in", (transfer: ConfidentialTransfer) => transfer.withRandomDummyTags()],
+  ] as const)("are random and name no participant in %s", (_name, configure) => {
+    const sender = ShieldedKeypair.generate();
+    const recipient = ShieldedKeypair.generate();
+    // Self-paid, so the default rule would tag the dummies with the sender.
+    const transfer = configure(
+      new ConfidentialTransfer(
+        sender.shieldedAddress(),
+        [solInput(sender, 10n)],
+        sender.shieldedAddress().solanaAddress(),
+      ).withShape({ inputs: 1, outputs: 8 }),
+    );
+    transfer.send(recipient.shieldedAddress(), SOL_MINT, 4n);
+    const prepared = transfer.prepare();
+    const viewingKey = sender.viewingKey();
+    const tx = viewingKey.transactionViewingKey(prepared.firstNullifier);
+    const salt = randomSalt();
+    const signed = prepared.finalize({
+      txViewingPublicKey: tx.publicKey(),
+      salt,
+      payload: encodeConfidentialSlots(prepared.outputs, new AssetRegistry(), tx, salt),
+    });
+    tx.destroy();
+    viewingKey.destroy();
+    const participants = [sender, recipient].map((holder) =>
+      holder.signingPublicKey().confidentialViewTag(),
+    );
+    const tags = dummyTags(signed).map((tag) => {
+      if (tag.kind !== "inline") throw new Error("a random tag is always inline");
+      return tag.value;
+    });
+    expect(tags).toHaveLength(6);
+    for (const tag of tags) {
+      expect(tag[0]).toBe(0);
+      expect(participants).not.toContainEqual(tag);
+    }
+    expect(new Set(tags.map((tag) => Buffer.from(tag).toString("hex"))).size).toBe(tags.length);
+    // Sealing and finalizing read the same draw.
+    const sealed = prepared.proofOutputs().map((output) => output.ownerTag);
+    expect(sealed.slice(2)).toEqual(tags);
+    expectDerivedBlindings(prepared, signed);
   });
 });

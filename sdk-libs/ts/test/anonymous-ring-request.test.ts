@@ -4,7 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import vector from "../../../test-vectors/anonymous_ring_eddsa_request.json" with { type: "json" };
 import { LocalKeys, ZolanaClient, signTransactMessage } from "../src/client/index.js";
-import { prepareTransfer, resolvedPublicInputHash } from "../src/client/prover/assembly.js";
+import {
+  authorizeHiddenOwner,
+  prepareTransfer,
+  resolvedPublicInputHash,
+} from "../src/client/prover/assembly.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { solanaOwnerIdentity } from "../src/hasher/index.js";
 import { bytesToBigInt } from "../src/interface/bytes.js";
@@ -12,6 +16,7 @@ import { encodeTransactInstructionData } from "../src/interface/codecs/index.js"
 import type { Address, Bytes16, Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { inputTreeSlots } from "../src/interface/tree-slot.js";
+import { randomBlinding } from "../src/keypair/bytes.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import {
   ProofInputUtxo,
@@ -46,7 +51,11 @@ function keypair(seed: number): ShieldedKeypair {
 
 function proofInputs(
   owner: ShieldedKeypair,
-  spend: Readonly<{ ring?: Address; extraInputs?: readonly ProofInputUtxo[] }> = { ring: RING },
+  spend: Readonly<{
+    ring?: Address;
+    extraInputs?: readonly ProofInputUtxo[];
+    dummyTag?: Bytes32;
+  }> = { ring: RING },
 ): SppProofInputs {
   const input = ProofInputUtxo.fromKeypair(
     new Utxo({
@@ -74,6 +83,18 @@ function proofInputs(
       ringProgramId: RING,
     }),
   );
+  // Two dummies make the supported 1x4 shape.
+  while (spend.dummyTag !== undefined && outputs.length < 4) {
+    outputs.push(
+      createProofOutput({
+        asset: SOL_MINT,
+        amount: 0n,
+        blinding: transactOutputBlinding(input.nullifier(), outputSeed, outputs.length),
+        ringProgramId: RING,
+        ownerTag: spend.dummyTag,
+      }),
+    );
+  }
   return new SppProofInputs({
     payer: owner.shieldedAddress().solanaAddress(),
     inputUtxos: [input, ...(spend.extraInputs ?? [])],
@@ -85,7 +106,7 @@ function proofInputs(
         utxoHash: output.hash(TREE_ID),
         ownerTag: { kind: "inline", value: OWNER_TAG },
       })),
-      resolvedOwnerTags: outputs.map(() => OWNER_TAG),
+      resolvedOwnerTags: outputs.map((output) => output.ownerTag ?? OWNER_TAG),
       messages: [],
     }),
     blindingSeed,
@@ -150,6 +171,23 @@ function indexedResponse(
     },
   };
 }
+
+describe("authorizeHiddenOwner", () => {
+  // The ring circuit binds no dummy tag, so the owner vector the proof
+  // publishes reads a dummy as zero while the instruction carries its raw tag.
+  it("refuses a dummy tagged with the hidden owner's key before the owner signs", async () => {
+    const owner = keypair(0x11);
+    const hidden = owner.signingPublicKey().ed25519();
+    const sign = vi.spyOn(owner, "sign");
+    await expect(
+      authorizeHiddenOwner(proofInputs(owner, { ring: RING, dummyTag: hidden }), owner),
+    ).rejects.toMatchObject({ code: "CLIENT_ANONYMOUS_DUMMY_OWNER_TAG", details: { index: 2 } });
+    expect(sign).not.toHaveBeenCalled();
+    await expect(
+      authorizeHiddenOwner(proofInputs(owner, { ring: RING, dummyTag: randomBlinding() }), owner),
+    ).resolves.toBeDefined();
+  });
+});
 
 describe("ZolanaClient.proveAnonymousRingTransact", () => {
   it.each([

@@ -87,8 +87,11 @@ pub(crate) fn pad_with_compact(
             want,
         });
     }
+    // The merge circuit derives a padding slot's nullifier from the owner's
+    // nullifier secret, not from the blinding, so the zero blinding exposes
+    // nothing here.
     for nullifier in dummy_nullifiers {
-        let mut input = SppProofInputUtxo::compact(tree_id)?;
+        let mut input = SppProofInputUtxo::compact_with_blinding([0u8; 32], tree_id)?;
         input.nullifier = *nullifier;
         inputs.push(input);
     }

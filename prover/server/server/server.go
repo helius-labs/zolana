@@ -11,7 +11,6 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
 	"github.com/helius-labs/zolana/prover/server/prover/timing"
 	"github.com/helius-labs/zolana/prover/server/tee"
-	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -302,6 +301,11 @@ type proveHandler struct {
 	// Bounds proving done inside a request. Shared across requests, so it must
 	// be the same instance for every one of them.
 	admission *syncAdmission
+	// Bounds request bodies read at once, shared like admission.
+	bodies *bodyAdmission
+	// Most jobs one queue may hold before submissions are refused; 0 is no
+	// bound.
+	maxPending int64
 }
 
 func isValidJobID(jobID string) bool {
@@ -406,17 +410,17 @@ func (handler proveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limit := maxBodyBytes(handler.provingKey)
 	if handler.indexed {
 		if handler.indexer == nil {
 			(&Error{StatusCode: http.StatusNotFound, Code: "indexer_unconfigured", Message: "Indexer proving is not configured"}).send(w)
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		limit = maxIndexedBodyBytes
 	}
-	buf, err := io.ReadAll(r.Body)
-	if err != nil {
-		logging.Logger().Error().Err(err).Msg("Error reading request body")
-		malformedBodyError(err).send(w)
+	buf, failure := handler.bodies.read(w, r, limit)
+	if failure != nil {
+		failure.send(w)
 		return
 	}
 
@@ -718,6 +722,8 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 		enableQueue:       config.Queue != nil && config.Queue.Enabled,
 		served:            config.Served,
 		admission:         newSyncAdmission(syncPermits()),
+		bodies:            newBodyAdmission(bodyReadPermits()),
+		maxPending:        maxPendingJobs(),
 	}
 	registerProofPaths(proverMux, handler)
 	if config.LegacyProvePaths {
@@ -766,7 +772,15 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	)
 
 	authHandler := conditionalAuthMiddleware(apiKey)
-	proverServer := &http.Server{Addr: config.ProverAddress, Handler: corsHandler(authHandler(proverHandler))}
+	proverServer := &http.Server{
+		Addr:    config.ProverAddress,
+		Handler: corsHandler(authHandler(proverHandler)),
+		// A client that never finishes its headers would hold a connection
+		// forever. The body has its own deadline, set while it is read
+		// (bodyAdmission.read): a server-wide ReadTimeout would stay armed
+		// while a proof runs and cancel its request.
+		ReadHeaderTimeout: requestHeaderTimeout,
+	}
 	proverJob := spawnServerJob(proverServer, "prover server")
 
 	if redisQueue != nil {
@@ -1014,8 +1028,28 @@ func allCircuits() []common.CircuitType {
 func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Request, buf []byte, meta common.ProofRequestMeta) {
 	queueName := GetQueueNameForCircuit(meta.CircuitType)
 
+	// Everything below writes Redis state that outlives the request, so the
+	// body must first pass what a worker would accept. An indexed body was
+	// already checked in full by indexed.Validate.
+	payload := buf
+	if !handler.indexed {
+		canonical, failure := circuitProver{keys: handler.keyManager, trace: handler.timing, admission: handler.keyAdmission()}.validateQueued(meta.CircuitType, buf)
+		if failure != nil {
+			failure.send(w)
+			return
+		}
+		// The queue holds the decoded request re-encoded, so the input hash
+		// covers what is proved: a field the circuit ignores cannot make an
+		// identical request look new to deduplication.
+		payload = canonical
+	}
+	if failure := handler.redisQueue.admitPending(queueName, handler.maxPending); failure != nil {
+		failure.send(w)
+		return
+	}
+
 	// Compute input hash for deduplication
-	inputHash := ComputeInputHash(json.RawMessage(buf), handler.provingKey)
+	inputHash := ComputeInputHash(json.RawMessage(payload), handler.provingKey)
 
 	// Check for existing in-flight job with same input
 	dedupResult, err := handler.redisQueue.DeduplicateJob(inputHash)
@@ -1064,7 +1098,7 @@ func (handler proveHandler) handleAsyncProof(w http.ResponseWriter, r *http.Requ
 		Indexed:    handler.indexed,
 		ID:         jobID,
 		Type:       "zk_proof",
-		Payload:    json.RawMessage(buf),
+		Payload:    json.RawMessage(payload),
 		ProvingKey: handler.provingKey,
 		CreatedAt:  time.Now(),
 		TreeID:     meta.TreeID,

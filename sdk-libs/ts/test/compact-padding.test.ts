@@ -106,11 +106,17 @@ describe("compact padding", () => {
 
     expect(signed.inputUtxos.map((input) => input.isCompact())).toEqual([false, true]);
     // Compact padding names the first tree and publishes 0 in place of the
-    // zero-key nullifier the circuit derives for its zero-blinding dummy.
+    // zero-key nullifier the circuit derives for its dummy. The blinding is
+    // fresh and private: a fixed one would give every transaction the same
+    // derived nullifier, which anyone could insert ahead of them.
     expect(compactInput.treeId).toBe(real.treeId);
     expect(compactInput.publishedNullifier()).toEqual(new Uint8Array(32));
+    expect(compactInput.utxo.blinding).not.toEqual(new Uint8Array(32));
     expect(compactInput.nullifier()).toEqual(
-      ProofInputUtxo.dummy(new Uint8Array(32) as Bytes32, real.treeId).nullifier(),
+      ProofInputUtxo.dummy(compactInput.utxo.blinding, real.treeId).nullifier(),
+    );
+    expect(ProofInputUtxo.compact(real.treeId).nullifier()).not.toEqual(
+      ProofInputUtxo.compact(real.treeId).nullifier(),
     );
     expect(signed.dummyNullifiers()).toEqual([compactInput.nullifier()]);
     expect(signed.outputs.map((output) => output.isCompact())).toEqual([false, false, true, true]);
@@ -208,10 +214,13 @@ describe("compact padding", () => {
   });
 
   it("keeps the compact flag through withTreeId and refuses it on a real input", () => {
-    const moved = ProofInputUtxo.compact(0).withTreeId(3);
+    const original = ProofInputUtxo.compact(0);
+    const moved = original.withTreeId(3);
     expect(moved.isCompact()).toBe(true);
     expect(moved.treeId).toBe(3);
-    expect(moved.nullifier()).toEqual(ProofInputUtxo.compact(3).nullifier());
+    expect(moved.nullifier()).toEqual(
+      ProofInputUtxo.compact(3, original.utxo.blinding).nullifier(),
+    );
     expect(ProofInputUtxo.dummy(undefined, 3).withTreeId(4).isCompact()).toBe(false);
 
     const real = solInput(ShieldedKeypair.generate(), 10n);
