@@ -1,6 +1,6 @@
 [package]
 name = "spr-event"
-version = "0.1.0"
+version = "0.8.0"
 description = "Shielded-pool event types and binary codecs for the SPR protocol."
 edition.workspace = true
 license.workspace = true
