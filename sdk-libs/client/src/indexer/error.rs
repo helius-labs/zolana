@@ -19,6 +19,11 @@ const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
 pub fn indexer_error(error: spr_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
+        spr_api::ApiError::MinimumContextSlot { context_slot } => {
+            ClientError::IndexerMinimumContextSlot {
+                indexed: context_slot,
+            }
+        }
         #[cfg(feature = "reqwest")]
         spr_api::ApiError::Request(error)
             if error.is_timeout() || error.is_connect() || error.is_request() =>

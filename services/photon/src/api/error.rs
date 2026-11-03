@@ -20,6 +20,8 @@ pub enum PhotonApiError {
     UnexpectedError(String),
     #[error("Node is behind {0} slots")]
     StaleSlot(u64),
+    #[error("Minimum context slot has not been reached")]
+    MinimumContextSlot { context_slot: u64 },
     /// The indexed root is no longer in the chain's root history, so Photon
     /// cannot provide the history entry a client must quote. Retryable.
     #[error("Stale Root: {0}")]
@@ -29,6 +31,11 @@ pub enum PhotonApiError {
 impl From<PhotonApiError> for ErrorObjectOwned {
     fn from(val: PhotonApiError) -> Self {
         match val {
+            PhotonApiError::MinimumContextSlot { context_slot } => ErrorObjectOwned::owned(
+                -32016,
+                "Minimum context slot has not been reached",
+                Some(serde_json::json!({"contextSlot": context_slot})),
+            ),
             PhotonApiError::ValidationError(_) => {
                 metric! {
                     statsd_count!("validation_api_error", 1);

@@ -19,7 +19,8 @@ use crate::{
         AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
         GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, IndexerRpcConfig, RingHistoryOptions, Rpc,
+        GetUserRecordsResponse, HistoryFilters, IndexerRpcConfig, PaginationToken,
+        RingHistoryOptions, Rpc,
     },
 };
 
@@ -117,27 +118,35 @@ impl Rpc for ZolanaIndexer {
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.block_on(
-            self.indexer
-                .get_encrypted_utxos_by_tags(tags, cursor, limit, config),
-        )
+        self.block_on(self.indexer.get_encrypted_utxos_by_tags(
+            tags,
+            pagination_token,
+            limit,
+            filters,
+            config,
+        ))
     }
 
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.block_on(
-            self.indexer
-                .get_shielded_transactions_by_tags(tags, cursor, limit, config),
-        )
+        self.block_on(self.indexer.get_shielded_transactions_by_tags(
+            tags,
+            pagination_token,
+            limit,
+            filters,
+            config,
+        ))
     }
 
     fn get_shielded_transactions_by_ring(
@@ -165,14 +174,18 @@ impl Rpc for ZolanaIndexer {
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-        self.block_on(
-            self.indexer
-                .get_shielded_transactions_by_nullifiers(nullifiers, cursor, limit, config),
-        )
+        self.block_on(self.indexer.get_shielded_transactions_by_nullifiers(
+            nullifiers,
+            pagination_token,
+            limit,
+            filters,
+            config,
+        ))
     }
 
     fn get_merkle_proofs(

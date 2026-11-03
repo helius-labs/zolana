@@ -78,9 +78,9 @@ export type {
 } from "@heliuslabs/zolana/wallet";
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
 export type {
-  SerializedCursor,
+  SerializedSyncCheckpoint,
   SerializedNoteReservation,
-  SerializedSyncCursors,
+  SerializedSyncCheckpoints,
 } from "@heliuslabs/zolana/transaction";
 export type { SettlementTransfer } from "@heliuslabs/zolana/transaction";
 export { encodeTransactInstructionData, transactCpiAccounts } from "@heliuslabs/zolana/interface";
@@ -111,9 +111,9 @@ export {
   toProgramWalletUtxo,
 } from "@heliuslabs/zolana/transaction";
 export type {
-  SerializedCursor as RootSerializedCursor,
+  SerializedSyncCheckpoint as RootSerializedSyncCheckpoint,
   SerializedNoteReservation as RootSerializedNoteReservation,
-  SerializedSyncCursors as RootSerializedSyncCursors,
+  SerializedSyncCheckpoints as RootSerializedSyncCheckpoints,
   SyncPersistedWalletResult as RootSyncPersistedWalletResult,
   SyncWalletInput as RootSyncWalletInput,
   WalletStateStore as RootWalletStateStore,

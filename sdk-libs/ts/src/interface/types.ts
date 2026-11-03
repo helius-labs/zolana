@@ -15,6 +15,29 @@ export type Bytes64 = FixedBytes<64>;
 export type Bytes96 = FixedBytes<96>;
 export type Bytes128 = FixedBytes<128>;
 
+/** Opaque, server-issued token for the next page. Pass it back unchanged. */
+export type PaginationToken = string;
+
+/** Bounds on a transaction's slot. Every bound present applies. */
+export interface SlotFilter {
+  readonly gt?: bigint;
+  readonly gte?: bigint;
+  readonly lt?: bigint;
+  readonly lte?: bigint;
+}
+
+export interface HistoryFilters {
+  readonly slot?: SlotFilter;
+}
+
+export interface PageOptions {
+  /** The previous page's `paginationToken`, with the same filters. */
+  readonly paginationToken?: PaginationToken;
+  readonly limit?: number;
+  readonly filters?: HistoryFilters;
+  readonly minContextSlot?: bigint;
+}
+
 export interface RequestContext {
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;

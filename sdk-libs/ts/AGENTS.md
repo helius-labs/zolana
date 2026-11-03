@@ -109,8 +109,8 @@ a defect.
   commit. Returning diagnostics while committing past the data is forbidden.
 - Cursors remain separate per stream and per stable tag/nullifier. A newly
   learned key starts at its own beginning. Another key's watermark MUST NOT be
-  reused. Terminal empty pages advance only from an authoritative
-  `scannedThrough` value.
+  reused. A read that ends with a null `paginationToken` advances the
+  checkpoint only to that last page's `context.slot`.
 - Snapshot encoding has one owner:
   `src/transaction/wallet/persistence.ts`. Deserialization validates everything
   and supports every shipped version. Migrations are explicit and tested.
