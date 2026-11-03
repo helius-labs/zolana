@@ -72,7 +72,10 @@ export interface SyncClient extends Pick<
 export interface SyncWalletConfig {
   /** Stable tags and nullifiers per indexer request. Defaults to 64. */
   readonly queryChunk?: number;
-  /** Solana transactions requested per indexer page. Defaults to Photon's maximum, 1000. */
+  /**
+   * Solana transactions requested per indexer page, halved for the rest of the
+   * sync while a page is too large. Defaults to Photon's maximum, 1000.
+   */
   readonly pageLimit?: number;
   /**
    * Slot the indexer must have persisted before its answers are used. Unset
@@ -297,7 +300,8 @@ interface CollectByTagsInput {
     "getEncryptedUtxosByTags" | "getShieldedTransactionsByTags"
   >;
   readonly chunk: readonly Bytes32[];
-  readonly pageLimit: number;
+  /** Halved in place when a page is too large, so the rest of the sync asks for less. */
+  readonly pageLimit: { value: number };
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
   /** The slot this group of tags was read through last sync, or undefined for never. */
@@ -308,6 +312,7 @@ interface CollectByTagsInput {
 interface ScanControls {
   readonly paginationToken?: PaginationToken;
   readonly filters?: HistoryFilters;
+  readonly limit: number;
 }
 
 /** One indexer page, reduced to what a resumable scan needs. */
@@ -325,28 +330,41 @@ interface ScanPage {
  */
 async function readChunk(
   method: string,
-  checkpoint: bigint | undefined,
-  pageLimit: number,
-  request: (controls: ScanControls) => Promise<ScanPage>,
+  scan: Pick<CollectByTagsInput, "checkpoint" | "pageLimit" | "nextRpcConfig">,
+  request: (controls: ScanControls, rpcConfig: IndexerRpcConfig) => Promise<ScanPage>,
 ): Promise<bigint> {
   const invalid = (path: string) => () =>
     new ClientError("CLIENT_INVALID_RPC_RESPONSE", { details: { method, path } });
-  const filters = checkpoint === undefined ? undefined : { slot: { gt: checkpoint } };
+  const filters = scan.checkpoint === undefined ? undefined : { slot: { gt: scan.checkpoint } };
   let token: PaginationToken | undefined;
+  // Taken once per page, so a retried page keeps the sync's freshness gate.
+  let rpcConfig = scan.nextRpcConfig();
   for (;;) {
     const controls: ScanControls = {
       ...(filters === undefined ? {} : { filters }),
       ...(token === undefined ? {} : { paginationToken: token }),
+      limit: scan.pageLimit.value,
     };
-    const page = await request(controls);
+    let page: ScanPage;
     try {
-      validatePage(page, { ...controls, limit: BigInt(pageLimit) });
+      page = await request(controls, rpcConfig);
+    } catch (error) {
+      // Too large for the SDK or Photon: ask for the same page at half the limit.
+      const tooLarge =
+        error instanceof ClientError && error.code === "CLIENT_INDEXER_RESPONSE_TOO_LARGE";
+      if (!tooLarge || controls.limit === 1) throw error;
+      scan.pageLimit.value = Math.floor(controls.limit / 2);
+      continue;
+    }
+    try {
+      validatePage(page, { ...controls, limit: BigInt(controls.limit) });
     } catch {
       throw invalid("$")();
     }
     const next = nextPageToken(page, token, invalid("$.paginationToken"));
     if (next === null) return page.context.slot;
     token = next;
+    rpcConfig = scan.nextRpcConfig();
   }
 }
 
@@ -355,10 +373,10 @@ async function collectShieldedTransactions(
   context?: RequestContext,
 ): Promise<bigint> {
   const method = "getShieldedTransactionsByTags";
-  return readChunk(method, input.checkpoint, input.pageLimit, async (controls) => {
+  return readChunk(method, input, async (controls, rpcConfig) => {
     const response = await input.indexer.getShieldedTransactionsByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...controls },
-      input.nextRpcConfig(),
+      { tags: input.chunk, ...controls },
+      rpcConfig,
       context,
     );
     for (const transaction of response.data.flatMap((item) => item.events)) {
@@ -378,10 +396,10 @@ async function collectProoflessDeposits(
   context?: RequestContext,
 ): Promise<bigint> {
   const method = "getEncryptedUtxosByTags";
-  return readChunk(method, input.checkpoint, input.pageLimit, async (controls) => {
+  return readChunk(method, input, async (controls, rpcConfig) => {
     const response = await input.indexer.getEncryptedUtxosByTags(
-      { tags: input.chunk, limit: input.pageLimit, ...controls },
-      input.nextRpcConfig(),
+      { tags: input.chunk, ...controls },
+      rpcConfig,
       context,
     );
     for (const match of response.data.flatMap((item) => item.outputs)) {
@@ -433,7 +451,8 @@ function groupByCheckpoint(
 interface CollectByNullifiersInput {
   readonly indexer: Pick<IndexerReader, "getShieldedTransactionsByNullifiers">;
   readonly chunk: readonly Bytes32[];
-  readonly pageLimit: number;
+  /** Halved in place when a page is too large, so the rest of the sync asks for less. */
+  readonly pageLimit: { value: number };
   readonly nextRpcConfig: () => IndexerRpcConfig;
   readonly out: Map<string, IndexedShieldedTransaction>;
   /** The slot this chunk was read through last time, if it has been read before. */
@@ -449,10 +468,10 @@ async function collectShieldedTransactionsByNullifiers(
   context?: RequestContext,
 ): Promise<bigint> {
   const method = "getShieldedTransactionsByNullifiers";
-  return readChunk(method, input.checkpoint, input.pageLimit, async (controls) => {
+  return readChunk(method, input, async (controls, rpcConfig) => {
     const response = await input.indexer.getShieldedTransactionsByNullifiers(
-      { nullifiers: input.chunk, limit: input.pageLimit, ...controls },
-      input.nextRpcConfig(),
+      { nullifiers: input.chunk, ...controls },
+      rpcConfig,
       context,
     );
     for (const transaction of response.data.flatMap((item) => item.events)) {
@@ -506,7 +525,9 @@ async function runWalletSync(
 ): Promise<SyncReport> {
   try {
     const chunkSize = positiveInteger(input.config?.queryChunk ?? 64, "queryChunk");
-    const pageLimit = positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000);
+    const pageLimit = {
+      value: positiveInteger(input.config?.pageLimit ?? 1_000, "pageLimit", 1_000),
+    };
     const clientConfig = input.client.indexerConfig;
     const poll = input.config?.retry ?? clientConfig?.poll ?? DEFAULT_INDEXER_POLL_CONFIG;
     const decryptConfig = { syncedAt: BigInt(Math.floor(Date.now() / 1_000)) };

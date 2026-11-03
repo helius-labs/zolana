@@ -36,7 +36,9 @@ import {
 } from "../services/transport.js";
 
 const REQUEST_ID = "test-account";
-const MAX_BODY_BYTES = 1024 * 1024;
+// Photon's jsonrpsee server caps requests and responses at 10 MiB and answers a
+// larger response with `-32008`. Wallet sync halves `pageLimit` on either.
+const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
 export class ApiError extends Error {
   readonly code: `API_${string}`;

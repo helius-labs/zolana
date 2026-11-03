@@ -613,11 +613,11 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
 
 export function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
-  if (
-    cause instanceof ApiError &&
-    cause.code === "API_JSON_RPC" &&
-    cause.details?.["rpcCode"] === -32016
-  ) {
+  const rpcCode =
+    cause instanceof ApiError && cause.code === "API_JSON_RPC"
+      ? cause.details?.["rpcCode"]
+      : undefined;
+  if (rpcCode === -32016) {
     return new ClientError("CLIENT_INDEXER", { details: { method, retryable: true }, cause });
   }
   const code = externalCode(cause);
@@ -633,6 +633,10 @@ export function wrapIndexer(cause: unknown, method: string): ClientError {
       details: { method, retryable: true },
       cause,
     });
+  }
+  // `-32008` is Photon refusing to send a response above its own 10 MiB limit.
+  if (code === "API_RESPONSE_TOO_LARGE" || rpcCode === -32008) {
+    return new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", { details: { method }, cause });
   }
   if (code === "API_INVALID_RESULT") {
     return new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
