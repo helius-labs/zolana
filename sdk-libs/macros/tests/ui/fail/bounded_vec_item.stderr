@@ -10,4 +10,7 @@ help: the trait `Dummy` is implemented for `spr_transaction::utxo::wallet::Walle
   | impl Dummy for WalletUtxo {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `instantiate_padded`
- --> /zk-tools/zk-dsl/dsl/src/conversion/mod.rs:120:0
+ --> $CARGO/spr-zk-dsl-$VERSION/src/conversion/mod.rs
+  |
+  | pub fn instantiate_padded<T: ProofInput + Dummy, const MIN: usize, const MAX: usize>(
+  |                                           ^^^^^ required by this bound in `instantiate_padded`
