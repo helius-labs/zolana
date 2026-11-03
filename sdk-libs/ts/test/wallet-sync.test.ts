@@ -638,24 +638,24 @@ describe("wallet sync freshness", () => {
   });
 
   // The SDK refuses a body above 10 MiB; Photon refuses to build one and answers `-32008`.
-  const oversizedPages = {
-    "the SDK body limit": () =>
-      new Response("{}", { headers: { "content-length": String(11 * 1024 * 1024) } }),
-    "Photon's -32008": () =>
-      Response.json({
-        id: "test-account",
-        jsonrpc: "2.0",
-        error: {
-          code: -32008,
-          message: "Response is too big",
-          data: "Exceeded max limit of 10485760",
-        },
-      }),
-  };
-
-  it.each(Object.entries(oversizedPages))(
-    "keeps the required slot when a page over %s is retried smaller",
-    async (_name, oversizedPage) => {
+  it.each([
+    {
+      limit: "the SDK body limit",
+      oversizedPage: () =>
+        new Response("{}", { headers: { "content-length": String(11 * 1024 * 1024) } }),
+    },
+    {
+      limit: "Photon's -32008",
+      oversizedPage: () =>
+        Response.json({
+          id: "test-account",
+          jsonrpc: "2.0",
+          error: { code: -32008, message: "Response is too big" },
+        }),
+    },
+  ])(
+    "keeps the required slot when a page over $limit is retried smaller",
+    async ({ oversizedPage }) => {
       const keypair = ShieldedKeypair.generate();
       const wallet = new Wallet({ identity: keypair.shieldedAddress() });
       // Photon stays at slot 5, and its first transaction tag page is too large.

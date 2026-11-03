@@ -12,16 +12,15 @@ Breaking
 
 Added
 
-- `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB or Photon's `-32008` response-too-large error.
+- `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 
 Changed
 
 - `ZolanaIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
-- `ZolanaIndexer` sends and accepts JSON-RPC bodies up to 10 MiB, the limit Photon serves.
 
 Fixed
 
-- `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` down to 10 and retries the same page with the same `requireSlot` check.
+- `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
 
 ## 0.8.0-alpha — 2026-11-03
 

@@ -620,10 +620,6 @@ export function wrapIndexer(cause: unknown, method: string): ClientError {
   if (rpcCode === -32016) {
     return new ClientError("CLIENT_INDEXER", { details: { method, retryable: true }, cause });
   }
-  // jsonrpsee's oversized-response error, the server-side twin of `API_RESPONSE_TOO_LARGE`.
-  if (rpcCode === -32008) {
-    return new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", { details: { method }, cause });
-  }
   const code = externalCode(cause);
   if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });
   if (code === "API_TIMEOUT") {
@@ -638,11 +634,9 @@ export function wrapIndexer(cause: unknown, method: string): ClientError {
       cause,
     });
   }
-  if (code === "API_RESPONSE_TOO_LARGE") {
-    return new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", {
-      details: { method },
-      cause,
-    });
+  // `-32008` is Photon refusing to send a response above its own 10 MiB limit.
+  if (code === "API_RESPONSE_TOO_LARGE" || rpcCode === -32008) {
+    return new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", { details: { method }, cause });
   }
   if (code === "API_INVALID_RESULT") {
     return new ClientError("CLIENT_INVALID_RPC_RESPONSE", {

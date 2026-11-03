@@ -141,53 +141,43 @@ describe("wallet sync stable-tag vectors", () => {
     expect(recorded.nullifiers).not.toHaveBeenCalled();
   });
 
-  it("halves pageLimit and retries when an indexer page is too large", async () => {
+  /** Syncs a fresh wallet against an indexer whose tag pages above `fits` transactions are too large. */
+  function syncTooLargeAbove(fits: number, pageLimit: number) {
     const owner = keypair();
-    const limits: number[] = [];
-    let attempts = 0;
+    const recorded = recorder();
     const client: SyncClient = {
-      getShieldedTransactionsByTags: (request) => {
-        limits.push(request.limit ?? -1);
-        attempts += 1;
-        if (attempts === 1) {
-          return Promise.reject(
-            new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", {
-              details: { method: "getShieldedTransactionsByTags" },
-            }),
-          );
-        }
-        return Promise.resolve({
-          context: { blockTime: 0n, slot: 1n },
-          data: transactionItems([]),
-          paginationToken: null,
+      ...recorded.client,
+      getShieldedTransactionsByTags: async (request) => {
+        const page = await recorded.client.getShieldedTransactionsByTags(request);
+        if ((request.limit ?? 0) <= fits) return page;
+        throw new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", {
+          details: { method: "getShieldedTransactionsByTags" },
         });
       },
-      getEncryptedUtxosByTags: (request) => {
-        limits.push(request.limit ?? -1);
-        return Promise.resolve({
-          context: { blockTime: 0n, slot: 1n },
-          data: outputItems([]),
-          paginationToken: null,
-        });
-      },
-      getShieldedTransactionsByNullifiers: async () => ({
-        context: { blockTime: 0n, slot: 1n },
-        data: transactionItems([]),
-        paginationToken: null,
-      }),
     };
-
-    await syncWallet({
+    const sync = syncWallet({
       wallet: new Wallet({ identity: owner.shieldedAddress() }),
       keys: keysFor(owner, [owner.viewingKey()]),
       client,
-      config: { pageLimit: 200 },
+      config: { pageLimit },
     });
+    return { sync, recorded };
+  }
 
-    expect(limits[0]).toBe(200);
-    expect(limits[1]).toBe(100);
-    // Deposit collector inherits the shrunk limit from the shared page state.
-    expect(limits[2]).toBe(100);
+  it("halves pageLimit until a page fits and keeps it for the rest of the sync", async () => {
+    const { sync, recorded } = syncTooLargeAbove(50, 200);
+    await sync;
+    expect(recorded.shielded.map(({ limit }) => limit)).toEqual([200, 100, 50]);
+    expect(recorded.deposits.map(({ limit }) => limit)).toEqual([50]);
+  });
+
+  it("fails the sync when a one-transaction page is still too large", async () => {
+    const { sync, recorded } = syncTooLargeAbove(0, 4);
+    await expect(sync).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "CLIENT_INDEXER_RESPONSE_TOO_LARGE",
+    });
+    expect(recorded.shielded.map(({ limit }) => limit)).toEqual([4, 2, 1]);
   });
 
   for (const item of fixture.cases as readonly Case[]) {
