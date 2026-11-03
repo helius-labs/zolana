@@ -100,14 +100,14 @@ impl ProgramOwner {
             asset: output.asset,
             amount: output.amount,
             blinding: output.blinding,
-            ring_program_id: None,
+            ring_program_id: output.ring_program_id,
             data: output.data.clone(),
         };
         let utxo_hash = utxo
             .hash(
                 &nullifier_pubkey,
                 &output.data_hash.unwrap_or_default(),
-                &[0u8; 32],
+                &output.ring_data_hash.unwrap_or_default(),
                 tree_id,
             )
             .map_err(ClientErrorKind::InvalidUtxo)?;
@@ -122,7 +122,7 @@ impl ProgramOwner {
             nullifier_pubkey,
             utxo_hash,
             data_hash: output.data_hash,
-            ring_data_hash: None,
+            ring_data_hash: output.ring_data_hash,
             tree_id,
             leaf_index,
             latest_tree_id: None,

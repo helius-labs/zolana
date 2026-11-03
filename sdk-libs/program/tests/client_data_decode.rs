@@ -56,6 +56,47 @@ fn ordinary_and_addressed_state_decode_with_their_respective_hash_domains() {
     assert!(DataUtxo::<State>::try_from(owner.input(&tampered, 0, 2).unwrap()).is_err());
 }
 
+#[test]
+fn ring_notes_open_under_their_ring_program_and_ring_data_hash() {
+    let owner = ProgramOwner::new(Address::new_from_array([9; 32]));
+    let recipient = owner
+        .address(ViewingKey::from_bytes(&[7; 32]).pubkey())
+        .unwrap();
+    let ring = Address::new_from_array([5; 32]);
+    let ring_data_hash = [1u8; 32];
+    let tree_id = 3;
+
+    let hashed = SppProofOutputUtxo::new(Mint::SOL, 8, recipient)
+        .unwrap()
+        .with_ring_data_hash(ring, ring_data_hash);
+    let input = owner.input(&hashed, tree_id, 4).unwrap();
+    assert_eq!(input.utxo.ring_program_id, Some(ring));
+    assert_eq!(input.ring_data_hash, Some(ring_data_hash));
+    assert_eq!(input.utxo_hash, hashed.hash(tree_id).unwrap());
+
+    let unhashed = SppProofOutputUtxo::new(Mint::SOL, 8, recipient)
+        .unwrap()
+        .with_ring_program_id(ring);
+    let input = owner.input(&unhashed, tree_id, 5).unwrap();
+    assert_eq!(input.utxo.ring_program_id, Some(ring));
+    assert_eq!(input.ring_data_hash, None);
+    assert_eq!(input.utxo_hash, unhashed.hash(tree_id).unwrap());
+
+    let state = State { value: 42 };
+    let state_hash = data_hash(&state.hash().unwrap()).unwrap();
+    let with_state = hashed
+        .clone()
+        .with_utxo_data(borsh::to_vec(&state).unwrap(), state_hash);
+    let decoded =
+        DataUtxo::<State>::try_from(owner.input(&with_state, tree_id, 6).unwrap()).unwrap();
+    assert_eq!(decoded.data, state);
+    assert_eq!(decoded.utxo.ring_data_hash, Some(ring_data_hash));
+
+    let stranger = ProgramOwner::new(Address::new_from_array([8; 32]));
+    let refused = stranger.input(&hashed, tree_id, 7).err().unwrap();
+    assert_eq!(refused.name(), "ClientError.NotProgramOutput");
+}
+
 impl spr_program::EncryptionCodec for State {
     fn serialize_for_encryption(&self) -> std::io::Result<Vec<u8>> {
         borsh::to_vec(self)
