@@ -2071,7 +2071,7 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-program-error",
  "spr-account-checks",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-program",
  "thiserror 2.0.20",
@@ -2100,7 +2100,7 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-instruction",
  "spr-client",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-program",
@@ -3017,7 +3017,7 @@ dependencies = [
  "pinocchio-system",
  "solana-program-error",
  "spr-account-checks",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-program",
  "thiserror 2.0.20",
@@ -3076,7 +3076,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "spr-client",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-merkle-tree",
@@ -4197,7 +4197,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core",
 ]
 
 [[package]]
@@ -6141,7 +6141,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "petgraph",
@@ -6162,7 +6162,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -6755,7 +6755,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "spr-client",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-merkle-tree",
@@ -6802,7 +6802,7 @@ dependencies = [
  "solana-transaction-status-client-types",
  "spr-client",
  "spr-event",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-program-test",
@@ -7719,7 +7719,7 @@ dependencies = [
  "solana-msg",
  "spl-token-2022-interface 2.1.0",
  "spr-account-checks",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-tree",
  "spr-user-registry-interface",
@@ -7763,7 +7763,7 @@ dependencies = [
  "spr-client",
  "spr-event",
  "spr-event-parser",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-merkle-tree",
@@ -10326,7 +10326,7 @@ dependencies = [
  "spr-api",
  "spr-event",
  "spr-event-parser",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-indexer-api",
  "spr-instruction",
  "spr-interface",
@@ -10376,7 +10376,7 @@ dependencies = [
  "serde_json",
  "solana-address 2.6.1",
  "solana-bn254",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-merkle-tree",
  "spr-tree",
@@ -10403,6 +10403,21 @@ version = "0.1.0"
 [[package]]
 name = "spr-hasher"
 version = "0.1.1"
+source = "git+https://github.com/helius-labs/zolana?rev=8bde440d9a55d8e036eb9cfd8753458dd7b11b95#8bde440d9a55d8e036eb9cfd8753458dd7b11b95"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "light-poseidon 0.5.0",
+ "num-bigint 0.4.8",
+ "sha2 0.10.9",
+ "sha3",
+ "solana-program-error",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "spr-hasher"
+version = "0.8.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -10445,7 +10460,7 @@ dependencies = [
  "solana-instruction",
  "solana-pubkey 4.2.1",
  "spr-account-checks",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "thiserror 2.0.20",
  "wincode",
@@ -10468,7 +10483,7 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "solana-rent 4.3.0",
  "spr-event",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-tree",
  "thiserror 2.0.20",
  "wincode",
@@ -10498,7 +10513,7 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-keypair",
  "solana-signer",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-zk-dsl",
  "spr-zk-gadgets",
  "thiserror 2.0.20",
@@ -10519,7 +10534,7 @@ dependencies = [
  "quote",
  "solana-address 2.6.1",
  "solana-signature",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-program",
@@ -10536,7 +10551,7 @@ dependencies = [
  "num-bigint 0.4.8",
  "num-traits",
  "rand 0.8.8",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "thiserror 2.0.20",
 ]
 
@@ -10563,7 +10578,7 @@ dependencies = [
  "spr-account-checks",
  "spr-client",
  "spr-event",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-instruction",
  "spr-interface",
  "spr-keypair",
@@ -10602,7 +10617,7 @@ dependencies = [
  "spr-client",
  "spr-event",
  "spr-event-parser",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-instruction",
  "spr-interface",
  "spr-keypair",
@@ -10624,7 +10639,7 @@ dependencies = [
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-signature",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-program",
@@ -10751,7 +10766,7 @@ dependencies = [
  "spr-client",
  "spr-event",
  "spr-event-parser",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-merkle-tree",
@@ -10779,7 +10794,7 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-signature",
  "spr-event",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-instruction",
  "spr-interface",
  "spr-keypair",
@@ -10810,7 +10825,7 @@ dependencies = [
  "solana-msg",
  "spr-client",
  "spr-event",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-merkle-tree",
  "thiserror 2.0.20",
  "wincode",
@@ -10866,7 +10881,7 @@ dependencies = [
  "sha2 0.10.9",
  "solana-address 2.6.1",
  "solana-bn254",
- "spr-hasher",
+ "spr-hasher 0.1.1",
  "spr-zk-macros",
  "thiserror 2.0.20",
  "tsify",
@@ -11166,7 +11181,7 @@ dependencies = [
  "solana-program-error",
  "solana-pubkey 4.2.1",
  "spr-account-checks",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-program",
  "spr-test-utils",
@@ -11197,7 +11212,7 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "solana-signature",
  "spr-client",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-program",
@@ -11227,7 +11242,7 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "spr-client",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-merkle-tree",
@@ -11464,7 +11479,7 @@ dependencies = [
  "solana-signer",
  "spr-account-checks",
  "spr-client",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-interface",
  "spr-keypair",
  "spr-program",
@@ -11887,7 +11902,7 @@ dependencies = [
  "solana-instruction",
  "solana-pubkey 4.2.1",
  "spr-client",
- "spr-hasher",
+ "spr-hasher 0.8.0",
  "spr-merkle-tree",
  "spr-tree",
  "wincode",
@@ -12632,7 +12647,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
 dependencies = [
  "windows-collections",
- "windows-core 0.61.2",
+ "windows-core",
  "windows-future",
  "windows-link 0.1.3",
  "windows-numerics",
@@ -12644,7 +12659,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3beeceb5e5cfd9eb1d76b381630e82c4241ccd0d27f1a39ed41b2760b255c5e8"
 dependencies = [
- "windows-core 0.61.2",
+ "windows-core",
 ]
 
 [[package]]
@@ -12656,21 +12671,8 @@ dependencies = [
  "windows-implement",
  "windows-interface",
  "windows-link 0.1.3",
- "windows-result 0.3.4",
- "windows-strings 0.4.2",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.62.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
-dependencies = [
- "windows-implement",
- "windows-interface",
- "windows-link 0.2.1",
- "windows-result 0.4.1",
- "windows-strings 0.5.1",
+ "windows-result",
+ "windows-strings",
 ]
 
 [[package]]
@@ -12679,7 +12681,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc6a41e98427b19fe4b73c550f060b59fa592d7d686537eebf9385621bfbad8e"
 dependencies = [
- "windows-core 0.61.2",
+ "windows-core",
  "windows-link 0.1.3",
  "windows-threading",
 ]
@@ -12724,7 +12726,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1"
 dependencies = [
- "windows-core 0.61.2",
+ "windows-core",
  "windows-link 0.1.3",
 ]
 
@@ -12738,30 +12740,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-result"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
-dependencies = [
- "windows-link 0.2.1",
-]
-
-[[package]]
 name = "windows-strings"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57"
 dependencies = [
  "windows-link 0.1.3",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
-dependencies = [
- "windows-link 0.2.1",
 ]
 
 [[package]]
