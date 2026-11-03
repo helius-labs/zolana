@@ -1,3 +1,4 @@
+import { validatePage } from "../../interface/page.js";
 import {
   decodeEncryptedUtxosResponse,
   decodeMerkleProofsResponse,
@@ -41,6 +42,7 @@ export interface MethodDescriptor<Request, Response> {
   readonly name: string;
   encodeRequest(value: Request): Readonly<Record<string, unknown>>;
   decodeResponse(value: unknown): Response;
+  validateResponse?(response: Response, request: Request): void;
 }
 
 export const getEncryptedUtxosByTagsMethod: MethodDescriptor<
@@ -50,6 +52,7 @@ export const getEncryptedUtxosByTagsMethod: MethodDescriptor<
   name: GET_ENCRYPTED_UTXOS_BY_TAGS,
   encodeRequest: encodeRingsByTagsRequest,
   decodeResponse: decodeEncryptedUtxosResponse,
+  validateResponse: validatePage,
 };
 
 export const getShieldedTransactionsByTagsMethod: MethodDescriptor<
@@ -59,6 +62,7 @@ export const getShieldedTransactionsByTagsMethod: MethodDescriptor<
   name: GET_SHIELDED_TRANSACTIONS_BY_TAGS,
   encodeRequest: encodeRingsByTagsRequest,
   decodeResponse: decodeShieldedTransactionsResponse,
+  validateResponse: validatePage,
 };
 
 export const getShieldedTransactionsByNullifiersMethod: MethodDescriptor<
@@ -68,6 +72,7 @@ export const getShieldedTransactionsByNullifiersMethod: MethodDescriptor<
   name: GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
   encodeRequest: encodeRingsByNullifiersRequest,
   decodeResponse: decodeShieldedTransactionsResponse,
+  validateResponse: validatePage,
 };
 
 export const getShieldedTransactionsBySignatureMethod: MethodDescriptor<

@@ -62,9 +62,13 @@ fn assert_account(
                 vec![wallet_utxo.nullifier],
                 None,
                 Some(1),
+                spr_client::HistoryFilters::default(),
                 None
             )?
-            .transactions
+            .data
+            .into_iter()
+            .flat_map(|item| item.events)
+            .collect::<Vec<_>>()
             .is_empty(),
         "account note is unspent"
     );

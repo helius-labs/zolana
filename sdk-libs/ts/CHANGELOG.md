@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0-alpha — unreleased
+
+Indexer history reads use gTFA-style pagination with string tokens and slot
+filters, and wallet sync resumes each key from a slot checkpoint.
+
+Breaking
+
+- `ZolanaIndexer.getShieldedTransactionsByTags`, `getShieldedTransactionsByNullifiers` and `getEncryptedUtxosByTags` take `PageOptions` (`paginationToken`, `limit`, `filters.slot`, `minContextSlot`) and return a `Page` of `{context, data, paginationToken}` with the events or outputs of each Solana transaction grouped in `data` → upgrade Photon with the SDK, pass `paginationToken` back until it is `null`, and resume a later scan that has no `lt` or `lte` bound with `filters: { slot: { gt } }` set to the final page's `context.slot`.
+- `serializeWallet` writes snapshot version 5 with slot checkpoints, and `SerializedCursor` and `SerializedSyncCursors` become `SerializedSyncCheckpoint` and `SerializedSyncCheckpoints` → restore earlier snapshots with `deserializeWallet`, which keeps the wallet state and rescans history once.
+
+Changed
+
+- `ZolanaIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
+
 ## 0.8.0-alpha — 2026-11-03
 
 Provers serve the Helius gateway under `/v1/spr`, and clients follow prover

@@ -22,8 +22,8 @@ use super::{
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, RingHistoryOptions,
-        ShieldedTransactionStream,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, HistoryFilters,
+        PaginationToken, RingHistoryOptions, ShieldedTransactionStream,
     },
     IndexerRpcConfig, ProgramAccountsFilter,
 };
@@ -174,23 +174,29 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.run(move |rpc| rpc.get_encrypted_utxos_by_tags(tags, cursor, limit, config))
-            .await
+        self.run(move |rpc| {
+            rpc.get_encrypted_utxos_by_tags(tags, pagination_token, limit, filters, config)
+        })
+        .await
     }
 
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.run(move |rpc| rpc.get_shielded_transactions_by_tags(tags, cursor, limit, config))
-            .await
+        self.run(move |rpc| {
+            rpc.get_shielded_transactions_by_tags(tags, pagination_token, limit, filters, config)
+        })
+        .await
     }
 
     async fn get_shielded_transactions_by_ring(
@@ -214,12 +220,19 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         self.run(move |rpc| {
-            rpc.get_shielded_transactions_by_nullifiers(nullifiers, cursor, limit, config)
+            rpc.get_shielded_transactions_by_nullifiers(
+                nullifiers,
+                pagination_token,
+                limit,
+                filters,
+                config,
+            )
         })
         .await
     }

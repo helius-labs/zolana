@@ -19,8 +19,8 @@ use super::{
     types::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
-        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, ProveResult,
-        RingHistoryOptions, ShieldedTransactionStream,
+        GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, HistoryFilters,
+        PaginationToken, ProveResult, RingHistoryOptions, ShieldedTransactionStream,
     },
     ProgramAccountsFilter,
 };
@@ -154,8 +154,9 @@ pub trait Rpc {
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         Err(unsupported("get_encrypted_utxos_by_tags"))
@@ -164,8 +165,9 @@ pub trait Rpc {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
@@ -190,8 +192,9 @@ pub trait Rpc {
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_nullifiers"))
@@ -371,8 +374,9 @@ pub trait AsyncRpc: Send + Sync {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
         Err(unsupported("get_encrypted_utxos_by_tags"))
@@ -381,8 +385,9 @@ pub trait AsyncRpc: Send + Sync {
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_tags"))
@@ -407,8 +412,9 @@ pub trait AsyncRpc: Send + Sync {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        pagination_token: Option<PaginationToken>,
         limit: Option<u32>,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_nullifiers"))

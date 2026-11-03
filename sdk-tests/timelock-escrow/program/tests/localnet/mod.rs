@@ -77,9 +77,13 @@ pub fn creator_transactions(
             ],
             None,
             Some(50),
+            spr_client::HistoryFilters::default(),
             Some(IndexerRpcConfig::at_slot(slot)),
         )?
-        .transactions)
+        .data
+        .into_iter()
+        .flat_map(|item| item.events)
+        .collect())
 }
 
 pub fn send(
