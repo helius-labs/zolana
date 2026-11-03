@@ -288,6 +288,12 @@ pub enum ClientError {
     #[error("prover proving keys differ from the verifying keys: {}", mismatches.join("; "))]
     ProverProvingKeysMismatch { mismatches: Vec<String> },
 
+    /// A runtime proving key set was refused: `attestation_required`,
+    /// `unavailable`, `runtime_missing`, `incompatible`, `source_mismatch`,
+    /// `malformed`, `unsupported_circuit` or `indexed_proving_unsupported`.
+    #[error("runtime proving key set refused: {0}")]
+    ProvingKeySet(&'static str),
+
     #[error("TEE prover check failed, {0}")]
     Tee(#[from] TeeError),
 

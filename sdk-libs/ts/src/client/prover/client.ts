@@ -42,6 +42,14 @@ import {
   serviceUrl,
   setUrlQuery,
 } from "../../services/transport.js";
+import {
+  checkedProvingKeySet,
+  expectedFromSet,
+  provingKeySetFromCatalog,
+  refused,
+  setPins,
+  type ProvingKeySet,
+} from "./key-set.js";
 import { parseCheckedProof } from "./proof.js";
 import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
 import { TeeSession, sendCall, type ProverCall, type ProverTee } from "./tee/session.js";
@@ -146,6 +154,7 @@ export class ProverClient {
   readonly #asyncPoll: AsyncPollConfig;
   readonly #tee: TeeSession | undefined;
   readonly #requiresTee: boolean;
+  readonly #provingKeys: ProvingKeySet | undefined;
 
   constructor(
     input: Readonly<{
@@ -159,6 +168,12 @@ export class ProverClient {
        * attests to the supplied policy. Required for every remote prover.
        */
       tee?: ProverTee;
+      /**
+       * Prove with this runtime key set instead of the SDK's pinned keys:
+       * every proof must come from a key of the set, and the indexed route,
+       * which proves against the prover's own keys, is refused.
+       */
+      provingKeys?: ProvingKeySet;
     }>,
   ) {
     const candidate: unknown = input;
@@ -178,6 +193,15 @@ export class ProverClient {
     this.#asyncPoll = asyncPollConfig(input.asyncPoll);
     this.#requiresTee = !isLoopbackHost(url.hostname);
     this.#tee = input.tee === undefined ? undefined : new TeeSession(input.tee);
+    this.#provingKeys =
+      input.provingKeys === undefined
+        ? undefined
+        : checkedProvingKeySet(input.provingKeys, "provingKeys");
+  }
+
+  /** The proving key a proof for `key` must come from, the runtime set's when one is set. */
+  #expected(key: ExpectedProvingKey): ExpectedProvingKey {
+    return this.#provingKeys === undefined ? key : expectedFromSet(this.#provingKeys, key);
   }
 
   /** Attests the prover now against the `tee` policy. */
@@ -220,17 +244,21 @@ export class ProverClient {
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
     const body = JSON.stringify(proverRequest(inputs, completeSecret));
-    const key = provingKeyFor({
-      circuit: transferCircuit(inputs),
-      nInputs: inputs.payload.inputs.length,
-      nOutputs: inputs.payload.outputs.length,
-    });
+    const key = this.#expected(
+      provingKeyFor({
+        circuit: transferCircuit(inputs),
+        nInputs: inputs.payload.inputs.length,
+        nOutputs: inputs.payload.outputs.length,
+      }),
+    );
     return parseCheckedProof(await this.send(body, "sync", key, context), key);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     const body = JSON.stringify(mergeProverRequest(inputs, completeSecret));
-    const key = provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length });
+    const key = this.#expected(
+      provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length }),
+    );
     return parseCheckedProof(await this.send(body, "sync", key, context), key);
   }
 
@@ -238,6 +266,7 @@ export class ProverClient {
     request: IndexedProofInputs,
     context?: RequestContext,
   ): Promise<IndexedProofResult> {
+    this.#indexedAllowed();
     const inputs = decodeIndexedInputs(request);
     const prepared =
       inputs.circuit === "merge"
@@ -297,23 +326,17 @@ export class ProverClient {
    * prover on another key set fails before the first proof instead of on-chain. A
    * differing gnark digest throws `CLIENT_PROVER_PROVING_KEYS_MISMATCH` naming
    * every such key. The returned catalog includes download URLs and artifact
-   * checksums; a key absent from the manifest remains absent.
+   * checksums; a key absent from the manifest remains absent. Under
+   * `provingKeys`, only the set's keys are checked, against its digests, and
+   * `pins` is ignored: the set refuses every other circuit.
    */
   async checkProvingKeys(
     context?: RequestContext,
     pins: Readonly<Record<string, string>> = PROVING_KEY_SHA256S,
   ): Promise<ProvingKeyReport> {
-    const url = this.#routeUrl(PROVING_KEYS_PATH);
     const request = composeSignal(context, "provingKeys");
     try {
-      const response = await sendCall(this.#tee, this.#call(url, request));
-      if (response === undefined) {
-        if (request.timedOut() || request.signal.aborted)
-          throw requestError("provingKeys", request);
-        throw new ClientError("CLIENT_PROVER_REQUEST", {
-          details: { method: "provingKeys", attempts: 1 },
-        });
-      }
+      const response = await this.#provingKeysResponse(request);
       if (!response.ok) {
         throw new ClientError("CLIENT_PROVER_HTTP", {
           details: {
@@ -323,10 +346,61 @@ export class ProverClient {
           },
         });
       }
-      return checkProverKeys(decodeProverKeys(await decodeResponse(response)), pins);
+      return checkProverKeys(
+        decodeProverKeys(await decodeResponse(response)),
+        this.#provingKeys === undefined ? pins : setPins(this.#provingKeys),
+      );
     } finally {
       request.cleanup();
     }
+  }
+
+  /**
+   * The prover's runtime key set, from `GET /proving-keys` over the encrypted
+   * channel of an attested session. A public catalog cannot move a client to
+   * new keys, so this requires `tee` even for a loopback prover and refuses a
+   * plaintext answer. Only metadata is fetched; whoever proves downloads the
+   * key files. Every refusal of the set is `CLIENT_PROVING_KEY_SET`.
+   */
+  async fetchProvingKeySet(context?: RequestContext): Promise<ProvingKeySet> {
+    if (this.#tee === undefined) throw refused("attestation_required");
+    const request = composeSignal(context, "provingKeys");
+    try {
+      const response = await this.#provingKeysResponse(request);
+      if (response.status !== 200) {
+        await response.body?.cancel();
+        throw refused("unavailable");
+      }
+      let value: unknown;
+      try {
+        value = await decodeResponse(response);
+      } catch (error) {
+        if (error instanceof ClientError && error.code === "CLIENT_PROVER_JSON") {
+          throw refused("malformed");
+        }
+        throw error;
+      }
+      return provingKeySetFromCatalog(value);
+    } finally {
+      request.cleanup();
+    }
+  }
+
+  async #provingKeysResponse(request: ComposedSignal): Promise<Response> {
+    const url = this.#routeUrl(PROVING_KEYS_PATH);
+    const response = await sendCall(this.#tee, this.#call(url, request));
+    if (response === undefined) {
+      if (request.timedOut() || request.signal.aborted) throw requestError("provingKeys", request);
+      throw new ClientError("CLIENT_PROVER_REQUEST", {
+        details: { method: "provingKeys", attempts: 1 },
+      });
+    }
+    return response;
+  }
+
+  /** The prover checks indexed proofs against its own keys, never a runtime set. */
+  #indexedAllowed(): void {
+    if (this.#provingKeys !== undefined) throw refused("indexed_proving_unsupported");
   }
 
   async send(
@@ -336,6 +410,9 @@ export class ProverClient {
     context?: RequestContext,
     refusal?: ProverRefusal,
   ): Promise<unknown> {
+    // Under a runtime set, a circuit outside it fails before any HTTP.
+    if (route === "indexed") this.#indexedAllowed();
+    else this.#expected(key);
     const url = this.#keyUrl(key, route === "indexed" ? INDEXED_PATH : "");
     let delivery: Delivery = route === "queued" ? "queued" : "inResponse";
     const signal = composeSignal(context, "prove");

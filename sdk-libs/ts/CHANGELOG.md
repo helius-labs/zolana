@@ -6,6 +6,8 @@ Indexer history reads use gTFA-style pagination with string tokens and slot
 filters, and wallet sync resumes each key from a slot checkpoint.
 The client proves anonymous ring transfers from an owner signer or a
 prepared owner signature.
+Clients can take the confidential signer and merge proving keys from an
+attested prover at runtime instead of the keys the SDK pins.
 
 Breaking
 
@@ -18,6 +20,8 @@ Added
 
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `ZolanaClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
+- `ZolanaClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
+- `ZolanaClientConfig.provingKeys`, with `proofDataSource: "client"`, makes every proof use the set's keys and `checkProverProvingKeys()` check only those keys; a circuit outside the set and the indexed route fail with `CLIENT_PROVING_KEY_SET`, whose `details.check` names the reason.
 
 Changed
 

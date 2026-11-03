@@ -51,7 +51,18 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
         result: &TransferProofResult,
     ) -> Result<ProofCompressed, ClientError> {
         let proof = self.prove_transfer(&result.inputs).await?;
-        verify_confidential_transfer_proof(result, &proof)?;
+        match self.key_set() {
+            Some(keys) => keys.verify(
+                &crate::prover::ExpectedProvingKey::transfer_confidential(
+                    result.inputs.inputs.len(),
+                    result.inputs.outputs.len(),
+                )?
+                .name,
+                result.public_input_hash,
+                &proof,
+            )?,
+            None => verify_confidential_transfer_proof(result, &proof)?,
+        }
         ProofCompressed::try_from(proof)
     }
 
@@ -138,12 +149,13 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
         assembled: &mut AssembledTransfer,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactProof, ClientError> {
+        assembled.check_key_set(self.key_set())?;
         authority.complete_inputs(&mut assembled.prover_inputs.inputs)?;
         let proof = {
             let _t = crate::prover::timing::Phase::start("prove_transfer", 0);
             self.prove_request(assembled.request()?).await?
         };
-        assembled.accept_proof(proof)
+        assembled.accept_proof_with_keys(proof, self.key_set())
     }
 }
 
@@ -303,12 +315,13 @@ impl<'a> Submission<'a> {
                     };
                     let proof = match prover {
                         Some(prover) => {
+                            assembled.check_key_set(prover.key_set())?;
                             self.authority
                                 .complete_inputs(&mut assembled.prover_inputs.inputs)?;
                             let proof =
                                 prove_on_blocking_pool(Arc::clone(prover), assembled.request()?)
                                     .await?;
-                            assembled.accept_proof(proof)?
+                            assembled.accept_proof_with_keys(proof, prover.key_set())?
                         }
                         None => {
                             client
@@ -493,6 +506,10 @@ fn build_unsigned_message(
         compute_budget,
     )
 }
+
+#[cfg(all(test, feature = "reqwest"))]
+#[path = "transaction_runtime_keys_test.rs"]
+mod runtime_keys_tests;
 
 #[cfg(test)]
 mod tests {

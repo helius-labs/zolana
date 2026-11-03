@@ -18,6 +18,8 @@ export type {
   ProvingKeyArtifact,
   ProvingKeyCheck,
   ProvingKeyReport,
+  ProvingKeySet,
+  ProvingKeySetKey,
   AuthorizedPrivateTransaction,
   ChainReader,
   IndexerReader,

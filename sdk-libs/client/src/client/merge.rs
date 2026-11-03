@@ -149,7 +149,11 @@ impl<'a> MergeSubmission<'a> {
             }
             None => client.prove_merge(&result.inputs).await?,
         };
-        verify(&result, &proof)?;
+        let keys = match &self.prover {
+            Some(prover) => prover.key_set(),
+            None => client.key_set(),
+        };
+        verify(&result, &proof, keys)?;
         Ok(ProvedMerge {
             input_tree_id,
             output_tree_id: self.merge.output_tree_id,
@@ -296,7 +300,15 @@ fn ensure_on_tree(witnesses: &InputWitnesses, input_tree: Address) -> Result<(),
 }
 
 /// A remote prover's proof is checked before anyone pays for it.
-fn verify(result: &MergeProofResult, proof: &crate::prover::Proof) -> Result<(), ClientError> {
+fn verify(
+    result: &MergeProofResult,
+    proof: &crate::prover::Proof,
+    keys: Option<&crate::prover::ProvingKeySet>,
+) -> Result<(), ClientError> {
+    if let Some(keys) = keys {
+        let key = crate::prover::ExpectedProvingKey::merge(result.nullifiers.len())?;
+        return keys.verify(&key.name, result.public_input_hash, proof);
+    }
     MergeProofStatement {
         n_inputs: result.nullifiers.len(),
         public_input_hash: result.public_input_hash,

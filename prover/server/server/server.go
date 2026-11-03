@@ -8,6 +8,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/logging"
 	"github.com/helius-labs/zolana/prover/server/prover/common"
 	"github.com/helius-labs/zolana/prover/server/prover/indexed"
+	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
 	"github.com/helius-labs/zolana/prover/server/prover/timing"
 	"github.com/helius-labs/zolana/prover/server/tee"
 	"io"
@@ -681,6 +682,11 @@ func registerProofPaths(mux *http.ServeMux, prove proveHandler) {
 func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *common.LazyKeyManager) (RunningJob, error) {
 	if config.TEE != nil && (redisQueue != nil || config.Queue != nil && config.Queue.Enabled) {
 		return RunningJob{}, tee.ErrQueueUnsupported
+	}
+	// `/proving-keys` serves the embedded runtime block; a block that does not
+	// match the lockfile stops the start instead of failing every catalog read.
+	if _, err := provingkeys.Runtime(); err != nil {
+		return RunningJob{}, err
 	}
 	transferExecution := config.TransferExecution
 	apiKey := getAPIKeyFromEnv()

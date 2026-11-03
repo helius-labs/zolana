@@ -107,4 +107,9 @@ Still MANUAL (one reviewed PR, so pk <-> vk <-> lock all move together):
      (its hash drives the CI cache key automatically -- no tag bump)
   4. update PROVING_KEY_SHA256S in sdk-libs/ts/src/interface/proving-keys.ts
      to the new lockfile digests (test/proving-keys.test.ts pins it)
+  5. regenerate the verifying keys the prover serves to runtime clients:
+     cargo run -q -p xtask -- runtime-proving-keys > prover/server/prover/provingkeys/runtime-keys.json
+     then test-vectors/runtime_proving_keys.json from the new catalog.
+     Bump PROVING_KEY_ABI (Rust and TS) if proof inputs, public inputs or
+     zopro solver features change; clients on the old ABI then refuse the set.
 EOF

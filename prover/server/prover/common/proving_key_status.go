@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"sort"
 
 	"github.com/helius-labs/zolana/prover/server/prover/provingkeys"
@@ -21,8 +22,12 @@ type ProvingKeyStatus struct {
 	Artifacts []ProvingKeyArtifact `json:"artifacts"`
 }
 
+// ProvingKeysReport is the `/proving-keys` catalog. Runtime carries the
+// verifying keys a client needs to adopt these keys without a new build; a
+// client trusts it only in an attested, encrypted answer.
 type ProvingKeysReport struct {
-	Keys []ProvingKeyStatus `json:"keys"`
+	Keys    []ProvingKeyStatus `json:"keys"`
+	Runtime json.RawMessage    `json:"runtime"`
 }
 
 // ProvingKeyDownloads lists only manifest-backed downloads. It does not inspect
@@ -36,7 +41,11 @@ func ProvingKeyDownloads() (*ProvingKeysReport, error) {
 	if err != nil {
 		return nil, err
 	}
-	return provingKeyDownloads(manifest, zopro), nil
+	report := provingKeyDownloads(manifest, zopro)
+	if report.Runtime, err = provingkeys.Runtime(); err != nil {
+		return nil, err
+	}
+	return report, nil
 }
 
 func provingKeyDownloads(manifest *lockManifest, zopro *provingkeys.ZoproManifest) *ProvingKeysReport {
