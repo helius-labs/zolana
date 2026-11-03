@@ -956,7 +956,7 @@ mod tests {
                 transaction,
                 rail: IndexedTransferRail::AnonymousRingEddsa {
                     ring,
-                    owner: &owner.signing_key,
+                    owner: OwnerAuthorization::SigningKey(&owner.signing_key),
                 },
             }
             .prepare(&owner)

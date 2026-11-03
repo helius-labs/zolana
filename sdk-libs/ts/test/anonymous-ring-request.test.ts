@@ -156,6 +156,7 @@ describe("ZolanaClient.proveAnonymousRingTransact", () => {
     ["client", "signer", "ring", vector.request, vector.circuit],
     ["client", "prepared signature", "ring", vector.request, vector.circuit],
     ["prover", "signer", "ring", vector.indexedRequest, vector.circuit],
+    ["prover", "prepared signature", "ring", vector.indexedRequest, vector.circuit],
     ["client", "signer", "default-ring", vector.defaultRing.request, vector.defaultRing.circuit],
   ] as const)(
     "posts the Rust prover's request from the %s data source and a %s spending a %s UTXO",
