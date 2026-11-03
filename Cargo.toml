@@ -115,7 +115,7 @@ groth16-solana = { version = "0.3.1", features = ["bsb22"] }
 # Published Light Protocol crates.
 light-array-map = "0.2.0"
 spr-account-checks = { path = "program-libs/account-checks", version = "0.1.0", default-features = false }
-spr-hasher = { path = "program-libs/hasher", version = "0.1.1", default-features = false }
+spr-hasher = { path = "program-libs/hasher", version = "0.8.0", default-features = false }
 light-poseidon = "0.5"
 # Pinned to the head of the mollusk-0.15 branch (Lightprotocol/light-program-profiler).
 # Switch back to a released version once that lands upstream.
