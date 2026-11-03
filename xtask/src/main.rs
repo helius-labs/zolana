@@ -105,6 +105,11 @@ fn main() {
             }
         }
         Some("program-ids") => print_program_ids(),
+        Some("runtime-proving-keys") => println!(
+            "{}",
+            serde_json::to_string_pretty(&spr_client::prover::RuntimeKeyMetadata::compiled())
+                .expect("runtime key metadata serializes")
+        ),
         Some("create-release") => {
             if let Err(error) = create_release::run(
                 create_release::Options::parse(args.collect(), &create_release::Localnet),
@@ -406,6 +411,7 @@ fn print_help() {
         "  vk-json <vk_json> <zkey> <out_dir> <filename>         Export one JSON verifying key as Rust source"
     );
     println!("  program-ids              Print local validator program ids as shell assignments");
+    println!("  runtime-proving-keys     Print the verifying keys the prover serves for runtime key sets");
     println!(
         "  create-release           Build the localnet release artifacts + lockfile (see --help)"
     );

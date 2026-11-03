@@ -60,6 +60,7 @@ export {
   type ProvingKeyCheck,
   type ProvingKeyReport,
 } from "./prover/client.js";
+export type { ProvingKeySet, ProvingKeySetKey } from "./prover/key-set.js";
 export { teePolicyFromJson, type GpuRequirement } from "./prover/tee/policy.js";
 export type {
   AwsNitroPolicy,

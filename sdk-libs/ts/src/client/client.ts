@@ -89,6 +89,7 @@ import {
   type ProverHealth,
   type ProvingKeyReport,
 } from "./prover/client.js";
+import { checkedProvingKeySet, type ProvingKeySet } from "./prover/key-set.js";
 import { assembleMerge } from "./prover/merge.js";
 import type { ProverTee } from "./prover/tee/session.js";
 import type { AttestedProver } from "./prover/tee/verify.js";
@@ -176,6 +177,12 @@ export interface ZolanaClientConfig {
    */
   readonly proverTee?: ProverTee;
   /**
+   * Prove with this runtime key set, from `fetchProvingKeySet`, instead of
+   * the SDK's pinned keys. Requires `proofDataSource: "client"`: the indexed
+   * route proves against the prover's own keys.
+   */
+  readonly provingKeys?: ProvingKeySet;
+  /**
    * Sends every HTTP request the client makes: Solana RPC, indexer and prover.
    * `solanaRpcSubscriptions` connects over a WebSocket instead.
    */
@@ -254,6 +261,13 @@ export class ZolanaClient
     if (input.fetch !== undefined && typeof input.fetch !== "function") {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "fetch" } });
     }
+    const provingKeys =
+      input.provingKeys === undefined
+        ? undefined
+        : checkedProvingKeySet(input.provingKeys, "provingKeys");
+    if (provingKeys !== undefined && input.proofDataSource !== "client") {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "proofDataSource" } });
+    }
 
     const endpoints = resolveClientEndpoints(input);
     const kit = createKitClients({
@@ -293,6 +307,7 @@ export class ZolanaClient
         ...(input.proverAsyncPoll === undefined ? {} : { asyncPoll: input.proverAsyncPoll }),
         ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
         ...(input.proverTee === undefined ? {} : { tee: input.proverTee }),
+        ...(provingKeys === undefined ? {} : { provingKeys }),
       });
     } catch (cause) {
       throw new ClientError("CLIENT_INVALID_CONFIG", {
@@ -886,6 +901,15 @@ export class ZolanaClient
   /** See `ProverClient.checkProvingKeys`: run it before the first proof. */
   checkProverProvingKeys(context?: RequestContext): Promise<ProvingKeyReport> {
     return this.#proving(() => this.#prover.checkProvingKeys(context));
+  }
+
+  /**
+   * The prover's runtime key set, read over the channel `proverTee` attests
+   * and encrypts. Pass it as `provingKeys` to prove with it. See
+   * `ProverClient.fetchProvingKeySet`.
+   */
+  fetchProvingKeySet(context?: RequestContext): Promise<ProvingKeySet> {
+    return this.#proving(() => this.#prover.fetchProvingKeySet(context));
   }
 
   /** Attests the prover now against `proverTee`. */

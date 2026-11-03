@@ -226,6 +226,12 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_PROVER_JSON: NoDetails;
   readonly CLIENT_PROVER_TEE_ATTESTATION: Readonly<{ check: string }>;
   readonly CLIENT_PROVER_TEE_ENCRYPTION: Readonly<{ check: string }>;
+  /**
+   * A runtime proving key set was refused: `attestation_required`,
+   * `unavailable`, `runtime_missing`, `incompatible`, `source_mismatch`,
+   * `malformed`, `unsupported_circuit` or `indexed_proving_unsupported`.
+   */
+  readonly CLIENT_PROVING_KEY_SET: Readonly<{ check: string }>;
   readonly CLIENT_INVALID_RPC_RESPONSE: Readonly<{
     path?: string;
     method?: string;
@@ -297,6 +303,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_PROVER_JSON",
   "CLIENT_PROVER_TEE_ATTESTATION",
   "CLIENT_PROVER_TEE_ENCRYPTION",
+  "CLIENT_PROVING_KEY_SET",
   "CLIENT_INVALID_RPC_RESPONSE",
 ] as const satisfies readonly ClientErrorCode[]);
 
@@ -451,6 +458,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_PROVER_TIMEOUT: { method: "string", jobId: "string", timeoutMs: "number" },
   CLIENT_PROVER_TEE_ATTESTATION: { check: "string" },
   CLIENT_PROVER_TEE_ENCRYPTION: { check: "string" },
+  CLIENT_PROVING_KEY_SET: { check: "string" },
   CLIENT_INVALID_RPC_RESPONSE: {
     path: "string",
     method: "string",
@@ -484,6 +492,7 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_PROVER_HTTP: ["method"],
   CLIENT_PROVER_TEE_ATTESTATION: ["check"],
   CLIENT_PROVER_TEE_ENCRYPTION: ["check"],
+  CLIENT_PROVING_KEY_SET: ["check"],
   CLIENT_INVALID_RPC_RESPONSE: [],
 };
 

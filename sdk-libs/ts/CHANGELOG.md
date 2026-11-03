@@ -6,6 +6,8 @@ Indexer history reads use gTFA-style pagination with string tokens and slot
 filters, and wallet sync resumes each key from a slot checkpoint.
 The client proves anonymous ring transfers from an owner signer or a
 prepared owner signature.
+Clients can take the confidential signer and merge proving keys from an
+attested prover at runtime instead of the keys the SDK pins.
 
 Breaking
 
@@ -18,6 +20,8 @@ Added
 
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `ZolanaClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
+- `ZolanaClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
+- `ZolanaClientConfig.provingKeys`, with `proofDataSource: "client"`, makes every proof use the set's keys and `checkProverProvingKeys()` check only those keys; a circuit outside the set and the indexed route fail with `CLIENT_PROVING_KEY_SET`, whose `details.check` names the reason.
 
 Changed
 
@@ -26,8 +30,9 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
-- `syncWallet` recorded the sender's own transaction as a withdrawal or a split when an output used a scheme the SDK does not know, such as a custom ring's, and now records no row for that transaction.
-- `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` on a transaction that holds a confidential output for the wallet beside an output of a reserved or unknown scheme, and now stores that output.
+- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows.
+- `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note, and now stores the note.
+- `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
 
 ## 0.8.0-alpha — 2026-11-03
 

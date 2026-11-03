@@ -209,6 +209,40 @@ does not infer those capabilities from the hostname.
 Use `attestProver` and `checkProverProvingKeys` for gateway readiness;
 the operator `/health` route is not part of the public Helius API.
 
+### Runtime proving keys
+
+A client can take the confidential signer and merge proving keys from the
+prover instead of the keys the SDK pins, so a key rotation needs no SDK
+release:
+
+```ts
+const provingKeys = await new ZolanaClient({
+  proverUrl,
+  proverTee: SignedTeePolicy.forNetwork("mainnet"),
+}).fetchProvingKeySet();
+const client = new ZolanaClient({
+  solanaRpcUrl: rpcUrl,
+  indexerUrl: indexerUrl,
+  proverUrl: proverUrl,
+  proverTee: SignedTeePolicy.forNetwork("mainnet"),
+  proofDataSource: "client",
+  provingKeys,
+});
+```
+
+`fetchProvingKeySet` requires `proverTee`, also for a loopback prover, and
+accepts only an encrypted answer from an attested prover. The set must match
+the SDK's proof-input version and program, and each key's gnark digest must
+match its verifying key. Only the SDK creates a `ProvingKeySet`.
+
+With `provingKeys`, every proof must come from a key of the set, and
+`checkProverProvingKeys` checks the prover against the set. It requires
+`proofDataSource: "client"`, because the indexed route proves with the
+prover's own keys. Ring, in-proof owner signature and other circuits outside
+the set fail with `CLIENT_PROVING_KEY_SET`. A client keeps one set for its
+lifetime; fetch a new set and create a new client to follow a rotation.
+`cacheKey` names the set's files, for a prover that caches downloaded keys.
+
 ## Common transactions
 
 These snippets continue from the setup used in quickstart.

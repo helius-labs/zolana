@@ -29,6 +29,14 @@ Clients compare the gnark checksum with their verifying-key pin. Downloaders
 verify the chosen artifact's bytes against its own checksum. The catalog
 lists manifest keys, independently of the deployment's enabled proof routes.
 
+`runtime` holds the `abi`, the shielded-pool `programId` and the verifying key
+of each confidential signer and merge circuit (`verifyingKeys`, keyed by key
+name, each naming its gnark `provingKeySha256`). Clients that fetch the catalog
+over an attested, encrypted session use it to prove and verify with these keys
+instead of their compiled ones. `provingkeys/runtime-keys.json` embeds it in
+the image; `cargo run -q -p xtask -- runtime-proving-keys` writes it from the protocol's
+verifying keys, and the build refuses it unless every key matches the lockfile.
+
 `provingkeys/zopro-keys.lock`, copied from the mobile SDK's native package,
 pins each conversion to its gnark source checksum. Update it when source keys
 change. Each manifest keeps its own download prefix; standard URLs use

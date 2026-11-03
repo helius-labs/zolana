@@ -41,6 +41,12 @@ type aadCase struct {
 // aadTargets cover where a proxy may put, repeat or drop the credential, and
 // which paths drop the gateway prefix.
 var aadTargets = [][2]string{
+	{"GET", "/"},
+	{"POST", "/v1/spr/prove/sample/?id=a%20b"},
+	{"POST", "/prove/sample//?id=a%20b"},
+	{"POST", "/prove/sample%2F/?id=a%20b"},
+	{"GET", "/v1/spr/?jobId=a"},
+	{"GET", "/v1/spr//"},
 	{"GET", "/health"},
 	{"POST", "/v1/spr/prove/transfer_2_2?api-key=k"},
 	{"POST", "/v1/spr/v1/spr/prove/x"},

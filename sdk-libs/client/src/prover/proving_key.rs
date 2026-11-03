@@ -57,9 +57,25 @@ pub type ProvingKeyReport = ProverKeys;
 impl ProverKeys {
     /// Compare the gnark artifact of each known key with its verifying-key pin.
     pub fn check(&self) -> Result<ProvingKeyReport, ClientError> {
+        self.check_with_keys(None)
+    }
+
+    /// As [`Self::check`]; under a runtime set, only the set's keys are
+    /// compared, against its digests. The set refuses every other circuit,
+    /// so a rotated key outside it does not matter.
+    pub fn check_with_keys(
+        &self,
+        keys: Option<&super::ProvingKeySet>,
+    ) -> Result<ProvingKeyReport, ClientError> {
         let mut mismatches = Vec::new();
         for key in &self.keys {
-            let Some((_, pinned)) = known_proving_keys().find(|(name, _)| *name == key.name) else {
+            let pinned = match keys {
+                Some(keys) => keys.sha256(&key.name),
+                None => known_proving_keys()
+                    .find(|(name, _)| *name == key.name)
+                    .map(|(_, sha256)| sha256),
+            };
+            let Some(pinned) = pinned else {
                 continue;
             };
             let mut gnark = key
