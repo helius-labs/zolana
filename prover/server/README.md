@@ -40,6 +40,8 @@ This part explains the existing cli commands.
    5. Optional: metrics-address *address* - Address for the metrics server, defaults to localhost:9998
    6. Optional: serve *pattern* - Proving keys to prove, repeatable patterns over key names without `.key` (`transfer_*`, `*_36_*`), defaults to every key
    7. Optional: legacy-prove-paths (`PROVER_LEGACY_PROVE_PATHS`) - Also serves the key-less `/prove`, `/prove/indexed` and `/prove/status`, resolving each proof's key from its body, bare and under `/v1/spr`. On by default; `--legacy-prove-paths=false` turns it off
+   8. Optional: `PROVER_BODY_READ_CONCURRENCY` - Proof request bodies read at once, default 16. A request past it gets 429 before its body is read. Each body is limited to what its key path needs (8 MiB for transfers, merges and extensions, more for the large address-append batch, 1 MiB indexed), so this times the limit bounds the memory bodies take
+   9. Optional: `PROVER_MAX_PENDING_JOBS` - Jobs one Redis queue holds before async submissions get 503 `queue_full`, default 4096, 0 for no bound. Async bodies are decoded and checked against their key and witness before anything is written to Redis
 4. prove - Reads a prover system file, generates and returns proof based on prover parameters  
    Flags:  
    1. config: Config file, which may contain the following fields:

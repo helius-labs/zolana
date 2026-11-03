@@ -111,6 +111,17 @@ func canonical(value reflect.Value) bool {
 	return true
 }
 
+// MarshalJSON encodes the decoded parameters, which hold everything the
+// circuit reads and nothing else.
+func (r *Request) MarshalJSON() ([]byte, error) {
+	return json.Marshal(r.params)
+}
+
+// Witness builds the circuit assignment without proving it.
+func (r *Request) Witness() (frontend.Circuit, error) {
+	return r.assignment()
+}
+
 // Prove proves r with system and reports the system's proving-key digest on
 // the proof. A nil prove runs gnark's CPU prover.
 func (r *Request) Prove(system *common.TransferProofSystem, prove common.Prover) (*common.Proof, error) {

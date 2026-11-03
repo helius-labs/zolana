@@ -22,6 +22,7 @@ Added
 - `ZolanaClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `ZolanaClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
 - `ZolanaClientConfig.provingKeys`, with `proofDataSource: "client"`, makes every proof use the set's keys and `checkProverProvingKeys()` check only those keys; a circuit outside the set and the indexed route fail with `CLIENT_PROVING_KEY_SET`, whose `details.check` names the reason.
+- `ConfidentialTransfer.withRandomDummyTags()` tags each padding output of a default-ring transfer with its own random value instead of a participant's key, for a transfer an anonymous ring proof spends; confidential rails reject such tags.
 
 Changed
 
@@ -30,6 +31,8 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
+- A `ConfidentialTransfer` with `withRingProgramId` tagged its padding outputs with the sender's signing key, which named the hidden signer of an anonymous ring spend in public instruction data; each padding output now carries its own random tag, and `ZolanaClient.proveAnonymousRingTransact` refuses a padding output tagged with the hidden owner's key with `CLIENT_ANONYMOUS_DUMMY_OWNER_TAG` before the owner signs.
+- `ProofInputUtxo.compact(treeId, blinding?)` used one public blinding for every compact padding slot, so publishing that slot's nullifier once blocked compact padding in that tree; each slot now draws a fresh private blinding, and transfers padded with `ConfidentialTransfer.compact` keep working after such a nullifier is published.
 
 ## 0.8.0-alpha — 2026-11-03
 

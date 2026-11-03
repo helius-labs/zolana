@@ -259,6 +259,11 @@ func (m *LazyKeyManager) keyPathOf(filename string) string {
 // batchAddressAppendShapes are the (tree height, batch size) pairs with a key.
 var batchAddressAppendShapes = [][2]uint32{{40, 10}, {40, 4999}}
 
+// BatchAddressAppendShapes lists the (tree height, batch size) pairs with a key.
+func BatchAddressAppendShapes() [][2]uint32 {
+	return slices.Clone(batchAddressAppendShapes)
+}
+
 // BatchKeyFile names the key file that proves a batch, or "" for none.
 func BatchKeyFile(circuitType CircuitType, treeHeight uint32, batchSize uint32) string {
 	if circuitType != BatchAddressAppendCircuitType {

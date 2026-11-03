@@ -609,7 +609,7 @@ pub fn dummy_input(
     Ok((dummy_witness(&input_utxo, nf_tree)?, input_utxo.nullifier()))
 }
 
-/// One compact padding input: a dummy over blinding 0 that publishes nullifier
+/// One compact padding input: a dummy over a fresh blinding that publishes nullifier
 /// 0, with a real non-inclusion witness for its derived nullifier from
 /// `nf_tree`, since the circuit checks non-inclusion for every slot. The
 /// instruction leaves it out, as the client's `assemble_inputs` does.

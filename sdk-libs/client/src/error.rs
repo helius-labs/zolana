@@ -485,6 +485,11 @@ pub enum ClientError {
     AnonymousRingEddsaPublishedOwnerLeaksIdentity { index: usize },
 
     #[error(
+        "dummy output slot {index} is tagged with the hidden owner's signing key, which names the sender of an anonymous spend"
+    )]
+    AnonymousRingEddsaDummyTagLeaksIdentity { index: usize },
+
+    #[error(
         "input {index} is not a real input_utxo, and this transaction forbids dummy input slots"
     )]
     NonSpendInputNotAllowed { index: usize },

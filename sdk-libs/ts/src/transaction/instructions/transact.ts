@@ -1010,6 +1010,7 @@ export class ConfidentialTransfer {
   #shape?: Shape;
   #ringProgramId?: Address;
   #compactPadding = false;
+  #randomDummyTags = false;
   #confidentialEddsaShape = false;
 
   /**
@@ -1070,6 +1071,20 @@ export class ConfidentialTransfer {
   /** Binds the change and every `send` to one ring, mirrors Rust `with_ring_program_id`. */
   withRingProgramId(ringProgramId: Address): this {
     this.#ringProgramId = ringProgramId;
+    return this;
+  }
+
+  /**
+   * Tags every dummy output with a fresh random value instead of a
+   * participant's signing key. A transfer in a custom ring does this already.
+   * Call it on a default-ring transfer that a ring rail proves, above all an
+   * anonymous one: borrowing a participant's tag names an input owner, which
+   * there is the hidden signer. Confidential rails require every dummy tag to
+   * name a participant and reject random ones. Mirrors Rust
+   * `with_random_dummy_tags`.
+   */
+  withRandomDummyTags(): this {
+    this.#randomDummyTags = true;
     return this;
   }
 
@@ -1158,7 +1173,10 @@ export class ConfidentialTransfer {
     // shielded recipient has none, so it emits its SOL change slot as a real
     // zero-amount output owned by the sender rather than as padding: the
     // sender then names itself, exactly like an ordinary change output.
+    // Random padding tags name nobody, so they need no participant either.
+    const randomDummyTags = this.#ringProgramId !== undefined || this.#randomDummyTags;
     const namesAParticipant =
+      randomDummyTags ||
       namedInputOwnerTag(this.#inputs, this.#payer) !== undefined ||
       splChangeAsset !== undefined ||
       this.#recipients.length > 0;
@@ -1247,6 +1265,7 @@ export class ConfidentialTransfer {
       senderOutputCount,
       ...ring,
       ...(this.#compactPadding ? { compactPadding: true } : {}),
+      ...(randomDummyTags ? { padTags: [] } : {}),
     });
   }
 
@@ -1279,7 +1298,18 @@ type PreparedTransferFields = Omit<
   PreparedTransfer,
   "finalize" | "outputBlindingSeed" | "proofOutputs" | "withAppendedSlot"
 > &
-  Readonly<{ recordPadding?: RecordPadding; ringProgramId?: Address }>;
+  Readonly<{
+    recordPadding?: RecordPadding;
+    ringProgramId?: Address;
+    /**
+     * Present when dummies take random tags instead of a participant's key:
+     * one per output slot, drawn once so sealing and finalizing publish the
+     * same tag. Ring circuits bind no dummy tag: they publish zero for every
+     * output that is not a confidential default-ring encoding, and random
+     * dummy data never is.
+     */
+    padTags?: readonly Bytes32[];
+  }>;
 
 export function prepareRingAuthorityTransfer(
   input: Readonly<{
@@ -1379,7 +1409,21 @@ export function prepareRingAuthorityTransfer(
   });
 }
 
-function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
+function preparedTransfer(prepared: PreparedTransferFields): PreparedTransfer {
+  // A record slot can widen the shape after the tags were drawn.
+  const drawn = prepared.padTags;
+  const fields: PreparedTransferFields =
+    drawn === undefined || drawn.length >= prepared.shape.outputs
+      ? prepared
+      : {
+          ...prepared,
+          padTags: Object.freeze(
+            Array.from(
+              { length: prepared.shape.outputs },
+              (_, slot) => drawn[slot] ?? randomBlinding(),
+            ),
+          ),
+        };
   return Object.freeze({
     ...fields,
     outputBlindingSeed: (): Bytes32 =>
@@ -1533,7 +1577,7 @@ function finalizeTransfer(
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
-  const { outputs: outputUtxos, padCount, padTag } = finalOutputPlan(prepared);
+  const { outputs: outputUtxos, padCount, padTagAt } = finalOutputPlan(prepared);
   // Random dummies join the last input tree, as the prover hashes them. Compact
   // padding takes the first: SPP reads its omitted tree index as 0.
   const paddingTreeId = prepared.compactPadding
@@ -1571,6 +1615,7 @@ function finalizeTransfer(
     const slot = encrypted.payload[index];
     const utxoHash = output.hash(prepared.outputTreeId);
     if (output.isDummy()) {
+      const padTag = padTagAt(index);
       outputs.push({
         utxoHash,
         // Match a real output to the sender, including its account encoding.
@@ -1631,19 +1676,28 @@ function finalizeTransfer(
 function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
   outputs: ProofOutputUtxo[];
   padCount: number;
-  padTag: Bytes32;
+  padTagAt: (slot: number) => Bytes32;
 }> {
-  const padTag = dummyOwnerTag(
-    prepared.ownerMode === "opaque" ? [] : prepared.inputs,
-    prepared.outputs,
-    prepared.payer,
-  );
+  const shared =
+    prepared.padTags !== undefined
+      ? undefined
+      : dummyOwnerTag(
+          prepared.ownerMode === "opaque" ? [] : prepared.inputs,
+          prepared.outputs,
+          prepared.payer,
+        );
+  const padTagAt = (slot: number): Bytes32 => {
+    const tag = shared ?? prepared.padTags?.[slot];
+    if (tag === undefined)
+      throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index: slot });
+    return tag;
+  };
   const outputSeed = outputBlindingSeed(prepared.firstNullifier, prepared.blindingSeed);
   const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
   // Dummy owner hashes stay zero after public retagging.
   const outputs = [
-    ...prepared.outputs.map((output) =>
-      output.isDummy() ? retagDummyOutput(output, padTag) : output,
+    ...prepared.outputs.map((output, slot) =>
+      output.isDummy() ? retagDummyOutput(output, padTagAt(slot)) : output,
     ),
     ...Array.from({ length: padCount }, (_, offset) =>
       createProofOutput({
@@ -1655,11 +1709,13 @@ function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
           prepared.outputs.length + offset,
         ),
         ...(prepared.ringProgramId === undefined ? {} : { ringProgramId: prepared.ringProgramId }),
-        ...(prepared.compactPadding ? { compact: true } : { ownerTag: padTag }),
+        ...(prepared.compactPadding
+          ? { compact: true }
+          : { ownerTag: padTagAt(prepared.outputs.length + offset) }),
       }),
     ),
   ];
-  return { outputs, padCount, padTag };
+  return { outputs, padCount, padTagAt };
 }
 
 /** The same dummy slot under `ownerTag`; a dummy has no owner address, so only the tag changes. */

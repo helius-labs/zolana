@@ -1178,6 +1178,57 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
     }
 }
 
+/// Ring padding carries a fresh random tag per slot, inline, naming no
+/// participant: ring circuits do not bind a dummy's tag, and the sender's tag
+/// there names the hidden signer of an anonymous spend.
+fn assert_random_ring_dummies(
+    proof: &SppProofInputs,
+    real: usize,
+    participants: &[[u8; 32]],
+    ring: Address,
+    real_len: usize,
+) {
+    let first = proof.first_nullifier().unwrap();
+    let seed = derive_output_blinding_seed(&first, &proof.blinding_seed).unwrap();
+    let mut tags = Vec::new();
+    for (index, (output, published)) in proof
+        .output_utxos
+        .iter()
+        .zip(&proof.external_data.outputs)
+        .enumerate()
+        .skip(real)
+    {
+        let tag = output.owner_tag.unwrap();
+        assert_eq!(
+            output,
+            &SppProofOutputUtxo {
+                blinding: derive_transact_output_blinding(&first, &seed, index as u32).unwrap(),
+                ring_program_id: Some(ring),
+                owner_tag: Some(tag),
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            (
+                published.utxo_hash,
+                published.owner_tag,
+                proof.external_data.resolved_owner_tags.get(index),
+                published.data.as_ref().map(Vec::len)
+            ),
+            (
+                output.hash(proof.output_tree_id).unwrap(),
+                OwnerTag::Inline(tag),
+                Some(&tag),
+                Some(real_len)
+            )
+        );
+        assert_eq!(tag.first(), Some(&0));
+        assert!(!participants.contains(&tag) && !tags.contains(&tag));
+        tags.push(tag);
+    }
+    assert!(tags.len() > 1);
+}
+
 #[test]
 fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
     let owner = keypair(1);
@@ -1216,16 +1267,14 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
             (Mint::SOL, 4, sender, Some(ring), Data::default()),
         ];
         assert_recovery(&proof, &key, &[&owner, &recipient], &expected);
-        assert_dummies(
+        assert_random_ring_dummies(
             &proof,
             expected.len(),
-            sender.confidential_view_tag().unwrap(),
-            if relayed {
-                OwnerTag::Inline(sender.confidential_view_tag().unwrap())
-            } else {
-                OwnerTag::Account(0)
-            },
-            Some(ring),
+            &[
+                sender.confidential_view_tag().unwrap(),
+                receiver.confidential_view_tag().unwrap(),
+            ],
+            ring,
             slot_len(&proof, 0),
         );
         for output in proof.external_data.outputs.iter().take(3) {
@@ -1382,9 +1431,18 @@ fn compact_padding_is_left_out_of_the_instruction() {
         ),
         (
             [0u8; 32],
-            SppProofInputUtxo::compact(7).unwrap().nullifier,
+            SppProofInputUtxo::compact_with_blinding(compact_input.utxo.blinding, 7)
+                .unwrap()
+                .nullifier,
             7
         )
+    );
+    // Every compact slot draws its own private blinding, so no two transactions
+    // pad over a nullifier anyone can compute and publish ahead of them.
+    assert_ne!(compact_input.utxo.blinding, [0u8; 32]);
+    assert_ne!(
+        SppProofInputUtxo::compact(7).unwrap().nullifier,
+        SppProofInputUtxo::compact(7).unwrap().nullifier
     );
     let compact_outputs: Vec<bool> = proof
         .output_utxos
