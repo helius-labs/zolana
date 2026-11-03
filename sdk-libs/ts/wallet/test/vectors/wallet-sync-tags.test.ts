@@ -100,28 +100,6 @@ function keysFor(owner: ShieldedKeypair, viewingKeys: readonly ViewingKey[]): Lo
   });
 }
 
-/** The sender view tags a first sync sweeps for each held key: indices 0 through 99. */
-function senderTags(viewingKeys: readonly ViewingKey[]): readonly string[] {
-  return viewingKeys.flatMap((key) =>
-    Array.from({ length: 100 }, (_, index) => hex(key.senderViewTag(BigInt(index)))),
-  );
-}
-
-/** Splits recorded transaction-tag requests into the stable chunks and the sender sweep's. */
-function split(
-  requests: readonly { tags: string[]; limit: number | undefined }[],
-  viewingKeys: readonly ViewingKey[],
-): Readonly<{
-  stable: { tags: string[]; limit: number | undefined }[];
-  sender: { tags: string[]; limit: number | undefined }[];
-}> {
-  const sender = new Set(senderTags(viewingKeys));
-  return {
-    stable: requests.filter((request) => !request.tags.every((tag) => sender.has(tag))),
-    sender: requests.filter((request) => request.tags.every((tag) => sender.has(tag))),
-  };
-}
-
 /** Keys that answer as `inner` but report a different address or key set. */
 function misreporting(
   inner: ShieldedKeys,
@@ -156,11 +134,9 @@ describe("wallet sync stable-tag vectors", () => {
       queryChunk: 64,
       waitForIndexer: false,
     });
-    const { stable, sender } = split(recorded.shielded, [owner.viewingKey()]);
-    expect(stable).toHaveLength(1);
-    expect(sender.map((request) => request.tags.length)).toEqual([64, 36]);
+    expect(recorded.shielded).toHaveLength(1);
     expect(recorded.deposits).toHaveLength(1);
-    expect(recorded.shielded.map((request) => request.limit)).toEqual([1000, 1000, 1000]);
+    expect(recorded.shielded[0]?.limit).toBe(1000);
     expect(recorded.deposits[0]?.limit).toBe(1000);
     expect(recorded.nullifiers).not.toHaveBeenCalled();
   });
@@ -191,8 +167,7 @@ describe("wallet sync stable-tag vectors", () => {
   it("halves pageLimit until a page fits and keeps it for the rest of the sync", async () => {
     const { sync, recorded } = syncTooLargeAbove(50, 200);
     await sync;
-    // The halved limit carries over to the two sender view tag chunks.
-    expect(recorded.shielded.map(({ limit }) => limit)).toEqual([200, 100, 50, 50, 50]);
+    expect(recorded.shielded.map(({ limit }) => limit)).toEqual([200, 100, 50]);
     expect(recorded.deposits.map(({ limit }) => limit)).toEqual([50]);
   });
 
@@ -206,7 +181,7 @@ describe("wallet sync stable-tag vectors", () => {
   });
 
   for (const item of fixture.cases as readonly Case[]) {
-    it(`queries signing and bootstrap tags, then sender view tags: ${item.id}`, async () => {
+    it(`queries only signing and bootstrap tags: ${item.id}`, async () => {
       const owner = keypair();
       const retained = item.viewingKeys.map(viewingKey);
       const recorded = recorder();
@@ -222,12 +197,11 @@ describe("wallet sync stable-tag vectors", () => {
         config: { queryChunk: item.queryChunk },
       });
 
-      const { stable, sender } = split(recorded.shielded, retained);
-      expect(stable.flatMap((request) => request.tags)).toEqual(item.tags);
+      expect(recorded.shielded.flatMap((request) => request.tags)).toEqual(item.tags);
       expect(recorded.deposits.flatMap((request) => request.tags)).toEqual(item.tags);
-      expect(stable.map((request) => request.tags.length)).toEqual(item.shieldedChunkSizes);
-      // Sender view tags read the transaction stream only, every held key's.
-      expect(sender.flatMap((request) => request.tags)).toEqual(senderTags(retained));
+      expect(recorded.shielded.map((request) => request.tags.length)).toEqual(
+        item.shieldedChunkSizes,
+      );
       expect(recorded.deposits.map((request) => request.tags.length)).toEqual(
         item.depositChunkSizes,
       );

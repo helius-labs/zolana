@@ -119,7 +119,6 @@ export {
   type WalletErrorCode,
   type WalletStateCipher,
   type WalletStateStore,
-  type WalletSyncReport,
   type WithdrawalTransactionParams,
 } from "./wallet/index.js";
 

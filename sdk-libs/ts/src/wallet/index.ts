@@ -54,7 +54,6 @@ export {
   type SyncClient,
   type SyncWalletConfig,
   type SyncWalletInput,
-  type WalletSyncReport,
 } from "./sync.js";
 export {
   loadPersistedWallet,

@@ -420,17 +420,6 @@ fn merge(
     (tx, merged)
 }
 
-/// Sender view tags a scan reads past the highest index in use.
-const SENDER_VIEW_TAG_GAP: u64 = 100;
-
-/// The sender view tags of `owner`'s viewing key at `indices`.
-fn sender_view_tags(
-    owner: &ShieldedKeypair,
-    indices: std::ops::Range<u64>,
-) -> impl Iterator<Item = [u8; 32]> + '_ {
-    indices.map(|index| owner.viewing_key.get_sender_view_tag(index).unwrap())
-}
-
 /// Another client's spend of `input`, carrying none of the owner's tags.
 fn spend(owner: &ShieldedKeypair, input: &Note, nonce: u8) -> ShieldedTransaction {
     ShieldedTransaction {
@@ -446,41 +435,6 @@ fn spend(owner: &ShieldedKeypair, input: &Note, nonce: u8) -> ShieldedTransactio
         ring_config: None,
         ring_program_id: None,
     }
-}
-
-/// Policy-ring change publishes a sender view tag, not the owner tag. A scan
-/// reads each viewing key's sender view tags to the gap past the highest index
-/// in use, round after round, and reports the next unused index; a tag past
-/// the gap is not read.
-#[test]
-fn fetch_sweeps_sender_view_tags_past_the_highest_index_in_use() {
-    let owner = keypair(7);
-    let change = |nonce: u8, index: u64| {
-        let (mut tx, note) = confidential(&owner, Mint::SOL, nonce);
-        tx.output_slots.first_mut().unwrap().view_tag =
-            owner.viewing_key.get_sender_view_tag(index).unwrap();
-        (tx, note)
-    };
-    let (first_tx, first) = change(1, 60);
-    // Only the round after index 60 is found reads index 150.
-    let (second_tx, second) = change(2, 150);
-    // 100 past 150 ends at 250.
-    let (beyond_tx, beyond) = change(3, 260);
-    let indexer = Indexer {
-        tagged: vec![first_tx, second_tx, beyond_tx],
-        ..Indexer::default()
-    };
-    let assets = AssetRegistry::default();
-    let scan = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
-
-    assert_eq!(scan.next_sender_tx_count, 151);
-    let found: BTreeSet<_> = scan.spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
-    assert_eq!(found, BTreeSet::from([first.hash, second.hash]));
-    assert!(!found.contains(&beyond.hash));
-    let queried: BTreeSet<_> = indexer.queried_tags.borrow().concat().into_iter().collect();
-    let read_through =
-        |index: u64| queried.contains(&owner.viewing_key.get_sender_view_tag(index).unwrap());
-    assert!(read_through(250) && !read_through(251));
 }
 
 #[test]
@@ -544,11 +498,10 @@ fn fetch_follows_spends_the_wallet_tags_do_not_reach() {
             .amount,
         30
     );
-    let first_round: Vec<_> = [owner_tag, address.viewing_pubkey.u()]
-        .into_iter()
-        .chain(sender_view_tags(&owner, 0..SENDER_VIEW_TAG_GAP))
-        .collect();
-    assert_eq!(indexer.queried_tags.borrow().first(), Some(&first_round));
+    assert_eq!(
+        indexer.queried_tags.borrow().first(),
+        Some(&vec![owner_tag, address.viewing_pubkey.u()])
+    );
     // Each round queries only the UTXOs found since the last one.
     let queried = indexer.queried_nullifiers.borrow();
     let mut unique = queried.clone();
@@ -666,10 +619,7 @@ fn fetch_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
 
     assert_eq!(
         history.view_tags,
-        [owner_tag, address.viewing_pubkey.u()]
-            .into_iter()
-            .chain(sender_view_tags(&owner, 0..SENDER_VIEW_TAG_GAP))
-            .collect::<BTreeSet<_>>()
+        BTreeSet::from([owner_tag, address.viewing_pubkey.u()])
     );
     let unspent: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
     assert_eq!(unspent, [merged.hash]);
