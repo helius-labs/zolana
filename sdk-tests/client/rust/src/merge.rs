@@ -94,10 +94,33 @@ pub fn assert_balances_after_transfer<R: BlockingRpc>(
         ],
         None,
         Some(50),
+        spr_client::HistoryFilters::default(),
         Some(IndexerRpcConfig::at_slot(slot)),
     )?;
-    assert_eq!(balance(sender, &response.transactions, assets)?, kept);
-    assert_eq!(balance(recipient, &response.transactions, assets)?, sent);
+    assert_eq!(
+        balance(
+            sender,
+            &response
+                .data
+                .iter()
+                .flat_map(|item| item.events.clone())
+                .collect::<Vec<_>>(),
+            assets
+        )?,
+        kept
+    );
+    assert_eq!(
+        balance(
+            recipient,
+            &response
+                .data
+                .iter()
+                .flat_map(|item| item.events.clone())
+                .collect::<Vec<_>>(),
+            assets
+        )?,
+        sent
+    );
     Ok(())
 }
 

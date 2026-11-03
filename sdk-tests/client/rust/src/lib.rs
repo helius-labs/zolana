@@ -298,11 +298,20 @@ pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScena
         vec![view_tag],
         None,
         Some(50),
+        spr_client::HistoryFilters::default(),
         Some(IndexerRpcConfig::at_slot(slot)),
     )?;
-    let balances = decrypt_spendable(&sender, &response.transactions, &AssetRegistry::default())
-        .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?
-        .balances;
+    let balances = decrypt_spendable(
+        &sender,
+        &response
+            .data
+            .into_iter()
+            .flat_map(|item| item.events)
+            .collect::<Vec<_>>(),
+        &AssetRegistry::default(),
+    )
+    .map_err(|e| anyhow!("decrypt sender transactions: {e:?}"))?
+    .balances;
     let utxos = balances
         .get_balance(SOL_MINT)
         .ok_or_else(|| anyhow!("sender has no SOL balance"))?

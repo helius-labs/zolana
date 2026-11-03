@@ -36,7 +36,9 @@ import {
 } from "../services/transport.js";
 
 const REQUEST_ID = "test-account";
-const MAX_BODY_BYTES = 1024 * 1024;
+// Photon's jsonrpsee server caps requests and responses at 10 MiB and answers a
+// larger response with `-32008`. Wallet sync halves `pageLimit` on either.
+const MAX_BODY_BYTES = 10 * 1024 * 1024;
 
 export class ApiError extends Error {
   readonly code: `API_${string}`;
@@ -159,7 +161,9 @@ export class ZolanaApi {
     }
 
     try {
-      return descriptor.decodeResponse(result);
+      const response = descriptor.decodeResponse(result);
+      descriptor.validateResponse?.(response, request);
+      return response;
     } catch (error) {
       throw schemaError("API_INVALID_RESULT", descriptor.name, error);
     }
@@ -270,7 +274,7 @@ function schemaError(
 
 function safeSchemaPath(path: string): string | undefined {
   const knownField =
-    "(?:blockTime|context|hash|highElement|highElementIndex|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|matches|mergeEncryption|merkleContext|nextCursor|nullifierPubkey|nullifiers|outputContext|outputSlot|outputSlots|owner|owners|path|payload|proofless|proofs|records|root|rootIndex|rootSeq|salt|scannedThrough|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag|viewingPubkey)";
+    "(?:blockTime|context|data|events|filters|gt|gte|hash|highElement|highElementIndex|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|lt|lte|matches|mergeEncryption|merkleContext|minContextSlot|nullifierPubkey|nullifiers|outputContext|outputSlot|outputSlots|outputs|owner|owners|paginationToken|path|payload|proofless|proofs|records|root|rootIndex|rootSeq|salt|signature|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag|viewingPubkey)";
   const pattern = new RegExp(`^\\$(?:(?:\\.${knownField})|(?:\\[\\d+\\]))*$`, "u");
   return path.length <= 256 && pattern.test(path) ? path : undefined;
 }

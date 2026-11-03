@@ -22,7 +22,8 @@ pub use types::{
     Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
     GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-    GetUserRecordsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
-    NonInclusionProof, OutputContext, OutputSlot, ProveResult, RingHistoryOptions,
-    ShieldedTransaction, ShieldedTransactionStream, UserRecord, MAX_USER_RECORD_OWNERS,
+    GetUserRecordsResponse, HistoryFilters, IndexedShieldedTransaction, MerkleContext, MerkleProof,
+    NonInclusionProof, OutputContext, OutputSlot, Page, PaginationToken, ProveResult,
+    RingHistoryOptions, ShieldedTransaction, ShieldedTransactionStream, SlotFilter,
+    TransactionEvents, TransactionOutputs, UserRecord, MAX_USER_RECORD_OWNERS,
 };

@@ -1,3 +1,4 @@
+import { transactionItems, outputItems } from "../../../test/helpers/pages.js";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Bytes32 } from "../../../src/interface/index.js";
@@ -13,6 +14,7 @@ import {
   Wallet,
   type ShieldedKeys,
 } from "../../../src/transaction/index.js";
+import { ClientError } from "../../../src/client/error.js";
 import { syncWallet, type SyncClient } from "../../../src/wallet/index.js";
 import fixture from "../../../vectors/wallet-sync-tags-v1.json" with { type: "json" };
 
@@ -63,18 +65,27 @@ function recorder(): Readonly<{
   const deposits: { tags: string[]; limit: number | undefined }[] = [];
   const nullifiers = vi.fn(async () => ({
     context: { blockTime: 0n, slot: 1n },
-    transactions: [],
+    data: transactionItems([]),
+    paginationToken: null,
   }));
   const client = {
     getShieldedTransactionsByTags: (
       request: Readonly<{ tags: readonly Bytes32[]; limit?: number }>,
     ) => {
       shielded.push({ tags: request.tags.map(hex), limit: request.limit });
-      return Promise.resolve({ context: { blockTime: 0n, slot: 1n }, transactions: [] });
+      return Promise.resolve({
+        context: { blockTime: 0n, slot: 1n },
+        data: transactionItems([]),
+        paginationToken: null,
+      });
     },
     getEncryptedUtxosByTags: (request: Readonly<{ tags: readonly Bytes32[]; limit?: number }>) => {
       deposits.push({ tags: request.tags.map(hex), limit: request.limit });
-      return Promise.resolve({ context: { blockTime: 0n, slot: 1n }, matches: [] });
+      return Promise.resolve({
+        context: { blockTime: 0n, slot: 1n },
+        data: outputItems([]),
+        paginationToken: null,
+      });
     },
     getShieldedTransactionsByNullifiers: nullifiers,
   };
@@ -128,6 +139,45 @@ describe("wallet sync stable-tag vectors", () => {
     expect(recorded.shielded[0]?.limit).toBe(1000);
     expect(recorded.deposits[0]?.limit).toBe(1000);
     expect(recorded.nullifiers).not.toHaveBeenCalled();
+  });
+
+  /** Syncs a fresh wallet against an indexer whose tag pages above `fits` transactions are too large. */
+  function syncTooLargeAbove(fits: number, pageLimit: number) {
+    const owner = keypair();
+    const recorded = recorder();
+    const client: SyncClient = {
+      ...recorded.client,
+      getShieldedTransactionsByTags: async (request) => {
+        const page = await recorded.client.getShieldedTransactionsByTags(request);
+        if ((request.limit ?? 0) <= fits) return page;
+        throw new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", {
+          details: { method: "getShieldedTransactionsByTags" },
+        });
+      },
+    };
+    const sync = syncWallet({
+      wallet: new Wallet({ identity: owner.shieldedAddress() }),
+      keys: keysFor(owner, [owner.viewingKey()]),
+      client,
+      config: { pageLimit },
+    });
+    return { sync, recorded };
+  }
+
+  it("halves pageLimit until a page fits and keeps it for the rest of the sync", async () => {
+    const { sync, recorded } = syncTooLargeAbove(50, 200);
+    await sync;
+    expect(recorded.shielded.map(({ limit }) => limit)).toEqual([200, 100, 50]);
+    expect(recorded.deposits.map(({ limit }) => limit)).toEqual([50]);
+  });
+
+  it("fails the sync when a one-transaction page is still too large", async () => {
+    const { sync, recorded } = syncTooLargeAbove(0, 4);
+    await expect(sync).rejects.toMatchObject({
+      code: "WALLET_SYNC",
+      causeCode: "CLIENT_INDEXER_RESPONSE_TOO_LARGE",
+    });
+    expect(recorded.shielded.map(({ limit }) => limit)).toEqual([4, 2, 1]);
   });
 
   for (const item of fixture.cases as readonly Case[]) {
