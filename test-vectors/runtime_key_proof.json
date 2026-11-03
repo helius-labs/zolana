@@ -1,0 +1,24 @@
+{
+  "key": "transfer_confidential_2_2.key",
+  "publicInputHash": "0x282fb0dc53a9e72c9e03719304c7feaac752b09b7e601bdae07f1ce5ef4459d9",
+  "proof": {
+    "ar": [
+      "0x216df3bfe6efb0551ed596c2654cf508780fe9f9ec15038b0951a259ea77ba1f",
+      "0x2a5f642789c8a4c41c2706c3185dd4bae35e3bcb5017f95bb059c3f61067665c"
+    ],
+    "bs": [
+      [
+        "0x23fd3ccd96403f92c168a5ffb7a34fc980b7619bb719c56a3a3aa2d1924707e2",
+        "0x21e24130a2afb91e66b1738681d43ae5c14a3e91b0d9276f9c5cadf089866ca0"
+      ],
+      [
+        "0x195f804e873c6faf424f9443289cc7bc693b13a2a2a6ae7c74a88c0c56ddfdf1",
+        "0x0cca71110341d63cc621844421deb4db79c5336871b3d46ce8525460cd467329"
+      ]
+    ],
+    "krs": [
+      "0x06fed5b8c74714100b3ae26963ca7a57a71cfc1cbe4206599771668e22b35dfb",
+      "0x12ac9eab818004ffcc910a8c98c1641416fe9d3a8d9567b475d19b90f7179452"
+    ]
+  }
+}

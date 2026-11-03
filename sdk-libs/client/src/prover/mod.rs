@@ -7,6 +7,7 @@ pub mod field;
 pub mod indexed;
 mod inputs;
 pub(crate) mod json;
+mod key_set;
 pub mod merge;
 mod proof;
 pub mod proving_key;
@@ -30,6 +31,7 @@ pub use inputs::{
     BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
     TransferOutput, TreeSlotFields,
 };
+pub use key_set::{ProvingKeySet, RuntimeKeyMetadata, RuntimeVerifyingKey, PROVING_KEY_ABI};
 pub use merge::{MergeCacheTarget, MergeProofResult, MergeProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use proving_key::{

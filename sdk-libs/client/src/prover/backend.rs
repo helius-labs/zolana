@@ -43,6 +43,13 @@ pub trait Prover: Send + Sync {
     /// [`ClientError::ProverFailed`], which every client path passes on
     /// unchanged, so its caller can read them back.
     fn prove(&self, request: &dyn ProveRequest) -> Result<Proof, ClientError>;
+
+    /// The runtime key set this prover proves with, fixed for its lifetime.
+    /// `None`, the default, keeps the compiled keys. Clients verify this
+    /// prover's proofs against the same set.
+    fn key_set(&self) -> Option<&super::ProvingKeySet> {
+        None
+    }
 }
 
 /// The typed proofs, built on [`Prover::prove`] with the same encoder the

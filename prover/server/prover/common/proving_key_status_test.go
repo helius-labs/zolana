@@ -36,6 +36,49 @@ func TestProvingKeyDownloadsMatchSharedCatalog(t *testing.T) {
 	}
 }
 
+// The SDKs parse this vector as an attested answer, so it must stay the
+// catalog this build serves.
+func TestRuntimeCatalogMatchesSharedVector(t *testing.T) {
+	t.Setenv(provingKeysURLEnvVar, defaultProvingKeysBaseURL)
+	data, err := os.ReadFile("../../../../test-vectors/runtime_proving_keys.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected ProvingKeysReport
+	if err := json.Unmarshal(data, &expected); err != nil {
+		t.Fatal(err)
+	}
+	report, err := ProvingKeyDownloads()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runtime struct {
+		VerifyingKeys map[string]json.RawMessage `json:"verifyingKeys"`
+	}
+	if err := json.Unmarshal(report.Runtime, &runtime); err != nil {
+		t.Fatal(err)
+	}
+	var selected []ProvingKeyStatus
+	for _, key := range report.Keys {
+		if _, ok := runtime.VerifyingKeys[key.Name]; ok {
+			selected = append(selected, key)
+		}
+	}
+	if !reflect.DeepEqual(selected, expected.Keys) {
+		t.Fatal("runtime keys differ from test-vectors/runtime_proving_keys.json")
+	}
+	var got, want any
+	if err := json.Unmarshal(report.Runtime, &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(expected.Runtime, &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal("runtime metadata differs from test-vectors/runtime_proving_keys.json")
+	}
+}
+
 func TestDownloadURLsUseEachManifestPrefixAndReleaseSource(t *testing.T) {
 	t.Setenv(provingKeysURLEnvVar, "https://mirror.example/assets/")
 	manifest := &lockManifest{Prefix: "proving-keys/new", Keys: map[string]lockEntry{

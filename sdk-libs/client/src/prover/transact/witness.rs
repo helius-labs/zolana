@@ -22,7 +22,8 @@ use crate::{
             OwnerAuthorization,
         },
         verify::{verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs},
-        Proof, ProofCompressed, Prover, ProverExt, TransferInputs,
+        ExpectedProvingKey, Proof, ProofCompressed, Prover, ProverExt, ProvingKeySet,
+        TransferInputs,
     },
     rpc::{MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
@@ -182,11 +183,31 @@ impl AssembledTransfer {
         }
     }
 
+    /// Refuse, before any proving, an assembly `keys` cannot prove: a
+    /// runtime set holds no EdDSA-authorized keys.
+    pub(crate) fn check_key_set(&self, keys: Option<&ProvingKeySet>) -> Result<(), ClientError> {
+        if self.authorization.is_some() && keys.is_some() {
+            return Err(ClientError::ProvingKeySet("unsupported_circuit"));
+        }
+        Ok(())
+    }
+
     /// Verify `proof` against the public input the assembly fixed and turn it
     /// into the instruction's proof. On the `ConfidentialEddsa` rail the
     /// signature gadget's commitment moves into the selector.
     pub fn accept_proof(&mut self, proof: Proof) -> Result<TransactProof, ClientError> {
+        self.accept_proof_with_keys(proof, None)
+    }
+
+    /// As [`Self::accept_proof`], verifying against `keys` when the proof
+    /// came from a runtime key set.
+    pub fn accept_proof_with_keys(
+        &mut self,
+        proof: Proof,
+        keys: Option<&ProvingKeySet>,
+    ) -> Result<TransactProof, ClientError> {
         match &self.authorization {
+            Some(_) if keys.is_some() => Err(ClientError::ProvingKeySet("unsupported_circuit")),
             Some(authorization) => {
                 let inputs = ConfidentialEddsaTransferInputs {
                     transfer: self.prover_inputs.clone(),
@@ -209,11 +230,22 @@ impl AssembledTransfer {
                 Ok(transact)
             }
             None => {
-                verify_confidential_transfer_inputs(
-                    &self.prover_inputs,
-                    self.public_input_hash,
-                    &proof,
-                )?;
+                match keys {
+                    Some(keys) => keys.verify(
+                        &ExpectedProvingKey::transfer_confidential(
+                            self.prover_inputs.inputs.len(),
+                            self.prover_inputs.outputs.len(),
+                        )?
+                        .name,
+                        self.public_input_hash,
+                        &proof,
+                    )?,
+                    None => verify_confidential_transfer_inputs(
+                        &self.prover_inputs,
+                        self.public_input_hash,
+                        &proof,
+                    )?,
+                }
                 Ok(ProofCompressed::try_from(proof)?.to_transact_proof())
             }
         }
@@ -231,6 +263,7 @@ impl AssembledTransfer {
         prover: &P,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactProof, ClientError> {
+        self.check_key_set(prover.key_set())?;
         authority.complete_inputs(&mut self.prover_inputs.inputs)?;
         let proof = match &self.authorization {
             Some(authorization) => {
@@ -241,7 +274,7 @@ impl AssembledTransfer {
             }
             None => prover.prove_transfer(&self.prover_inputs)?,
         };
-        self.accept_proof(proof)
+        self.accept_proof_with_keys(proof, prover.key_set())
     }
 }
 
@@ -656,6 +689,74 @@ mod tests {
             .collect();
         assert_eq!(requested.len(), 1);
         assert_eq!(witnessed, requested);
+    }
+
+    /// A runtime set holds no EdDSA-authorized keys, so the assembly is
+    /// refused before the prover is asked for a proof.
+    #[test]
+    fn a_runtime_set_refuses_an_eddsa_assembly_before_proving() {
+        struct SetProver(crate::prover::ProvingKeySet);
+        impl crate::prover::Prover for SetProver {
+            fn prove(
+                &self,
+                _: &dyn crate::prover::ProveRequest,
+            ) -> Result<crate::prover::Proof, crate::ClientError> {
+                panic!("proved an assembly the set cannot verify")
+            }
+            fn key_set(&self) -> Option<&crate::prover::ProvingKeySet> {
+                Some(&self.0)
+            }
+        }
+        let keys = crate::prover::ProvingKeySet::from_attested_response(include_str!(
+            "../../../../../test-vectors/runtime_proving_keys.json"
+        ))
+        .unwrap();
+
+        let sender = ShieldedKeypair::new_ed25519().expect("sender keypair");
+        let recipient = ShieldedKeypair::new_ed25519().expect("recipient keypair");
+        let input = wallet_input(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: spr_transaction::Mint::SOL,
+                amount: 10,
+                blinding: [1u8; 32],
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            &sender.nullifier_key,
+            0,
+        );
+        let payer = Address::new_from_array([9; 32]);
+        let mut transfer = ConfidentialTransaction::new(vec![input], payer).unwrap();
+        transfer
+            .transfer_sol(&recipient.shielded_address().expect("recipient address"), 4)
+            .expect("transfer");
+        transfer
+            .pad_utxos(Shape::IN2_OUT8, &sender.shielded_address().unwrap())
+            .unwrap();
+        let proof_inputs = transfer.encrypt(&sender).expect("encrypt");
+        let requested = proof_inputs.dummy_nullifiers();
+        let real = proof_inputs.input_utxos.first().unwrap();
+        let mut proof = fake_spend_proof();
+        proof.state.leaf = real.utxo_hash;
+        proof.state.merkle_context.tree = spr_interface::pda::tree(real.tree_id);
+        proof.nullifier.leaf = real.nullifier;
+        proof.nullifier.merkle_context.tree = spr_interface::pda::tree(real.tree_id);
+        let dummy: Vec<_> = requested
+            .iter()
+            .map(|nullifier| {
+                let mut nf = proof.nullifier.clone();
+                nf.leaf = *nullifier;
+                nf
+            })
+            .collect();
+        let mut assembled =
+            super::assemble_confidential_eddsa(proof_inputs, &[proof], &dummy, &sender.signing_key)
+                .expect("assemble");
+        assert!(matches!(
+            assembled.prove(&SetProver(keys), &sender),
+            Err(crate::ClientError::ProvingKeySet("unsupported_circuit"))
+        ));
     }
 
     fn fake_spend_proof() -> SpendProof {

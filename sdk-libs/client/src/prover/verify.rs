@@ -12,7 +12,7 @@ use crate::{
 /// dispatches on too. A local shape-to-key table here would be a second place
 /// to update when a shape is added, and a client that verified against a
 /// different key than the program would accept a proof the chain rejects.
-fn confidential_verifying_key(
+pub(crate) fn confidential_verifying_key(
     n_inputs: usize,
     n_outputs: usize,
 ) -> Result<&'static Groth16Verifyingkey<'static>, ClientError> {
@@ -136,33 +136,36 @@ impl MergeProofStatement {
     }
 
     pub fn verify(self, proof: &Proof) -> Result<(), ClientError> {
-        use spr_interface::verifying_keys::{merge_24_1, merge_52_1, merge_8_1};
-        let verifying_key = match self.n_inputs {
-            8 => &merge_8_1::VERIFYINGKEY,
-            24 => &merge_24_1::VERIFYINGKEY,
-            52 => &merge_52_1::VERIFYINGKEY,
-            _ => {
-                return Err(ClientError::UnsupportedShape {
-                    n_in: self.n_inputs,
-                    n_out: 1,
-                })
-            }
-        };
         StatementVerification {
-            verifying_key,
+            verifying_key: merge_verifying_key(self.n_inputs)?,
             public_input_hash: self.public_input_hash,
         }
         .verify(proof)
     }
 }
 
-struct StatementVerification {
-    verifying_key: &'static Groth16Verifyingkey<'static>,
-    public_input_hash: [u8; 32],
+pub(crate) fn merge_verifying_key(
+    n_inputs: usize,
+) -> Result<&'static Groth16Verifyingkey<'static>, ClientError> {
+    use spr_interface::verifying_keys::{merge_24_1, merge_52_1, merge_8_1};
+    match n_inputs {
+        8 => Ok(&merge_8_1::VERIFYINGKEY),
+        24 => Ok(&merge_24_1::VERIFYINGKEY),
+        52 => Ok(&merge_52_1::VERIFYINGKEY),
+        _ => Err(ClientError::UnsupportedShape {
+            n_in: n_inputs,
+            n_out: 1,
+        }),
+    }
 }
 
-impl StatementVerification {
-    fn verify(self, proof: &Proof) -> Result<(), ClientError> {
+pub(crate) struct StatementVerification<'a> {
+    pub verifying_key: &'a Groth16Verifyingkey<'a>,
+    pub public_input_hash: [u8; 32],
+}
+
+impl StatementVerification<'_> {
+    pub fn verify(self, proof: &Proof) -> Result<(), ClientError> {
         let public_inputs = [self.public_input_hash];
         let mut verifier = match (
             &proof.commitment,

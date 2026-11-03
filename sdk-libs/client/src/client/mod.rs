@@ -200,6 +200,14 @@ impl<R, I> AsyncZolanaClient<R, I> {
         }
     }
 
+    /// The runtime key set of the client's prover, if it has one.
+    pub(crate) fn key_set(&self) -> Option<&crate::prover::ProvingKeySet> {
+        match &self.prover {
+            ProverBackend::Server(prover) => prover.key_set(),
+            ProverBackend::Custom(prover) => prover.key_set(),
+        }
+    }
+
     /// The transfer proof of a transfer off the indexed route.
     async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.prove_request(crate::prover::requests::transfer(inputs)?)

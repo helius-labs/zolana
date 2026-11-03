@@ -41,6 +41,7 @@ num-traits = { workspace = true }
 solana-address = { workspace = true }
 thiserror = { workspace = true }
 hex = { workspace = true, features = ["serde"] }
+sha2 = { workspace = true }
 httpdate = { workspace = true }
 rand_core = { workspace = true }
 http = { workspace = true }

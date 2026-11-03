@@ -34,6 +34,7 @@ use crate::{
         call::{transport_error, Answer, Call, CallError, Recipient},
         endpoint::ProverEndpoint,
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
+        key_set::ProvingKeySet,
         proof::{proof_from_value, Proof},
         proving_key::{ExpectedProvingKey, ProverKeys, ProvingKeyReport},
         requests,
@@ -274,6 +275,8 @@ pub struct AsyncProverClient {
     delivery: Delivery,
     proof_data_source: ProofDataSource,
     tee: Tee,
+    /// The runtime key set proofs must come from, `None` for the compiled one.
+    key_set: Option<Arc<ProvingKeySet>>,
 }
 
 #[cfg(feature = "reqwest")]
@@ -400,6 +403,18 @@ impl ProverClient {
 
     pub fn check_indexed(&self) -> Result<(), ClientError> {
         self.runtime.block_on(self.client.check_indexed())
+    }
+
+    /// See [`AsyncProverClient::fetch_proving_key_set`].
+    pub fn fetch_proving_key_set(&self) -> Result<Arc<ProvingKeySet>, ClientError> {
+        self.runtime.block_on(self.client.fetch_proving_key_set())
+    }
+
+    /// See [`AsyncProverClient::with_proving_keys`].
+    #[must_use]
+    pub fn with_proving_keys(mut self, keys: Arc<ProvingKeySet>) -> Self {
+        self.client = self.client.with_proving_keys(keys);
+        self
     }
 
     /// One proof submission on `delivery`, for the tests of the rails.
@@ -580,6 +595,10 @@ impl Prover for ProverClient {
     fn prove(&self, request: &dyn ProveRequest) -> Result<Proof, ClientError> {
         self.runtime.block_on(self.client.prove(request))
     }
+
+    fn key_set(&self) -> Option<&ProvingKeySet> {
+        self.client.key_set()
+    }
 }
 
 /// The rail a request takes: an in-response request asks for the proof in the
@@ -697,8 +716,15 @@ impl AsyncProverClient {
         }
     }
 
+    /// Where proof data is fetched. A runtime key set always takes
+    /// [`ProofDataSource::Client`]: the indexed route proves against the
+    /// prover's own keys.
     pub fn proof_data_source(&self) -> ProofDataSource {
-        self.proof_data_source
+        if self.key_set.is_some() {
+            ProofDataSource::Client
+        } else {
+            self.proof_data_source
+        }
     }
 
     #[cfg(feature = "reqwest")]
@@ -730,6 +756,7 @@ impl AsyncProverClient {
             async_poll: AsyncPollConfig::default(),
             proof_timeout: Duration::from_secs(PROVE_REQUEST_TIMEOUT_SECS),
             delivery: Delivery::InResponse,
+            key_set: None,
         }
     }
 
@@ -843,12 +870,16 @@ impl AsyncProverClient {
         &self,
         request: &(impl ProveRequest + ?Sized),
     ) -> Result<Proof, ClientError> {
-        let key = request.proving_key()?;
+        let key = self.expected(request.proving_key()?)?;
         let delivery = rail(self.delivery, request.delivery());
         self.send(request.body()?, delivery, &key).await
     }
 
     pub async fn prove_indexed<R: Request>(&self, request: &R) -> Result<R::Output, ClientError> {
+        // The prover checks indexed proofs against its compiled keys.
+        if self.key_set.is_some() {
+            return Err(ClientError::ProvingKeySet("indexed_proving_unsupported"));
+        }
         let key = request.proving_key()?;
         let body = request.body()?;
         let IndexedResponse { proof, resolution } = self
@@ -873,7 +904,42 @@ impl AsyncProverClient {
     /// Async counterpart of [`ProverClient::check_proving_keys`].
     pub async fn check_proving_keys(&self) -> Result<ProvingKeyReport, ClientError> {
         let (status, text) = self.get(PROVING_KEYS_PATH).await?;
-        prover_keys_from_response(status, &text)?.check()
+        prover_keys_from_response(status, &text)?.check_with_keys(self.key_set())
+    }
+
+    /// Fetch the prover's runtime key set over the encrypted channel of an
+    /// attested session. A public catalog cannot move a client to new keys,
+    /// so this requires a TEE policy even for a loopback prover. Only the
+    /// metadata is fetched; key files are downloaded by whoever proves.
+    pub async fn fetch_proving_key_set(&self) -> Result<Arc<ProvingKeySet>, ClientError> {
+        if !matches!(self.tee, Tee::On(_)) {
+            return Err(ClientError::ProvingKeySet("attestation_required"));
+        }
+        let (status, text) = self.get(PROVING_KEYS_PATH).await?;
+        if status != StatusCode::OK {
+            return Err(ClientError::ProvingKeySet("unavailable"));
+        }
+        ProvingKeySet::from_attested_response(&text).map(Arc::new)
+    }
+
+    /// Prove with `keys` instead of the compiled keys: every proof must come
+    /// from a key of the set, clients verify against its verifying keys, and
+    /// proof data is fetched by the client.
+    #[must_use]
+    pub fn with_proving_keys(mut self, keys: Arc<ProvingKeySet>) -> Self {
+        self.key_set = Some(keys);
+        self
+    }
+
+    pub fn key_set(&self) -> Option<&ProvingKeySet> {
+        self.key_set.as_deref()
+    }
+
+    fn expected(&self, key: ExpectedProvingKey) -> Result<ExpectedProvingKey, ClientError> {
+        match self.key_set() {
+            Some(keys) => keys.expected(&key),
+            None => Ok(key),
+        }
     }
 
     pub async fn check_indexed(&self) -> Result<(), ClientError> {
@@ -1928,6 +1994,75 @@ mod tests {
 
     fn nitro_session(now: u64) -> TeeSession {
         NitroFixture::at([0; 32], now).session()
+    }
+
+    fn runtime_catalog() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../../test-vectors/runtime_proving_keys.json"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_runtime_key_set_needs_attestation_even_on_loopback() {
+        let server = MockServer::respond_with(vec![]);
+        let client = ProverClient::new(server.url().to_string());
+        assert!(matches!(
+            client.fetch_proving_key_set(),
+            Err(ClientError::ProvingKeySet("attestation_required"))
+        ));
+        assert!(server.requests().is_empty());
+    }
+
+    #[test]
+    fn a_runtime_key_set_comes_from_the_encrypted_catalog() {
+        let now = now_secs();
+        let catalog = runtime_catalog();
+        let expected = catalog["expectedCacheKey"].as_str().unwrap().to_owned();
+        let server = MockServer::respond_with(vec![
+            nitro_answer(now, proxy_fixture),
+            encrypted_proxy_response(200, catalog),
+        ]);
+        let mut client = ProverClient::new(server.url().to_string());
+        client.client.tee = Tee::On(Box::new(nitro_session(now)));
+        let keys = client.fetch_proving_key_set().unwrap();
+        assert_eq!(keys.cache_key(), expected);
+        let requests = server.requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].path, "/proving-keys");
+        assert!(requests[1].encrypted);
+    }
+
+    #[test]
+    fn a_plaintext_catalog_after_attestation_is_refused() {
+        let now = now_secs();
+        let server = MockServer::respond_then_hold(vec![
+            nitro_answer(now, proxy_fixture),
+            MockResponse::json(200, runtime_catalog()),
+        ]);
+        let mut client = ProverClient::new(server.url().to_string());
+        client.client.tee = Tee::On(Box::new(nitro_session(now)));
+        assert!(matches!(
+            client.fetch_proving_key_set(),
+            Err(ClientError::Tee(TeeError::UnencryptedResponse {
+                status: 200
+            }))
+        ));
+    }
+
+    #[test]
+    fn a_runtime_key_set_pins_proofs_and_refuses_indexed_proving() {
+        let catalog = runtime_catalog().to_string();
+        let keys = Arc::new(ProvingKeySet::from_attested_response(&catalog).unwrap());
+        let client = AsyncProverClient::new("http://127.0.0.1:1".into()).with_proving_keys(keys);
+        let merge = ExpectedProvingKey::merge(8).unwrap();
+        assert_eq!(client.expected(merge.clone()).unwrap(), merge);
+        assert!(matches!(
+            client.expected(ExpectedProvingKey::merge_ring(8).unwrap()),
+            Err(ClientError::ProvingKeySet("unsupported_circuit"))
+        ));
+        assert!(client.key_set().is_some());
+        assert_eq!(client.proof_data_source(), ProofDataSource::Client);
     }
 
     fn nitro_attestation(now: u64) -> MockResponse {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -56,10 +57,16 @@ func TestProvingKeysHandlerReportsEveryLockfileKey(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &wire); err != nil {
 		t.Fatal(err)
 	}
-	if len(wire) != 1 || wire["keys"] == nil {
+	if len(wire) != 2 || wire["keys"] == nil {
 		t.Fatalf("unexpected response fields: %s", recorder.Body.String())
 	}
-
+	runtime, err := provingkeys.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(wire["runtime"], runtime) {
+		t.Fatalf("runtime metadata differs from the embedded verifying keys")
+	}
 }
 
 func TestProvingKeysHandlerRejectsNonGet(t *testing.T) {

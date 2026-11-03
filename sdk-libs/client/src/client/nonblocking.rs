@@ -309,7 +309,20 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
         let inputs = &mut assembled.prover_inputs;
         authority.complete_inputs(&mut inputs.inputs)?;
         let proof = self.prove_transfer(inputs).await?;
-        verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
+        match self.key_set() {
+            Some(keys) => keys.verify(
+                &crate::prover::ExpectedProvingKey::transfer_confidential(
+                    inputs.inputs.len(),
+                    inputs.outputs.len(),
+                )?
+                .name,
+                assembled.public_input_hash,
+                &proof,
+            )?,
+            None => {
+                verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?
+            }
+        }
         let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
