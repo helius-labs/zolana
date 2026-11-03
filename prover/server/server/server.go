@@ -11,6 +11,7 @@ import (
 	"github.com/helius-labs/zolana/prover/server/prover/timing"
 	"github.com/helius-labs/zolana/prover/server/tee"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -691,8 +692,11 @@ func RunEnhanced(config *EnhancedConfig, redisQueue *RedisQueue, keyManager *com
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("/metrics", capacityMetrics(transferExecution, config.Readiness))
 	metricsServer := &http.Server{Addr: config.MetricsAddress, Handler: metricsMux}
-	metricsJob := spawnServerJob(metricsServer, "metrics server")
-	logging.Logger().Info().Str("addr", config.MetricsAddress).Msg("metrics server started")
+	// Metrics are observability only: a bind failure must not take down the
+	// prover. The forester follows the same rule. A common failure mode is an
+	// ECS sidecar that accidentally shares the prover image and binds :9998
+	// first; queue draining must continue without /metrics.
+	metricsJob := spawnMetricsServerJob(metricsServer)
 
 	proverMux := http.NewServeMux()
 	proverMux.HandleFunc("/auth", func(w http.ResponseWriter, _ *http.Request) {
@@ -911,6 +915,35 @@ func spawnServerJob(server *http.Server, label string) RunningJob {
 			logging.Logger().Error().Err(err).Msgf("error when shutting down %s", label)
 		}
 		logging.Logger().Info().Msgf("%s shut down", label)
+	}
+	return SpawnJob(start, shutdown)
+}
+
+// spawnMetricsServerJob binds /metrics without panicking on failure. Listen
+// first so a refused bind is logged once up front instead of racing a panic
+// after "metrics server started".
+func spawnMetricsServerJob(server *http.Server) RunningJob {
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		logging.Logger().Warn().
+			Err(err).
+			Str("addr", server.Addr).
+			Msg("metrics server failed to bind; continuing without it")
+		return SpawnJob(func() {}, func() {})
+	}
+	logging.Logger().Info().Str("addr", server.Addr).Msg("metrics server started")
+	start := func() {
+		serveErr := server.Serve(listener)
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			logging.Logger().Error().Err(serveErr).Msg("metrics server failed")
+		}
+	}
+	shutdown := func() {
+		logging.Logger().Info().Msg("shutting down metrics server")
+		if shutErr := server.Shutdown(context.Background()); shutErr != nil {
+			logging.Logger().Error().Err(shutErr).Msg("error when shutting down metrics server")
+		}
+		logging.Logger().Info().Msg("metrics server shut down")
 	}
 	return SpawnJob(start, shutdown)
 }
