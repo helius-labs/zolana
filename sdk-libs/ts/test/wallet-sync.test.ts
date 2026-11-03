@@ -636,6 +636,66 @@ describe("wallet sync freshness", () => {
     expect(byTags.mock.calls[0]?.[1]?.requireSlot).toBe(3n);
     expect(tagReads).toEqual([5]);
   });
+
+  // The SDK refuses a body above 10 MiB; Photon refuses to build one and answers `-32008`.
+  const oversizedPages = {
+    "the SDK body limit": () =>
+      new Response("{}", { headers: { "content-length": String(11 * 1024 * 1024) } }),
+    "Photon's -32008": () =>
+      Response.json({
+        id: "test-account",
+        jsonrpc: "2.0",
+        error: {
+          code: -32008,
+          message: "Response is too big",
+          data: "Exceeded max limit of 10485760",
+        },
+      }),
+  };
+
+  it.each(Object.entries(oversizedPages))(
+    "keeps the required slot when a page over %s is retried smaller",
+    async (_name, oversizedPage) => {
+      const keypair = ShieldedKeypair.generate();
+      const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+      // Photon stays at slot 5, and its first transaction tag page is too large.
+      let oversized = true;
+      const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+        const { method } = JSON.parse(String(init?.body)) as { method: string };
+        if (method === "getShieldedTransactionsByTags" && oversized) {
+          oversized = false;
+          return oversizedPage();
+        }
+        return Response.json({
+          id: "test-account",
+          jsonrpc: "2.0",
+          result: { context: { blockTime: 1, slot: 5 }, data: [], paginationToken: null },
+        });
+      });
+      const client = new ZolanaClient({
+        fetch,
+        indexerConfig: { requireSlot: 10n, poll: { numRetries: 2, delayMs: 0n, maxDelayMs: 0n } },
+      });
+      const byTags = vi.spyOn(client, "getShieldedTransactionsByTags");
+
+      await expect(
+        syncWallet({
+          wallet,
+          keys: LocalShieldedKeys.fromKeypair(keypair),
+          client,
+          config: { pageLimit: 200 },
+        }),
+      ).rejects.toMatchObject({ code: "WALLET_SYNC", causeCode: "CLIENT_INDEXER_NOT_CAUGHT_UP" });
+
+      expect(
+        byTags.mock.calls.map(([request, config]) => [request.limit, config?.requireSlot]),
+      ).toEqual([
+        [200, 10n],
+        [100, 10n],
+      ]);
+      expect(wallet.lastSynced).toBe(0n);
+    },
+  );
 });
 
 describe("wallet sync", () => {

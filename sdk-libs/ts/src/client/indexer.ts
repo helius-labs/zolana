@@ -613,12 +613,16 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
 
 export function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
-  if (
-    cause instanceof ApiError &&
-    cause.code === "API_JSON_RPC" &&
-    cause.details?.["rpcCode"] === -32016
-  ) {
+  const rpcCode =
+    cause instanceof ApiError && cause.code === "API_JSON_RPC"
+      ? cause.details?.["rpcCode"]
+      : undefined;
+  if (rpcCode === -32016) {
     return new ClientError("CLIENT_INDEXER", { details: { method, retryable: true }, cause });
+  }
+  // jsonrpsee's oversized-response error, the server-side twin of `API_RESPONSE_TOO_LARGE`.
+  if (rpcCode === -32008) {
+    return new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", { details: { method }, cause });
   }
   const code = externalCode(cause);
   if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });
@@ -631,6 +635,12 @@ export function wrapIndexer(cause: unknown, method: string): ClientError {
   if (code === "API_REQUEST") {
     return new ClientError("CLIENT_REQUEST", {
       details: { method, retryable: true },
+      cause,
+    });
+  }
+  if (code === "API_RESPONSE_TOO_LARGE") {
+    return new ClientError("CLIENT_INDEXER_RESPONSE_TOO_LARGE", {
+      details: { method },
       cause,
     });
   }
