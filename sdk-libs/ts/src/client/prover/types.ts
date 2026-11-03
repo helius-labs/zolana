@@ -132,12 +132,21 @@ export interface ConfidentialEddsaTransferInputs extends TransferInputs {
   readonly ownerAuthorization: EddsaOwnerAuthorization;
 }
 
+export interface AnonymousRingEddsaTransferInputs extends ConfidentialEddsaTransferInputs {
+  /** The hidden owner's tagged identity when it spends a default-ring UTXO, zero otherwise. */
+  readonly defaultOwnerPublicKeyHash: Field;
+}
+
 export type ProverInputs =
   | Readonly<{
       circuit: "transfer" | "transferRing" | "transferRingAuthority";
       payload: TransferInputs;
     }>
-  | Readonly<{ circuit: "transferConfidentialEddsa"; payload: ConfidentialEddsaTransferInputs }>;
+  | Readonly<{ circuit: "transferConfidentialEddsa"; payload: ConfidentialEddsaTransferInputs }>
+  | Readonly<{
+      circuit: "transferAnonymousRingEddsa";
+      payload: AnonymousRingEddsaTransferInputs;
+    }>;
 
 /**
  * The owner that authorizes a `confidentialEddsa` transfer inside the proof:
@@ -150,6 +159,14 @@ export interface TransactOwnerSigner {
   sign(message: Uint8Array): Bytes64 | Promise<Bytes64>;
 }
 
+/** An owner signature made over `transactMessageDigest(proofInputs)` before proving. */
+export type PreparedOwnerSignature = Pick<
+  EddsaOwnerAuthorization,
+  "ownerPublicKey" | "ownerSignature"
+>;
+
+export type TransactOwnerAuthorization = TransactOwnerSigner | PreparedOwnerSignature;
+
 /**
  * Selects member authorization, the ring authority statement, or the default
  * ring with one owner's signature verified inside the proof, so a payer that
@@ -159,7 +176,8 @@ export type TransferCircuit =
   | Readonly<{ kind: "confidential" }>
   | Readonly<{ kind: "confidentialEddsa"; authorization: EddsaOwnerAuthorization }>
   | Readonly<{ kind: "ring"; ring: Address }>
-  | Readonly<{ kind: "ringAuthority"; ring: Address }>;
+  | Readonly<{ kind: "ringAuthority"; ring: Address }>
+  | Readonly<{ kind: "anonymousRingEddsa"; ring: Address; authorization: EddsaOwnerAuthorization }>;
 
 /**
  * A transact proof as the instruction carries it, with the BSB22 commitment

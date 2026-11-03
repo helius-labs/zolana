@@ -52,7 +52,10 @@ const RETIRED_KEYS = [
 ];
 
 /** The rails whose request is the plain transfer body. */
-type SignerRailInputs = Exclude<ProverInputs, { circuit: "transferConfidentialEddsa" }>;
+type SignerRailInputs = Exclude<
+  ProverInputs,
+  { circuit: "transferConfidentialEddsa" | "transferAnonymousRingEddsa" }
+>;
 
 const INPUTS: SignerRailInputs = {
   circuit: "transfer",

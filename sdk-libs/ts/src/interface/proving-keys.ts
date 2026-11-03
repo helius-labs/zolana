@@ -232,6 +232,11 @@ export type ProvingKeyCircuit =
       readonly nOutputs: number;
     }
   | {
+      readonly circuit: "transfer-eddsa-ring";
+      readonly nInputs: number;
+      readonly nOutputs: number;
+    }
+  | {
       readonly circuit: "transfer-ring";
       readonly nInputs: number;
       readonly nOutputs: number;
@@ -270,6 +275,8 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `transfer_confidential_${request.nInputs}_${request.nOutputs}.key`;
     case "transfer-confidential-eddsa":
       return `transfer_confidential_eddsa_${request.nInputs}_${request.nOutputs}.key`;
+    case "transfer-eddsa-ring":
+      return `transfer_eddsa_ring_${request.nInputs}_${request.nOutputs}.key`;
     case "transfer-ring":
       return `transfer_ring_${request.nInputs}_${request.nOutputs}.key`;
     case "transfer-ring-authority":
