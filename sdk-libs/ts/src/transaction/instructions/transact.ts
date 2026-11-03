@@ -1011,6 +1011,7 @@ export class ConfidentialTransfer {
   #ringProgramId?: Address;
   #compactPadding = false;
   #randomDummyTags = false;
+  #senderViewTag?: Bytes32;
   #confidentialEddsaShape = false;
 
   /**
@@ -1085,6 +1086,20 @@ export class ConfidentialTransfer {
    */
   withRandomDummyTags(): this {
     this.#randomDummyTags = true;
+    return this;
+  }
+
+  /**
+   * Publishes every sender-owned custom-ring output, change included, under
+   * `tag` instead of the sender's signing key. `tag` is the sender view tag of
+   * the next unused index, `ViewingKey.senderViewTag(txCount)`, which the
+   * sender's wallet sync sweeps for. Ring circuits bind no custom-ring
+   * output's tag, and in an anonymous proof the signing key names the hidden
+   * signer. Default-ring outputs keep their owner tag, which the proof binds.
+   * Mirrors Rust `with_sender_view_tag`.
+   */
+  withSenderViewTag(tag: Bytes32): this {
+    this.#senderViewTag = checked<Bytes32>(tag, 32, "sender view tag");
     return this;
   }
 
@@ -1266,6 +1281,7 @@ export class ConfidentialTransfer {
       ...ring,
       ...(this.#compactPadding ? { compactPadding: true } : {}),
       ...(randomDummyTags ? { padTags: [] } : {}),
+      ...(this.#senderViewTag === undefined ? {} : { senderViewTag: copy(this.#senderViewTag) }),
     });
   }
 
@@ -1309,6 +1325,8 @@ type PreparedTransferFields = Omit<
      * dummy data never is.
      */
     padTags?: readonly Bytes32[];
+    /** Replaces the sender's tag on its custom-ring outputs, see `withSenderViewTag`. */
+    senderViewTag?: Bytes32;
   }>;
 
 export function prepareRingAuthorityTransfer(
@@ -1577,6 +1595,18 @@ function finalizeTransfer(
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
+  // A sender-owned custom-ring output names no one under the sender view tag.
+  // The ring circuit binds no such tag, so only the proof's default-ring
+  // outputs must keep the owner's.
+  const senderSigningKey = prepared.owner.signingPublicKey.toBytes();
+  const senderViewTagOf = (output: ProofOutputUtxo | undefined): Bytes32 | undefined =>
+    prepared.senderViewTag !== undefined &&
+    output?.ringProgramId !== undefined &&
+    output.ownerAddress !== undefined &&
+    equalBytes(output.ownerAddress.signingPublicKey.toBytes(), senderSigningKey)
+      ? prepared.senderViewTag
+      : undefined;
+
   const { outputs: outputUtxos, padCount, padTagAt } = finalOutputPlan(prepared);
   // Random dummies join the last input tree, as the prover hashes them. Compact
   // padding takes the first: SPP reads its omitted tree index as 0.
@@ -1614,7 +1644,15 @@ function finalizeTransfer(
     if (output.isCompact()) continue;
     const slot = encrypted.payload[index];
     const utxoHash = output.hash(prepared.outputTreeId);
-    if (output.isDummy()) {
+    const senderViewTag = output.isDummy() ? undefined : senderViewTagOf(output);
+    if (senderViewTag !== undefined) {
+      outputs.push({
+        utxoHash,
+        ownerTag: { kind: "inline", value: copy(senderViewTag) },
+        data: slot?.data ?? randomBytes(dummyLength),
+      });
+      resolved.push(copy(senderViewTag));
+    } else if (output.isDummy()) {
       const padTag = padTagAt(index);
       outputs.push({
         utxoHash,
@@ -1626,9 +1664,13 @@ function finalizeTransfer(
       });
       resolved.push(padTag);
     } else if (padding !== undefined && index >= padding.start && index < padding.end) {
-      const ownerTag =
-        padding.template === undefined ? senderTag : outputs[padding.template]?.ownerTag;
-      const tag = padding.template === undefined ? senderResolved : resolved[padding.template];
+      // Record padding is a default-ring output of the template's owner, so a
+      // template under the sender view tag still pads under the sender's tag.
+      const ownTag =
+        padding.template === undefined ||
+        senderViewTagOf(outputUtxos[padding.template]) !== undefined;
+      const ownerTag = ownTag ? senderTag : outputs[padding.template]?.ownerTag;
+      const tag = ownTag ? senderResolved : resolved[padding.template];
       if (ownerTag === undefined || tag === undefined) {
         throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
       }

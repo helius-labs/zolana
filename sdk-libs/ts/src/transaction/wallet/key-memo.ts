@@ -188,6 +188,8 @@ function deriveKey(request: DeriveRequest): string {
       return `mergePrivateTxBlinding|${bytesKey(request.firstNullifier)}`;
     case "mergeOutputKey":
       return `mergeOutputKey|${bytesKey(request.firstNullifier)}`;
+    case "senderViewTag":
+      return `senderViewTag|${bytesKey(request.viewingPublicKey.toBytes())}|${String(request.txCount)}`;
   }
 }
 

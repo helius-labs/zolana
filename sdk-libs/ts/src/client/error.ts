@@ -186,8 +186,8 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_ANONYMOUS_MIXED_RING_SPEND: NoDetails;
   /** A published output owner names the hidden owner of a ring spend. */
   readonly CLIENT_ANONYMOUS_PUBLISHED_OWNER: IndexDetails;
-  /** A dummy output's tag is the hidden owner's signing key, which names the sender. */
-  readonly CLIENT_ANONYMOUS_DUMMY_OWNER_TAG: IndexDetails;
+  /** An output's published tag is the hidden owner's signing key, which names the sender. */
+  readonly CLIENT_ANONYMOUS_OUTPUT_OWNER_TAG: IndexDetails;
   /** The proof inputs were built for another output tree than the client's. */
   readonly CLIENT_TREE_ID_MISMATCH: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_INVALID_MERGE_OUTPUT: NoDetails;
@@ -280,7 +280,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_ANONYMOUS_WITHOUT_HIDDEN_INPUT",
   "CLIENT_ANONYMOUS_MIXED_RING_SPEND",
   "CLIENT_ANONYMOUS_PUBLISHED_OWNER",
-  "CLIENT_ANONYMOUS_DUMMY_OWNER_TAG",
+  "CLIENT_ANONYMOUS_OUTPUT_OWNER_TAG",
   "CLIENT_TREE_ID_MISMATCH",
   "CLIENT_INVALID_MERGE_OUTPUT",
   "CLIENT_INVALID_MERGE_SHAPE",
@@ -445,7 +445,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_NULLIFIER_ROOT_MISMATCH: { index: "number" },
   CLIENT_OUTPUT_BLINDING_MISMATCH: { index: "number" },
   CLIENT_ANONYMOUS_PUBLISHED_OWNER: { index: "number" },
-  CLIENT_ANONYMOUS_DUMMY_OWNER_TAG: { index: "number" },
+  CLIENT_ANONYMOUS_OUTPUT_OWNER_TAG: { index: "number" },
   CLIENT_TREE_ID_MISMATCH: { expected: "number", actual: "number" },
   CLIENT_INVALID_MERGE_SHAPE: { expected: "number", actual: "number" },
   CLIENT_INVALID_CACHE_ACCESS: { field: "string", index: "number" },

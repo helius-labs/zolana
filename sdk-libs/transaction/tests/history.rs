@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 use common::{keypair, wallet_utxo};
 use solana_address::Address;
 use solana_signature::Signature;
+use spr_event::OutputDataEncoding;
 use spr_transaction::{
     History, HistoryKind, Mint, OutputContext, OutputSlot, ShieldedTransaction, WalletUtxo,
 };
@@ -16,6 +17,8 @@ const TREE: u16 = 1;
 /// The tag the wallet reads its transactions by.
 const WALLET_TAG: [u8; 32] = [0xa5; 32];
 
+/// A published output: its ciphertext is an output encoding, which padding's
+/// random bytes are not.
 fn output(utxo: &WalletUtxo) -> OutputSlot {
     OutputSlot {
         view_tag: [0; 32],
@@ -24,7 +27,7 @@ fn output(utxo: &WalletUtxo) -> OutputSlot {
             tree_id: utxo.tree_id,
             leaf_index: utxo.leaf_index,
         },
-        payload: Vec::new(),
+        payload: borsh::to_vec(&OutputDataEncoding::Encrypted(vec![3; 40])).unwrap(),
     }
 }
 
@@ -155,11 +158,18 @@ fn each_transaction_is_classified_by_the_wallets_utxos_it_moved() {
         ),
         [(Withdrawal, 50)]
     );
-    // The same unowned output under another wallet's tag is a payment to it.
+    // Padding is padding under any tag: a ring spend tags each dummy with a
+    // random value that names no wallet, and its random bytes are no output
+    // encoding.
     let input = ours(50, 27);
-    let mut foreign = with_dummies(transaction(13, 13, &[&input], &[]), 1);
-    foreign.output_slots[0].view_tag = [0x5a; 32];
-    assert_eq!(classify(&[&input], foreign), [(Sent, 50)]);
+    let mut random_tag = with_dummies(transaction(13, 13, &[&input], &[]), 1);
+    random_tag.output_slots[0].view_tag = [0x5a; 32];
+    assert_eq!(classify(&[&input], random_tag), [(Withdrawal, 50)]);
+    // An unowned output encoding under another wallet's tag is a payment to it.
+    let (input, payment) = (ours(50, 28), theirs(50, 29));
+    let mut paid = transaction(14, 14, &[&input], &[&payment]);
+    paid.output_slots[0].view_tag = [0x5a; 32];
+    assert_eq!(classify(&[&input], paid), [(Sent, 50)]);
 
     // A merge, and a transfer to the wallet itself.
     let (first, second, merged) = (ours(30, 14), ours(30, 15), ours(60, 16));

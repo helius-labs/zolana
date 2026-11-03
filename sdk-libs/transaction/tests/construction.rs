@@ -1178,6 +1178,80 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
     }
 }
 
+/// The sender's own custom-ring outputs publish the sender view tag inline,
+/// so no published tag names the sender, and the sender's keys derive the same
+/// tag its wallet sweeps for. Default-ring outputs, which the proof binds to
+/// their owner, keep the owner tag, and the change still opens under the
+/// sender's viewing key.
+#[test]
+fn sender_view_tag_replaces_the_sender_tag_on_custom_ring_outputs() {
+    let owner = keypair(1);
+    let recipient = keypair(2);
+    let sender = owner.shielded_address().unwrap();
+    let receiver = recipient.shielded_address().unwrap();
+    let ring = Address::new_from_array([42; 32]);
+    let sender_tag = owner.viewing_key.get_sender_view_tag(5).unwrap();
+    assert_eq!(
+        owner
+            .derive(&[DeriveRequest::SenderViewTag {
+                viewing_pubkey: sender.viewing_pubkey,
+                tx_count: 5,
+            }])
+            .unwrap(),
+        vec![sender_tag]
+    );
+    let input = wallet_utxo(&owner, Mint::SOL, 10, 7, 1);
+    let key = owner
+        .viewing_key
+        .get_transaction_viewing_key(&input.nullifier)
+        .unwrap();
+    let mut tx = ConfidentialTransaction::new_with_ring(vec![input], payer(&owner), ring)
+        .unwrap()
+        .with_sender_view_tag(sender_tag)
+        .unwrap();
+    tx.transfer_sol(&receiver, 2).unwrap();
+    tx.transfer_with_ring(&sender, Mint::SOL, 3, None).unwrap();
+    tx.pad_utxos(Shape::IN1_OUT4, &sender).unwrap();
+    let proof = tx.encrypt(&owner).unwrap();
+    let change = proof.external_data.outputs.get(2).unwrap();
+    let OutputDataEncoding::Encrypted(blob) =
+        OutputDataEncoding::try_from_slice(change.data.as_ref().unwrap()).unwrap()
+    else {
+        panic!("encrypted change")
+    };
+    let (scheme, body) = blob.split_first().unwrap();
+    assert_eq!(*scheme, EncryptedScheme::RingConfidential.as_byte());
+    assert_eq!(
+        Confidential::embedded_viewing_pk(body).unwrap(),
+        sender.viewing_pubkey
+    );
+    let recovered =
+        Confidential::decrypt_with_tx_key(&key, body, proof.external_data.salt, 2).unwrap();
+    assert_eq!(
+        (recovered.amount, recovered.ring_program_id),
+        (5, Some(ring))
+    );
+    let published: Vec<_> = proof
+        .external_data
+        .outputs
+        .iter()
+        .take(3)
+        .map(|output| output.owner_tag)
+        .collect();
+    assert_eq!(
+        published,
+        vec![
+            OwnerTag::Inline(receiver.confidential_view_tag().unwrap()),
+            OwnerTag::Account(0),
+            OwnerTag::Inline(sender_tag),
+        ]
+    );
+    assert_eq!(
+        proof.external_data.resolved_owner_tags.get(2),
+        Some(&sender_tag)
+    );
+}
+
 /// Ring padding carries a fresh random tag per slot, inline, naming no
 /// participant: ring circuits do not bind a dummy's tag, and the sender's tag
 /// there names the hidden signer of an anonymous spend.

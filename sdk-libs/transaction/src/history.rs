@@ -19,9 +19,10 @@
 //! - It has an output that is not the wallet's and is published under a tag
 //!   that is not the wallet's: [`Sent`](HistoryKind::Sent) to another wallet.
 //! - Otherwise: a [`Withdrawal`](HistoryKind::Withdrawal) of what did not come
-//!   back as change. A spend publishes its dummy outputs under the spender's
-//!   tag, so an output under one of [`History::view_tags`] that the
-//!   wallet does not own is padding of its own spend, not a payment.
+//!   back as change. An output the wallet does not own is padding of its own
+//!   spend, not a payment, when it is under one of [`History::view_tags`] or
+//!   its payload is not an output encoding: a dummy publishes random bytes,
+//!   and in a custom ring under a random tag that names no wallet.
 //!
 //! Amounts are net per asset. So a transaction that both pays another wallet
 //! and withdraws reads as `Sent` for the whole amount, one that deposits and
@@ -124,6 +125,7 @@ impl History {
                     }
                     Some(_) => {}
                     None if self.view_tags.contains(&slot.view_tag) => {}
+                    None if slot.output_data().is_none() => {}
                     None => change.pays_another = true,
                 }
             }

@@ -479,7 +479,23 @@ impl RingHarness {
             .first()
             .map(|k| k.signing_pubkey().confidential_view_tag())
             .transpose()?;
-        let sender_view_tag = from_keypair.signing_pubkey().confidential_view_tag()?;
+        // The anonymous rail publishes the sender's change under its sender view
+        // tag: the signing key would name the hidden owner.
+        let sender_tx_count = self
+            .actor(from)
+            .wallet
+            .viewing_key_history
+            .iter()
+            .find(|entry| entry.viewing_pubkey == from_keypair.viewing_pubkey())
+            .map_or(0, |entry| entry.tx_count);
+        let anonymous = matches!(rail, RingRail::AnonymousEddsa);
+        let sender_view_tag = if anonymous {
+            from_keypair
+                .viewing_key
+                .get_sender_view_tag(sender_tx_count)?
+        } else {
+            from_keypair.signing_pubkey().confidential_view_tag()?
+        };
 
         // An eddsa actor pays and signs its own spend; a hidden owner falls back
         // to the harness payer because ownership is proven inside the proof.
@@ -535,6 +551,9 @@ impl RingHarness {
             (None, true) => ConfidentialTransaction::new_compact(notes, payer_address)?,
         }
         .with_output_tree_id(self.tree_id)?;
+        if anonymous {
+            transfer = transfer.with_sender_view_tag(sender_view_tag)?;
+        }
         match (to_addresses.is_empty(), withdrawal) {
             (false, None) => {
                 for addr in &to_addresses {
@@ -610,6 +629,21 @@ impl RingHarness {
             &[&fee_payer],
             budget,
         )?;
+
+        // The next anonymous spend takes the next sender view tag, whether or
+        // not the wallet syncs in between.
+        if anonymous {
+            let viewing_pubkey = from_keypair.viewing_pubkey();
+            if let Some(entry) = self
+                .actor_mut(from)
+                .wallet
+                .viewing_key_history
+                .iter_mut()
+                .find(|entry| entry.viewing_pubkey == viewing_pubkey)
+            {
+                entry.tx_count = entry.tx_count.max(sender_tx_count + 1);
+            }
+        }
 
         // A change-only transfer/withdrawal has no recipient slot, so locate the
         // indexed transaction by the sender's view tag instead.

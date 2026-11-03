@@ -15,6 +15,7 @@ Breaking
 - `serializeWallet` writes snapshot version 5 with slot checkpoints, and `SerializedCursor` and `SerializedSyncCursors` become `SerializedSyncCheckpoint` and `SerializedSyncCheckpoints` → restore earlier snapshots with `deserializeWallet`, which keeps the wallet state and rescans history once.
 - `Prover` requires `proveAnonymousRingTransact` → implement the method on custom provers.
 - `ProverInputs`, `IndexedProofInputs` and `CircuitId` add anonymous ring variants → forward them in custom `ProofService` and `ProofAuthority` implementations.
+- `DeriveRequest` adds the `senderViewTag` kind, which `syncWallet` sends to `ShieldedKeys.derive` → answer it in custom `ShieldedKeys` implementations with `ViewingKey.senderViewTag(txCount)` of the named held viewing key, and reject a key not held.
 
 Added
 
@@ -23,6 +24,9 @@ Added
 - `ZolanaClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
 - `ZolanaClientConfig.provingKeys`, with `proofDataSource: "client"`, makes every proof use the set's keys and `checkProverProvingKeys()` check only those keys; a circuit outside the set and the indexed route fail with `CLIENT_PROVING_KEY_SET`, whose `details.check` names the reason.
 - `ConfidentialTransfer.withRandomDummyTags()` tags each padding output of a default-ring transfer with its own random value instead of a participant's key, for a transfer an anonymous ring proof spends; confidential rails reject such tags.
+- `ConfidentialTransfer.withSenderViewTag(tag)` publishes the sender's own custom-ring outputs, change included, under `tag` instead of the sender's signing key, so no output tag of a policy-ring transfer names the sender; default-ring outputs keep the owner's tag.
+- `syncWallet` and `syncPersistedWallet` find change published under sender view tags by sweeping each held viewing key's tags until 100 indices past the highest one found, and return a `WalletSyncReport` whose `nextSenderTxCount` is the index to pass to `ViewingKey.senderViewTag` for the next policy-ring transfer.
+- `decryptTransactions` takes `senderViewTags` and opens the output slots under those tags with every held viewing key.
 
 Changed
 
@@ -31,7 +35,7 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
-- A `ConfidentialTransfer` with `withRingProgramId` tagged its padding outputs with the sender's signing key, which named the hidden signer of an anonymous ring spend in public instruction data; each padding output now carries its own random tag, and `ZolanaClient.proveAnonymousRingTransact` refuses a padding output tagged with the hidden owner's key with `CLIENT_ANONYMOUS_DUMMY_OWNER_TAG` before the owner signs.
+- A `ConfidentialTransfer` with `withRingProgramId` tagged its padding outputs with the sender's signing key, which named the hidden signer of an anonymous ring spend in public instruction data; each padding output now carries its own random tag, and `ZolanaClient.proveAnonymousRingTransact` refuses any output tagged with the hidden owner's key, padding or change, with `CLIENT_ANONYMOUS_OUTPUT_OWNER_TAG` before the owner signs.
 - `ProofInputUtxo.compact(treeId, blinding?)` used one public blinding for every compact padding slot, so publishing that slot's nullifier once blocked compact padding in that tree; each slot now draws a fresh private blinding, and transfers padded with `ConfidentialTransfer.compact` keep working after such a nullifier is published.
 
 ## 0.8.0-alpha — 2026-11-03

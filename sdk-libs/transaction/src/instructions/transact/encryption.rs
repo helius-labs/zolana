@@ -140,6 +140,19 @@ impl ConfidentialTransaction {
                 });
                 continue;
             }
+            let sender_view_tag = self.sender_view_tag.filter(|_| {
+                output.ring_program_id.is_some()
+                    && output
+                        .owner_address
+                        .is_some_and(|address| address.signing_pubkey == *sender)
+            });
+            if let Some(tag) = sender_view_tag {
+                owner_tags.push(ResolvedOwnerTag {
+                    tag: OwnerTag::Inline(tag),
+                    resolved: tag,
+                });
+                continue;
+            }
             let resolved = match output.owner_address {
                 Some(address) => address.signing_pubkey.confidential_view_tag()?,
                 None => output

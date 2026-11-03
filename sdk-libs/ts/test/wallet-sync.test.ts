@@ -345,24 +345,41 @@ describe("wallet sync atomicity", () => {
       },
     ];
     let queue = pages(9n, 12n);
+    let tip = 12n;
+    // The stable tags share one chunk; the sender view tag sweep reads empty.
+    const identityTag = keypair.signingPublicKey().confidentialViewTag();
+    const isStable = (request: RequestWithControls & { readonly tags: readonly Bytes32[] }) =>
+      request.tags.some((tag) => tag.every((byte, index) => byte === identityTag[index]));
     const getShieldedTransactionsByTags = vi.fn(
-      async (_request: RequestWithControls) => queue.shift() ?? queue[0]!,
+      async (request: RequestWithControls & { readonly tags: readonly Bytes32[] }) =>
+        isStable(request)
+          ? (queue.shift() ?? queue[0]!)
+          : {
+              context: { blockTime: 1_700_000_000n, slot: tip },
+              data: transactionItems([]),
+              paginationToken: null,
+            },
     );
+    const stableCalls = () =>
+      getShieldedTransactionsByTags.mock.calls
+        .map(([request]) => request)
+        .filter((request) => isStable(request));
     const client = syncReads({ getShieldedTransactionsByTags, ...emptyTagPages() });
 
     await syncWallet({ wallet, keys, client, config: { queryChunk: 64 } });
     expect(new Set(wallet._checkpointEntries("transactions").map(([, slot]) => slot))).toEqual(
       new Set([12n]),
     );
-    expect(getShieldedTransactionsByTags.mock.calls.map(([request]) => request)).toEqual([
+    expect(stableCalls()).toEqual([
       expect.not.objectContaining({ filters: expect.anything() }),
       expect.objectContaining({ paginationToken: position(9n) }),
     ]);
 
     queue = pages(14n, 20n);
+    tip = 20n;
     getShieldedTransactionsByTags.mockClear();
     await syncWallet({ wallet, keys, client, config: { queryChunk: 64 } });
-    expect(getShieldedTransactionsByTags.mock.calls.map(([request]) => request)).toEqual([
+    expect(stableCalls()).toEqual([
       expect.objectContaining({ filters: { slot: { gt: 12n } } }),
       expect.objectContaining({ filters: { slot: { gt: 12n } }, paginationToken: position(14n) }),
     ]);
@@ -615,7 +632,8 @@ describe("wallet sync freshness", () => {
       poll: { numRetries: 2, delayMs: 0n, maxDelayMs: 0n },
       requireSlot: 10n,
     });
-    expect(tagReads).toEqual([5, 10]);
+    // The two stable tags, then the 100 sender view tags in two chunks of 64.
+    expect(tagReads).toEqual([5, 10, 10, 10]);
     // The gate is spent on the first request, later reads take what is there.
     expect(proofless.mock.calls[0]?.[1]?.requireSlot).toBeUndefined();
   });
@@ -634,7 +652,8 @@ describe("wallet sync freshness", () => {
     });
 
     expect(byTags.mock.calls[0]?.[1]?.requireSlot).toBe(3n);
-    expect(tagReads).toEqual([5]);
+    // One stable chunk, then two sender view tag chunks.
+    expect(tagReads).toEqual([5, 10, 10]);
   });
 
   // The SDK refuses a body above 10 MiB; Photon refuses to build one and answers `-32008`.
@@ -2471,7 +2490,8 @@ describe("wallet sync", () => {
     });
 
     expect(wallet.utxos().every((entry) => entry.spent)).toBe(true);
-    expect(getShieldedTransactionsByTags).toHaveBeenCalledOnce();
+    // One stable chunk and two chunks of the 100 sender view tags.
+    expect(getShieldedTransactionsByTags).toHaveBeenCalledTimes(3);
     expect(getEncryptedUtxosByTags).toHaveBeenCalledOnce();
     expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(2);
     // entries[1] was already known spent, so it is not asked about again: a

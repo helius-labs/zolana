@@ -48,17 +48,21 @@ export interface TransactionKeyRequest {
 }
 
 /**
- * Every value the protocol derives from the nullifier secret. `nullifier`
- * spends a UTXO; the merge derivations produce its padded-slot nullifiers,
- * output blinding, private-transaction blinding, and the per-merge key of its
- * output ciphertext.
+ * Every value the protocol derives from a wallet secret. `nullifier` spends a
+ * UTXO; the merge derivations produce its padded-slot nullifiers, output
+ * blinding, private-transaction blinding, and the per-merge key of its output
+ * ciphertext, all from the nullifier secret. `senderViewTag` is the tag a
+ * policy-ring transfer publishes on the sender's own outputs, from the named
+ * viewing key, `ViewingKey.senderViewTag(txCount)`; a key the holder does not
+ * hold rejects the batch.
  */
 export type DeriveRequest =
   | Readonly<{ kind: "nullifier"; utxoHash: Bytes32; blinding: Bytes32 }>
   | Readonly<{ kind: "mergeDummyNullifier"; firstNullifier: Bytes32; slotIndex: number }>
   | Readonly<{ kind: "mergeOutputBlinding"; firstNullifier: Bytes32 }>
   | Readonly<{ kind: "mergePrivateTxBlinding"; firstNullifier: Bytes32 }>
-  | Readonly<{ kind: "mergeOutputKey"; firstNullifier: Bytes32 }>;
+  | Readonly<{ kind: "mergeOutputKey"; firstNullifier: Bytes32 }>
+  | Readonly<{ kind: "senderViewTag"; viewingPublicKey: X25519PublicKey; txCount: bigint }>;
 
 /**
  * The privacy roles of one shielded wallet, exposed as the functions the
@@ -253,6 +257,8 @@ export class LocalShieldedKeys implements ShieldedKeys {
         return mergePrivateTxBlinding(this.#nullifier, request.firstNullifier);
       case "mergeOutputKey":
         return mergeOutputKey(this.#nullifier, request.firstNullifier);
+      case "senderViewTag":
+        return this.#viewingKey(request.viewingPublicKey).senderViewTag(request.txCount);
     }
   }
 

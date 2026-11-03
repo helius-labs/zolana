@@ -101,6 +101,7 @@ pub struct ConfidentialTransaction {
     padded_inputs: Option<Vec<SppProofInputUtxo>>,
     compact_padding: bool,
     random_dummy_tags: bool,
+    sender_view_tag: Option<[u8; 32]>,
     transaction_signers: Option<Vec<Address>>,
 }
 
@@ -268,6 +269,7 @@ impl ConfidentialTransaction {
             padded_inputs: None,
             compact_padding: false,
             random_dummy_tags: false,
+            sender_view_tag: None,
             transaction_signers: None,
         })
     }

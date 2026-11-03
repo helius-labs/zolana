@@ -127,7 +127,6 @@ impl AnonymousRingEddsaProver<'_> {
             private_tx: &private_tx,
             external_data_hash: &external_data_hash,
             published_owners: &published_output_owner_pk_hashes,
-            outputs: &self.outputs,
             output_owner_tags: &self.external_data.resolved_owner_tags,
         }
         .prepare()?;
@@ -205,11 +204,9 @@ pub(crate) struct AnonymousAuthorizationPreparation<'a> {
     pub private_tx: &'a [u8; 32],
     pub external_data_hash: &'a [u8; 32],
     pub published_owners: &'a [[u8; 32]],
-    pub outputs: &'a [SppProofOutputUtxo],
-    /// The raw tag of every published output. Compact padding is the trailing
-    /// suffix the instruction leaves out, so these pair with the leading
-    /// `outputs`. Ring circuits bind no dummy's tag, so `published_owners`
-    /// reads it as zero.
+    /// The raw tag of every published output, in slot order. Ring circuits
+    /// bind no custom-ring output's or dummy's tag, so `published_owners`
+    /// reads those as zero whatever they name.
     pub output_owner_tags: &'a [[u8; 32]],
 }
 
@@ -243,18 +240,17 @@ impl AnonymousAuthorizationPreparation<'_> {
                 return Err(ClientError::AnonymousRingEddsaPublishedOwnerLeaksIdentity { index });
             }
         }
-        // A default-ring spend publishes the identity anyway. Otherwise a dummy
-        // tagged with the hidden owner's key names the sender in the
-        // instruction data, whatever the proof hides.
+        // A default-ring spend publishes the identity anyway. Otherwise any
+        // output, change or padding, tagged with the hidden owner's key names
+        // the sender in the instruction data, whatever the proof hides.
         if !spends.default_ring {
             let hidden_tag = owner.confidential_view_tag()?;
             if let Some(index) = self
-                .outputs
+                .output_owner_tags
                 .iter()
-                .zip(self.output_owner_tags)
-                .position(|(output, tag)| output.is_dummy() && *tag == hidden_tag)
+                .position(|tag| *tag == hidden_tag)
             {
-                return Err(ClientError::AnonymousRingEddsaDummyTagLeaksIdentity { index });
+                return Err(ClientError::AnonymousRingEddsaOutputTagLeaksIdentity { index });
             }
         }
         let default_owner_tag = spends.default_ring.then_some(owner_public_key);

@@ -20,7 +20,7 @@
 //! named on the last page read, as its
 //! [`latest_tree_id`](spr_transaction::WalletUtxo::latest_tree_id).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use solana_address::Address;
 use solana_signature::Signature;
@@ -31,8 +31,8 @@ use spr_interface::{
 };
 use spr_keypair::X25519Pubkey;
 use spr_transaction::{
-    verify_owned, AssetRegistry, DecryptionResult, History, Mint, OwnedUtxos, ShieldedKeys,
-    SpendableDecryptionResult, SOL_ASSET_ID, SOL_MINT,
+    keys::DeriveRequest, verify_owned, AssetRegistry, DecryptionResult, History, Mint, OwnedUtxos,
+    ShieldedKeys, SpendableDecryptionResult, TransactionError, SOL_ASSET_ID, SOL_MINT,
 };
 
 use crate::{
@@ -44,6 +44,11 @@ use crate::{
 };
 
 const PAGE_LIMIT: u32 = 1_000;
+
+/// Unused sender view tag indices a scan reads past the highest index in use.
+/// A sender takes the next index for each policy-ring spend, so a gap this
+/// long only follows spends that were built and never sent.
+const SENDER_VIEW_TAG_GAP: u64 = 100;
 
 /// What [`UtxoScan::fetch`] read. Outputs in unresolved assets are omitted
 /// from the UTXOs and reported in `spendable` and `history` through their
@@ -59,6 +64,10 @@ pub struct UtxoScanResult {
     /// not, and the tags they were read by. [`History::entries`] classifies
     /// them.
     pub history: History,
+    /// The current viewing key's first sender view tag index no transaction
+    /// uses. Tag the next policy-ring spend's change with
+    /// `get_sender_view_tag(next_sender_tx_count)`.
+    pub next_sender_tx_count: u64,
 }
 
 /// One read of a wallet's UTXOs and history: configure it, then
@@ -129,6 +138,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                 unknown_mints: fetched.owned.unknown_mints,
                 view_tags: fetched.tags.into_iter().collect(),
             },
+            next_sender_tx_count: fetched.next_sender_tx_count,
         })
     }
 
@@ -142,10 +152,23 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         // The output tree the last page read named; every page reports it.
         let mut output_tree_id = None;
         let mut seen = HashSet::new();
-        let mut batch = self.unseen(
-            &mut seen,
-            tagged_transactions(indexer, &tags, self.indexer_config, &mut output_tree_id)?,
-        );
+        let mut sender_tags = SenderViewTags::new(&self.keys.viewing_public_keys());
+        let mut pending = tags.clone();
+        pending.extend(sender_tags.extend(self.keys)?);
+        let mut batch = Vec::new();
+        // Each round reads the tags not read yet, then derives sender view tags
+        // up to the gap past the highest index found, until a round finds none.
+        while !pending.is_empty() {
+            let fetched =
+                tagged_transactions(indexer, &pending, self.indexer_config, &mut output_tree_id)?;
+            sender_tags.record(&fetched);
+            batch.extend(self.unseen(&mut seen, fetched));
+            pending = sender_tags.extend(self.keys)?;
+        }
+        let next_sender_tx_count = sender_tags
+            .ranges
+            .get(&address.viewing_pubkey)
+            .map_or(0, |range| range.next);
         let mut transactions = Vec::new();
         let mut decrypted = DecryptionResult::default();
         let mut queried = HashSet::new();
@@ -191,7 +214,11 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
             if batch.is_empty() {
                 return Ok(Fetched {
                     asset_registry: assets,
-                    tags,
+                    tags: tags
+                        .into_iter()
+                        .chain(sender_tags.index_of.keys().copied())
+                        .collect(),
+                    next_sender_tx_count,
                     transactions,
                     owned,
                     spendable: spendable
@@ -289,10 +316,85 @@ pub fn fetch_asset_id<R: Rpc + ?Sized>(rpc: &R, asset: Address) -> Result<u64, C
     Ok(registry.asset_id)
 }
 
+/// The sender view tags a fetch derived, by tag, and how far each viewing
+/// key's sweep reaches.
+struct SenderViewTags {
+    index_of: HashMap<[u8; 32], (X25519Pubkey, u64)>,
+    ranges: HashMap<X25519Pubkey, SweepRange>,
+}
+
+/// One viewing key's sweep: indices below `derived_to` are derived, and `next`
+/// is one past the highest index a fetched transaction uses.
+#[derive(Default)]
+struct SweepRange {
+    derived_to: u64,
+    next: u64,
+}
+
+impl SenderViewTags {
+    fn new(viewing_pubkeys: &[X25519Pubkey]) -> Self {
+        Self {
+            index_of: HashMap::new(),
+            ranges: viewing_pubkeys
+                .iter()
+                .map(|viewing_pubkey| (*viewing_pubkey, SweepRange::default()))
+                .collect(),
+        }
+    }
+
+    /// Derives each key's tags up to [`SENDER_VIEW_TAG_GAP`] past its highest
+    /// index in use, and returns the tags not derived before.
+    fn extend<K: ShieldedKeys + ?Sized>(&mut self, keys: &K) -> Result<Vec<[u8; 32]>, ClientError> {
+        let mut slots = Vec::new();
+        for (viewing_pubkey, range) in &mut self.ranges {
+            let to = range.next.saturating_add(SENDER_VIEW_TAG_GAP);
+            slots.extend((range.derived_to..to).map(|tx_count| (*viewing_pubkey, tx_count)));
+            range.derived_to = range.derived_to.max(to);
+        }
+        if slots.is_empty() {
+            return Ok(Vec::new());
+        }
+        let requests: Vec<_> = slots
+            .iter()
+            .map(|&(viewing_pubkey, tx_count)| DeriveRequest::SenderViewTag {
+                viewing_pubkey,
+                tx_count,
+            })
+            .collect();
+        let tags = keys.derive(&requests)?;
+        if tags.len() != slots.len() {
+            return Err(TransactionError::IncompleteDerivation {
+                got: tags.len(),
+                want: slots.len(),
+            }
+            .into());
+        }
+        self.index_of.extend(tags.iter().copied().zip(slots));
+        Ok(tags)
+    }
+
+    /// Records the sender view tags `transactions` use.
+    fn record(&mut self, transactions: &[ShieldedTransaction]) {
+        let used = transactions.iter().flat_map(|tx| {
+            tx.output_slots
+                .iter()
+                .map(|slot| slot.view_tag)
+                .chain(tx.messages.iter().map(|message| message.view_tag))
+        });
+        for tag in used {
+            if let Some((viewing_pubkey, index)) = self.index_of.get(&tag) {
+                let range = self.ranges.entry(*viewing_pubkey).or_default();
+                range.next = range.next.max(index.saturating_add(1));
+            }
+        }
+    }
+}
+
 /// What the rounds of one fetch read and decrypted.
 struct Fetched {
     asset_registry: AssetRegistry,
     tags: Vec<[u8; 32]>,
+    next_sender_tx_count: u64,
     transactions: Vec<ShieldedTransaction>,
     /// The final round's [`verify_owned`], spent UTXOs included.
     owned: OwnedUtxos,
@@ -304,6 +406,21 @@ struct Fetched {
 /// can shield several outputs. Each page read sets `output_tree_id` to the
 /// output tree it names.
 fn tagged_transactions<I: Rpc + ?Sized>(
+    indexer: &I,
+    tags: &[[u8; 32]],
+    config: Option<IndexerRpcConfig>,
+    output_tree_id: &mut Option<u16>,
+) -> Result<Vec<ShieldedTransaction>, ClientError> {
+    let mut transactions = Vec::new();
+    for chunk in tags.chunks(PAGE_LIMIT as usize) {
+        transactions.extend(tagged_chunk(indexer, chunk, config, output_tree_id)?);
+    }
+    Ok(transactions)
+}
+
+/// [`tagged_transactions`] for at most [`PAGE_LIMIT`] tags, the most one
+/// request names.
+fn tagged_chunk<I: Rpc + ?Sized>(
     indexer: &I,
     tags: &[[u8; 32]],
     config: Option<IndexerRpcConfig>,

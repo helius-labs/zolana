@@ -55,6 +55,8 @@ function proofInputs(
     ring?: Address;
     extraInputs?: readonly ProofInputUtxo[];
     dummyTag?: Bytes32;
+    /** The resolved tag of the owner's own ring output, slot 1. */
+    changeTag?: Bytes32;
   }> = { ring: RING },
 ): SppProofInputs {
   const input = ProofInputUtxo.fromKeypair(
@@ -106,7 +108,10 @@ function proofInputs(
         utxoHash: output.hash(TREE_ID),
         ownerTag: { kind: "inline", value: OWNER_TAG },
       })),
-      resolvedOwnerTags: outputs.map((output) => output.ownerTag ?? OWNER_TAG),
+      resolvedOwnerTags: outputs.map(
+        (output, index) =>
+          output.ownerTag ?? (index === 1 ? spend.changeTag : undefined) ?? OWNER_TAG,
+      ),
       messages: [],
     }),
     blindingSeed,
@@ -181,10 +186,28 @@ describe("authorizeHiddenOwner", () => {
     const sign = vi.spyOn(owner, "sign");
     await expect(
       authorizeHiddenOwner(proofInputs(owner, { ring: RING, dummyTag: hidden }), owner),
-    ).rejects.toMatchObject({ code: "CLIENT_ANONYMOUS_DUMMY_OWNER_TAG", details: { index: 2 } });
+    ).rejects.toMatchObject({ code: "CLIENT_ANONYMOUS_OUTPUT_OWNER_TAG", details: { index: 2 } });
     expect(sign).not.toHaveBeenCalled();
     await expect(
       authorizeHiddenOwner(proofInputs(owner, { ring: RING, dummyTag: randomBlinding() }), owner),
+    ).resolves.toBeDefined();
+  });
+
+  // A custom-ring output's tag is unbound too: change published under the
+  // owner's signing key instead of its sender view tag names the sender.
+  it("refuses a real ring output tagged with the hidden owner's key before the owner signs", async () => {
+    const owner = keypair(0x11);
+    const hidden = owner.signingPublicKey().ed25519();
+    const sign = vi.spyOn(owner, "sign");
+    await expect(
+      authorizeHiddenOwner(proofInputs(owner, { ring: RING, changeTag: hidden }), owner),
+    ).rejects.toMatchObject({ code: "CLIENT_ANONYMOUS_OUTPUT_OWNER_TAG", details: { index: 1 } });
+    expect(sign).not.toHaveBeenCalled();
+    await expect(
+      authorizeHiddenOwner(
+        proofInputs(owner, { ring: RING, changeTag: owner.viewingKey().senderViewTag(0n) }),
+        owner,
+      ),
     ).resolves.toBeDefined();
   });
 });

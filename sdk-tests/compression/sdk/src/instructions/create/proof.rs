@@ -47,6 +47,8 @@ pub fn address_input(pda: &Address, tree_id: u16) -> Result<(ProofInputUtxo, [u8
 /// The compact padding that fills the second input slot of the 2x2 shape a
 /// single write is proved at. Its derived nullifier needs a non-inclusion
 /// proof like any input, though it publishes 0 and SPP never receives it.
+/// Each call draws a fresh private blinding, so fetch the non-inclusion proof
+/// for the input that [`CreateProofInputParams::padding`] then carries.
 pub fn padding_input(tree_id: u16) -> Result<SppProofInputUtxo> {
     Ok(SppProofInputUtxo::compact(tree_id)?)
 }
@@ -55,7 +57,9 @@ pub struct CreateProofInputParams {
     pub authority: Address,
     pub new_value: u64,
     pub non_inclusion: NonInclusionProof,
-    /// Non-inclusion of the [`padding_input`] nullifier.
+    /// The [`padding_input`] the proof pads with.
+    pub padding: SppProofInputUtxo,
+    /// Non-inclusion of the `padding` nullifier.
     pub padding_non_inclusion: NonInclusionProof,
     pub utxo_root: [u8; 32],
     pub utxo_root_index: u16,
@@ -133,14 +137,14 @@ impl CreateProofInputParams {
             owner_pk_hash: be(&owner_pk_hash),
             nullifier_pk: be(&zero_nullifier_key().pubkey()?),
         };
-        let padding = padding_input(tree_id)?;
-        if self.padding_non_inclusion.leaf != padding.nullifier() {
+        let padding = &self.padding;
+        if padding.tree_id != tree_id || self.padding_non_inclusion.leaf != padding.nullifier() {
             return Err(anyhow!(
                 "padding non-inclusion proof is not for the padding nullifier"
             ));
         }
         let padding_input = TransferInput {
-            utxo: ProofInputUtxo::try_from(&padding)?,
+            utxo: ProofInputUtxo::try_from(padding)?,
             is_dummy: BigUint::from(1u8),
             state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
             state_path_index: BigUint::ZERO,

@@ -285,16 +285,15 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     let (_, address) = address_input(&pda, DEFAULT_TREE_ID)?;
     let non_inclusion =
         wait_for_non_inclusion_proof(&env.localnet.client, env.localnet.tree, address);
-    let padding_non_inclusion = wait_for_non_inclusion_proof(
-        &env.localnet.client,
-        env.localnet.tree,
-        padding_input(DEFAULT_TREE_ID)?.nullifier(),
-    );
+    let padding = padding_input(DEFAULT_TREE_ID)?;
+    let padding_non_inclusion =
+        wait_for_non_inclusion_proof(&env.localnet.client, env.localnet.tree, padding.nullifier());
     let (utxo_root_index, utxo_root) = tree_root(&env.localnet.client, env.localnet.tree)?;
     let create = CreateProofInputParams {
         authority: env.authority.pubkey(),
         new_value: 1,
         non_inclusion,
+        padding,
         padding_non_inclusion,
         utxo_root,
         utxo_root_index,
@@ -595,16 +594,15 @@ fn create_account(env: &Environment, value: u64) -> Result<DiscoveredAccount> {
     let (_, address) = address_input(&pda, DEFAULT_TREE_ID)?;
     let non_inclusion =
         wait_for_non_inclusion_proof(&env.localnet.client, env.localnet.tree, address);
-    let padding_non_inclusion = wait_for_non_inclusion_proof(
-        &env.localnet.client,
-        env.localnet.tree,
-        padding_input(DEFAULT_TREE_ID)?.nullifier(),
-    );
+    let padding = padding_input(DEFAULT_TREE_ID)?;
+    let padding_non_inclusion =
+        wait_for_non_inclusion_proof(&env.localnet.client, env.localnet.tree, padding.nullifier());
     let (utxo_root_index, utxo_root) = tree_root(&env.localnet.client, env.localnet.tree)?;
     let create = CreateProofInputParams {
         authority: env.authority.pubkey(),
         new_value: value,
         non_inclusion,
+        padding,
         padding_non_inclusion,
         utxo_root,
         utxo_root_index,

@@ -1,9 +1,9 @@
 import type { RequestContext } from "../interface/types.js";
 import { deserializeWallet, serializeWallet } from "../transaction/wallet/persistence.js";
-import type { SyncReport, Wallet } from "../transaction/wallet/state.js";
+import type { Wallet } from "../transaction/wallet/state.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
-import { runLockedWalletSync, type SyncWalletInput } from "./sync.js";
+import { runLockedWalletSync, type SyncWalletInput, type WalletSyncReport } from "./sync.js";
 
 /**
  * Snapshots contain private UTXO data, encrypt them at rest. `save` must
@@ -29,7 +29,7 @@ export interface WalletStateCipher {
 }
 
 export interface SyncPersistedWalletResult {
-  readonly report: SyncReport;
+  readonly report: WalletSyncReport;
   readonly snapshot: string;
 }
 

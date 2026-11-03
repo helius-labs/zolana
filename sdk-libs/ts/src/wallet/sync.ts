@@ -16,6 +16,8 @@ import {
   type IndexerRpcConfig,
 } from "../client/retry.js";
 import { bytesKey } from "../interface/bytes.js";
+import { checkedBytes } from "../keypair/bytes.js";
+import { decodeBatch } from "../interface/decode.js";
 import { decodeSplAssetRegistry } from "../interface/accounts.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import { StateDiscriminator } from "../interface/state.js";
@@ -29,9 +31,11 @@ import type {
 import { TransactionError } from "../transaction/error.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import { decodeOutputData } from "../transaction/serialization/codecs.js";
+import type { X25519PublicKey } from "../keypair/x25519.js";
 import {
   checkKeysIdentity,
   checkViewingPublicKeys,
+  type DeriveRequest,
   type ShieldedKeys,
 } from "../transaction/wallet/keys.js";
 import {
@@ -84,6 +88,18 @@ export interface SyncWalletConfig {
   readonly requireSlot?: bigint;
   /** Unset applies the client's configured `indexerConfig.poll`. */
   readonly retry?: IndexerPollConfig;
+}
+
+/** What `syncWallet` found, the decrypt counters and the sender view tag position. */
+export interface WalletSyncReport extends SyncReport {
+  /**
+   * The next unused sender view tag index of the current viewing key: one past
+   * the highest index whose tag the wallet's history carries, or 0. A
+   * policy-ring transfer tags the sender's own outputs with
+   * `ViewingKey.senderViewTag(nextSenderTxCount)` through
+   * `ConfidentialTransfer.withSenderViewTag`.
+   */
+  readonly nextSenderTxCount: bigint;
 }
 
 export interface SplAssetRegistration {
@@ -483,6 +499,133 @@ async function collectShieldedTransactionsByNullifiers(
   });
 }
 
+/**
+ * Indices a wallet sweeps past the highest sender view tag index it found. A
+ * sender tag is used once and in order, so a run of this many unused indices
+ * ends the sweep.
+ */
+const SENDER_VIEW_TAG_GAP = 100;
+
+/** One held viewing key's sender view tags, by index. */
+interface SenderTagSweep {
+  readonly viewingPublicKey: X25519PublicKey;
+  readonly tags: Bytes32[];
+  /** Exclusive end of the indices this sync queries. */
+  end: number;
+  /** Exclusive end of the indices queried so far. */
+  queried: number;
+  /** One past the highest index in use, 0 when none is. */
+  next: number;
+}
+
+/**
+ * Sweeps the sender view tags of every held viewing key: index 0 through
+ * `SENDER_VIEW_TAG_GAP` past the highest index found, again until a round
+ * finds no new match. A match is an output slot or message carrying the tag.
+ *
+ * Every tag queried holds a checkpoint once the sync commits, so a resumed
+ * sync reads only above it and would not see an earlier match again. A sweep
+ * queries exactly `SENDER_VIEW_TAG_GAP` past its highest match, so the length
+ * of the checkpointed run from index 0 restores that match.
+ */
+async function sweepSenderViewTags(
+  input: Readonly<{
+    held: readonly X25519PublicKey[];
+    keys: ShieldedKeys;
+    checkpointed: (tag: Bytes32) => boolean;
+    scan: (tags: readonly Bytes32[]) => Promise<void>;
+    transactions: () => Iterable<IndexedShieldedTransaction>;
+  }>,
+  context?: RequestContext,
+): Promise<Readonly<{ matched: readonly Bytes32[]; nextTxCount: bigint }>> {
+  const sweeps: SenderTagSweep[] = input.held.map((viewingPublicKey) => ({
+    viewingPublicKey,
+    tags: [],
+    end: SENDER_VIEW_TAG_GAP,
+    queried: 0,
+    next: 0,
+  }));
+  const lookup = new Map<string, Readonly<{ sweep: SenderTagSweep; index: number }>>();
+  const derive = async (): Promise<void> => {
+    const requests: DeriveRequest[] = sweeps.flatMap((sweep) =>
+      Array.from({ length: Math.max(sweep.end - sweep.tags.length, 0) }, (_, offset) => ({
+        kind: "senderViewTag" as const,
+        viewingPublicKey: sweep.viewingPublicKey,
+        txCount: BigInt(sweep.tags.length + offset),
+      })),
+    );
+    if (requests.length === 0) return;
+    const answers = decodeBatch(
+      await input.keys.derive(requests, context),
+      requests.length,
+      (entry) =>
+        entry instanceof Uint8Array && entry.length === 32
+          ? checkedBytes<Bytes32>(entry, 32, "sender view tag")
+          : undefined,
+      () => new TransactionError("TRANSACTION_KEYS_BATCH_MISMATCH"),
+    );
+    let next = 0;
+    for (const sweep of sweeps) {
+      while (sweep.tags.length < sweep.end) {
+        const tag = answers[next++];
+        if (tag === undefined) throw new TransactionError("TRANSACTION_KEYS_BATCH_MISMATCH");
+        lookup.set(bytesKey(tag), { sweep, index: sweep.tags.length });
+        sweep.tags.push(tag);
+      }
+    }
+  };
+
+  // Resume: the previous sweep ended GAP past its highest match.
+  const resumed = new Set<SenderTagSweep>();
+  for (;;) {
+    await derive();
+    let extended = false;
+    for (const sweep of sweeps) {
+      if (resumed.has(sweep)) continue;
+      const run = sweep.tags.findIndex((tag) => !input.checkpointed(tag));
+      if (run < 0) {
+        sweep.end += SENDER_VIEW_TAG_GAP;
+        extended = true;
+        continue;
+      }
+      resumed.add(sweep);
+      sweep.next = Math.max(run - SENDER_VIEW_TAG_GAP, 0);
+      sweep.end = Math.max(run, SENDER_VIEW_TAG_GAP);
+    }
+    if (!extended) break;
+  }
+
+  const matched = new Map<string, Bytes32>();
+  for (;;) {
+    await derive();
+    const pending = sweeps.flatMap((sweep) => sweep.tags.slice(sweep.queried, sweep.end));
+    for (const sweep of sweeps) sweep.queried = Math.max(sweep.queried, sweep.end);
+    await input.scan(pending);
+    for (const transaction of input.transactions()) {
+      for (const { viewTag } of [...transaction.outputSlots, ...transaction.messages]) {
+        const key = bytesKey(viewTag);
+        const hit = lookup.get(key);
+        if (hit === undefined) continue;
+        matched.set(key, viewTag);
+        hit.sweep.next = Math.max(hit.sweep.next, hit.index + 1);
+      }
+    }
+    let extended = false;
+    for (const sweep of sweeps) {
+      const end = sweep.next + SENDER_VIEW_TAG_GAP;
+      if (end > sweep.end) {
+        sweep.end = end;
+        extended = true;
+      }
+    }
+    if (!extended) break;
+  }
+  return Object.freeze({
+    matched: Object.freeze([...matched.values()]),
+    nextTxCount: BigInt(sweeps[0]?.next ?? 0),
+  });
+}
+
 export interface SyncWalletInput {
   readonly wallet: Wallet;
   readonly keys: ShieldedKeys;
@@ -493,7 +636,7 @@ export interface SyncWalletInput {
 export async function syncWallet(
   input: SyncWalletInput,
   context?: RequestContext,
-): Promise<SyncReport> {
+): Promise<WalletSyncReport> {
   return runLockedWalletSync(input, context, (report) => report);
 }
 
@@ -505,7 +648,7 @@ export async function syncWallet(
 export async function runLockedWalletSync<T>(
   input: SyncWalletInput,
   context: RequestContext | undefined,
-  after: (report: SyncReport) => T | Promise<T>,
+  after: (report: WalletSyncReport) => T | Promise<T>,
 ): Promise<T> {
   await initializePoseidon();
   // Writes stage in a session and commit once, a failed sync changes nothing.
@@ -522,7 +665,7 @@ async function runWalletSync(
   }>,
   keys: ShieldedKeys,
   context?: RequestContext,
-): Promise<SyncReport> {
+): Promise<WalletSyncReport> {
   try {
     const chunkSize = positiveInteger(input.config?.queryChunk ?? 64, "queryChunk");
     const pageLimit = {
@@ -554,8 +697,11 @@ async function runWalletSync(
     // sync would resume the new tag from the old one's checkpoint and skip its
     // history permanently -- which is why checkpoints are per tag, not per
     // wallet. `undefined` (never queried) is its own group.
-    for (const stream of ["transactions", "proofless"] as const) {
-      const groups = groupByCheckpoint(tags, (tag) =>
+    const scanTags = async (
+      stream: "transactions" | "proofless",
+      streamTags: readonly Bytes32[],
+    ): Promise<void> => {
+      const groups = groupByCheckpoint(streamTags, (tag) =>
         sessionCheckpoint(session, stream, bytesKey(tag)),
       );
 
@@ -578,7 +724,20 @@ async function runWalletSync(
           advanceSessionCheckpoints(session, stream, chunk, checkpoint);
         }
       }
-    }
+    };
+    for (const stream of ["transactions", "proofless"] as const) await scanTags(stream, tags);
+    // Sender change is never a proofless deposit, so its tags read one stream.
+    const sender = await sweepSenderViewTags(
+      {
+        held: checkViewingPublicKeys(keys, session.staging.identity),
+        keys,
+        checkpointed: (tag) =>
+          sessionCheckpoint(session, "transactions", bytesKey(tag)) !== undefined,
+        scan: (senderTags) => scanTags("transactions", senderTags),
+        transactions: () => transactions.values(),
+      },
+      context,
+    );
 
     const scanNullifiers = async (nullifiers: readonly Bytes32[]): Promise<void> => {
       const groups = groupByCheckpoint(nullifiers, (nullifier) =>
@@ -620,6 +779,7 @@ async function runWalletSync(
       transactions: ordered,
       config: decryptConfig,
       context,
+      senderViewTags: sender.matched,
     });
     let registryRefreshed = false;
     if (
@@ -635,6 +795,7 @@ async function runWalletSync(
           transactions: ordered,
           config: decryptConfig,
           context,
+          senderViewTags: sender.matched,
         });
       }
     }
@@ -656,6 +817,7 @@ async function runWalletSync(
         transactions: ordered,
         config: decryptConfig,
         context,
+        senderViewTags: sender.matched,
       });
       if (
         !registryRefreshed &&
@@ -670,6 +832,7 @@ async function runWalletSync(
             transactions: ordered,
             config: decryptConfig,
             context,
+            senderViewTags: sender.matched,
           });
         }
       }
@@ -686,7 +849,7 @@ async function runWalletSync(
       });
     }
     input.wallet._commitSync(sealSyncDelta(session), session.baseRevision);
-    return report;
+    return Object.freeze({ ...report, nextSenderTxCount: sender.nextTxCount });
   } catch (cause) {
     throw wrapWalletError("WALLET_SYNC", cause);
   }

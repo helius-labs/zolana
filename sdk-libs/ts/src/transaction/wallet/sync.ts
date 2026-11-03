@@ -9,7 +9,7 @@ import type { ViewingKey } from "../../keypair/viewing-key.js";
 import { initializePoseidon } from "../../hasher/index.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { TransactionError } from "../error.js";
-import { copy, decodeAddress } from "../internal.js";
+import { checked, copy, decodeAddress } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
 import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
 import {
@@ -967,19 +967,26 @@ class SyncPass {
   }
 
   /**
-   * Open only the two stable discovery families: this viewing key's bootstrap
-   * tag and the shielded identity's signing tag.
+   * Open the stable discovery families, this viewing key's bootstrap tag and
+   * the shielded identity's signing tag, and the sender view tags a policy-ring
+   * transfer publishes on the sender's own outputs.
    */
-  processStableTags(input: Readonly<{ identityTag: Bytes32; index: TagIndex }>): void {
+  processStableTags(
+    input: Readonly<{ identityTag: Bytes32; senderViewTags: readonly Bytes32[]; index: TagIndex }>,
+  ): void {
     const { index } = input;
     const recipientSites = (tag: string): readonly Site[] => index.recipientSites.get(tag) ?? [];
     const identityTag = bytesKey(input.identityTag);
+    const senderViewTags = input.senderViewTags.map(bytesKey);
 
     for (const viewingPublicKey of this.#viewingPublicKeys) {
       for (const site of recipientSites(bytesKey(viewingPublicKey.x()))) {
         this.decodeSlot(viewingPublicKey, site);
       }
       for (const site of recipientSites(identityTag)) this.decodeSlot(viewingPublicKey, site);
+      for (const tag of senderViewTags) {
+        for (const site of recipientSites(tag)) this.decodeSlot(viewingPublicKey, site);
+      }
       for (const transaction of index.senderSites.get(identityTag) ?? []) {
         this.decodeSlot(viewingPublicKey, { transaction, slot: 0 });
       }
@@ -998,9 +1005,22 @@ export async function decryptTransactions(
     config?: DecryptTransactionsConfig;
     /** Forwarded to every batch the key holder answers. */
     context?: RequestContext | undefined;
+    /**
+     * Sender view tags the wallet's own policy-ring outputs are published
+     * under, as `syncWallet` sweeps them; their slots open under every held
+     * viewing key like the identity tag's.
+     */
+    senderViewTags?: readonly Bytes32[];
   }>,
 ): Promise<SyncReport> {
   await initializePoseidon();
+  const requested: unknown = input.senderViewTags ?? [];
+  if (!Array.isArray(requested)) {
+    throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "senderViewTags" });
+  }
+  const senderViewTags = requested.map((tag: unknown) =>
+    checked<Bytes32>(tag instanceof Uint8Array ? tag : new Uint8Array(), 32, "sender view tag"),
+  );
   checkKeysIdentity(input.keys, input.wallet.identity);
   const identity = input.keys.address();
   const viewingPublicKeys = checkViewingPublicKeys(input.keys, identity);
@@ -1025,7 +1045,7 @@ export async function decryptTransactions(
         rows: current.transactions,
         selfViewingPublicKeys: viewingKeyHistory.map((entry) => entry.viewingPublicKey),
       });
-      pass.processStableTags({ identityTag, index });
+      pass.processStableTags({ identityTag, senderViewTags, index });
       pass.resolveMergeSites(mergeSites);
       if (memo.pending()) {
         await memo.resolve(input.context);

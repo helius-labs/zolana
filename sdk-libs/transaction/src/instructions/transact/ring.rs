@@ -46,6 +46,20 @@ impl ConfidentialTransaction {
         Ok(self)
     }
 
+    /// Publish every sender-owned custom-ring output, change included, under
+    /// `tag` instead of the sender's signing key. `tag` is the sender view tag
+    /// of the next unused index, `get_sender_view_tag(tx_count)`, which the
+    /// sender's wallet sweeps for. Ring circuits bind no custom-ring output's
+    /// tag, and in an anonymous proof the signing key names the hidden signer.
+    /// Default-ring outputs keep their owner tag, which the proof binds.
+    pub fn with_sender_view_tag(mut self, tag: [u8; 32]) -> Result<Self, TransactionError> {
+        if self.padded_inputs.is_some() {
+            return Err(TransactionError::OutputUtxosAlreadyPadded);
+        }
+        self.sender_view_tag = Some(tag);
+        Ok(self)
+    }
+
     /// Transfer to an explicitly selected ring: `Some(address)` selects a custom
     /// ring, and `None` selects the default ring.
     ///

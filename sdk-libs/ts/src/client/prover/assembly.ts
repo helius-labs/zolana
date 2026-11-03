@@ -772,18 +772,18 @@ function hiddenOwnerSpend(
   if (leak >= 0) {
     throw new ClientError("CLIENT_ANONYMOUS_PUBLISHED_OWNER", { details: { index: leak } });
   }
-  // A default-ring spend publishes the identity anyway. Otherwise a dummy
+  // A default-ring spend publishes the identity anyway. Otherwise any output
   // tagged with the hidden owner's key names the sender in the instruction
-  // data: the ring circuit binds no dummy tag, so `publishedOwners` reads it
-  // as zero. Compact padding is the trailing suffix the instruction omits.
+  // data: the ring circuit binds neither a dummy's tag nor a custom-ring
+  // output's, so `publishedOwners` reads them as zero. That covers padding
+  // borrowing an input owner's tag and change not under the sender view tag.
+  // Compact padding is the trailing suffix the instruction omits.
   if (!defaultRing) {
-    const tags = proofInputs.externalData.resolvedOwnerTags;
-    const index = proofInputs.outputs.findIndex((output, slot) => {
-      const tag = tags[slot];
-      return tag !== undefined && output.isDummy() && equalBytes(tag, ownerPublicKey);
-    });
+    const index = proofInputs.externalData.resolvedOwnerTags.findIndex((tag) =>
+      equalBytes(tag, ownerPublicKey),
+    );
     if (index >= 0) {
-      throw new ClientError("CLIENT_ANONYMOUS_DUMMY_OWNER_TAG", { details: { index } });
+      throw new ClientError("CLIENT_ANONYMOUS_OUTPUT_OWNER_TAG", { details: { index } });
     }
   }
   return defaultRing

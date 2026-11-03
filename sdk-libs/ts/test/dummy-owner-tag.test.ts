@@ -26,6 +26,12 @@ import {
   type SppProofInputs,
 } from "../src/transaction/index.js";
 import { nonZeroHashChain } from "../src/transaction/internal.js";
+import {
+  EncryptedScheme,
+  decodeConfidential,
+  readOutputData,
+  splitEmbeddedKey,
+} from "../src/transaction/serialization/codecs.js";
 import { concatBytes } from "../src/interface/bytes.js";
 
 // A fee sponsor that owns nothing in the transfer. The tag rule must never let
@@ -337,5 +343,75 @@ describe("ring dummy output owner tags", () => {
     const sealed = prepared.proofOutputs().map((output) => output.ownerTag);
     expect(sealed.slice(2)).toEqual(tags);
     expectDerivedBlindings(prepared, signed);
+  });
+});
+
+// The sender's own custom-ring outputs publish its sender view tag, so no
+// published tag names the sender of a policy-ring transfer. Default-ring
+// outputs keep the owner tag the proof binds. Mirrors Rust
+// `sender_view_tag_replaces_the_sender_tag_on_custom_ring_outputs`.
+describe("sender view tag", () => {
+  const ring = address("Ring111111111111111111111111111111111111111");
+
+  it("replaces the sender's tag on its custom-ring outputs only", () => {
+    const sender = ShieldedKeypair.generate();
+    const recipient = ShieldedKeypair.generate();
+    const viewingKey = sender.viewingKey();
+    const senderViewTag = viewingKey.senderViewTag(5n);
+    const build = (tagged: boolean): SppProofInputs => {
+      const transfer = new ConfidentialTransfer(
+        sender.shieldedAddress(),
+        [solInput(sender, 10n)],
+        sender.shieldedAddress().solanaAddress(),
+      )
+        .withRingProgramId(ring)
+        .withShape({ inputs: 1, outputs: 4 });
+      if (tagged) transfer.withSenderViewTag(senderViewTag);
+      transfer.send(recipient.shieldedAddress(), SOL_MINT, 2n);
+      transfer.sendDefaultRing(sender.shieldedAddress(), SOL_MINT, 3n);
+      transfer.send(sender.shieldedAddress(), SOL_MINT, 1n);
+      return transfer.sign(sender, new AssetRegistry());
+    };
+    const untagged = build(false);
+    expect(untagged.externalData.outputs[0]?.ownerTag).toEqual({ kind: "account", index: 0 });
+
+    const signed = build(true);
+    const senderTag = sender.signingPublicKey().confidentialViewTag();
+    expect(signed.outputs.map((output) => output.amount)).toEqual([4n, 2n, 3n, 1n]);
+    expect(signed.outputs.map((output) => output.ringProgramId)).toEqual([
+      ring,
+      ring,
+      undefined,
+      ring,
+    ]);
+    expect(signed.externalData.outputs.map((output) => output.ownerTag)).toEqual([
+      inlineTag(senderViewTag),
+      inlineTag(recipient.signingPublicKey().confidentialViewTag()),
+      inlineTag(senderTag),
+      inlineTag(senderViewTag),
+    ]);
+    expect(signed.externalData.resolvedOwnerTags).toEqual([
+      senderViewTag,
+      recipient.signingPublicKey().confidentialViewTag(),
+      senderTag,
+      senderViewTag,
+    ]);
+    // The change still opens under the sender's viewing key.
+    const data = signed.externalData.outputs[0]?.data;
+    if (data === undefined) throw new Error("change without data");
+    const frame = readOutputData(data);
+    expect(frame.scheme).toBe(EncryptedScheme.ringConfidential);
+    const embedded = splitEmbeddedKey(frame.body);
+    expect(embedded.key.toBytes()).toEqual(sender.viewingPublicKey().toBytes());
+    const plaintext = decodeConfidential(
+      viewingKey.decryptUtxo(
+        embedded.rest,
+        signed.externalData.txViewingPublicKey,
+        signed.externalData.salt,
+        0,
+      ),
+    );
+    viewingKey.destroy();
+    expect(plaintext.amount).toBe(4n);
   });
 });

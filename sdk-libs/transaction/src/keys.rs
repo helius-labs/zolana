@@ -54,10 +54,12 @@ pub struct DecryptRequest<'a> {
     pub label: DecryptLabel,
 }
 
-/// Every value the protocol derives from the nullifier secret. `Nullifier`
-/// spends a UTXO; the merge variants produce a merge's padded-slot nullifiers,
-/// its output blinding, its private-transaction blinding, and the per-merge
-/// key of its output ciphertext.
+/// Every value the protocol derives from a wallet secret. `Nullifier` spends a
+/// UTXO; the merge variants produce a merge's padded-slot nullifiers, its
+/// output blinding, its private-transaction blinding, and the per-merge key of
+/// its output ciphertext, all from the nullifier secret. `SenderViewTag` is
+/// the tag a policy-ring spend publishes on the sender's own outputs, from the
+/// named viewing key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeriveRequest {
     Nullifier {
@@ -76,6 +78,10 @@ pub enum DeriveRequest {
     },
     MergeOutputKey {
         first_nullifier: [u8; 32],
+    },
+    SenderViewTag {
+        viewing_pubkey: X25519Pubkey,
+        tx_count: u64,
     },
 }
 
@@ -230,6 +236,12 @@ impl ShieldedKeys for LocalShieldedKeys {
                 DeriveRequest::MergeOutputKey { first_nullifier } => {
                     merge_output_key(&self.nullifier, first_nullifier)
                 }
+                DeriveRequest::SenderViewTag {
+                    viewing_pubkey,
+                    tx_count,
+                } => Ok(self
+                    .viewing_key(viewing_pubkey)?
+                    .get_sender_view_tag(*tx_count)?),
             })
             .collect()
     }

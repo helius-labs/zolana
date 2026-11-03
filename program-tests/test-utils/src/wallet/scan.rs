@@ -945,6 +945,7 @@ impl Wallet {
         for entry in self.viewing_key_history.iter_mut() {
             let ViewingKeyEntry {
                 viewing_pubkey,
+                tx_count,
                 request_count,
                 known_senders,
                 known_recipients,
@@ -966,6 +967,21 @@ impl Wallet {
             }
             // Confidential default-ring outputs use the owner signing tag.
             if let Some(sites) = index.recipient_sites.get(&owner_tag) {
+                for site in sites {
+                    ctx.decode_slot(transactions, key, *site)?;
+                }
+            }
+            // A policy-ring spend tags the sender's own outputs with the
+            // sender view tag of its next index.
+            let sender_hits = probe_stream(
+                window,
+                |n| key.get_sender_view_tag(n),
+                |tag| index.recipient_sites.get(tag),
+            )?;
+            if let Some((m, _)) = sender_hits.last() {
+                *tx_count = (*tx_count).max(*m + 1);
+            }
+            for (_, sites) in &sender_hits {
                 for site in sites {
                     ctx.decode_slot(transactions, key, *site)?;
                 }
