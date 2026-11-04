@@ -12,8 +12,8 @@ use crate::{
         client::{Delivery, ProveRequest},
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
         json::{
-            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring, to_json_ring,
-            to_json_ring_authority,
+            to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring,
+            to_json_merge_ring_v2, to_json_ring, to_json_ring_authority,
         },
         proving_key::ExpectedProvingKey,
         transact::confidential_eddsa::ConfidentialEddsaTransferInputs,
@@ -85,6 +85,11 @@ pub(crate) fn merge(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError>
 pub(crate) fn merge_ring(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
     let key = ExpectedProvingKey::merge_ring(inputs.inputs.len())?;
     Ok(in_response(to_json_merge_ring(inputs), key))
+}
+
+pub(crate) fn merge_ring_v2(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
+    let key = ExpectedProvingKey::merge_ring_v2(inputs.inputs.len())?;
+    Ok(in_response(to_json_merge_ring_v2(inputs), key))
 }
 
 /// A batch proof runs far longer than a connection should be held open, so it

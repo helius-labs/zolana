@@ -245,6 +245,11 @@ impl ExpectedProvingKey {
         Self::merge_circuit("merge_ring", n_inputs)
     }
 
+    /// Fails until the rotation pins the `merge_ring_v2` keys.
+    pub(crate) fn merge_ring_v2(n_inputs: usize) -> Result<Self, ClientError> {
+        Self::merge_circuit("merge_ring_v2", n_inputs)
+    }
+
     pub(crate) fn batch_address_append(
         tree_height: u32,
         batch_size: u32,

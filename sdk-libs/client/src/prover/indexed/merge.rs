@@ -1,21 +1,16 @@
 use serde::Serialize;
 use spr_hasher::primitives::pack_be;
-use spr_interface::instruction::{
-    instruction_data::{
-        merge_ring::MergeRingIxData,
-        merge_transact::{
-            merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof,
-            MergeTransactIxData,
-        },
+use spr_interface::instruction::instruction_data::{
+    merge_ring::{MergeRingAuthority, MergeRingIxData, MergeRingV2IxData},
+    merge_transact::{
+        merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof,
+        MergeTransactIxData,
     },
-    tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
 };
 use spr_interface::tree_slot::tree_id_field;
 use spr_keypair::NullifierKey;
 use spr_transaction::instructions::{
-    merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
-    },
+    merge::{MergeProofInputs, MergeRail},
     transact::PrivateTxHash,
 };
 use zeroize::Zeroizing;
@@ -28,7 +23,10 @@ use crate::{
     prover::{
         field::{right_align, right_align_slice},
         json::MergeOutputParamsJson,
-        merge::{check_output_ciphertext, MergePublicInputBinding, MergePublicInputs},
+        merge::{
+            check_output_ciphertext, check_rail_key, merge_instruction_tag, published_owner,
+            rail_authority, MergePublicInputs, MergeTail,
+        },
         transact::assembly::{assemble_outputs, without_compact_padding},
         verify::MergeProofStatement,
         ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo,
@@ -45,11 +43,14 @@ pub struct PreparedIndexedMerge {
     request: IndexedProofRequest,
     data: MergeTransactIxData,
     ring_data_hash: Option<[u8; 32]>,
+    /// `Some` selects `merge_ring_v2`.
+    ring_v2_authority: Option<MergeRingAuthority>,
 }
 
 pub enum ProvenIndexedMerge {
     Merge(MergeTransactIxData),
     Ring(MergeRingIxData),
+    RingV2(MergeRingV2IxData),
 }
 
 impl IndexedMergePreparation {
@@ -79,6 +80,8 @@ impl IndexedMergePreparation {
         } = self;
         merge.input_utxo_hashes()?;
         merge.check_padding()?;
+        check_rail_key(&merge.rail, &nullifier_key)?;
+        let seed = merge.seed(&nullifier_key);
         let ring_hash = spr_transaction::utxo::program_id_proof_input_hash(&merge.ring_program_id)?;
         let ring_data_hash = merge.output_utxo.ring_data_hash.unwrap_or_default();
         let first = merge
@@ -89,10 +92,10 @@ impl IndexedMergePreparation {
         let tree_id = first.tree_id;
         let first_nullifier = first.nullifier;
         let nullifier_pk = nullifier_key.pubkey()?;
-        if merge.output_utxo.blinding != merge_output_blinding(&nullifier_key, &first_nullifier)? {
+        if merge.output_utxo.blinding != seed.output_blinding(&first_nullifier)? {
             return Err(invalid());
         }
-        check_output_ciphertext(&merge, &nullifier_key, &first_nullifier)?;
+        check_output_ciphertext(&merge, &seed, &first_nullifier)?;
         let mut inputs = Vec::new();
         let mut lookups = Vec::new();
         let mut nullifiers = Vec::new();
@@ -125,8 +128,7 @@ impl IndexedMergePreparation {
                 );
             }
             let derived = if dummy {
-                merge_dummy_nullifier(
-                    &nullifier_key,
+                seed.dummy_nullifier(
                     &first_nullifier,
                     u8::try_from(index).map_err(|_| invalid())?,
                 )?
@@ -172,11 +174,7 @@ impl IndexedMergePreparation {
             return Err(invalid());
         }
         let external = MergeExternalDataHash {
-            spp_instruction_discriminator: if merge.ring_program_id.is_some() {
-                RING_MERGE_TRANSACT
-            } else {
-                MERGE_TRANSACT
-            },
+            spp_instruction_discriminator: merge_instruction_tag(&merge),
             expiry_unix_ts: merge.expiry_unix_ts,
             output_utxo_hash: &output_hash,
             cache: cache
@@ -187,7 +185,7 @@ impl IndexedMergePreparation {
         let private = PrivateTxHash::new(
             &input_hashes,
             &outputs.private_tx_output_hashes,
-            &merge_private_tx_blinding(&nullifier_key, &first_nullifier)?,
+            &seed.private_tx_blinding(&first_nullifier)?,
         )
         .hash()?;
         let salt = right_align(&merge.output_ciphertext_salt);
@@ -198,30 +196,23 @@ impl IndexedMergePreparation {
             private_tx_hash: private,
             external_data_hash: external,
             allow_dummy_inputs: true,
-            binding: if merge.ring_program_id.is_some() {
-                MergePublicInputBinding::Ring {
-                    output_data_hash: ring_data_hash,
-                    program_id_hash: ring_hash,
-                }
-            } else {
-                MergePublicInputBinding::Owner {
-                    signing_key_hash: owner_pk_hash,
-                    nullifier_public_key: nullifier_pk,
-                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
-                        salt: merge.output_ciphertext_salt,
-                        ciphertext: merge.output_ciphertext,
-                    },
-                }
-            },
+            binding: MergeTail {
+                signing_key_hash: owner_pk_hash,
+                nullifier_public_key: nullifier_pk,
+                output_ring_data_hash: ring_data_hash,
+                ring_program_hash: ring_hash,
+            }
+            .binding(&merge),
         }
         .elements(None)?;
         let [mint_chunk_0, mint_chunk_1] =
             pack_be::<32, 2>(merge.output_utxo.asset.asset.as_array());
+        let ring_v2 = !matches!(merge.rail, MergeRail::Classic);
         let witness = PreparedMergeJson {
-            circuit_type: if merge.ring_program_id.is_some() {
-                IndexedCircuit::MergeRing
-            } else {
-                IndexedCircuit::Merge
+            circuit_type: match (&merge.rail, merge.ring_program_id) {
+                (MergeRail::RingV2 | MergeRail::RingV2ZeroKey(_), _) => IndexedCircuit::MergeRingV2,
+                (MergeRail::Classic, Some(_)) => IndexedCircuit::MergeRing,
+                (MergeRail::Classic, None) => IndexedCircuit::Merge,
             },
             inputs,
             output: MergeOutputParamsJson {
@@ -230,7 +221,16 @@ impl IndexedMergePreparation {
             },
             output_tree_id: hex_field(&tree_id_field(merge.output_tree_id)),
             mint_chunks: [hex_field(&mint_chunk_0), hex_field(&mint_chunk_1)],
-            output_ciphertext_salt: merge.ring_program_id.is_none().then(|| hex_field(&salt)),
+            output_ciphertext_salt: (merge.ring_program_id.is_none() || ring_v2)
+                .then(|| hex_field(&salt)),
+            merge_seed: ring_v2.then(|| {
+                SecretField(Zeroizing::new(match &merge.rail {
+                    MergeRail::RingV2ZeroKey(seed) => *seed.as_bytes(),
+                    MergeRail::Classic | MergeRail::RingV2 => [0; 32],
+                }))
+            }),
+            published_owner: ring_v2
+                .then(|| hex_field(&published_owner(&merge.rail, owner_pk_hash))),
             owner_pk_hash: hex_field(&owner_pk_hash),
             user_nullifier_pk: hex_field(&nullifier_pk),
             user_nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
@@ -273,6 +273,7 @@ impl IndexedMergePreparation {
             request,
             data,
             ring_data_hash: merge.ring_program_id.map(|_| ring_data_hash),
+            ring_v2_authority: ring_v2.then(|| rail_authority(&merge.rail)),
         })
     }
 }
@@ -307,10 +308,10 @@ impl Request for PreparedIndexedMerge {
                 .ok_or_else(invalid_resolution)?,
             public_input_hash: resolution.public_input_hash,
         };
-        if self.ring_data_hash.is_some() {
-            statement.verify_ring(&proof)?;
-        } else {
-            statement.verify(&proof)?;
+        match (self.ring_v2_authority, self.ring_data_hash) {
+            (Some(_), _) => statement.verify_ring_v2(&proof)?,
+            (None, Some(_)) => statement.verify_ring(&proof)?,
+            (None, None) => statement.verify(&proof)?,
         }
         let context = resolution
             .trees
@@ -321,12 +322,19 @@ impl Request for PreparedIndexedMerge {
         data.utxo_tree_root_index = context.utxo_tree_root_index;
         data.nullifier_tree_root_index = context.nullifier_tree_root_index;
         data.proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
-        Ok(match self.ring_data_hash {
-            Some(output_ring_data_hash) => ProvenIndexedMerge::Ring(MergeRingIxData {
+        Ok(match (self.ring_v2_authority, self.ring_data_hash) {
+            (Some(authority), output_ring_data_hash) => {
+                ProvenIndexedMerge::RingV2(MergeRingV2IxData {
+                    output_ring_data_hash: output_ring_data_hash.unwrap_or_default(),
+                    authority,
+                    merge: data,
+                })
+            }
+            (None, Some(output_ring_data_hash)) => ProvenIndexedMerge::Ring(MergeRingIxData {
                 output_ring_data_hash,
                 merge: data,
             }),
-            None => ProvenIndexedMerge::Merge(data),
+            (None, None) => ProvenIndexedMerge::Merge(data),
         })
     }
 }
@@ -350,9 +358,14 @@ struct PreparedMergeJson {
     output: MergeOutputParamsJson,
     output_tree_id: String,
     mint_chunks: [String; 2],
-    /// Default merge rail only; the merge-ring circuit has no ciphertext.
+    /// Absent on the merge-ring rail, whose circuit has no ciphertext.
     #[serde(skip_serializing_if = "Option::is_none")]
     output_ciphertext_salt: Option<String>,
+    /// `merge_ring_v2` only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    merge_seed: Option<SecretField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    published_owner: Option<String>,
     owner_pk_hash: String,
     user_nullifier_pk: String,
     user_nullifier_secret: SecretField,
@@ -366,8 +379,14 @@ struct PreparedMergeJson {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spr_keypair::{ShieldedKeypair, ShieldedKeypairTrait};
-    use spr_transaction::{instructions::merge::MergeTransaction, Data, Mint, Utxo, WalletUtxo};
+    use solana_address::Address;
+    use spr_keypair::{
+        PublicKey, ShieldedAddress, ShieldedKeypair, ShieldedKeypairTrait, ViewingKey,
+    };
+    use spr_transaction::{
+        instructions::merge::{MergeSeed, MergeTransaction},
+        Data, Mint, Utxo, WalletUtxo,
+    };
 
     fn input(owner: &ShieldedKeypair) -> WalletUtxo {
         let utxo = Utxo {
@@ -431,6 +450,112 @@ mod tests {
             assert_eq!(body["publicInputs"].as_array().unwrap().len(), 12);
             assert_eq!(body["publicInputs"][7], body["prepared"]["userNullifierPk"]);
         }
+    }
+
+    fn zero_key_input(owner: PublicKey, ring: Address) -> WalletUtxo {
+        let key = NullifierKey::from_secret([0; 31]);
+        let nullifier_pubkey = key.pubkey().unwrap();
+        let utxo = Utxo {
+            owner,
+            asset: Mint::SOL,
+            amount: 10,
+            blinding: [1; 32],
+            ring_program_id: Some(ring),
+            data: Data::default(),
+        };
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], 3).unwrap();
+        WalletUtxo {
+            nullifier: key.nullifier(&utxo_hash, &utxo.blinding).unwrap(),
+            utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            tx_viewing_key: None,
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id: 3,
+            leaf_index: 0,
+            latest_tree_id: None,
+            slot: 0,
+            tx_signature: Default::default(),
+            slot_index: 0,
+        }
+    }
+
+    fn zero_key_merge() -> (MergeProofInputs, [u8; 32]) {
+        let ring = Address::new_from_array([0x0b; 32]);
+        let owner = PublicKey::from_pda(&Address::new_from_array([0x2a; 32]));
+        let viewing_key = ViewingKey::new();
+        let note = zero_key_input(owner, ring);
+        let seed = MergeSeed::derive(&viewing_key, &ring, &note.nullifier).unwrap();
+        let address = ShieldedAddress {
+            signing_pubkey: owner,
+            nullifier_pubkey: note.nullifier_pubkey,
+            viewing_pubkey: viewing_key.pubkey(),
+        };
+        let merge = MergeTransaction::new_ring_v2(vec![note], ring, None)
+            .unwrap()
+            .encrypt_zero_key(&address, seed)
+            .unwrap();
+        (merge, owner.owner_proof_input_hash().unwrap())
+    }
+
+    #[test]
+    fn a_zero_key_merge_publishes_its_owner() {
+        let (merge, owner_hash) = zero_key_merge();
+        let binding = MergeTail {
+            signing_key_hash: owner_hash,
+            nullifier_public_key: [0; 32],
+            output_ring_data_hash: [0; 32],
+            ring_program_hash: [0; 32],
+        }
+        .binding(&merge);
+        assert!(matches!(
+            binding,
+            crate::prover::merge::MergePublicInputBinding::RingV2 { published_owner, .. }
+                if published_owner == owner_hash
+        ));
+        assert_eq!(
+            merge_instruction_tag(&merge),
+            spr_interface::instruction::tag::RING_MERGE_V2
+        );
+        assert_eq!(rail_authority(&merge.rail), MergeRingAuthority::OwnerSigned);
+    }
+
+    #[test]
+    fn a_ring_v2_request_has_no_proving_key_until_its_rotation() {
+        let (merge, _) = zero_key_merge();
+        assert!(matches!(
+            IndexedMergePreparation {
+                merge,
+                nullifier_key: NullifierKey::from_secret([0; 31]),
+            }
+            .prepare(),
+            Err(ClientError::UnsupportedShape { n_in: 8, n_out: 1 })
+        ));
+    }
+
+    #[test]
+    fn a_rail_refuses_the_key_of_the_other_mode() {
+        let (merge, _) = zero_key_merge();
+        assert!(matches!(
+            IndexedMergePreparation {
+                merge,
+                nullifier_key: ShieldedKeypair::new_ed25519().unwrap().nullifier_key(),
+            }
+            .prepare(),
+            Err(ClientError::MergeNullifierKeyMismatch)
+        ));
+
+        let (mut merge, _) = zero_key_merge();
+        merge.rail = MergeRail::RingV2;
+        assert!(matches!(
+            IndexedMergePreparation {
+                merge,
+                nullifier_key: NullifierKey::from_secret([0; 31]),
+            }
+            .prepare(),
+            Err(ClientError::MergeNullifierKeyMismatch)
+        ));
     }
 
     #[test]

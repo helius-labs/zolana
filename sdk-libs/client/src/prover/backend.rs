@@ -90,6 +90,10 @@ pub trait ProverExt: Prover {
         self.prove(&requests::merge_ring(inputs)?)
     }
 
+    fn prove_merge_ring_v2(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
+        self.prove(&requests::merge_ring_v2(inputs)?)
+    }
+
     /// Prove an EdDSA confidential policy-ring transfer (`transfer-ring`).
     fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::transfer_ring(inputs)?)

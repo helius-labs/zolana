@@ -18,6 +18,12 @@ pub enum MergePublicInputBinding {
         output_data_hash: [u8; 32],
         program_id_hash: [u8; 32],
     },
+    RingV2 {
+        output_data_hash: [u8; 32],
+        program_id_hash: [u8; 32],
+        published_owner: [u8; 32],
+        output_encryption: MergeOutputEncryption,
+    },
 }
 
 /// One ordering for local proofs, indexed requests and cross-language vectors.
@@ -61,12 +67,16 @@ impl MergePublicInputs<'_> {
                 output_encryption,
             } => {
                 elements.extend([*signing_key_hash, *nullifier_public_key]);
-                match output_encryption {
-                    MergeOutputEncryption::PoseidonCtrV1 { salt, ciphertext } => {
-                        elements.push(right_align(salt));
-                        elements.extend(ciphertext);
-                    }
-                }
+                push_ciphertext(&mut elements, output_encryption);
+            }
+            MergePublicInputBinding::RingV2 {
+                output_data_hash,
+                program_id_hash,
+                published_owner,
+                output_encryption,
+            } => {
+                elements.extend([*output_data_hash, *program_id_hash, *published_owner]);
+                push_ciphertext(&mut elements, output_encryption);
             }
         }
         Ok(elements)
@@ -76,5 +86,14 @@ impl MergePublicInputs<'_> {
         Ok(create_hash_chain_4_from_slice(
             &self.elements(Some(tree_slots_hash))?,
         )?)
+    }
+}
+
+fn push_ciphertext(elements: &mut Vec<[u8; 32]>, output_encryption: &MergeOutputEncryption) {
+    match output_encryption {
+        MergeOutputEncryption::PoseidonCtrV1 { salt, ciphertext } => {
+            elements.push(right_align(salt));
+            elements.extend(ciphertext);
+        }
     }
 }

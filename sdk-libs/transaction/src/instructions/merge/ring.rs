@@ -1,6 +1,6 @@
 use solana_address::Address;
 
-use super::{inputs::validate_merge_inputs, MergeTransaction};
+use super::{inputs::validate_merge_inputs, MergeRail, MergeTransaction};
 use crate::{error::TransactionError, WalletUtxo};
 
 impl MergeTransaction {
@@ -26,6 +26,18 @@ impl MergeTransaction {
             expiry_unix_ts: u64::MAX,
             ring_program_id: Some(ring_program_id),
             output_ring_data_hash,
+            rail: MergeRail::Classic,
         })
+    }
+
+    /// [`Self::encrypt`] serves a nonzero key and [`Self::encrypt_zero_key`] the zero key.
+    pub fn new_ring_v2(
+        inputs: Vec<WalletUtxo>,
+        ring_program_id: Address,
+        output_ring_data_hash: Option<[u8; 32]>,
+    ) -> Result<Self, TransactionError> {
+        let mut merge = Self::new_with_ring(inputs, ring_program_id, output_ring_data_hash)?;
+        merge.rail = MergeRail::RingV2;
+        Ok(merge)
     }
 }

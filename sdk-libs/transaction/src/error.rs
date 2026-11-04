@@ -298,6 +298,12 @@ pub enum TransactionError {
     #[error("merge input {index} has a different ring program id")]
     MergeInputRingMismatch { index: usize },
 
+    #[error("merge seed must be a nonzero field element")]
+    InvalidMergeSeed,
+
+    #[error("zero-key merges need a ring program")]
+    ZeroKeyMergeWithoutRing,
+
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
 

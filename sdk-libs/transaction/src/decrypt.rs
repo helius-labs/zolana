@@ -475,7 +475,8 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             Ok(None)
         }
         OutputDataEncoding::VerifiablyEncrypted(blob) => {
-            decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx, false)
+            let ring = tx.ring_program_id.is_some();
+            decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx, ring)
         }
     }
 }
@@ -483,10 +484,12 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
 /// A merge output publishes its amount and mint encrypted under a key the
 /// owner derives from the nullifier secret and the first nullifier, so the
 /// owner rebuilds the output from the merge transaction alone. A default merge
-/// proof binds that ciphertext, whichever inputs the merger chose; a ring merge
-/// (`ring`) publishes it unverified. The cipher is unauthenticated: a merge of
-/// another wallet, or a wrong ring merge ciphertext, decrypts to noise, which
-/// the plaintext range check or the commitment rejects.
+/// proof binds that ciphertext, whichever inputs the merger chose, and so does a
+/// `merge_ring_v2`, and a `merge_ring` (`ring`, under `Encrypted`) publishes it
+/// unverified. The cipher is unauthenticated, so a merge of another wallet, or a
+/// wrong ring merge ciphertext, decrypts to noise the plaintext range check or
+/// the commitment rejects. A zero-key merge opens under
+/// [`MergeSeed`](crate::instructions::merge::MergeSeed) instead, by the owner tag.
 fn decode_merge<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     address: &ShieldedAddress,
@@ -505,9 +508,8 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     let Some((ring_data_hash, encrypted)) = split_merge_output_body(body) else {
         return Ok(None);
     };
-    // A ring merge leads with its output ring data hash, names its ring program
-    // and is published unverified; a slot missing any of these is not a merge
-    // output.
+    // A ring merge leads with its output ring data hash and names its ring
+    // program, a slot missing either is not a merge output.
     if ring_data_hash.is_some() != ring || tx.ring_program_id.is_some() != ring {
         return Ok(None);
     }
