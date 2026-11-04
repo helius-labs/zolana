@@ -46,7 +46,6 @@ pub(crate) mod encryption;
 pub mod error;
 pub mod hash;
 pub mod nullifier_key;
-pub mod pda;
 pub mod pubkey;
 #[cfg(feature = "serde")]
 pub mod serde_helpers;
@@ -58,7 +57,6 @@ pub mod viewing_key;
 pub use encryption::symmetric_apply;
 pub use error::KeypairError;
 pub use nullifier_key::NullifierKey;
-pub use pda::ShieldedPda;
 pub use pubkey::{Curve, PublicKey};
 pub use shielded::{
     CompressedShieldedAddress, ShieldedAddress, ShieldedKeypair, SHIELDED_ADDRESS_LEN,

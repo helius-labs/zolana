@@ -1,22 +1,15 @@
-//! Shielded identities owned by a program-derived address
-//! (`docs/shielded_pda_design.md`). A PDA is off the Ed25519 curve and holds
-//! no private state. Its roles expand from a holder's viewing secret or an
-//! ECDH agreement between holders, bound to the PDA. Spending requires both
-//! the owning program's `invoke_signed` and the nullifier secret.
+//! Experimental: shielded identities owned by a program-derived address. A
+//! PDA is off the Ed25519 curve and holds no private state. Its roles expand
+//! from a holder's viewing secret or an ECDH agreement between holders, bound
+//! to the PDA. Spending requires both the owning program's `invoke_signed` and
+//! the nullifier secret.
 
 use solana_address::Address;
 use zeroize::Zeroizing;
 
-use crate::{
-    derivation::PdaRoleExpansion,
-    error::KeypairError,
-    hash::owner_hash,
-    nullifier_key::NullifierKey,
-    pubkey::{Curve, PublicKey},
-    shielded::{CompressedShieldedAddress, ShieldedAddress},
-    traits::ShieldedKeypairTrait,
-    viewing_key::ViewingKey,
-    x25519::X25519Pubkey,
+use spr_keypair::{
+    derivation::PdaRoleExpansion, hash::owner_hash, CompressedShieldedAddress, Curve, KeypairError,
+    NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypairTrait, ViewingKey, X25519Pubkey,
 };
 
 /// Not a `ShieldedKeypair`: it holds no signing secret, so that state is
@@ -177,4 +170,4 @@ impl ShieldedKeypairTrait for ShieldedPda {
 
 // Forwards to the identity's derived viewing key, so encryption and view-tag
 // derivation need no special case.
-crate::forward_viewing_key_trait!(ShieldedPda => viewing_key);
+spr_keypair::forward_viewing_key_trait!(ShieldedPda => viewing_key);

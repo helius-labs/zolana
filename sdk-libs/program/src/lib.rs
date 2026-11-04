@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "circuit"), no_std)]
+#![cfg_attr(not(any(feature = "circuit", feature = "shielded-pda")), no_std)]
 
 extern crate alloc;
 
@@ -26,6 +26,8 @@ mod error;
 pub mod hasher;
 #[cfg(feature = "compression")]
 pub mod program;
+#[cfg(feature = "shielded-pda")]
+mod shielded_pda;
 #[cfg(feature = "test-support")]
 pub mod testing;
 #[cfg(feature = "verifier")]
@@ -45,6 +47,8 @@ pub use client::{
 pub use client::{ProgramTransaction, ZkCircuit, ZkProgramCircuit};
 #[cfg(feature = "circuit")]
 pub use error::{ClientError, ClientErrorKind, ProtocolCircuitErrorKind, SlotKind};
+#[cfg(feature = "shielded-pda")]
+pub use shielded_pda::ShieldedPda;
 #[cfg(feature = "circuit")]
 pub use spr_keypair::circuit::OwnerCircuitErrorKind;
 #[cfg(feature = "circuit")]

@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn related_peer_ecdh_cannot_recover_role_roots() {
-        use crate::{derivation::PdaRoleExpansion, ShieldedPda};
+        use crate::derivation::PdaRoleExpansion;
         use hkdf::Hkdf;
         use sha2::Sha256;
         use solana_address::Address;
@@ -324,7 +324,7 @@ mod tests {
             "f8f47fe6e0dee526f6e95d87ba0d52687c8729581443c14d0c928c69769cff2a"
         );
         let pda = Address::new_from_array([3; 32]);
-        let owned = ShieldedPda::from_viewing_key(pda, &key).unwrap();
+        let owned = PdaRoleExpansion::new(&key.secret_bytes(), pda.to_bytes());
         // These are order-two translates of the former fixed derivation peers.
         // Clamping kills the torsion, bypassing an exact-coordinate blacklist.
         for alias in [
@@ -340,7 +340,7 @@ mod tests {
             let forged = PdaRoleExpansion::new(&leaked, pda.to_bytes());
             assert_ne!(
                 forged.nullifier_key().unwrap().pubkey().unwrap(),
-                owned.nullifier_pubkey().unwrap()
+                owned.nullifier_key().unwrap().pubkey().unwrap()
             );
         }
     }

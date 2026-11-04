@@ -1,7 +1,6 @@
 use solana_address::Address;
-use spr_keypair::{
-    NullifierKey, ShieldedAddress, ShieldedKeypair, ShieldedPda, SigningKey, ViewingKey,
-};
+use spr_keypair::{NullifierKey, ShieldedAddress, ShieldedKeypair, SigningKey, ViewingKey};
+use spr_program::ShieldedPda;
 
 #[derive(Clone)]
 pub struct Key {

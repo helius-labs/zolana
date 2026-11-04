@@ -456,6 +456,8 @@ export async function transactInstruction(input: TransactAccountsInput): Promise
  * with the calling program's signing PDAs listed, readonly and unsigned,
  * after the owner signers and before the withdrawal and cache accounts. The
  * program signs for those PDAs inside its CPI.
+ *
+ * @experimental
  */
 export async function transactCpiAccounts(
   input: TransactAccountsInput & Readonly<{ signerPdas: readonly Address[] }>,

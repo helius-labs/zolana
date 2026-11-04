@@ -37,6 +37,10 @@
       "types": "./dist/keypair/index.d.ts",
       "import": "./dist/keypair/index.js"
     },
+    "./program": {
+      "types": "./dist/program/index.d.ts",
+      "import": "./dist/program/index.js"
+    },
     "./transaction": {
       "types": "./dist/transaction/index.d.ts",
       "import": "./dist/transaction/index.js"

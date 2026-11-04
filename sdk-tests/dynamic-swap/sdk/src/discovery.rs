@@ -1,7 +1,8 @@
 use anyhow::{bail, Result};
 use spr_client::{HistoryFilters, Rpc};
 use spr_interface::event::OutputDataEncoding;
-use spr_keypair::{ShieldedPda, ViewingKey};
+use spr_keypair::ViewingKey;
+use spr_program::ShieldedPda;
 use spr_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::Blinding,

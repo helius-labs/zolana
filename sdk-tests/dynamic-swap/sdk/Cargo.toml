@@ -16,7 +16,7 @@ solana-system-interface = { workspace = true }
 wincode = { workspace = true }
 spr-client = { workspace = true }
 spr-interface = { workspace = true }
-spr-program = { workspace = true }
+spr-program = { workspace = true, features = ["shielded-pda"] }
 spr-keypair = { workspace = true }
 spr-transaction = { workspace = true }
 

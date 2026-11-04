@@ -24,12 +24,14 @@ import {
   createExternalData,
   createInputUtxo,
   createProofOutput,
-  decodeProgramTransaction,
   outputBlindingSeed,
   privateTxHash,
   transactOutputBlinding,
-  type ProgramFinalizedTransaction,
 } from "../src/transaction/index.js";
+import {
+  decodeProgramTransaction,
+  type ProgramFinalizedTransaction,
+} from "../src/program/index.js";
 import { proofFor } from "./helpers/proofs.js";
 import { bytesToBigInt } from "../src/interface/bytes.js";
 

@@ -5,16 +5,9 @@ import { assemble } from "../src/client/prover/assembly.js";
 import { bytesField, poseidon } from "../src/client/internal.js";
 import { parseProof } from "../src/client/prover/proof.js";
 import { treeAddress } from "../src/interface/pda/index.js";
+import { ShieldedKeypair, NullifierKey, bytes16, bytes31, bytes32 } from "../src/keypair/index.js";
+import { ShieldedPda, ProgramOwner } from "../src/program/index.js";
 import {
-  ShieldedKeypair,
-  ShieldedPda,
-  NullifierKey,
-  bytes16,
-  bytes31,
-  bytes32,
-} from "../src/keypair/index.js";
-import {
-  ProgramOwner,
   ProofInputUtxo,
   Utxo,
   SOL_MINT,
