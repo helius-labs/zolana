@@ -1,5 +1,6 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import {
   TransportFailure,
@@ -12,31 +13,38 @@ import { invalidPolicy, refused } from "./platform.js";
 import { teePolicyFromJson } from "./policy.js";
 import type { TeePolicy } from "./registry.js";
 
-/** Prefixes the payload bytes a signer signs. */
-const DOMAIN = utf8ToBytes("zolana/prover-tee/v1/policy");
+/** Prefixes the release payload bytes a release signer signs. */
+const RELEASE_DOMAIN = utf8ToBytes("zolana/prover-tee/v2/release");
+/** Prefixes the freshness payload bytes a freshness signer signs. */
+const FRESHNESS_DOMAIN = utf8ToBytes("zolana/prover-tee/v2/freshness");
 const MAX_FILE_BYTES = 64 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
-/** Where a network's signed policy lives and who signs it. */
+/**
+ * How far past the client's clock a freshness part may be issued, for a device
+ * clock that runs behind. A client can therefore hold one part for up to the
+ * release's `max_lifetime_secs` plus this, by its own clock.
+ */
+const MAX_CLOCK_SKEW_SECS = 86_400;
+
+/** Where a network's signed policy lives and who signs its releases. */
 export type SignedTeePolicyConfig = Readonly<{
   /** HTTPS, or HTTP on a loopback host. */
   url: string | URL;
   network: string;
-  /** Lowercase hex Ed25519 keys of the signers. */
+  /** Lowercase hex Ed25519 keys of the release signers. */
   publicKeys: readonly string[];
-  /** How many distinct signers a file needs. */
+  /** How many distinct release signers a release needs. */
   threshold: number;
 }>;
 
-type Signers = Readonly<{ network: string; keys: readonly string[]; threshold: number }>;
+type Keys = Readonly<{ keys: readonly string[]; threshold: number }>;
+type Signers = Readonly<{ network: string } & Keys>;
 
 /**
- * Each network's policy URL and signers. `test/prover-tee-signed.test.ts`
- * pins it to the Rust client's `src/prover/tee/signers.json`.
- */
-/**
- * Who signs each network's policy today: one KMS key. More signers join by
- * adding their keys here and raising `threshold`, which is an SDK release.
+ * Who approves releases today: one KMS key for every network. More release
+ * signers join by adding their keys here and raising `threshold`, which is an
+ * SDK release. Each release names its own freshness keys.
  */
 const SIGNERS = {
   publicKeys: ["1fe5d29c79064ea17a16308452040b799df8aeaaae588d44a527a8da9ffa924a"],
@@ -46,6 +54,10 @@ const SIGNERS = {
 /** A network whose signed policy the SDK pins. */
 export type TeeNetwork = "mainnet" | "devnet";
 
+/**
+ * Each network's policy URL and release signers. `test/prover-tee-signed.test.ts`
+ * pins it to the Rust client's `src/prover/tee/signers.json`.
+ */
 export const NETWORKS: Readonly<Record<TeeNetwork, Omit<SignedTeePolicyConfig, "network">>> =
   Object.freeze({
     mainnet: { url: "https://d3gbdb0egjwcw9.cloudfront.net/tee-policy/mainnet.json", ...SIGNERS },
@@ -55,15 +67,19 @@ export const NETWORKS: Readonly<Record<TeeNetwork, Omit<SignedTeePolicyConfig, "
 type Current = Readonly<{
   policy: TeePolicy;
   version: number;
+  /** Hex of the release payload. */
   payload: string;
+  issuedAt: number;
+  /** The earlier of the release and freshness expiries. */
   expiresAt: number;
   checkedAt: number;
 }>;
 
 /**
- * A policy published at `url` as one file that enough of the pinned keys sign.
- * It is downloaded again once it is `max_age_secs` old, when the client also attests
- * again, and never used past its expiry.
+ * A policy published at `url` as one file: a release that enough of the pinned
+ * release keys sign, kept in force by a freshness part that the freshness keys
+ * the release names sign. It is downloaded again once it is `max_age_secs` old, when the client
+ * also attests again, and never used past either expiry.
  */
 export class SignedTeePolicy {
   readonly #url: URL;
@@ -82,17 +98,9 @@ export class SignedTeePolicy {
       throw invalidPolicy("network");
     }
     const keys = config.publicKeys;
-    if (
-      !Array.isArray(keys) ||
-      !keys.every((key) => lowerHex(key, 32) && onCurve(key)) ||
-      new Set(keys).size !== keys.length
-    ) {
-      throw invalidPolicy("publicKeys");
-    }
+    if (!Array.isArray(keys) || !distinctKeys(keys)) throw invalidPolicy("publicKeys");
     const { threshold } = config;
-    if (!Number.isSafeInteger(threshold) || threshold < 1 || threshold > keys.length) {
-      throw invalidPolicy("threshold");
-    }
+    if (!meets(threshold, keys)) throw invalidPolicy("threshold");
     this.#signers = Object.freeze({
       network: config.network,
       keys: Object.freeze([...keys]),
@@ -142,17 +150,25 @@ export class SignedTeePolicy {
     return next.policy;
   }
 
-  /** Refuses an older version, or another payload under the same version. */
+  /**
+   * Refuses an older release version, another release payload under the same
+   * version, or an older freshness part for the same release.
+   */
   #next(file: unknown, current: Current | undefined): Current {
     const verified = verifySignedTeePolicy(file, this.#signers, Math.floor(Date.now() / 1000));
     if (current !== undefined) {
+      const same = verified.payload === current.payload;
       if (
         verified.version < current.version ||
-        (verified.version === current.version && verified.payload !== current.payload)
+        (verified.version === current.version && !same) ||
+        (same && verified.issuedAt < current.issuedAt)
       ) {
         throw refused("policy_rollback");
       }
-      if (verified.payload === current.payload) return { ...current, checkedAt: Date.now() };
+      if (same) {
+        const { issuedAt, expiresAt } = verified;
+        return { ...current, issuedAt, expiresAt, checkedAt: Date.now() };
+      }
     }
     return { ...verified, checkedAt: Date.now() };
   }
@@ -198,41 +214,29 @@ export function verifySignedTeePolicy(
   signers: Signers,
   nowSecs: number,
 ): Omit<Current, "checkedAt"> {
-  const { payload, signatures } = exactRecord(file, ["payload", "signatures"]);
-  if (!lowerHex(payload) || !Array.isArray(signatures)) throw malformed();
-  const bytes = hexToBytes(payload);
-  const message = concatBytes(DOMAIN, bytes);
-  const signed = new Set<string>();
-  for (const entry of signatures) {
-    const { public_key: key, signature } = exactRecord(entry, ["public_key", "signature"]);
-    if (!lowerHex(key, 32) || !lowerHex(signature, 64)) throw malformed();
-    if (!signers.keys.includes(key) || signed.has(key)) continue;
-    let valid = false;
-    try {
-      valid = ed25519.verify(hexToBytes(signature), message, hexToBytes(key), { zip215: false });
-    } catch {
-      // A signature that does not decode signs nothing.
-    }
-    if (valid) signed.add(key);
-  }
-  if (signed.size < signers.threshold) throw refused("policy_signature");
+  const parts = exactRecord(file, ["release", "freshness"]);
+  const release = signedPart(parts["release"]);
+  const fresh = signedPart(parts["freshness"]);
 
-  let approved: unknown;
-  try {
-    approved = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-  } catch {
-    throw malformed();
-  }
-  const fields = exactRecord(approved, ["network", "version", "expires_at", "policy"]);
-  const { network, version, expires_at: expiresAt } = fields;
+  if (!quorum(RELEASE_DOMAIN, release, signers)) throw refused("policy_signature");
+  const fields = exactRecord(json(release.bytes), [
+    "network",
+    "version",
+    "expires_at",
+    "freshness",
+    "policy",
+  ]);
+  const { network, version, expires_at: releaseExpiresAt } = fields;
+  const named = exactRecord(fields["freshness"], ["public_keys", "threshold", "max_lifetime_secs"]);
+  const { public_keys: freshnessKeys, max_lifetime_secs: maxLifetime } = named;
   if (
     typeof network !== "string" ||
-    typeof version !== "number" ||
-    !Number.isSafeInteger(version) ||
-    version < 1 ||
-    typeof expiresAt !== "number" ||
-    !Number.isSafeInteger(expiresAt) ||
-    expiresAt < 0 ||
+    !positive(version) ||
+    !integer(releaseExpiresAt) ||
+    !Array.isArray(freshnessKeys) ||
+    !distinctKeys(freshnessKeys) ||
+    !meets(named["threshold"], freshnessKeys) ||
+    !positive(maxLifetime) ||
     typeof fields["policy"] !== "object" ||
     fields["policy"] === null ||
     Object.hasOwn(fields["policy"], "deployment")
@@ -246,8 +250,115 @@ export function verifySignedTeePolicy(
     throw malformed();
   }
   if (network !== signers.network) throw refused("policy_network");
-  if (nowSecs >= expiresAt) throw refused("policy_expired");
-  return Object.freeze({ policy, version, payload, expiresAt });
+  if (nowSecs >= releaseExpiresAt) throw refused("policy_expired");
+
+  const freshnessSigners = { keys: freshnessKeys, threshold: named["threshold"] };
+  if (!quorum(FRESHNESS_DOMAIN, fresh, freshnessSigners)) throw refused("policy_freshness");
+  const freshness = exactRecord(json(fresh.bytes), [
+    "network",
+    "release_version",
+    "release_sha256",
+    "issued_at",
+    "expires_at",
+  ]);
+  const { issued_at: issuedAt, expires_at: freshUntil } = freshness;
+  if (
+    typeof freshness["network"] !== "string" ||
+    !positive(freshness["release_version"]) ||
+    typeof freshness["release_sha256"] !== "string" ||
+    !integer(issuedAt) ||
+    !integer(freshUntil) ||
+    issuedAt >= freshUntil
+  ) {
+    throw malformed();
+  }
+  if (
+    freshness["network"] !== signers.network ||
+    freshness["release_version"] !== version ||
+    freshness["release_sha256"] !== bytesToHex(sha256(release.bytes))
+  ) {
+    throw refused("policy_freshness");
+  }
+  if (freshUntil - issuedAt > maxLifetime) throw refused("policy_lifetime");
+  if (issuedAt > nowSecs + MAX_CLOCK_SKEW_SECS) throw refused("policy_future");
+  if (nowSecs >= freshUntil) throw refused("policy_stale");
+  return Object.freeze({
+    policy,
+    version,
+    payload: release.payload,
+    issuedAt,
+    expiresAt: Math.min(releaseExpiresAt, freshUntil),
+  });
+}
+
+type Part = Readonly<{
+  payload: string;
+  bytes: Uint8Array;
+  signatures: readonly Readonly<{ key: string; signature: string }>[];
+}>;
+
+/** A payload and its signatures, with no check of the signatures. */
+function signedPart(value: unknown): Part {
+  const { payload, signatures } = exactRecord(value, ["payload", "signatures"]);
+  if (!lowerHex(payload) || !Array.isArray(signatures)) throw malformed();
+  return {
+    payload,
+    bytes: hexToBytes(payload),
+    signatures: signatures.map((entry: unknown) => {
+      const { public_key: key, signature } = exactRecord(entry, ["public_key", "signature"]);
+      if (!lowerHex(key, 32) || !lowerHex(signature, 64)) throw malformed();
+      return { key, signature };
+    }),
+  };
+}
+
+/** Whether `threshold` distinct pinned keys signed the part under `domain`. */
+function quorum(domain: Uint8Array, part: Part, keys: Keys): boolean {
+  const message = concatBytes(domain, part.bytes);
+  const signed = new Set<string>();
+  for (const { key, signature } of part.signatures) {
+    if (!keys.keys.includes(key) || signed.has(key)) continue;
+    let valid = false;
+    try {
+      valid = ed25519.verify(hexToBytes(signature), message, hexToBytes(key), { zip215: false });
+    } catch {
+      // A signature that does not decode signs nothing.
+    }
+    if (valid) signed.add(key);
+  }
+  return signed.size >= keys.threshold;
+}
+
+function json(bytes: Uint8Array): unknown {
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    throw malformed();
+  }
+}
+
+/** A safe integer of at least 0. */
+function integer(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** A safe integer of at least 1. */
+function positive(value: unknown): value is number {
+  return integer(value) && value >= 1;
+}
+
+/** Distinct lowercase hex Ed25519 points. */
+function distinctKeys(keys: readonly unknown[]): keys is readonly string[] {
+  return (
+    keys.every((key) => lowerHex(key, 32) && onCurve(key)) && new Set(keys).size === keys.length
+  );
+}
+
+/** A threshold `keys` can meet. */
+function meets(threshold: unknown, keys: readonly unknown[]): threshold is number {
+  return (
+    Number.isSafeInteger(threshold) && Number(threshold) >= 1 && Number(threshold) <= keys.length
+  );
 }
 
 const malformed = (): Error => refused("policy_malformed");
