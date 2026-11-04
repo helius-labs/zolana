@@ -1221,7 +1221,15 @@ describe("prover indexer fetching", () => {
         outputs: 2,
         publicAssetSlots: 3,
       });
-      const wire = Buffer.from(encodeTransactInstructionData(exit.instructionData));
+      const wire = Buffer.from(
+        encodeTransactInstructionData(
+          exit.withProof({
+            a: new Uint8Array(32) as Bytes32,
+            b: new Uint8Array(128) as never,
+            c: new Uint8Array(32) as Bytes32,
+          }),
+        ),
+      );
       const selector = wire.indexOf(Buffer.from(exit.instructionData.privateTxHash)) + 32;
       expect([...wire.subarray(selector, selector + 5)]).toEqual([9, 0, 2, 2, 3]);
       expect(exit.proverInputs.circuit).toBe("transferRingAuthorityExit");
