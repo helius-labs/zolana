@@ -39,8 +39,8 @@ import {
   initializePoseidon,
   type Bytes32,
   type ZolanaClientConfig,
-} from "@heliuslabs/zolana";
-import { TRANSACTION_SIZE_LIMIT } from "@heliuslabs/zolana/interface";
+} from "@heliuslabs/spr";
+import { TRANSACTION_SIZE_LIMIT } from "@heliuslabs/spr/interface";
 
 // The SDK's localnet default; the airdrop is a localnet-only operation and
 // targets the same validator the client connects to.

@@ -1,20 +1,20 @@
 /// <reference types="node" />
 
-import { SOL_MINT, createZolanaClient } from "@heliuslabs/zolana";
-import { LocalKeys, atSlot } from "@heliuslabs/zolana/client";
+import { SOL_MINT, createZolanaClient } from "@heliuslabs/spr";
+import { LocalKeys, atSlot } from "@heliuslabs/spr/client";
 import {
   depositInstruction,
   transactInstruction,
   DepositAsset,
   TransactWithdrawal,
-} from "@heliuslabs/zolana/interface";
+} from "@heliuslabs/spr/interface";
 import {
   AssetRegistry,
   ConfidentialTransfer,
   ProofInputUtxo,
   decryptToBalances,
   WithdrawalTarget,
-} from "@heliuslabs/zolana/transaction";
+} from "@heliuslabs/spr/transaction";
 import { describe, expect, it } from "vitest";
 
 import { sendAndConfirmFactory, setup } from "./setup.js";

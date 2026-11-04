@@ -120,7 +120,7 @@ jobs:
         with:
           node-version: 24
       - name: Install TypeScript formatter
-        run: npm ci --workspace @heliuslabs/zolana
+        run: npm ci --workspace @heliuslabs/spr
       - name: Deploy and pin
         env:
           PHALA_KEY: ${{ secrets.PHALA_KEY }}

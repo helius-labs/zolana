@@ -13,13 +13,14 @@ below. Where they disagree, these rules win.
   any registry, plus any published version the history misses (a release
   cut from a side branch). A value replaced before anything shipped under
   it folds into the entry that first shipped.
-- Date an entry with the npm publish date (`npm view @heliuslabs/zolana
+- Date an entry with the npm publish date (`npm view @heliuslabs/spr
 time`) when the version is published, else with the bump commit date.
+  Versions through 0.8.0-alpha were published as `@heliuslabs/zolana`.
 - Find the newest version already recorded in `CHANGELOG.md` and backfill
   every later version plus the working tree's `package.json` version.
 - For each version, study the commits between its cut point and the
   previous one (`git log -- sdk-libs/ts`), and verify the surface in the
-  shipped tarball (`npm pack @heliuslabs/zolana@<version>`, read the
+  shipped tarball (`npm pack @heliuslabs/spr@<version>`, read the
   `.d.ts`), else in the tree at the bump commit. A symbol the shipped types
   do not export does not exist. Commit titles corroborate, the artifact
   decides.

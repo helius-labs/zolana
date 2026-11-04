@@ -526,8 +526,8 @@ The example assumes initialized wasm, a fetched and decrypted `counterWalletUtxo
 Bind the generated wasm function once to a trusted asset registry. The wrapper validates each result against a snapshot of that registry and retains mint addresses and asset IDs together, so encryption needs no registry lookup. Bind again after registering additional assets.
 
 ```ts
-import { ShieldedPda } from "@heliuslabs/zolana/keypair";
-import { ProgramOwner, bindProgramTransaction } from "@heliuslabs/zolana/transaction";
+import { ShieldedPda } from "@heliuslabs/spr/keypair";
+import { ProgramOwner, bindProgramTransaction } from "@heliuslabs/spr/transaction";
 
 const incrementTransaction = bindProgramTransaction(wasm.incrementTransaction, { assets });
 

@@ -2,6 +2,7 @@
 
 ## 0.9.0-alpha — unreleased
 
+The SDK publishes as `@heliuslabs/spr`.
 Indexer history reads use gTFA-style pagination with string tokens and slot
 filters, and wallet sync resumes each key from a slot checkpoint.
 The client proves anonymous ring transfers from an owner signer or a
@@ -11,6 +12,7 @@ attested prover at runtime instead of the keys the SDK pins.
 
 Breaking
 
+- The package is published as `@heliuslabs/spr`, with the same subpaths and exports → replace the `@heliuslabs/zolana` dependency and every `@heliuslabs/zolana` import specifier with `@heliuslabs/spr`.
 - `ZolanaIndexer.getShieldedTransactionsByTags`, `getShieldedTransactionsByNullifiers` and `getEncryptedUtxosByTags` take `PageOptions` (`paginationToken`, `limit`, `filters.slot`, `minContextSlot`) and return a `Page` of `{context, data, paginationToken}` with the events or outputs of each Solana transaction grouped in `data` → upgrade Photon with the SDK, pass `paginationToken` back until it is `null`, and resume a later scan that has no `lt` or `lte` bound with `filters: { slot: { gt } }` set to the final page's `context.slot`.
 - `serializeWallet` writes snapshot version 5 with slot checkpoints, and `SerializedCursor` and `SerializedSyncCursors` become `SerializedSyncCheckpoint` and `SerializedSyncCheckpoints` → restore earlier snapshots with `deserializeWallet`, which keeps the wallet state and rescans history once.
 - `Prover` requires `proveAnonymousRingTransact` → implement the method on custom provers.

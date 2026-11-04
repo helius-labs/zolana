@@ -49,5 +49,5 @@ No running program, prover service or mobile release is changed by this draft.
 ```sh
 cargo test --locked -p spr-interface --test core_ceremony --test vk_proving_key_lock
 (cd prover/server && go test ./prover/provingkeys ./prover/common ./prover/fingerprint)
-npm run check --workspace @heliuslabs/zolana
+npm run check --workspace @heliuslabs/spr
 ```

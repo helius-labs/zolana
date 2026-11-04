@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 
-import { SOL_MINT, type ZolanaClientConfig } from "@heliuslabs/zolana";
-import { atSlot, type ZolanaClient } from "@heliuslabs/zolana/client";
+import { SOL_MINT, type ZolanaClientConfig } from "@heliuslabs/spr";
+import { atSlot, type ZolanaClient } from "@heliuslabs/spr/client";
 import {
   encodeTransactInstructionData,
   transactCpiAccounts,
   type TransactInstructionData,
-} from "@heliuslabs/zolana/interface";
+} from "@heliuslabs/spr/interface";
 import {
   ShieldedKeypair,
   SigningKey,
@@ -14,7 +14,7 @@ import {
   bytes64,
   type ViewingKey,
   type X25519PublicKey,
-} from "@heliuslabs/zolana/keypair";
+} from "@heliuslabs/spr/keypair";
 import {
   EncryptedScheme,
   LocalShieldedKeys,
@@ -28,7 +28,7 @@ import {
   type AssetRegistry,
   type IndexedShieldedTransaction,
   type ProgramWalletUtxo,
-} from "@heliuslabs/zolana/transaction";
+} from "@heliuslabs/spr/transaction";
 import {
   AccountRole,
   address,

@@ -1,6 +1,6 @@
-# @heliuslabs/zolana
+# @heliuslabs/spr
 
-`@heliuslabs/zolana` is the TypeScript SDK for Solana Privacy Rings.
+`@heliuslabs/spr` is the TypeScript SDK for Solana Privacy Rings.
 Solana Privacy Rings are a programmable shielded pool with encrypted onchain balances and execution directly on Solana.
 
 Use it for:
@@ -15,7 +15,7 @@ All private transactions are executed in a single Solana transaction.
 ## Install
 
 ```sh
-npm install @heliuslabs/zolana@alpha @solana/kit
+npm install @heliuslabs/spr@alpha @solana/kit
 ```
 
 Requirements:
@@ -50,7 +50,7 @@ import {
   getPrivateTransactions,
   syncWallet,
   type Bytes32,
-} from "@heliuslabs/zolana";
+} from "@heliuslabs/spr";
 
 const client = await createZolanaClient({});
 
@@ -118,7 +118,7 @@ proving (`ProofAuthority`: `prove`, `proveMerge`). Methods return derived values
 not long-lived secrets, and accept batches so an enclave or hardware wallet can
 answer each phase in one round trip. `LocalKeys` provides both roles for keys
 held in-process; `LocalKeys.fromDerivationSeed` verifies the wallet signature over
-`ed25519DerivationMessage(publicKey)` from `@heliuslabs/zolana/keypair`, where
+`ed25519DerivationMessage(publicKey)` from `@heliuslabs/spr/keypair`, where
 `publicKey` is the wallet's 32-byte Ed25519 public key. The wallet must sign these
 exact off-chain message v0 bytes; signing only `TSPP/derive/v1` or using another
 envelope is rejected. A wallet unable to sign these bytes is unsupported for this
@@ -158,7 +158,7 @@ examples; the SDK embeds no prover URLs. It pins who signs each network's
 prover policy, so a client follows new prover releases without an SDK release:
 
 ```ts
-import { SignedTeePolicy, ZolanaClient } from "@heliuslabs/zolana/client";
+import { SignedTeePolicy, ZolanaClient } from "@heliuslabs/spr/client";
 
 const client = new ZolanaClient({
   solanaRpcUrl: rpcUrl,
@@ -275,7 +275,7 @@ Passing a `ShieldedAddress` skips the lookup.
 address to a shielded address is a separate signed transaction.
 
 ```ts
-import { buildRegistrationTransaction } from "@heliuslabs/zolana";
+import { buildRegistrationTransaction } from "@heliuslabs/spr";
 
 const registration = await buildRegistrationTransaction({
   client,
@@ -310,7 +310,7 @@ address in the onchain registry. If it is not registered, the call fails with
 `buildWithdrawalTransaction` for a public recipient.
 
 ```ts
-import { buildTransferTransaction } from "@heliuslabs/zolana";
+import { buildTransferTransaction } from "@heliuslabs/spr";
 
 declare const recipientSolanaAddress: Address;
 
@@ -336,7 +336,7 @@ application fee. The approval handler sees a `multiTransfer` intent that lists
 the payments in order.
 
 ```ts
-import { buildMultiTransferTransaction } from "@heliuslabs/zolana";
+import { buildMultiTransferTransaction } from "@heliuslabs/spr";
 
 const transfer = await buildMultiTransferTransaction({
   client,
@@ -359,7 +359,7 @@ balance is merged.
 Withdraw to a public Solana address:
 
 ```ts
-import { buildWithdrawalTransaction } from "@heliuslabs/zolana";
+import { buildWithdrawalTransaction } from "@heliuslabs/spr";
 
 const withdrawal = await buildWithdrawalTransaction({
   client,
@@ -439,7 +439,7 @@ import {
   syncPersistedWallet,
   walletSnapshotCipher,
   type WalletStateStore,
-} from "@heliuslabs/zolana";
+} from "@heliuslabs/spr";
 
 declare const storage: { get(): Promise<string | undefined>; set(v: string): Promise<void> };
 
@@ -471,7 +471,7 @@ saves the current format.
 
 ## Public API
 
-Common exports from `@heliuslabs/zolana` include:
+Common exports from `@heliuslabs/spr` include:
 
 - setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`, `LocalKeys`.
 - transactions: `buildDepositTransaction`, `buildTransferTransaction`,
@@ -484,9 +484,9 @@ Common exports from `@heliuslabs/zolana` include:
 - registration: `buildRegistrationTransaction`, `buildKeyUpdateTransaction`.
 
 Advanced protocol users can import low-level instruction builders from
-`@heliuslabs/zolana/instructions`. PDA helpers are available from
-`@heliuslabs/zolana/addresses`; additional typed surfaces are exposed under
-`@heliuslabs/zolana/client`, `/interface`, `/keypair`, `/transaction`, and
+`@heliuslabs/spr/instructions`. PDA helpers are available from
+`@heliuslabs/spr/addresses`; additional typed surfaces are exposed under
+`@heliuslabs/spr/client`, `/interface`, `/keypair`, `/transaction`, and
 `/wallet`.
 
 ## API reference

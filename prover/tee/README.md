@@ -155,7 +155,7 @@ prover.attest()?;
 In TypeScript:
 
 ```ts
-import { ZolanaClient, teePolicyFromJson } from "@heliuslabs/zolana/client";
+import { ZolanaClient, teePolicyFromJson } from "@heliuslabs/spr/client";
 import policyFile from "./prover-policy.json" with { type: "json" };
 
 const client = new ZolanaClient({

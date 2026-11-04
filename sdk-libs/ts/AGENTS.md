@@ -1,4 +1,4 @@
-# Architecture and Security Contract for the `@heliuslabs/zolana` TS SDK
+# Architecture and Security Contract for the `@heliuslabs/spr` TS SDK
 
 This contract is binding for every change under `sdk-libs/ts`. Its normative
 terms are literal requirements. Preserve system invariants, not merely passing

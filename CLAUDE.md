@@ -649,7 +649,7 @@ commitment.
 
 ## Releasing The TypeScript SDK
 
-`@heliuslabs/zolana` publishes manually with `npm publish` from `sdk-libs/ts`
+`@heliuslabs/spr` publishes manually with `npm publish` from `sdk-libs/ts`
 and documents through the `ts-sdk-v<version>` tag workflow. Every
 published-surface change updates `sdk-libs/ts/CHANGELOG.md` in the same
 branch, written under `sdk-libs/ts/CHANGELOG-RULES.md`. `prepublishOnly`

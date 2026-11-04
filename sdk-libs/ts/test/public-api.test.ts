@@ -595,7 +595,7 @@ describe("address and instruction builders", () => {
 });
 
 describe("ZK program transaction surface", () => {
-  it("exports the program adapters through @heliuslabs/zolana/transaction only", async () => {
+  it("exports the program adapters through @heliuslabs/spr/transaction only", async () => {
     const [transaction, root] = await Promise.all([
       import("../src/transaction/index.js"),
       import("../src/index.js"),
@@ -612,7 +612,7 @@ describe("ZK program transaction surface", () => {
 });
 
 describe("relayed decryption surface", () => {
-  it("exports the plaintext decoders through @heliuslabs/zolana/transaction", async () => {
+  it("exports the plaintext decoders through @heliuslabs/spr/transaction", async () => {
     // `syncWallet` decrypts and decodes in one step and needs the viewing key in
     // this process. A client whose viewing key is held remotely -- an enclave,
     // an HSM -- gets plaintext back and still has to read it, so the decoders
