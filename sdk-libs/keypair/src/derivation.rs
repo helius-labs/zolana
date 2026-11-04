@@ -10,6 +10,7 @@
 
 use hkdf::Hkdf;
 use sha2::Sha256;
+use solana_address::Address;
 use zeroize::Zeroizing;
 
 use crate::{
@@ -25,6 +26,8 @@ pub(crate) const DST_X25519_VIEW_ROOT: &[u8] = b"TSPP/view_root/x25519/v1";
 
 pub(crate) const DST_X25519_PDA_ROOT: &[u8] = b"TSPP/pda_root/x25519/v1";
 
+pub(crate) const DST_RING_NF_ROOT: &[u8] = b"TSPP/ring_nf_root/v1";
+
 pub const INFO_NF_KEY_ED25519: &[u8] = b"TSPP/nf_key/ed25519/v1";
 
 pub const INFO_VIEW_KEY_ED25519_X25519: &[u8] = b"TSPP/view_key/ed25519/x25519/v1";
@@ -32,6 +35,8 @@ pub const INFO_VIEW_KEY_ED25519_X25519: &[u8] = b"TSPP/view_key/ed25519/x25519/v
 pub const INFO_PDA_NF_KEY: &[u8] = b"TSPP/pda_nf/v1";
 
 pub const INFO_PDA_VIEW_KEY: &[u8] = b"TSPP/pda_view/v1";
+
+pub const INFO_RING_NF_KEY: &[u8] = b"TSPP/ring_nf/v1";
 
 /// Payload of the off-chain message an ed25519 owner signs (RFC 8032,
 /// deterministic) to obtain the derivation seed, the root of the ed25519
@@ -223,6 +228,28 @@ pub fn expand_roles(seed: &[u8], curve: Curve) -> Result<(NullifierKey, ViewingK
     Ok((expansion.nullifier_key()?, expansion.viewing_key()?))
 }
 
+/// One way, a ring auditor reaches neither the root nor another ring.
+pub fn ring_nullifier_key(
+    root: &NullifierKey,
+    ring_program_id: &Address,
+) -> Result<NullifierKey, KeypairError> {
+    let root = root.secret();
+    // A zero root has a public ring key.
+    if root.iter().fold(0, |seen, byte| seen | byte) == 0 {
+        return Err(KeypairError::ZeroNullifierSecret);
+    }
+    expand_ring_nullifier_key(
+        root.as_slice(),
+        &[INFO_RING_NF_KEY, ring_program_id.as_ref()],
+    )
+}
+
+fn expand_ring_nullifier_key(root: &[u8], info: &[&[u8]]) -> Result<NullifierKey, KeypairError> {
+    let mut secret = Zeroizing::new([0u8; BLINDING_LEN]);
+    hkdf_expand(Some(DST_RING_NF_ROOT), root, info, secret.as_mut_slice())?;
+    Ok(NullifierKey::from_zeroizing_secret(secret))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Rail {
     Ed25519,
@@ -294,6 +321,7 @@ impl RoleExpansion {
 /// Expands a holder secret or shared ECDH seed into PDA-bound roles.
 /// The dedicated salt separates viewing roots and the PDA in each Expand
 /// prevents reusing one identity across different program addresses.
+#[derive(Clone)]
 pub(crate) struct PdaRoleExpansion {
     prk: Zeroizing<[u8; 32]>,
     pda: [u8; 32],
@@ -325,5 +353,16 @@ impl PdaRoleExpansion {
             okm.as_mut_slice(),
         )?;
         Ok(ViewingKey::from_bytes(&okm))
+    }
+
+    /// The PDA in the info keeps two PDAs of one holder from sharing a published ring key.
+    pub(crate) fn ring_nullifier_key(
+        &self,
+        ring_program_id: &Address,
+    ) -> Result<NullifierKey, KeypairError> {
+        expand_ring_nullifier_key(
+            self.prk.as_slice(),
+            &[INFO_RING_NF_KEY, ring_program_id.as_ref(), &self.pda],
+        )
     }
 }

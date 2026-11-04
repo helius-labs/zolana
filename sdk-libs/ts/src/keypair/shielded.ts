@@ -15,7 +15,7 @@ import {
   copyBytes,
 } from "./bytes.js";
 import { X25519_PUBLIC_KEY_LENGTH } from "./constants.js";
-import { type RoleSecrets, roleExpansion } from "./derivation.js";
+import { type RoleSecrets, ringNullifierKey, roleExpansion } from "./derivation.js";
 import { KeypairError } from "./error.js";
 import { ownerHash } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
@@ -178,6 +178,8 @@ export interface ShieldedKeypairLike {
   nullifierPublicKey(): Bytes32 | Promise<Bytes32>;
   /** An owned copy for proof completion; the recipient must destroy it. */
   nullifierKey(): NullifierKey | Promise<NullifierKey>;
+  /** An owned copy, a PDA's differs from the wallet form over its nullifier secret. */
+  ringNullifierKey(ringProgramId: Address): NullifierKey | Promise<NullifierKey>;
 }
 
 /**
@@ -284,6 +286,10 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
 
   nullifierKey(): NullifierKey {
     return this.#nullifier.clone();
+  }
+
+  ringNullifierKey(ringProgramId: Address): NullifierKey {
+    return ringNullifierKey(this.#nullifier, ringProgramId);
   }
 
   curve(): SignatureType {

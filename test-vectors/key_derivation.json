@@ -358,5 +358,69 @@
         }
       ]
     }
-  ]
+  ],
+  "ring_nullifier": {
+    "wallet": [
+      {
+        "root_secret": "f172e55a6d39bf1602b0ef9d7276882b68c84dea44867b491091056e36cea1",
+        "ring_program_id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "ring_secret": "c82c60fd641271536147f6cc1cbb7bbf32635efe5f1220326e089501912080",
+        "ring_nullifier_pubkey": "0d763c5393a9530c05fef2e18f83ca780c48b25236a2dea61a2b1b3e1b065f21"
+      },
+      {
+        "root_secret": "f172e55a6d39bf1602b0ef9d7276882b68c84dea44867b491091056e36cea1",
+        "ring_program_id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "ring_secret": "de74e0caed3265c0f9fb79f306ce4e21e3cc333b506084b948808915bd1f03",
+        "ring_nullifier_pubkey": "0560efdc62ed9ca30c914e8ec53b80e6f5d53492bf907f309e56a704803ef4a7"
+      },
+      {
+        "root_secret": "2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a",
+        "ring_program_id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "ring_secret": "a3926e2e0635f768fd47aefefff4caa4325ccb25dc89be91351476587d9df2",
+        "ring_nullifier_pubkey": "1b1cc773e4953e8504778af4ca2cdb4b774f9cee5e0c7d6025a5d9e03f7066d5"
+      }
+    ],
+    "pda": [
+      {
+        "holder_viewing_secret": "0005050505050505050505050505050505050505050505050505050505050545",
+        "counterparty_viewing_pubkey": null,
+        "pda": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "nullifier_secret": "0d688e2343957cd31dbf04fc5535892d1fb7c74f5a827c415ff16356aa6ad8",
+        "viewing_secret": "88a64a76bc2e553a4f2f1ada74eb0e9178570374b52e70f6f46a49c8248b3d71",
+        "ring_program_id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "ring_secret": "1b698641e4678326494787acca4137997186ca63a7a50323dac7d67481e96d",
+        "ring_nullifier_pubkey": "0b5008a879754e28db98fdae01ba00948e88a0dc2c33066f649ee1dd8d8ae41d"
+      },
+      {
+        "holder_viewing_secret": "0005050505050505050505050505050505050505050505050505050505050545",
+        "counterparty_viewing_pubkey": null,
+        "pda": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+        "nullifier_secret": "435a9bfed6737f91ff42bb89a2204fc54b194fc8f4d1ea204296b60c7c1179",
+        "viewing_secret": "207170cf93c0b59c46e0a242985023a32ee309d09b1d73afc427a9aec680a944",
+        "ring_program_id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "ring_secret": "2fb5f4021bf55eafce80dd102b0227f0c289cd7ad47ce61094fc395fc8e75c",
+        "ring_nullifier_pubkey": "1ba81fd04e24342fce79e97e8380da130c41df9ad219bed694ef8692648c2933"
+      },
+      {
+        "holder_viewing_secret": "0005050505050505050505050505050505050505050505050505050505050545",
+        "counterparty_viewing_pubkey": null,
+        "pda": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "nullifier_secret": "0d688e2343957cd31dbf04fc5535892d1fb7c74f5a827c415ff16356aa6ad8",
+        "viewing_secret": "88a64a76bc2e553a4f2f1ada74eb0e9178570374b52e70f6f46a49c8248b3d71",
+        "ring_program_id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "ring_secret": "f271185c9f90990c1ca7f0b9501e960f5769943f9e115e82f25eecb74d4346",
+        "ring_nullifier_pubkey": "06a35b2da1d21f329ce55eb93ee6280fa2b2d4c6812e4021e999a2af51e9b0e7"
+      },
+      {
+        "holder_viewing_secret": "0005050505050505050505050505050505050505050505050505050505050545",
+        "counterparty_viewing_pubkey": "04f5b2d6e60f9477e310c2982daaa6c9136c108a1777c5947e448fa37d68174557",
+        "pda": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "nullifier_secret": "b35c47a1aeb83d7711401468465f8a246f646bfd57c3cfe5bad6149af80527",
+        "viewing_secret": "185f09721cb9ab7e1e785182449b6818cac1be1b64707630c0401a5916a75273",
+        "ring_program_id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "ring_secret": "a8e61b9d002a7b174109413a3259f228df980c28b219f098a67732c3975124",
+        "ring_nullifier_pubkey": "2642b1eb83a1604917052ded1684ce9d5ed342ca4b8b24d371cbfc898a583ac8"
+      }
+    ]
+  }
 }

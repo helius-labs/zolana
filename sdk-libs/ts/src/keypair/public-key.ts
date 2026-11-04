@@ -11,7 +11,7 @@ export type ViewTag = Bytes32;
 
 const addressEncoder = getAddressEncoder();
 
-function pdaBytes(address: Bytes32 | Address): Bytes32 {
+export function pdaBytes(address: Bytes32 | Address): Bytes32 {
   if (typeof address !== "string") return checkedBytes<Bytes32>(address, 32, "PDA address");
   try {
     return checkedBytes<Bytes32>(new Uint8Array(addressEncoder.encode(address)), 32, "PDA address");
