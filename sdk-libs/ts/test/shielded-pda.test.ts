@@ -1,13 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  ShieldedKeypair,
-  ShieldedPda,
-  ShieldedPublicKey,
-  bytes16,
-  bytes32,
-} from "../src/keypair/index.js";
-import { ProgramOwner } from "../src/transaction/index.js";
+import { ShieldedKeypair, ShieldedPublicKey, bytes16, bytes32 } from "../src/keypair/index.js";
+import { ShieldedPda, ProgramOwner } from "../src/program/index.js";
 
 const PDA = bytes32(new Uint8Array(32).fill(8));
 

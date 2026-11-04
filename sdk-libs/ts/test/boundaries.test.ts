@@ -27,6 +27,7 @@ const ALLOWED: Readonly<Record<string, readonly string[]>> = {
     "services",
     "transaction",
   ],
+  program: ["hasher", "interface", "keypair", "transaction"],
   wallet: ["client", "errors", "flows", "hasher", "interface", "keypair", "transaction"],
 };
 

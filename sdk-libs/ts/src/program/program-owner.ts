@@ -1,17 +1,19 @@
 import { getProgramDerivedAddress, type Address, type ReadonlyUint8Array } from "@solana/kit";
 
-import { type Bytes32, bytes31, bytes32 } from "../../keypair/bytes.js";
-import { BLINDING_LENGTH } from "../../keypair/constants.js";
-import { ownerHash } from "../../keypair/hash.js";
-import { NullifierKey } from "../../keypair/nullifier-key.js";
-import { ShieldedPublicKey } from "../../keypair/public-key.js";
-import { ShieldedAddress } from "../../keypair/shielded.js";
-import { type X25519PublicKey } from "../../keypair/x25519.js";
+import { type Bytes32, bytes31, bytes32 } from "../keypair/bytes.js";
+import { BLINDING_LENGTH } from "../keypair/constants.js";
+import { ownerHash } from "../keypair/hash.js";
+import { NullifierKey } from "../keypair/nullifier-key.js";
+import { ShieldedPublicKey } from "../keypair/public-key.js";
+import { ShieldedAddress } from "../keypair/shielded.js";
+import { type X25519PublicKey } from "../keypair/x25519.js";
 
-import { TransactionError } from "../error.js";
+import { TransactionError } from "../transaction/error.js";
 
+/** @experimental */
 export type ProgramOwnerSeed = string | ReadonlyUint8Array;
 
+/** @experimental */
 export class ProgramOwner {
   readonly pda: Address;
   readonly #publicKey: ShieldedPublicKey;

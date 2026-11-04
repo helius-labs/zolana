@@ -1,29 +1,29 @@
-import { bytesToBigInt, equalBytes } from "../../interface/bytes.js";
-import { wireDecoder } from "../../interface/decode.js";
-import { BN254_SCALAR_ORDER } from "../../hasher/index.js";
-import { splInterfaceWithBump, treeAddress } from "../../interface/pda/index.js";
-import type { Address, Bytes32, OwnerTag } from "../../interface/types.js";
-import { randomBytes, type Bytes34 } from "../../keypair/bytes.js";
-import { SHIELDED_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
-import { ShieldedPublicKey } from "../../keypair/public-key.js";
+import { bytesToBigInt, equalBytes } from "../interface/bytes.js";
+import { wireDecoder } from "../interface/decode.js";
+import { BN254_SCALAR_ORDER } from "../hasher/index.js";
+import { splInterfaceWithBump, treeAddress } from "../interface/pda/index.js";
+import type { Address, Bytes32, OwnerTag } from "../interface/types.js";
+import { randomBytes, type Bytes34 } from "../keypair/bytes.js";
+import { SHIELDED_PUBLIC_KEY_LENGTH } from "../keypair/constants.js";
+import { ShieldedPublicKey } from "../keypair/public-key.js";
 import {
   SHIELDED_ADDRESS_LENGTH,
   ShieldedAddress,
   type ViewingKeyLike,
-} from "../../keypair/shielded.js";
-import type { ViewingKey } from "../../keypair/viewing-key.js";
+} from "../keypair/shielded.js";
+import type { ViewingKey } from "../keypair/viewing-key.js";
 
-import { AssetRegistry, Mint } from "../asset.js";
-import { Data, type DataRecord } from "../data.js";
-import { TransactionError } from "../error.js";
+import { AssetRegistry, Mint } from "../transaction/asset.js";
+import { Data, type DataRecord } from "../transaction/data.js";
+import { TransactionError } from "../transaction/error.js";
 import {
   SppProofInputs,
   createExternalData,
   dummyCiphertextLength,
   type ExternalData,
   type SettlementTransfer,
-} from "../instructions/transact.js";
-import { U64_MAX, checked, copy, decodeAddress } from "../internal.js";
+} from "../transaction/instructions/transact.js";
+import { U64_MAX, checked, copy, decodeAddress } from "../transaction/internal.js";
 import {
   ProofInputUtxo,
   Utxo,
@@ -31,24 +31,28 @@ import {
   createProofOutput,
   type ProofOutputUtxo,
   type TreeId,
-} from "../utxo.js";
-import { encryptConfidentialTransfer } from "./encrypt-rails.js";
-import type { WalletUtxo } from "./state.js";
+} from "../transaction/utxo.js";
+import { encryptConfidentialTransfer } from "../transaction/wallet/encrypt-rails.js";
+import type { WalletUtxo } from "../transaction/wallet/state.js";
 
+/** @experimental */
 export interface ProgramMint {
   readonly asset: string;
   readonly assetId: bigint;
 }
 
+/** @experimental */
 export type ProgramDataRecord =
   | Readonly<{ kind: "ringData"; bytes: Uint8Array }>
   | Readonly<{ kind: "utxoData"; bytes: Uint8Array }>
   | Readonly<{ kind: "memo"; bytes: Uint8Array }>;
 
+/** @experimental */
 export interface ProgramData {
   readonly records: ProgramDataRecord[];
 }
 
+/** @experimental */
 export interface ProgramUtxo {
   readonly owner: Uint8Array;
   readonly asset: ProgramMint;
@@ -58,6 +62,7 @@ export interface ProgramUtxo {
   readonly data?: ProgramData;
 }
 
+/** @experimental */
 export interface ProgramProofInputUtxo {
   readonly utxo: ProgramUtxo;
   readonly nullifierPubkey: Uint8Array;
@@ -72,6 +77,7 @@ export interface ProgramProofInputUtxo {
   readonly compact?: boolean;
 }
 
+/** @experimental */
 export interface ProgramProofOutputUtxo {
   readonly asset: ProgramMint;
   readonly amount: bigint;
@@ -86,15 +92,18 @@ export interface ProgramProofOutputUtxo {
   readonly compact?: boolean;
 }
 
+/** @experimental */
 export type ProgramOwnerTag =
   | Readonly<{ kind: "inline"; value: Uint8Array }>
   | Readonly<{ kind: "account"; index: number }>;
 
+/** @experimental */
 export interface ProgramResolvedOwnerTag {
   readonly tag: ProgramOwnerTag;
   readonly resolved: Uint8Array;
 }
 
+/** @experimental */
 export type ProgramSettlementTransfer =
   | Readonly<{ kind: "sol"; isDeposit: boolean; amount: bigint; userSolAccount: string }>
   | Readonly<{
@@ -105,6 +114,7 @@ export type ProgramSettlementTransfer =
       userSplToken: string;
     }>;
 
+/** @experimental */
 export interface ProgramFinalizedTransaction {
   readonly inputUtxos: ProgramProofInputUtxo[];
   readonly outputUtxos: ProgramProofOutputUtxo[];
@@ -120,6 +130,7 @@ export interface ProgramFinalizedTransaction {
   readonly sender: Uint8Array;
 }
 
+/** @experimental */
 export interface ProgramWalletUtxo {
   readonly utxo: ProgramUtxo;
   readonly nullifierPubkey: Uint8Array;
@@ -135,6 +146,7 @@ export interface ProgramWalletUtxo {
   readonly slotIndex?: number;
 }
 
+/** @experimental */
 export interface DecodedProgramTransaction {
   readonly sender: ShieldedAddress;
   readonly payer: Address;
@@ -154,15 +166,21 @@ export interface DecodedProgramTransaction {
   encryptWithKeys(keys: ProgramTransactionKeys, options?: ProgramEncryptOptions): SppProofInputs;
 }
 
+/** @experimental */
 export type ProgramEncryptOptions = Readonly<{ expiryUnixTs?: bigint }>;
 
-/** A generated circuit assignment and its validated, typed SPP transaction. */
+/**
+ * A generated circuit assignment and its validated, typed SPP transaction.
+ *
+ * @experimental
+ */
 export interface ProgramTransaction {
   readonly proofInputs: Uint8Array;
   readonly publicHash: Bytes32;
   readonly transaction: DecodedProgramTransaction;
 }
 
+/** @experimental */
 export type ProgramTransactionKeys = Pick<ViewingKeyLike, "publicKey" | "transactionViewingKey">;
 
 interface ResolvedTag {
@@ -221,6 +239,8 @@ const decoder = wireDecoder(invalid);
  * registry. Input types are inferred from the generated function; each call
  * validates its wasm result and returns an SDK transaction ready for encryption.
  * Bind again after registering additional assets.
+ *
+ * @experimental
  */
 export function bindProgramTransaction<Input>(
   build: (inputs: Input, sender: Uint8Array, payer: string) => unknown,
@@ -259,6 +279,7 @@ export function bindProgramTransaction<Input>(
   };
 }
 
+/** @experimental */
 export async function decodeProgramTransaction(
   value: unknown,
   assets: AssetRegistry,
@@ -389,6 +410,7 @@ export async function decodeProgramTransaction(
   });
 }
 
+/** @experimental */
 export function toProgramWalletUtxo(
   utxo: WalletUtxo,
   input: Readonly<{ nullifierPublicKey: Bytes32; treeId: TreeId; assets: AssetRegistry }>,

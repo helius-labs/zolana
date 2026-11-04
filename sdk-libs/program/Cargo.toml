@@ -24,6 +24,7 @@ thiserror = { workspace = true, optional = true }
 tsify = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 wincode = { workspace = true }
+zeroize = { workspace = true, optional = true }
 spr-hasher = { workspace = true }
 spr-instruction = { workspace = true }
 spr-interface = { workspace = true }
@@ -42,13 +43,16 @@ cpi = ["spr-instruction/cpi"]
 # Compressed accounts for pinocchio programs: program state kept as SPP UTXOs,
 # the tree and nullifier PDA checks of a read, and their transact CPI.
 compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:spr-tree", "dep:thiserror"]
+# Experimental: `ShieldedPda`, a shielded identity owned by a program-derived
+# address. Needs `std`, since it links `spr-keypair`.
+shielded-pda = ["dep:spr-keypair", "dep:zeroize"]
 circuit = [
     "dep:ark-bn254",
     "dep:ark-ff",
     "dep:borsh",
     "dep:solana-signature",
     "dep:thiserror",
-    "dep:spr-keypair",
+    "shielded-pda",
     "dep:spr-macros",
     "dep:spr-transaction",
     "dep:spr-zk-gadgets",
@@ -117,6 +121,10 @@ spr-event = { workspace = true }
 spr-keypair = { workspace = true }
 spr-transaction = { workspace = true }
 spr-tree = { workspace = true }
+
+[[test]]
+name = "shielded_pda"
+required-features = ["shielded-pda"]
 
 [[test]]
 name = "owner_records"

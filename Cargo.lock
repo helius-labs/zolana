@@ -10577,6 +10577,7 @@ dependencies = [
  "wasm-bindgen",
  "wasmer",
  "wincode",
+ "zeroize",
 ]
 
 [[package]]

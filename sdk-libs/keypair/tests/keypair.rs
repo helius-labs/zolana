@@ -175,22 +175,7 @@ fn encrypted_slots_are_unique_and_recipient_bound() {
 }
 
 #[test]
-fn pda_identities_derive_from_the_viewing_key_exchange() {
-    let mut world = KeypairWorld::default();
-    cases::common::random_viewing_key(&mut world, "alice".into());
-    cases::common::random_viewing_key(&mut world, "bob".into());
-    cases::pda::both_parties_derive_the_same_identity(&mut world, "alice".into(), "bob".into());
-    cases::pda::pda_binding_separates_identities(&mut world, "alice".into(), "bob".into());
-    cases::pda::sole_holder_identity(&mut world, "alice".into(), "bob".into());
-    cases::pda::from_viewing_key_is_deterministic_and_distinct(
-        &mut world,
-        "alice".into(),
-        "bob".into(),
-    );
-    cases::pda::pda_cannot_sign(&mut world, "alice".into());
-    cases::pda::from_parts_holds_supplied_roles(&mut world, "alice".into());
-    cases::pda::encrypted_slot_round_trips_to_the_pda(&mut world, "alice".into(), "bob".into());
-    cases::pda::solana_address_returns_the_pda(&mut world, "alice".into());
+fn pda_public_keys_are_tagged_not_hashed() {
     cases::pda::owner_tag_is_not_hashed();
     cases::pda::pda_public_key_encoding_round_trips();
 }

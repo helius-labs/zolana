@@ -294,20 +294,20 @@ impl RoleExpansion {
 /// Expands a holder secret or shared ECDH seed into PDA-bound roles.
 /// The dedicated salt separates viewing roots and the PDA in each Expand
 /// prevents reusing one identity across different program addresses.
-pub(crate) struct PdaRoleExpansion {
+pub struct PdaRoleExpansion {
     prk: Zeroizing<[u8; 32]>,
     pda: [u8; 32],
 }
 
 impl PdaRoleExpansion {
-    pub(crate) fn new(seed: &[u8; 32], pda: [u8; 32]) -> Self {
+    pub fn new(seed: &[u8; 32], pda: [u8; 32]) -> Self {
         let (prk, _) = Hkdf::<Sha256>::extract(Some(DST_X25519_PDA_ROOT), seed);
         let mut bytes = Zeroizing::new([0u8; 32]);
         bytes.copy_from_slice(&prk);
         Self { prk: bytes, pda }
     }
 
-    pub(crate) fn nullifier_key(&self) -> Result<NullifierKey, KeypairError> {
+    pub fn nullifier_key(&self) -> Result<NullifierKey, KeypairError> {
         let mut secret = Zeroizing::new([0u8; BLINDING_LEN]);
         hkdf_expand_prk(
             self.prk.as_slice(),
@@ -317,7 +317,7 @@ impl PdaRoleExpansion {
         Ok(NullifierKey::from_zeroizing_secret(secret))
     }
 
-    pub(crate) fn viewing_key(&self) -> Result<ViewingKey, KeypairError> {
+    pub fn viewing_key(&self) -> Result<ViewingKey, KeypairError> {
         let mut okm = Zeroizing::new([0u8; 32]);
         hkdf_expand_prk(
             self.prk.as_slice(),
