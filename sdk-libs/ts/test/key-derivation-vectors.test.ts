@@ -123,6 +123,13 @@ type KeyDerivationVectors = Readonly<{
       ring_secret: string;
       ring_nullifier_pubkey: string;
     }>[];
+    supplied_pda: readonly Readonly<{
+      supplied_secret: string;
+      pda: string;
+      ring_program_id: string;
+      ring_secret: string;
+      ring_nullifier_pubkey: string;
+    }>[];
   }>;
 }>;
 
@@ -276,6 +283,19 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
             );
       expect(hex(identity.nullifierKey().secretBytes())).toBe(section.nullifier_secret);
       expect(hex(identity.viewingKey().secretBytes())).toBe(section.viewing_secret);
+      const key = identity.ringNullifierKey(addressOf(section.ring_program_id));
+      expect(hex(key.secretBytes())).toBe(section.ring_secret);
+      expect(hex(key.publicKey())).toBe(section.ring_nullifier_pubkey);
+    }
+  });
+
+  it("derives one ring nullifier key per supplied PDA and ring", () => {
+    for (const section of vectors.ring_nullifier.supplied_pda) {
+      const identity = ShieldedPda.withViewingKey(
+        bytes(section.pda) as Bytes32,
+        NullifierKey.fromSecret(bytes(section.supplied_secret) as Bytes31),
+        ViewingKey.generate(),
+      );
       const key = identity.ringNullifierKey(addressOf(section.ring_program_id));
       expect(hex(key.secretBytes())).toBe(section.ring_secret);
       expect(hex(key.publicKey())).toBe(section.ring_nullifier_pubkey);

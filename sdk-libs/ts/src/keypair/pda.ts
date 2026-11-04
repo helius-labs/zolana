@@ -1,7 +1,13 @@
 import type { Address } from "@solana/kit";
 
 import { bytes32, type Bytes32, type Bytes64 } from "./bytes.js";
-import { type PdaExpansion, pdaRingNullifierKey, pdaRoleExpansion, pdaRoot } from "./derivation.js";
+import {
+  expandRingNullifierKey,
+  pdaRingInfo,
+  pdaRoleExpansion,
+  pdaRoot,
+  ringNullifierKeyOverSecret,
+} from "./derivation.js";
 import { KeypairError } from "./error.js";
 import { ownerHash } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
@@ -20,18 +26,21 @@ export class ShieldedPda implements ShieldedKeypairLike, ViewingKeyLike {
   readonly #signing: ShieldedPublicKey;
   readonly #nullifier: NullifierKey;
   readonly #viewing: ViewingKey;
-  #expansion: PdaExpansion | undefined;
+  readonly #pda: Bytes32;
+  #root: Uint8Array | undefined;
 
   private constructor(
     signing: ShieldedPublicKey,
     nullifier: NullifierKey,
     viewing: ViewingKey,
-    expansion?: PdaExpansion,
+    pda: Bytes32,
+    root?: Uint8Array,
   ) {
     this.#signing = signing;
     this.#nullifier = nullifier;
     this.#viewing = viewing;
-    this.#expansion = expansion;
+    this.#pda = pda;
+    this.#root = root;
   }
 
   /** Both holders reach one identity, a sole holder passes its own viewing public key. */
@@ -54,15 +63,15 @@ export class ShieldedPda implements ShieldedKeypairLike, ViewingKeyLike {
     seed.fill(0);
     try {
       const pdaKey = pdaBytes(pda);
-      const expansion = Object.freeze({ root, pda: pdaKey });
       return pdaRoleExpansion(
-        expansion,
+        { root, pda: pdaKey },
         (roles) =>
           new ShieldedPda(
             ShieldedPublicKey.fromPda(pdaKey),
             NullifierKey.fromSecret(roles.nullifierSecret),
             ViewingKey.fromBytes(roles.viewingSecret),
-            expansion,
+            pdaKey,
+            root,
           ),
       );
     } catch (cause) {
@@ -89,7 +98,7 @@ export class ShieldedPda implements ShieldedKeypairLike, ViewingKeyLike {
       const signing = ShieldedPublicKey.fromPda(pda);
       nullifierKey.publicKey();
       viewingKey.publicKey();
-      return new ShieldedPda(signing, nullifierKey, viewingKey);
+      return new ShieldedPda(signing, nullifierKey, viewingKey, pdaBytes(pda));
     } catch (cause) {
       nullifierKey.destroy();
       viewingKey.destroy();
@@ -122,8 +131,10 @@ export class ShieldedPda implements ShieldedKeypairLike, ViewingKeyLike {
   }
 
   ringNullifierKey(ringProgramId: Address): NullifierKey {
-    if (this.#expansion === undefined) throw new KeypairError("KEYPAIR_PDA_ROOT_NOT_HELD");
-    return pdaRingNullifierKey(this.#expansion, ringProgramId);
+    const info = pdaRingInfo(ringProgramId, this.#pda);
+    return this.#root === undefined
+      ? ringNullifierKeyOverSecret(this.#nullifier, info)
+      : expandRingNullifierKey(this.#root, info);
   }
 
   shieldedAddress(): ShieldedAddress {
@@ -204,7 +215,7 @@ export class ShieldedPda implements ShieldedKeypairLike, ViewingKeyLike {
   destroy(): void {
     this.#nullifier.destroy();
     this.#viewing.destroy();
-    this.#expansion?.root.fill(0);
-    this.#expansion = undefined;
+    this.#root?.fill(0);
+    this.#root = undefined;
   }
 }
