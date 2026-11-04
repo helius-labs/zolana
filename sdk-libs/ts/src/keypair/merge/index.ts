@@ -71,17 +71,51 @@ export function symmetricApply(
   }
 }
 
-export function mergeOutputBlinding(nullifierKey: NullifierKey, firstNullifier: Bytes32): Bytes32 {
-  const secret = alignedNullifierSecret(nullifierKey);
-  try {
-    return poseidon([
-      fieldU32(DOMAIN_MERGE_OUTPUT_BLINDING_V1),
-      secret,
-      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
-    ]) as Bytes32;
-  } finally {
-    secret.fill(0);
+/**
+ * `seed` is the nullifier secret, or a private seed under the zero key, where
+ * secret zero would make every derivation public.
+ */
+export function seededMergeOutputBlinding(seed: Bytes32, firstNullifier: Bytes32): Bytes32 {
+  return poseidon([
+    fieldU32(DOMAIN_MERGE_OUTPUT_BLINDING_V1),
+    checkedBytes<Bytes32>(seed, 32, "merge seed"),
+    checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+  ]) as Bytes32;
+}
+
+export function seededMergeOutputKey(seed: Bytes32, firstNullifier: Bytes32): Bytes32 {
+  return poseidon([
+    fieldU32(DOMAIN_MERGE_OUTPUT_KEY),
+    checkedBytes<Bytes32>(seed, 32, "merge seed"),
+    checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+  ]) as Bytes32;
+}
+
+export function seededMergePrivateTxBlinding(seed: Bytes32, firstNullifier: Bytes32): Bytes32 {
+  return privateTxBlinding(
+    checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+    checkedBytes<Bytes32>(seed, 32, "merge seed"),
+  );
+}
+
+export function seededMergeDummyNullifier(
+  seed: Bytes32,
+  firstNullifier: Bytes32,
+  slotIndex: number,
+): Bytes32 {
+  if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > 0xff) {
+    throw new RangeError("merge dummy slot index must fit in u8");
   }
+  return poseidon([
+    fieldU32(DOMAIN_MERGE_DUMMY_NULLIFIER),
+    checkedBytes<Bytes32>(seed, 32, "merge seed"),
+    checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+    fieldU32(slotIndex),
+  ]) as Bytes32;
+}
+
+export function mergeOutputBlinding(nullifierKey: NullifierKey, firstNullifier: Bytes32): Bytes32 {
+  return withNullifierSeed(nullifierKey, (seed) => seededMergeOutputBlinding(seed, firstNullifier));
 }
 
 /**
@@ -90,16 +124,7 @@ export function mergeOutputBlinding(nullifierKey: NullifierKey, firstNullifier: 
  * two merges share a key. Mirrors Rust `merge_output_key`.
  */
 export function mergeOutputKey(nullifierKey: NullifierKey, firstNullifier: Bytes32): Bytes32 {
-  const secret = alignedNullifierSecret(nullifierKey);
-  try {
-    return poseidon([
-      fieldU32(DOMAIN_MERGE_OUTPUT_KEY),
-      secret,
-      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
-    ]) as Bytes32;
-  } finally {
-    secret.fill(0);
-  }
+  return withNullifierSeed(nullifierKey, (seed) => seededMergeOutputKey(seed, firstNullifier));
 }
 
 /** Field elements in a merge output ciphertext: the amount and two mint chunks. */
@@ -130,12 +155,9 @@ export function mergePrivateTxBlinding(
   nullifierKey: NullifierKey,
   firstNullifier: Bytes32,
 ): Bytes32 {
-  const secret = alignedNullifierSecret(nullifierKey);
-  try {
-    return privateTxBlinding(checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"), secret);
-  } finally {
-    secret.fill(0);
-  }
+  return withNullifierSeed(nullifierKey, (seed) =>
+    seededMergePrivateTxBlinding(seed, firstNullifier),
+  );
 }
 
 export function mergeDummyNullifier(
@@ -143,19 +165,20 @@ export function mergeDummyNullifier(
   firstNullifier: Bytes32,
   slotIndex: number,
 ): Bytes32 {
-  if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > 0xff) {
-    throw new RangeError("merge dummy slot index must fit in u8");
-  }
-  const secret = alignedNullifierSecret(nullifierKey);
+  return withNullifierSeed(nullifierKey, (seed) =>
+    seededMergeDummyNullifier(seed, firstNullifier, slotIndex),
+  );
+}
+
+function withNullifierSeed(
+  nullifierKey: NullifierKey,
+  derive: (seed: Bytes32) => Bytes32,
+): Bytes32 {
+  const seed = alignedNullifierSecret(nullifierKey);
   try {
-    return poseidon([
-      fieldU32(DOMAIN_MERGE_DUMMY_NULLIFIER),
-      secret,
-      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
-      fieldU32(slotIndex),
-    ]) as Bytes32;
+    return derive(seed);
   } finally {
-    secret.fill(0);
+    seed.fill(0);
   }
 }
 

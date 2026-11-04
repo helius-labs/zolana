@@ -76,6 +76,8 @@ export class SharedViewTags {
   }
 }
 
+export const INFO_MERGE_SEED = "CRING/mrg_seed/v1";
+
 export class ViewingKey implements ViewingKeyLike {
   #secret: Uint8Array;
   #viewRoot: Uint8Array | undefined;
@@ -275,6 +277,30 @@ export class ViewingKey implements ViewingKeyLike {
     this.#secret.fill(0);
     this.#viewRoot?.fill(0);
     this.#destroyed = true;
+  }
+
+  /**
+   * A field element by its zero top byte and nonzero by its low bit, both
+   * required by the circuit, and underivable by the note's sender.
+   */
+  mergeSeed(ringProgramId: Bytes32, firstNullifier: Bytes32): Bytes32 {
+    this.#assertUsable();
+    this.#viewRoot ??= viewRoot(this.#secret);
+    const info = new Uint8Array(INFO_MERGE_SEED.length + 64);
+    info.set(encoder.encode(INFO_MERGE_SEED));
+    info.set(checkedBytes<Bytes32>(ringProgramId, 32, "ring program id"), INFO_MERGE_SEED.length);
+    info.set(
+      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+      INFO_MERGE_SEED.length + 32,
+    );
+    try {
+      const seed = new Uint8Array(32);
+      seed.set(expand(sha256, this.#viewRoot, info, 31), 1);
+      seed[31] = (seed[31] as number) | 1;
+      return seed as Bytes32;
+    } catch (error) {
+      throw new KeypairError("KEYPAIR_HKDF", { name: INFO_MERGE_SEED }, error);
+    }
   }
 
   // Cache the role root on first use. Encryption does not need this root.

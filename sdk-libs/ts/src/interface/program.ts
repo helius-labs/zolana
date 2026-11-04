@@ -76,6 +76,7 @@ export const InstructionTag = Object.freeze({
   ringAuthorityTransact: 21,
   createCache: 22,
   closeCache: 23,
+  ringMergeV2: 24,
 } as const);
 export type InstructionTag = (typeof InstructionTag)[keyof typeof InstructionTag];
 

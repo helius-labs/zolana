@@ -1,5 +1,5 @@
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
-import { Merge, PreparedMerge } from "../transaction/instructions/builders.js";
+import { type MergeRail, Merge, PreparedMerge } from "../transaction/instructions/builders.js";
 import { deriveAnswers, wipeByteAnswers } from "../transaction/wallet/key-batch.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import type { ProofInputUtxo } from "../transaction/utxo.js";
@@ -10,7 +10,7 @@ export async function prepareMerge(
     inputs: readonly ProofInputUtxo[];
     invalidAnswers(): Error;
     outputTreeId?: number;
-    ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
+    ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32; rail?: MergeRail }>;
   }>,
   context?: RequestContext,
 ): Promise<PreparedMerge> {

@@ -18,6 +18,7 @@ Breaking
 
 Added
 
+- `merge_ring_v2` proves its output ciphertext and admits zero-key notes: `InstructionTag.ringMergeV2`, `Merge.zeroKey`, `ViewingKey.mergeSeed`, the `seededMerge*` derivations, the `merge-ring-v2` circuit and the `rail` of `PreparedMerge`, and `expectedProvingKey` refuses the circuit until its keys are pinned, so no proof can be requested yet.
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `ZolanaClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `ZolanaClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
@@ -25,6 +26,7 @@ Added
 
 Changed
 
+- `readMergeOutputBody` reads a body led by a ring data hash under the `verifiable` encoding, the `merge_ring_v2` layout, and `encodeMergeOutputData` writes it with `ringV2: true`.
 - `ZolanaIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 
 Fixed

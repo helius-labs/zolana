@@ -276,7 +276,8 @@ interface MergePublicInputFields {
  * owner's signing and nullifier public keys and its PoseidonCtrV1 output
  * ciphertext (the salt as a field element, then the three elements). A ring
  * merge binds the output ring data hash and the ring program id only: SPP
- * publishes its ciphertext unverified.
+ * publishes its ciphertext unverified. `merge_ring_v2` adds the published owner
+ * and the proven ciphertext.
  */
 type MergePublicInputBinding =
   | Readonly<{
@@ -290,6 +291,14 @@ type MergePublicInputBinding =
       kind: "ring";
       outputRingDataHash: bigint;
       ringProgramId: bigint;
+    }>
+  | Readonly<{
+      kind: "ringV2";
+      outputRingDataHash: bigint;
+      ringProgramId: bigint;
+      publishedOwner: bigint;
+      outputCiphertextSalt: bigint;
+      outputCiphertext: readonly [bigint, bigint, bigint];
     }>;
 
 /**
@@ -314,7 +323,15 @@ export function mergePublicInputs(input: MergePublicInputFields): readonly bigin
           input.binding.outputCiphertextSalt,
           ...input.binding.outputCiphertext,
         ]
-      : [input.binding.outputRingDataHash, input.binding.ringProgramId]),
+      : input.binding.kind === "ringV2"
+        ? [
+            input.binding.outputRingDataHash,
+            input.binding.ringProgramId,
+            input.binding.publishedOwner,
+            input.binding.outputCiphertextSalt,
+            ...input.binding.outputCiphertext,
+          ]
+        : [input.binding.outputRingDataHash, input.binding.ringProgramId]),
   ];
 }
 
@@ -379,9 +396,11 @@ export function prepareMerge(
   const outputHash = checkedBytes(prepared.outputHash(), 32, "merge output hash");
   const externalDataHash = mergeExternalDataHash({
     instructionTag:
-      prepared.output.ringProgramId === undefined
-        ? InstructionTag.mergeTransact
-        : InstructionTag.ringMergeTransact,
+      prepared.rail.kind !== "classic"
+        ? InstructionTag.ringMergeV2
+        : prepared.output.ringProgramId === undefined
+          ? InstructionTag.mergeTransact
+          : InstructionTag.ringMergeTransact,
     expiryUnixTs,
     outputUtxoHash: outputHash,
     ...(cache === undefined ? {} : { cache }),
@@ -412,6 +431,7 @@ export function prepareMerge(
   }
   const [mintChunk0, mintChunk1] = mergeMintChunks(prepared.output.asset);
   const mintChunks = [asField(mintChunk0), asField(mintChunk1)] as const;
+  const publishedOwner = prepared.rail.kind === "ringV2ZeroKey" ? ownerPublicKeyHash : 0n;
   const publicInputs = mergePublicInputs({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHash: bytesToBigInt(outputHash),
@@ -419,22 +439,31 @@ export function prepareMerge(
     privateTxHash: bytesToBigInt(privateTxHash),
     externalDataHash: bytesToBigInt(externalDataHash),
     binding:
-      prepared.output.ringProgramId === undefined
+      prepared.rail.kind !== "classic"
         ? {
-            kind: "default",
-            ownerPublicKeyHash,
-            nullifierPublicKey: bytesField(
-              prepared.nullifierPublicKey,
-              "merge nullifier public key",
-            ),
+            kind: "ringV2",
+            outputRingDataHash: BigInt(output.circuit.ringDataHash),
+            ringProgramId: BigInt(output.circuit.ringProgramId),
+            publishedOwner,
             outputCiphertextSalt: bytesToBigInt(outputCiphertextSalt),
             outputCiphertext: [ciphertext0, ciphertext1, ciphertext2],
           }
-        : {
-            kind: "ring",
-            outputRingDataHash: BigInt(output.circuit.ringDataHash),
-            ringProgramId: BigInt(output.circuit.ringProgramId),
-          },
+        : prepared.output.ringProgramId === undefined
+          ? {
+              kind: "default",
+              ownerPublicKeyHash,
+              nullifierPublicKey: bytesField(
+                prepared.nullifierPublicKey,
+                "merge nullifier public key",
+              ),
+              outputCiphertextSalt: bytesToBigInt(outputCiphertextSalt),
+              outputCiphertext: [ciphertext0, ciphertext1, ciphertext2],
+            }
+          : {
+              kind: "ring",
+              outputRingDataHash: BigInt(output.circuit.ringDataHash),
+              ringProgramId: BigInt(output.circuit.ringProgramId),
+            },
   }).map(asField);
   const payload: PreparedMergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
@@ -451,6 +480,20 @@ export function prepareMerge(
     allowDummyInputs: asField(1n),
     outputRingDataHash: output.circuit.ringDataHash,
     ringProgramId: output.circuit.ringProgramId,
+    ...(prepared.rail.kind === "classic"
+      ? {}
+      : {
+          ringV2: Object.freeze({
+            mergeSeed: asField(
+              prepared.rail.kind === "ringV2ZeroKey"
+                ? bytesField(prepared.rail.seed, "merge seed")
+                : 0n,
+            ),
+            publishedOwner: asField(publishedOwner),
+          }),
+        }),
+    // The zero key's secret is public, so no proof authority completes it.
+    ...(prepared.rail.kind === "ringV2ZeroKey" ? { userNullifierSecret: asField(0n) } : {}),
   });
   return Object.freeze({
     inputs: Object.freeze({
