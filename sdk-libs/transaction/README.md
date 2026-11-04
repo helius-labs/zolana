@@ -16,7 +16,7 @@ implementation differences.
 
 1. **Sync Balances**
     1. request encrypted UTXOs from the indexer by view tag,
-       `ZolanaClient::get_shielded_transactions_by_tags` ***(client)***
+       `SprClient::get_shielded_transactions_by_tags` ***(client)***
     2. decrypt them, `Tvc::decrypt` ***(tvc)*** or `decrypt_transactions` when
        the keypair is local, into `SpendableUtxo`s: commitment, nullifier, raw
        tree id, leaf index, asset id, slot, and signature. The indexer reports
@@ -117,7 +117,7 @@ implementation differences.
 
 5. **Prove (TVC)**
 
-    `ZolanaClient::prove_transact`
+    `SprClient::prove_transact`
 
     1. anonymous EdDSA transfers sign
        `sha256(private_tx_hash || external_data_hash)` inside the proof.
@@ -148,7 +148,7 @@ implementation differences.
 8. **Submit and Confirm (Client)**
     1. send the transaction, `Rpc::create_and_send_transaction`
     2. wait for Solana confirmation
-    3. wait for the indexer, `ZolanaClient::confirm_private_transaction`;
+    3. wait for the indexer, `SprClient::confirm_private_transaction`;
        `IndexerRpcConfig::at_slot` then gates the next sync
     4. **result:** confirmed transaction visible to the next sync
 

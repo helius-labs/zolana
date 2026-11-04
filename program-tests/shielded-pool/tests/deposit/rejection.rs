@@ -12,7 +12,7 @@ use spr_interface::{
     pda, PROGRAM_ID_PUBKEY,
 };
 use spr_program::instruction::{DepositAsset, RingAssetDeposit, RingDeposit};
-use spr_program_test::{Rejection, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use spr_program_test::{Rejection, SprProgramTest, RING_TEST_PROGRAM_ID};
 
 use spr_test_utils::mollusk::{
     expect_err_exact, mollusk_pubkey, snapshot_instruction_accounts, sweep_account_matrix,
@@ -34,7 +34,7 @@ fn sol_deposit_accepts_zero_amount() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(1_000_000_000);
     let tree = pool.tree;
-    let data = ZolanaProgramTest::sol_shield_data(0, [2u8; 32]);
+    let data = SprProgramTest::sol_shield_data(0, [2u8; 32]);
 
     let event = pool
         .rpc
@@ -51,7 +51,7 @@ fn spl_deposit_accepts_zero_amount() {
     let (mint, _, vault) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000);
     let tree = pool.tree;
-    let zero_spl = ZolanaProgramTest::spl_shield_data(0, [3u8; 32], &mint, &user_token);
+    let zero_spl = SprProgramTest::spl_shield_data(0, [3u8; 32], &mint, &user_token);
 
     let event = pool
         .rpc

@@ -16,7 +16,7 @@ use spr_interface::{
     state::{discriminator::RING_CONFIG, RingConfig},
 };
 use spr_program::instruction::{MergeRing, MergeTransact};
-use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_program_test::{Rejection, SprProgramTest};
 use spr_test_utils::transact::fe;
 use spr_tree::TreeAccount;
 use spr_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
@@ -52,13 +52,13 @@ fn merge_ix_data_at_input_count(input_count: usize) -> MergeTransactIxData {
     data
 }
 
-fn merge_env() -> (ZolanaProgramTest, Pubkey) {
+fn merge_env() -> (SprProgramTest, Pubkey) {
     let Pool { rpc, tree, .. } = Pool::initialized();
     (rpc, tree)
 }
 
 fn merge_instruction(
-    rpc: &ZolanaProgramTest,
+    rpc: &SprProgramTest,
     tree: &Pubkey,
     user_record: Pubkey,
     data: MergeTransactIxData,
@@ -499,7 +499,7 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
 /// SPP-shaped ring merge instruction (as a ring program would CPI it, the
 /// canonical `ring_auth` PDA marked signer).
 fn merge_ring_cpi_instruction(
-    rpc: &ZolanaProgramTest,
+    rpc: &SprProgramTest,
     tree: &Pubkey,
     data: MergeTransactIxData,
     output_ring_data_hash: [u8; 32],
@@ -521,7 +521,7 @@ fn merge_ring_cpi_instruction(
 /// Only the owner + size + discriminator + active-state checks apply
 /// (INV-XC-26); the stored fields are never validated against a derivation.
 fn write_fake_ring_config(
-    rpc: &mut ZolanaProgramTest,
+    rpc: &mut SprProgramTest,
     address: Pubkey,
     discriminator: u8,
     activated: bool,

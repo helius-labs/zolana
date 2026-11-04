@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use solana_address::Address;
 use solana_signature::Signature;
 use spr_client::{
-    indexer::{AsyncZolanaIndexer, ZolanaIndexer},
+    indexer::{AsyncSprIndexer, SprIndexer},
     rpc::{
         AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
@@ -45,7 +45,7 @@ fn decodes_tagged_x25519_pubkey() {
         }],
     }));
     let server = MockServer::respond_once(response);
-    let result = ZolanaIndexer::new(server.url())
+    let result = SprIndexer::new(server.url())
         .get_shielded_transactions_by_signature(signature(1), None)
         .expect("decode transaction viewing key");
     let _ = server.request();
@@ -89,7 +89,7 @@ fn get_encrypted_utxos_by_tags_encodes_request_and_decodes_matches() {
         "paginationToken": position(7, 9).to_string(),
     }));
     let server = MockServer::respond_once(response);
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
 
     let got = indexer
         .get_encrypted_utxos_by_tags(
@@ -175,7 +175,7 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
         "paginationToken": position(50, 14).to_string(),
     }));
     let server = MockServer::respond_once(response);
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
 
     let got = indexer
         .get_shielded_transactions_by_tags(
@@ -253,7 +253,7 @@ fn get_shielded_transactions_by_signature_preserves_event_index() {
         }],
     }));
     let server = MockServer::respond_once(response);
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
 
     let got = indexer
         .get_shielded_transactions_by_signature(signature, None)
@@ -284,7 +284,7 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
         "data": [], "paginationToken": null,
     }));
     let server = MockServer::respond_once(response);
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
 
     let got = indexer
         .get_shielded_transactions_by_nullifiers(
@@ -365,9 +365,9 @@ async fn merkle_proofs_wait_until_every_leaf_is_indexed() {
         rpc_result(json!({ "context": context, "proofs": [] })),
         rpc_result(json!({ "context": context, "proofs": [proof] })),
     ]));
-    let api = spr_api::ZolanaApi::with_client("http://indexer.invalid", client);
+    let api = spr_api::SprApi::with_client("http://indexer.invalid", client);
 
-    let got = AsyncZolanaIndexer::with_api(api)
+    let got = AsyncSprIndexer::with_api(api)
         .get_merkle_proofs(tree, vec![leaf], None)
         .await
         .expect("merkle proofs");
@@ -396,7 +396,7 @@ fn get_merkle_proofs_encodes_tree_and_maps_root_metadata() {
         }],
     }));
     let server = MockServer::respond_once(response);
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
 
     let got = indexer
         .get_merkle_proofs(tree, vec![leaf_a], None)
@@ -459,7 +459,7 @@ fn get_non_inclusion_proofs_maps_adjacency_witness() {
         }],
     }));
     let server = MockServer::respond_once(response);
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
 
     let got = indexer
         .get_non_inclusion_proofs(tree, vec![leaf], None)
@@ -509,7 +509,7 @@ fn wraps_json_rpc_errors() {
         },
     });
     let server = MockServer::respond_once(response);
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
 
     let err = indexer
         .get_encrypted_utxos_by_tags(
@@ -529,7 +529,7 @@ fn wraps_json_rpc_errors() {
 #[test]
 fn classifies_transient_indexer_errors_for_retry() {
     let server = MockServer::respond_with_status("429 Too Many Requests", json!("retry later"));
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
     let rate_limit = indexer
         .get_shielded_transactions_by_signature(signature(1), None)
         .expect_err("rate limit must surface");
@@ -541,7 +541,7 @@ fn classifies_transient_indexer_errors_for_retry() {
         "id": "test-account", "jsonrpc": "2.0",
         "error": { "code": -32603, "message": "Internal error" },
     }));
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
     let internal_error = indexer
         .get_shielded_transactions_by_signature(signature(1), None)
         .expect_err("internal error must surface");
@@ -556,7 +556,7 @@ fn classifies_non_transient_indexer_errors_without_retry() {
         "id": "test-account", "jsonrpc": "2.0",
         "error": { "code": -32601, "message": "Method not found" },
     }));
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
     let method_not_found = indexer
         .get_shielded_transactions_by_signature(signature(1), None)
         .expect_err("missing method must surface");
@@ -567,7 +567,7 @@ fn classifies_non_transient_indexer_errors_without_retry() {
     ));
     assert!(!indexer.should_retry(&method_not_found));
 
-    let indexer = ZolanaIndexer::new("not a url");
+    let indexer = SprIndexer::new("not a url");
     let malformed_request = indexer
         .get_shielded_transactions_by_signature(signature(1), None)
         .expect_err("relative URL should be rejected");
@@ -601,7 +601,7 @@ fn rejects_malformed_output_slot_hash() {
         }]}], "paginationToken": null,
     }));
     let server = MockServer::respond_once(response);
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
 
     let err = indexer
         .get_shielded_transactions_by_tags(vec![tag], None, None, HistoryFilters::default(), None)
@@ -632,7 +632,7 @@ fn by_signature_error_path_includes_transaction_nesting() {
         }],
     }));
     let server = MockServer::respond_once(response);
-    let indexer = ZolanaIndexer::new(server.url());
+    let indexer = SprIndexer::new(server.url());
 
     let err = indexer
         .get_shielded_transactions_by_signature(signature, None)
@@ -668,7 +668,7 @@ fn get_user_records_encodes_owners_and_decodes_records_in_request_order() {
         ],
     })));
 
-    let got = ZolanaIndexer::new(server.url())
+    let got = SprIndexer::new(server.url())
         .get_user_records(owners.to_vec(), None)
         .expect("user record lookup");
     let request = server.request();
@@ -720,7 +720,7 @@ async fn async_user_record_lookup_rejects_a_key_of_the_wrong_length() {
         }],
     })));
 
-    let error = AsyncZolanaIndexer::new(server.url())
+    let error = AsyncSprIndexer::new(server.url())
         .get_user_records(vec![owner], None)
         .await
         .expect_err("a 32-byte viewing key is not a tagged X25519 point");

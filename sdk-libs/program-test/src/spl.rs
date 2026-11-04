@@ -11,9 +11,9 @@ use spr_interface::{
 };
 use spr_protocol_instructions::CreateAssetCounter;
 
-use crate::{instructions::system_create_account_ix, ProgramTestError, ZolanaProgramTest};
+use crate::{instructions::system_create_account_ix, ProgramTestError, SprProgramTest};
 
-impl ZolanaProgramTest {
+impl SprProgramTest {
     pub fn token_program_id() -> Pubkey {
         Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
     }

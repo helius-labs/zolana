@@ -26,7 +26,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 use spr_interface::{pda, state::SplAssetRegistry};
 
-use crate::{ProgramTestError, ZolanaProgramTest};
+use crate::{ProgramTestError, SprProgramTest};
 
 /// Lamports the payer and every actor start with, including working capital
 /// when a test creates additional production trees.
@@ -113,15 +113,15 @@ pub fn write_test_fixture(spp_so: &Path, dir: &Path) -> Result<WrittenAccounts, 
     Ok(accounts)
 }
 
-fn boot(spp_so: &Path, dir: &Path) -> Result<ZolanaProgramTest, ProgramTestError> {
+fn boot(spp_so: &Path, dir: &Path) -> Result<SprProgramTest, ProgramTestError> {
     if dir.exists() {
         fs::remove_dir_all(dir)?;
     }
     fs::create_dir_all(dir)?;
-    ZolanaProgramTest::with_program_path(spp_so)
+    SprProgramTest::with_program_path(spp_so)
 }
 
-fn init_protocol(test: &mut ZolanaProgramTest) -> Result<WrittenAccounts, ProgramTestError> {
+fn init_protocol(test: &mut SprProgramTest) -> Result<WrittenAccounts, ProgramTestError> {
     let authority = protocol_authority();
     test.create_protocol_config_permissionless(&authority)?;
     test.create_asset_counter(&authority)?;
@@ -139,8 +139,8 @@ fn init_protocol(test: &mut ZolanaProgramTest) -> Result<WrittenAccounts, Progra
     ])
 }
 
-fn register_spl_mint(test: &mut ZolanaProgramTest) -> Result<WrittenAccounts, ProgramTestError> {
-    let token_program = ZolanaProgramTest::token_program_id();
+fn register_spl_mint(test: &mut SprProgramTest) -> Result<WrittenAccounts, ProgramTestError> {
+    let token_program = SprProgramTest::token_program_id();
     let mint = test.create_mint_from(&Keypair::new_from_array(SPL_MINT_SEED), token_program)?;
     test.create_spl_interface(&protocol_authority(), &mint)?;
     let token_account = test.create_token_account_from(
@@ -172,7 +172,7 @@ fn register_spl_mint(test: &mut ZolanaProgramTest) -> Result<WrittenAccounts, Pr
 }
 
 fn write_accounts(
-    test: &ZolanaProgramTest,
+    test: &SprProgramTest,
     dir: &Path,
     accounts: &[(&'static str, Address)],
 ) -> Result<(), ProgramTestError> {

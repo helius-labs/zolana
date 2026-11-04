@@ -5,15 +5,14 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use spr_client::{
-    assemble, transaction_size, AssembledTransfer, BlockingRpc, ComputeBudgetConfig, Rpc,
-    ZolanaClient,
+    assemble, transaction_size, AssembledTransfer, BlockingRpc, ComputeBudgetConfig, Rpc, SprClient,
 };
 use spr_interface::state::cache::CacheAccount;
 use spr_program::instruction::MergeTransact;
 use spr_transaction::instructions::{merge::MergeProofInputs, transact::SppProofInputs};
 
 pub fn assemble_cached_transfer<R: BlockingRpc>(
-    client: &ZolanaClient<R>,
+    client: &SprClient<R>,
     tree: Address,
     proof_inputs: SppProofInputs,
 ) -> Result<AssembledTransfer> {
@@ -27,7 +26,7 @@ pub fn assemble_cached_transfer<R: BlockingRpc>(
 /// subscribes to the account instead; with several merges sharing one cache it
 /// checks the slots it needs rather than counting confirmations.
 pub fn wait_for_cache_commitment<R: BlockingRpc>(
-    client: &ZolanaClient<R>,
+    client: &SprClient<R>,
     cache: Address,
     slot: u8,
     commitment: &[u8; 32],
@@ -47,7 +46,7 @@ pub fn wait_for_cache_commitment<R: BlockingRpc>(
 /// The transfer closed the cache in the same transaction and the rent went back
 /// to the sponsor that funded it.
 pub fn assert_cache_closed_and_refunded<R: BlockingRpc>(
-    client: &ZolanaClient<R>,
+    client: &SprClient<R>,
     cache: Address,
     rent_sponsor: Address,
     sponsor_before: u64,

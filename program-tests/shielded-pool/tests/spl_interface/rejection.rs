@@ -11,7 +11,7 @@ use spl_token_2022_interface::{
 use spr_account_checks::AccountError;
 use spr_interface::{error::ShieldedPoolError, pda};
 use spr_program::instruction::CreateSplInterface;
-use spr_program_test::{system_create_account_ix, Rejection, ZolanaProgramTest};
+use spr_program_test::{system_create_account_ix, Rejection, SprProgramTest};
 
 use shielded_pool_tests::support::fixtures::{register_mint, spl_accounts, spl_depositor, Pool};
 
@@ -142,7 +142,7 @@ fn spl_interface_creation_rejects_a_mint_not_owned_by_the_token_program() {
 /// Installs a raw account standing in for a mint, owned by `token_program`,
 /// so the mint validation in `create_spl_interface` can be exercised
 /// byte-for-byte instead of going through the token program's initializer.
-fn install_raw_mint(rpc: &mut ZolanaProgramTest, token_program: Pubkey, data: Vec<u8>) -> Pubkey {
+fn install_raw_mint(rpc: &mut SprProgramTest, token_program: Pubkey, data: Vec<u8>) -> Pubkey {
     let mint = Pubkey::new_unique();
     let lamports = rpc.svm.minimum_balance_for_rent_exemption(data.len());
     rpc.svm
@@ -228,7 +228,7 @@ fn spl_interface_creation_rejects_a_truncated_token_2022_mint() {
     pool.rpc
         .ensure_asset_counter(&pool.authority)
         .expect("asset counter");
-    let token_program = ZolanaProgramTest::token_2022_program_id();
+    let token_program = SprProgramTest::token_2022_program_id();
     // 41 garbage bytes owned by Token-2022: ownership passes, the SPL Token
     // branch is skipped, and `PodStateWithExtensions::<PodMint>::unpack`
     // rejects the buffer for being shorter than the base state.
@@ -257,7 +257,7 @@ fn spl_interface_creation_rejects_an_uninitialized_token_2022_mint() {
     pool.rpc
         .ensure_asset_counter(&pool.authority)
         .expect("asset counter");
-    let token_program = ZolanaProgramTest::token_2022_program_id();
+    let token_program = SprProgramTest::token_2022_program_id();
     // A full 82-byte PodMint with `is_initialized` clear. The pod
     // `PodStateWithExtensions::unpack` performs the initialized check
     // internally (ProgramError::UninitializedAccount), so the rejection
@@ -288,7 +288,7 @@ fn spl_interface_creation_rejects_a_token_2022_mint_with_malformed_tlv_data() {
     pool.rpc
         .ensure_asset_counter(&pool.authority)
         .expect("asset counter");
-    let token_program = ZolanaProgramTest::token_2022_program_id();
+    let token_program = SprProgramTest::token_2022_program_id();
     // An initialized base mint (82 bytes) + zero padding up to the
     // AccountType slot (165) + AccountType::Mint, followed by a single TLV
     // entry whose declared value length blows past the end of the account.
@@ -487,7 +487,7 @@ fn spl_deposit_rejects_foreign_source() {
         .rpc
         .create_token_account(&mint_a, &other_owner.pubkey())
         .expect("foreign token account");
-    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], &mint_a, &foreign_token);
+    let data = SprProgramTest::spl_shield_data(1_000, [1u8; 32], &mint_a, &foreign_token);
     pool.rpc
         .mint_to(&mint_a, &foreign_token, 1_000_000)
         .expect("fund foreign token account");
@@ -509,7 +509,7 @@ fn spl_deposit_rejects_noncanonical_vault() {
     let (mint_a, _, _) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint_a, 1_000_000);
     let tree = pool.tree;
-    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], &mint_a, &user_token);
+    let data = SprProgramTest::spl_shield_data(1_000, [1u8; 32], &mint_a, &user_token);
     let decoy_vault = pool
         .rpc
         .create_token_account(&mint_a, &pda::shielded_pool_cpi_authority())
@@ -541,7 +541,7 @@ fn spl_deposit_rejects_mismatched_mint_atomically() {
     pool.rpc
         .mint_to(&mint_b, &token_b, 1_000_000)
         .expect("fund mint B token account");
-    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], &mint_a, &token_b);
+    let data = SprProgramTest::spl_shield_data(1_000, [1u8; 32], &mint_a, &token_b);
 
     let err = pool
         .rpc
@@ -570,7 +570,7 @@ fn spl_deposit_rejects_insufficient_funds_atomically() {
         .deposit(
             &tree,
             &depositor,
-            &ZolanaProgramTest::spl_shield_data(5_000, [3u8; 32], &mint, &user_token),
+            &SprProgramTest::spl_shield_data(5_000, [3u8; 32], &mint, &user_token),
         )
         .expect_err("insufficient token funds must fail");
     Rejection::custom(spl_token::error::TokenError::InsufficientFunds as u32).assert_litesvm(err);
@@ -580,11 +580,11 @@ fn spl_deposit_rejects_insufficient_funds_atomically() {
 }
 
 fn create_transfer_fee_mint(
-    rpc: &mut ZolanaProgramTest,
+    rpc: &mut SprProgramTest,
     transfer_fee_basis_points: u16,
     maximum_fee: u64,
 ) -> Pubkey {
-    let token_program = ZolanaProgramTest::token_2022_program_id();
+    let token_program = SprProgramTest::token_2022_program_id();
     let mint = Keypair::new();
     let mint_len =
         ExtensionType::try_calculate_account_len::<PodMint>(&[ExtensionType::TransferFeeConfig])
@@ -618,11 +618,11 @@ fn create_transfer_fee_mint(
 }
 
 fn create_transfer_fee_token_account(
-    rpc: &mut ZolanaProgramTest,
+    rpc: &mut SprProgramTest,
     mint: &Pubkey,
     owner: &Pubkey,
 ) -> Pubkey {
-    let token_program = ZolanaProgramTest::token_2022_program_id();
+    let token_program = SprProgramTest::token_2022_program_id();
     let account = Keypair::new();
     let account_len =
         ExtensionType::try_calculate_account_len::<PodAccount>(&[ExtensionType::TransferFeeAmount])
@@ -650,7 +650,7 @@ fn transfer_fee_deposit_is_rejected_when_vault_receives_less_than_nominal_amount
         .expect("asset counter");
 
     // One percent of 400 is 4.
-    let token_program = ZolanaProgramTest::token_2022_program_id();
+    let token_program = SprProgramTest::token_2022_program_id();
     let mint = create_transfer_fee_mint(&mut pool.rpc, 100, u64::MAX);
     let (_, vault) = pool
         .rpc
@@ -662,13 +662,8 @@ fn transfer_fee_deposit_is_rejected_when_vault_receives_less_than_nominal_amount
         .mint_to_with_program(&mint, &source, 1_000, token_program)
         .expect("mint Token-2022 balance");
 
-    let data = ZolanaProgramTest::spl_shield_data_with_program(
-        400,
-        [1u8; 32],
-        &mint,
-        &source,
-        token_program,
-    );
+    let data =
+        SprProgramTest::spl_shield_data_with_program(400, [1u8; 32], &mint, &source, token_program);
     let tree = pool.tree;
     let root_before = pool.rpc.state_root(&tree).expect("root");
 

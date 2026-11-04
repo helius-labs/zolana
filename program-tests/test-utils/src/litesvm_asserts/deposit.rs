@@ -11,7 +11,7 @@ use spr_interface::{
 };
 use spr_merkle_tree::MerkleTree;
 use spr_program::instruction::AssetDeposit;
-use spr_program_test::{DepositOutput, ZolanaProgramTest};
+use spr_program_test::{DepositOutput, SprProgramTest};
 use spr_transaction::SOL_MINT;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,7 +24,7 @@ pub struct SolDepositSnapshot {
 }
 
 impl SolDepositSnapshot {
-    pub fn capture(program_test: &ZolanaProgramTest, tree: &Pubkey, depositor: &Pubkey) -> Self {
+    pub fn capture(program_test: &SprProgramTest, tree: &Pubkey, depositor: &Pubkey) -> Self {
         Self {
             root: program_test.state_root(tree).expect("state root"),
             indexer_root: program_test.indexer().root(tree),
@@ -93,7 +93,7 @@ pub struct SolDepositOracle {
 }
 
 impl SolDepositOracle {
-    pub fn capture(program_test: &ZolanaProgramTest, tree: &Pubkey, depositor: &Pubkey) -> Self {
+    pub fn capture(program_test: &SprProgramTest, tree: &Pubkey, depositor: &Pubkey) -> Self {
         let initial = SolDepositSnapshot::capture(program_test, tree, depositor);
         let tree_id =
             read_tree_id(&program_test.account_data(tree).expect("tree account")).expect("tree id");
@@ -156,12 +156,7 @@ impl SolDepositOracle {
     }
 
     #[track_caller]
-    pub fn assert_matches(
-        &self,
-        program_test: &ZolanaProgramTest,
-        tree: &Pubkey,
-        depositor: &Pubkey,
-    ) {
+    pub fn assert_matches(&self, program_test: &SprProgramTest, tree: &Pubkey, depositor: &Pubkey) {
         let actual = SolDepositSnapshot::capture(program_test, tree, depositor);
         let total: u64 = self.accepted.iter().map(|deposit| deposit.amount).sum();
         assert_eq!(
@@ -227,7 +222,7 @@ impl SolDepositOracle {
     }
 }
 
-fn account_lamports(program_test: &ZolanaProgramTest, key: &Pubkey) -> u64 {
+fn account_lamports(program_test: &SprProgramTest, key: &Pubkey) -> u64 {
     program_test
         .svm
         .get_account(key)
@@ -257,7 +252,7 @@ pub struct DepositAssertArgs<'a, A: ?Sized> {
 
 #[track_caller]
 pub fn litesvm_assert_deposit<A: SyncWalletAuthority + ?Sized>(
-    program_test: &mut ZolanaProgramTest,
+    program_test: &mut SprProgramTest,
     recipient: &mut Wallet,
     args: DepositAssertArgs<'_, A>,
 ) {

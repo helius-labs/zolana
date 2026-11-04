@@ -27,10 +27,10 @@ use crate::{
     },
 };
 
-use super::{AsyncIndexer, AsyncZolanaClient, TransferPreparation};
+use super::{AsyncIndexer, AsyncSprClient, TransferPreparation};
 
 #[async_trait]
-impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncZolanaClient<R, I> {
+impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncSprClient<R, I> {
     async fn get_program_accounts_filtered(
         &self,
         program_id: Address,

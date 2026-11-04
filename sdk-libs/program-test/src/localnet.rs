@@ -3,7 +3,7 @@
 //!
 //! [`FixtureLocalnet`] is the usual entry point: it boots from
 //! [`write_test_fixture`](crate::fixture::write_test_fixture), starts the
-//! prover and hands back a [`ZolanaClient`]. [`LocalnetValidator`] is the lower
+//! prover and hands back a [`SprClient`]. [`LocalnetValidator`] is the lower
 //! level: it boots exactly the programs and account directory it is given.
 //!
 //! Each localnet binds its own [`LocalnetPorts`]. Tests that take distinct
@@ -19,8 +19,8 @@ use std::{
 
 use solana_address::Address;
 use spr_client::{
-    IndexerRequirement, ProofDataSource, ProverClient, ProverLaunch, Rpc, SolanaRpc, ZolanaClient,
-    ZolanaIndexer,
+    IndexerRequirement, ProofDataSource, ProverClient, ProverLaunch, Rpc, SolanaRpc, SprClient,
+    SprIndexer,
 };
 use spr_interface::{pda, state::tree::read_tree_id, SHIELDED_POOL_PROGRAM_ID};
 
@@ -258,7 +258,7 @@ impl LocalnetPaths {
 /// place of the setup transactions a test would otherwise send. Dropping it
 /// stops its validator and Photon.
 pub struct FixtureLocalnet {
-    pub client: ZolanaClient<SolanaRpc>,
+    pub client: SprClient<SolanaRpc>,
     /// The default tree, `pda::tree(0)`.
     pub tree: Address,
     /// Raw id of `tree`, read from its account.
@@ -319,7 +319,7 @@ fn connect(
     paths: &LocalnetPaths,
     ports: LocalnetPorts,
     program_ids: &[Address],
-) -> Result<(ZolanaClient<SolanaRpc>, u16), ProgramTestError> {
+) -> Result<(SprClient<SolanaRpc>, u16), ProgramTestError> {
     ProverLaunch::new_with_cli(&paths.cli_bin)?
         .with_keys_dir(&paths.proving_keys_dir)?
         .with_indexer(
@@ -337,9 +337,9 @@ fn connect(
         .and_then(|account| read_tree_id(&account.data))
         .ok_or_else(|| ProgramTestError::Localnet(format!("default tree {tree} is missing")))?;
     // The shared prover resolves against the checkout's Photon, not this one.
-    let client = ZolanaClient::new(
+    let client = SprClient::new(
         rpc,
-        ZolanaIndexer::new(ports.photon_url()),
+        SprIndexer::new(ports.photon_url()),
         ProverClient::default(),
     )
     .with_proof_data_source(ProofDataSource::Client);

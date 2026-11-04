@@ -3,16 +3,16 @@
 //! Integration tests should build protocol state through this module instead
 //! of defining per-binary environment structs. The LiteSVM backend owns the
 //! authority and tree lifecycle and exposes the automatically journaled
-//! [`ZolanaProgramTest`] transaction history.
+//! [`SprProgramTest`] transaction history.
 
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use spr_interface::state::read_tree_id;
-use spr_program_test::{ProgramTestError, ZolanaProgramTest};
+use spr_program_test::{ProgramTestError, SprProgramTest};
 
 pub struct LiteSvmPoolBackend {
-    pub rpc: ZolanaProgramTest,
+    pub rpc: SprProgramTest,
     pub authority: Keypair,
     pub tree: Pubkey,
     /// The raw id [`Self::tree`] was created with. UTXO commitments are hashed
@@ -22,7 +22,7 @@ pub struct LiteSvmPoolBackend {
 
 impl LiteSvmPoolBackend {
     pub fn new() -> Result<Self, ProgramTestError> {
-        let mut rpc = ZolanaProgramTest::new()?;
+        let mut rpc = SprProgramTest::new()?;
         let authority = Keypair::new();
         rpc.create_protocol_config(&authority)?;
         let tree = rpc.create_tree(&authority)?;

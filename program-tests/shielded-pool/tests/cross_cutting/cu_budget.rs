@@ -1,7 +1,7 @@
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use spr_interface::instruction::UpdateProtocolConfigData;
-use spr_program_test::{TransactionOutcome, ZolanaProgramTest};
+use spr_program_test::{SprProgramTest, TransactionOutcome};
 
 // Per-op CU ceilings, pinned at roughly 3x the consumption observed on the
 // current build (measured 2026-07 via `last_transaction_trace`; each constant
@@ -27,7 +27,7 @@ const UPDATE_RING_CONFIG_OWNER_CU_CEILING: u64 = 700; // observed 218
 const SET_RING_ACTIVATION_CU_CEILING: u64 = 700;
 
 #[track_caller]
-fn assert_last_under(test: &ZolanaProgramTest, operation: &str, limit: u64) {
+fn assert_last_under(test: &SprProgramTest, operation: &str, limit: u64) {
     let trace = test
         .last_transaction_trace()
         .unwrap_or_else(|| panic!("missing transaction trace for {operation}"));
@@ -51,7 +51,7 @@ fn assert_last_under(test: &ZolanaProgramTest, operation: &str, limit: u64) {
 
 #[test]
 fn proofless_instruction_families_stay_within_transaction_budgets() {
-    let mut test = ZolanaProgramTest::new().expect("program test");
+    let mut test = SprProgramTest::new().expect("program test");
     // PDA bump search cost moves with the address, fixed keypairs pin the metered CU.
     let authority = Keypair::new_from_array([1; 32]);
     test.create_protocol_config(&authority)
@@ -109,7 +109,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
     let mint = test
         .create_mint_from(
             &Keypair::new_from_array([2; 32]),
-            ZolanaProgramTest::token_program_id(),
+            SprProgramTest::token_program_id(),
         )
         .expect("create mint");
     test.create_asset_counter(&authority)
@@ -139,7 +139,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         .expect("create token account");
     test.mint_to(&mint, &user_token, 1_000)
         .expect("mint tokens");
-    let data = ZolanaProgramTest::spl_shield_data(1_000, [3; 32], &mint, &user_token);
+    let data = SprProgramTest::spl_shield_data(1_000, [3; 32], &mint, &user_token);
     test.deposit(&tree, &depositor, &data).expect("deposit SPL");
     assert_last_under(&test, "deposit SPL", DEPOSIT_SPL_CU_CEILING);
 

@@ -5,7 +5,7 @@ use spr_interface::{
     pda,
     state::{discriminator::SPL_ASSET_REGISTRY, SplAssetCounter, SplAssetRegistry},
 };
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 
 const TOKEN_ACCOUNT_MINT_OFFSET: usize = 0;
 const TOKEN_ACCOUNT_OWNER_OFFSET: usize = 32;
@@ -18,7 +18,7 @@ const TOKEN_ACCOUNT_OWNER_END: usize = 64;
 /// token account for the mint owned by the SPL vault authority.
 #[track_caller]
 pub fn litesvm_assert_create_spl_interface(
-    program_test: &ZolanaProgramTest,
+    program_test: &SprProgramTest,
     registry: &Pubkey,
     vault: &Pubkey,
     mint: &Pubkey,

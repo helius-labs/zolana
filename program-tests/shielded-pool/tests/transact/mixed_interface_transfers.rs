@@ -23,7 +23,7 @@ use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 use spr_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
     dummy_transfer_output, external_data_hash, fe, inline_outputs, input_utxo,
@@ -139,7 +139,7 @@ fn deposit_sol_note(env: &mut Pool, amount: u64) -> SpendNote {
 }
 
 fn deposit_spl_note(env: &mut Pool, mint: Pubkey, amount: u64) -> (SpendNote, Pubkey, Pubkey) {
-    deposit_spl_note_with_program(env, mint, amount, ZolanaProgramTest::token_program_id())
+    deposit_spl_note_with_program(env, mint, amount, SprProgramTest::token_program_id())
 }
 
 fn deposit_spl_note_with_program(
@@ -168,7 +168,7 @@ fn deposit_spl_note_with_program(
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner = PublicKey::from_ed25519(&payer.pubkey().to_bytes());
     let owner_field = owner_hash(&owner, &nullifier_pk).expect("owner field");
-    let data = ZolanaProgramTest::spl_shield_data_with_program(
+    let data = SprProgramTest::spl_shield_data_with_program(
         amount,
         owner_field,
         &mint,
@@ -608,12 +608,12 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
 
 #[test]
 fn repeated_same_mint_spl_withdrawals_settle_independently() {
-    repeated_same_mint_spl_withdrawals_settle(ZolanaProgramTest::token_program_id());
+    repeated_same_mint_spl_withdrawals_settle(SprProgramTest::token_program_id());
 }
 
 #[test]
 fn token_2022_withdrawals_settle_independently() {
-    repeated_same_mint_spl_withdrawals_settle(ZolanaProgramTest::token_2022_program_id());
+    repeated_same_mint_spl_withdrawals_settle(SprProgramTest::token_2022_program_id());
 }
 
 #[test]
@@ -708,7 +708,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
             mint: withdraw_mint,
             spl_interface: vault,
             user_token_account,
-            token_program: ZolanaProgramTest::token_program_id(),
+            token_program: SprProgramTest::token_program_id(),
         })
     };
     let spl_deposit = |vault, user_token_account| {
@@ -717,7 +717,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
             spl_interface: vault,
             token_authority: payer.pubkey(),
             user_token_account,
-            token_program: ZolanaProgramTest::token_program_id(),
+            token_program: SprProgramTest::token_program_id(),
         })
     };
     let sol_vault = pda::sol_interface();

@@ -30,7 +30,7 @@ use spr_merkle_tree::MerkleTree;
 use spr_program::instruction::{
     Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 use spr_transaction::{instructions::transact::PrivateTxHash, Mint, SOL_MINT};
 
 use shielded_pool_tests::support::{
@@ -92,7 +92,7 @@ fn to_mollusk_instruction(ix: &Instruction) -> Instruction {
     }
 }
 
-fn snapshot_account(pt: &ZolanaProgramTest, key: &Pubkey) -> (Pubkey, Account) {
+fn snapshot_account(pt: &SprProgramTest, key: &Pubkey) -> (Pubkey, Account) {
     let mollusk_key = to_mollusk_pubkey(key);
     let account = match pt.svm.get_account(key) {
         Some(acc) => Account {
@@ -113,7 +113,7 @@ fn snapshot_account(pt: &ZolanaProgramTest, key: &Pubkey) -> (Pubkey, Account) {
     (mollusk_key, account)
 }
 
-fn bench_setup() -> (ZolanaProgramTest, Keypair, Pubkey, u16) {
+fn bench_setup() -> (SprProgramTest, Keypair, Pubkey, u16) {
     std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
     let Pool {
         rpc,
@@ -125,7 +125,7 @@ fn bench_setup() -> (ZolanaProgramTest, Keypair, Pubkey, u16) {
 }
 
 fn deposit_sol_accounts(
-    pt: &ZolanaProgramTest,
+    pt: &SprProgramTest,
     ix: &Instruction,
     program_id: &Pubkey,
 ) -> Vec<(Pubkey, Account)> {
@@ -143,7 +143,7 @@ fn deposit_sol_accounts(
 }
 
 fn deposit_spl_accounts(
-    pt: &ZolanaProgramTest,
+    pt: &SprProgramTest,
     ix: &Instruction,
     program_id: &Pubkey,
     token_program_account: &(Pubkey, Account),
@@ -351,7 +351,7 @@ fn bench_fixture(
 // System-owned, zero-lamport accounts the program creates and funds from the
 // input tree's working capital.
 fn transact_accounts(
-    pt: &ZolanaProgramTest,
+    pt: &SprProgramTest,
     ix: &Instruction,
     program_id: &Pubkey,
     token_program_account: Option<&(Pubkey, Account)>,
@@ -375,7 +375,7 @@ fn transact_accounts(
 }
 
 fn nullifier_spend_accounts(
-    pt: &ZolanaProgramTest,
+    pt: &SprProgramTest,
     ix: &Instruction,
     program_id: &Pubkey,
     input_tree: Pubkey,
@@ -442,8 +442,8 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBench
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let data = ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient)
-        .expect("wallet deposit data");
+    let data =
+        SprProgramTest::wallet_sol_shield_data(1_000_000, &recipient).expect("wallet deposit data");
 
     let ix = Deposit {
         tree,
@@ -481,7 +481,7 @@ fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut C
         .expect("shielded address");
     let deposits = (0..3)
         .map(|_| {
-            ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient)
+            SprProgramTest::wallet_sol_shield_data(1_000_000, &recipient)
                 .expect("wallet deposit data")
         })
         .collect();
@@ -533,7 +533,7 @@ fn bench_deposit_spl(
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let data = ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &mint, &user_token)
+    let data = SprProgramTest::wallet_spl_shield_data(1_000, &recipient, &mint, &user_token)
         .expect("wallet deposit data");
 
     let ix = Deposit {

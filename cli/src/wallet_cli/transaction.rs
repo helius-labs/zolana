@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use anyhow::{bail, Result};
 use solana_signer::Signer;
 use spr_client::{
-    check_service_url, indexer::ZolanaIndexer, prover::ProverClient,
-    user_registry::try_resolve_registered_address, MergeSubmission, Rpc, SolanaRpc, ZolanaClient,
+    check_service_url, indexer::SprIndexer, prover::ProverClient,
+    user_registry::try_resolve_registered_address, MergeSubmission, Rpc, SolanaRpc, SprClient,
 };
 use spr_interface::shape::Shape;
 use spr_transaction::{
@@ -30,15 +30,15 @@ use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
 pub(super) fn client(
     rpc: SolanaRpc,
     network: &ResolvedNetworkOptions,
-) -> Result<ZolanaClient<SolanaRpc>> {
+) -> Result<SprClient<SolanaRpc>> {
     check_service_url(&network.sync.indexer_url, "indexer_url")?;
     check_service_url(&network.prover_url, "prover_url")?;
     let prover = network
         .prover_tee
         .apply(ProverClient::new(network.prover_url.clone()))?;
-    Ok(ZolanaClient::new(
+    Ok(SprClient::new(
         rpc,
-        ZolanaIndexer::new(&network.sync.indexer_url),
+        SprIndexer::new(&network.sync.indexer_url),
         prover,
     ))
 }

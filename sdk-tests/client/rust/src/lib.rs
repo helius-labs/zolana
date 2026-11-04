@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use spr_client::{
     ComputeBudgetConfig, IndexerRequirement, IndexerRpcConfig, ProverLaunch, Rpc, SolanaRpc,
-    ZolanaIndexer,
+    SprIndexer,
 };
 use spr_interface::{
     pda,
@@ -293,7 +293,7 @@ pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScena
             .ok_or_else(|| anyhow!("deposit {signature} has no confirmed slot"))?;
     }
 
-    let indexer = ZolanaIndexer::new(&indexer_url);
+    let indexer = SprIndexer::new(&indexer_url);
     let response = indexer.get_shielded_transactions_by_tags(
         vec![view_tag],
         None,

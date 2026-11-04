@@ -1,5 +1,5 @@
 use solana_system_interface::error::SystemError;
-use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_program_test::{Rejection, SprProgramTest};
 
 use shielded_pool_tests::support::fixtures::Pool;
 
@@ -23,7 +23,7 @@ fn repeated_sol_deposit_data_creates_distinct_leaves() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(1_000_000_000);
     let tree = pool.tree;
-    let data = ZolanaProgramTest::sol_shield_data(1_000_000, [7u8; 32]);
+    let data = SprProgramTest::sol_shield_data(1_000_000, [7u8; 32]);
     let root0 = pool.rpc.state_root(&tree).expect("root");
     pool.rpc
         .deposit(&tree, &depositor, &data)

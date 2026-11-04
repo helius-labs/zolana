@@ -18,7 +18,7 @@ use spr_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use spr_program::instruction::{
     Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use spr_program_test::{rpc_state_root, single_deposit_view, TestIndexer, ZolanaProgramTest};
+use spr_program_test::{rpc_state_root, single_deposit_view, SprProgramTest, TestIndexer};
 use spr_transaction::{Data, Utxo, SOL_MINT};
 
 use shielded_pool_tests::support::localnet::{
@@ -152,7 +152,7 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
     let payer_owner_pk_hash = payer_owner.owner_proof_input_hash()?;
     let payer_owner_field = owner_hash(&payer_owner, &payer_nullifier_pk)?;
 
-    let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field);
+    let shield_data = SprProgramTest::sol_shield_data(AMOUNT, payer_owner_field);
     let shield_ix = Deposit {
         tree: cycle.tree_pubkey,
         depositor: cycle.payer.pubkey(),

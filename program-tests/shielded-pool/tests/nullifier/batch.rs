@@ -6,14 +6,14 @@ use solana_signer::Signer;
 use spr_account_checks::AccountError;
 use spr_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use spr_interface::error::ShieldedPoolError;
-use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_program_test::{Rejection, SprProgramTest};
 use spr_protocol_instructions::BatchUpdateNullifierTree;
 
 // On-chain negatives against the real SBF program: the forester-authority,
 // instruction-data, and protocol-config gates of `batch_update_nullifier_tree`
 // each pinned to their exact error.
 
-fn forester_env() -> (ZolanaProgramTest, Keypair, Pubkey) {
+fn forester_env() -> (SprProgramTest, Keypair, Pubkey) {
     let Pool {
         rpc,
         authority,

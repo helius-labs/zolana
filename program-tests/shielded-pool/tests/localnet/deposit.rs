@@ -14,8 +14,8 @@ use spr_interface::{
 use spr_keypair::ShieldedKeypair;
 use spr_program::instruction::{Deposit, RingDeposit};
 use spr_program_test::{
-    ring_deposit_output_from_event, rpc_state_root, single_deposit_view, TestIndexer,
-    ZolanaProgramTest, RING_TEST_PROGRAM_ID,
+    ring_deposit_output_from_event, rpc_state_root, single_deposit_view, SprProgramTest,
+    TestIndexer, RING_TEST_PROGRAM_ID,
 };
 use spr_protocol_instructions::SetRingActivation;
 use spr_test_utils::wallet::{
@@ -61,7 +61,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let mut direct_recipient =
         Wallet::new(direct_keypair.shielded_address()?, AssetRegistry::default())?;
     let direct_data =
-        ZolanaProgramTest::wallet_sol_shield_data(DEPOSIT_LAMPORTS, &direct_recipient.identity)?;
+        SprProgramTest::wallet_sol_shield_data(DEPOSIT_LAMPORTS, &direct_recipient.identity)?;
     let direct_root_before = rpc_state_root(&rpc, &tree)?;
     let direct_ix = Deposit {
         tree,
@@ -142,7 +142,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let output_blinding_seed = derive_output_blinding_seed(&fixture_first_nullifier, &[5u8; 32])?;
     let blinding =
         derive_transact_output_blinding(&fixture_first_nullifier, &output_blinding_seed, 0)?;
-    let mut ring_data = ZolanaProgramTest::wallet_ring_sol_shield_data(
+    let mut ring_data = SprProgramTest::wallet_ring_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &ring_recipient.identity,
         blinding,

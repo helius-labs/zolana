@@ -29,21 +29,21 @@ use crate::{
 };
 
 use super::{
-    prove_on_blocking_pool, validation::validate_fee_payer_pubkey, AsyncIndexer, AsyncZolanaClient,
-    BlockingIndexer, BlockingRpc, TransferPreparation, ZolanaClient,
+    prove_on_blocking_pool, validation::validate_fee_payer_pubkey, AsyncIndexer, AsyncSprClient,
+    BlockingIndexer, BlockingRpc, SprClient, TransferPreparation,
 };
 use crate::prover::indexed::{IndexedTransferPreparation, IndexedTransferRail};
 
 /// A signed shielded transaction ready for proof assembly and submission.
 ///
 /// Produced by signing a `ConfidentialTransaction`; consumed by
-/// [`ZolanaClient`]'s submission helpers.
+/// [`SprClient`]'s submission helpers.
 pub struct SignedPrivateTransaction {
     pub transaction: SppProofInputs,
     pub settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
 }
 
-impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
+impl<R: AsyncRpc, I: AsyncIndexer> AsyncSprClient<R, I> {
     /// Ask the configured prover for a default-ring EdDSA transfer proof and
     /// verify it locally before returning its transaction wire encoding.
     pub async fn prove_confidential_transfer_result(
@@ -159,8 +159,8 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
     }
 }
 
-impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
-    /// See [`AsyncZolanaClient::prove_transact`].
+impl<R: BlockingRpc, I: BlockingIndexer> SprClient<R, I> {
+    /// See [`AsyncSprClient::prove_transact`].
     pub fn prove_transact(
         &self,
         proof_inputs: SppProofInputs,
@@ -170,7 +170,7 @@ impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
         self.block_on(self.client.prove_transact(proof_inputs, config, authority))
     }
 
-    /// See [`AsyncZolanaClient::prove_transact_confidential_eddsa`].
+    /// See [`AsyncSprClient::prove_transact_confidential_eddsa`].
     pub fn prove_transact_confidential_eddsa<'a>(
         &self,
         proof_inputs: SppProofInputs,
@@ -207,7 +207,7 @@ pub struct Submission<'a> {
     pub authority: &'a dyn ProofAuthority,
     /// Proves this submission in place of the client's prover, for a caller
     /// that chooses where each transaction is proved. As with
-    /// [`AsyncZolanaClient::with_prover`], the client then fetches the proof
+    /// [`AsyncSprClient::with_prover`], the client then fetches the proof
     /// data itself, so the submission never takes the prover server's indexed
     /// route.
     pub prover: Option<Arc<dyn Prover>>,
@@ -263,7 +263,7 @@ impl<'a> Submission<'a> {
     /// "Blockhash not found".
     pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
         &self,
-        client: &AsyncZolanaClient<R, I>,
+        client: &AsyncSprClient<R, I>,
     ) -> Result<UnsignedMessage, ClientError> {
         let mut owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
         if let Some(owner) = self.confidential_eddsa_owner {
@@ -359,7 +359,7 @@ impl<'a> Submission<'a> {
     /// playing both roles signs once.
     pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
         &self,
-        client: &AsyncZolanaClient<R, I>,
+        client: &AsyncSprClient<R, I>,
         signers: &[&dyn Signer],
     ) -> Result<Signature, ClientError> {
         let unsigned = self.finish_unsigned(client).await?;
@@ -372,7 +372,7 @@ impl<'a> Submission<'a> {
     /// See [`Self::finish_unsigned`].
     pub fn finish_unsigned_sync<R: BlockingRpc, I: BlockingIndexer>(
         &self,
-        client: &ZolanaClient<R, I>,
+        client: &SprClient<R, I>,
     ) -> Result<UnsignedMessage, ClientError> {
         client.block_on(self.finish_unsigned(&client.client))
     }
@@ -380,7 +380,7 @@ impl<'a> Submission<'a> {
     /// See [`Self::send`].
     pub fn send_sync<R: BlockingRpc, I: BlockingIndexer>(
         &self,
-        client: &ZolanaClient<R, I>,
+        client: &SprClient<R, I>,
         signers: &[&dyn Signer],
     ) -> Result<Signature, ClientError> {
         client.block_on(self.send(&client.client, signers))

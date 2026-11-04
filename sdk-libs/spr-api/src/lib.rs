@@ -1,6 +1,6 @@
 //! Async and blocking transports for the Zolana indexer JSON-RPC contract.
 //!
-//! [`ZolanaApi`] is the implementation; [`BlockingZolanaApi`] runs it on a
+//! [`SprApi`] is the implementation; [`BlockingSprApi`] runs it on a
 //! Tokio runtime it owns, for blocking callers, the way `solana_rpc_client`'s
 //! blocking `RpcClient` drives its nonblocking one. Requests go through an
 //! [`HttpClient`]: a `reqwest` client by default (the `reqwest` feature), or the application's own
@@ -52,15 +52,15 @@ pub use spr_indexer_api::{
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
-/// The bound on each request of a [`BlockingZolanaApi`], the one
+/// The bound on each request of a [`BlockingSprApi`], the one
 /// `reqwest::blocking::Client` gave it: a hung indexer fails a blocking call
-/// rather than holding its thread. [`BlockingZolanaApi::with_request_timeout`]
+/// rather than holding its thread. [`BlockingSprApi::with_request_timeout`]
 /// changes it.
 pub const BLOCKING_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const REQUEST_ID: &str = "test-account";
 
 #[derive(Clone, Debug)]
-pub struct ZolanaApi {
+pub struct SprApi {
     base_path: String,
     api_key: Option<String>,
     client: Arc<dyn HttpClient>,
@@ -70,8 +70,8 @@ pub struct ZolanaApi {
 }
 
 #[derive(Clone, Debug)]
-pub struct BlockingZolanaApi {
-    api: ZolanaApi,
+pub struct BlockingSprApi {
+    api: SprApi,
     /// Shared by clones: one runtime per client.
     runtime: Arc<BlockingRuntime>,
 }
@@ -180,7 +180,7 @@ impl Drop for BlockingRuntime {
 }
 
 /// A [`BlockingHttpClient`] serving as an [`HttpClient`]: each request runs on
-/// Tokio's blocking pool. [`BlockingZolanaApi::with_client`] and the blocking
+/// Tokio's blocking pool. [`BlockingSprApi::with_client`] and the blocking
 /// prover client carry a blocking transport this way.
 #[derive(Debug)]
 pub struct OnBlockingPool(Arc<dyn BlockingHttpClient>);
@@ -202,7 +202,7 @@ impl HttpClient for OnBlockingPool {
     }
 }
 
-/// Sends the requests of a [`ZolanaApi`] and of the `spr-client` async
+/// Sends the requests of a [`SprApi`] and of the `spr-client` async
 /// prover client.
 pub trait HttpClient: fmt::Debug + Send + Sync {
     /// Send `request` and answer with the server's response, whatever its
@@ -213,7 +213,7 @@ pub trait HttpClient: fmt::Debug + Send + Sync {
     fn send<'a>(&'a self, request: HttpRequest) -> HttpFuture<'a>;
 }
 
-/// Sends the requests of a [`BlockingZolanaApi`] and of the `spr-client`
+/// Sends the requests of a [`BlockingSprApi`] and of the `spr-client`
 /// blocking prover client.
 pub trait BlockingHttpClient: fmt::Debug + Send + Sync {
     /// As [`HttpClient::send`].
@@ -510,7 +510,7 @@ struct JsonRpcError {
     data: Option<serde_json::Value>,
 }
 
-impl ZolanaApi {
+impl SprApi {
     /// Over a `reqwest` client with no request bound; see
     /// [`Self::with_request_timeout`].
     #[cfg(feature = "reqwest")]
@@ -543,8 +543,8 @@ impl ZolanaApi {
     /// Give it an HTTP client of its own: a `reqwest` connection is served by
     /// the runtime that opened it, and this one runs only during a call, so a
     /// clone of its client used from another runtime can hang.
-    pub fn into_blocking(self) -> BlockingZolanaApi {
-        BlockingZolanaApi {
+    pub fn into_blocking(self) -> BlockingSprApi {
+        BlockingSprApi {
             api: self,
             runtime: Arc::new(BlockingRuntime::new()),
         }
@@ -756,40 +756,40 @@ impl ZolanaApi {
     }
 }
 
-impl BlockingZolanaApi {
+impl BlockingSprApi {
     /// Over a `reqwest` client, each request bound by
     /// [`BLOCKING_REQUEST_TIMEOUT`].
     #[cfg(feature = "reqwest")]
     pub fn new(url: impl AsRef<str>) -> Self {
-        ZolanaApi::new(url)
+        SprApi::new(url)
             .with_request_timeout(BLOCKING_REQUEST_TIMEOUT)
             .into_blocking()
     }
 
     /// Send through `client`, run on the runtime's blocking pool, each
     /// request bound by [`BLOCKING_REQUEST_TIMEOUT`]. An async transport goes
-    /// through [`ZolanaApi::with_client`] and [`ZolanaApi::into_blocking`]
+    /// through [`SprApi::with_client`] and [`SprApi::into_blocking`]
     /// instead.
     pub fn with_client(url: impl AsRef<str>, client: impl BlockingHttpClient + 'static) -> Self {
-        ZolanaApi::with_client(url, OnBlockingPool::new(client))
+        SprApi::with_client(url, OnBlockingPool::new(client))
             .with_request_timeout(BLOCKING_REQUEST_TIMEOUT)
             .into_blocking()
     }
 
-    /// See [`ZolanaApi::with_request_timeout`].
+    /// See [`SprApi::with_request_timeout`].
     #[must_use]
     pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
         self.api = self.api.with_request_timeout(timeout);
         self
     }
 
-    pub fn api(&self) -> &ZolanaApi {
+    pub fn api(&self) -> &SprApi {
         &self.api
     }
 
     /// The API and the runtime it runs on, for a blocking client built over
     /// this one's async calls, such as `spr-client`'s blocking indexer.
-    pub fn into_parts(self) -> (ZolanaApi, Arc<BlockingRuntime>) {
+    pub fn into_parts(self) -> (SprApi, Arc<BlockingRuntime>) {
         (self.api, self.runtime)
     }
 
@@ -1172,7 +1172,7 @@ mod tests {
     #[test]
     fn a_blocking_call_after_the_server_closed_an_idle_connection_succeeds() {
         let (url, connections) = closing_server(Duration::from_millis(50));
-        let api = BlockingZolanaApi::new(url);
+        let api = BlockingSprApi::new(url);
         for call in 0..4 {
             if call > 0 {
                 std::thread::sleep(Duration::from_millis(250));
@@ -1249,8 +1249,7 @@ mod tests {
     fn blocking_api_sends_through_its_client() {
         let client = FakeClient::answering(200, NO_TRANSACTIONS);
         let requests = client.requests.clone();
-        let api =
-            BlockingZolanaApi::with_client("https://rpc.example.test/v1?api-key=secret", client);
+        let api = BlockingSprApi::with_client("https://rpc.example.test/v1?api-key=secret", client);
         let response = api
             .get_shielded_transactions_by_signature(SerializableSignature::default())
             .unwrap();
@@ -1271,7 +1270,7 @@ mod tests {
     /// The API keeps its request bound itself, whatever the transport does.
     #[tokio::test]
     async fn a_request_is_cut_off_at_the_api_timeout() {
-        let api = ZolanaApi::with_client("https://rpc.example.test/v1", HungClient)
+        let api = SprApi::with_client("https://rpc.example.test/v1", HungClient)
             .with_request_timeout(Duration::from_millis(20));
         let error = api
             .get_shielded_transactions_by_signature(SerializableSignature::default())
@@ -1286,7 +1285,7 @@ mod tests {
     /// multi-thread runtime it runs.
     #[tokio::test]
     async fn a_blocking_call_inside_a_current_thread_runtime_is_an_error() {
-        let api = BlockingZolanaApi::with_client(
+        let api = BlockingSprApi::with_client(
             "https://rpc.example.test/v1",
             FakeClient::answering(200, NO_TRANSACTIONS),
         );
@@ -1302,7 +1301,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_blocking_call_inside_a_multi_thread_runtime_runs() {
-        let api = BlockingZolanaApi::with_client(
+        let api = BlockingSprApi::with_client(
             "https://rpc.example.test/v1",
             FakeClient::answering(200, NO_TRANSACTIONS),
         );
@@ -1314,7 +1313,7 @@ mod tests {
     async fn async_api_sends_through_its_client() {
         let client = FakeClient::answering(200, NO_TRANSACTIONS);
         let requests = client.requests.clone();
-        let api = ZolanaApi::with_client("https://rpc.example.test/v1?api-key=secret", client);
+        let api = SprApi::with_client("https://rpc.example.test/v1?api-key=secret", client);
         let response = api
             .get_shielded_transactions_by_signature(SerializableSignature::default())
             .await
@@ -1326,7 +1325,7 @@ mod tests {
     #[test]
     fn client_answers_keep_their_errors() {
         let call = |status, body| {
-            BlockingZolanaApi::with_client(
+            BlockingSprApi::with_client(
                 "https://rpc.example.test",
                 FakeClient::answering(status, body),
             )
@@ -1403,7 +1402,7 @@ mod tests {
 
     #[test]
     fn extracts_api_key_from_url() {
-        let api = ZolanaApi::new("https://rpc.example.test?api-key=secret");
+        let api = SprApi::new("https://rpc.example.test?api-key=secret");
         assert_eq!(api.base_path(), "https://rpc.example.test");
         assert_eq!(api.api_key(), Some("secret"));
         assert_eq!(
@@ -1414,7 +1413,7 @@ mod tests {
 
     #[test]
     fn leaves_plain_urls_unchanged() {
-        let api = ZolanaApi::new("http://127.0.0.1:8784");
+        let api = SprApi::new("http://127.0.0.1:8784");
         assert_eq!(api.base_path(), "http://127.0.0.1:8784");
         assert_eq!(api.api_key(), None);
         assert_eq!(
@@ -1425,7 +1424,7 @@ mod tests {
 
     #[test]
     fn blocking_client_uses_same_url_shape() {
-        let api = BlockingZolanaApi::new("https://rpc.example.test?api-key=secret");
+        let api = BlockingSprApi::new("https://rpc.example.test?api-key=secret");
         assert_eq!(api.base_path(), "https://rpc.example.test");
         assert_eq!(api.api_key(), Some("secret"));
         assert_eq!(

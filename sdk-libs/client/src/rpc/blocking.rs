@@ -1,6 +1,6 @@
 //! A blocking [`Rpc`] serving as an [`AsyncRpc`], each call run on Tokio's
 //! blocking pool, the way `spr_api::OnBlockingPool` carries a blocking HTTP
-//! client. The blocking `ZolanaClient` runs its `async` core over this.
+//! client. The blocking `SprClient` runs its `async` core over this.
 
 use std::sync::Arc;
 
@@ -62,7 +62,7 @@ impl<T: Send + Sync + 'static> Blocking<T> {
 }
 
 /// [`Rpc::prove`] is not lifted: it borrows an authority for the call, which
-/// cannot move to the pool. A `ZolanaClient` proves with its own prover.
+/// cannot move to the pool. A `SprClient` proves with its own prover.
 #[async_trait]
 impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
     async fn get_program_accounts_filtered(

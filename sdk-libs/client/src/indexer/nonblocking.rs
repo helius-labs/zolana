@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use solana_address::Address;
 use solana_signature::Signature;
-use spr_api::{SerializableSignature, ZolanaApi};
+use spr_api::{SerializableSignature, SprApi};
 
 use crate::{
     error::ClientError,
@@ -38,19 +38,19 @@ const MERKLE_PROOF_POLL_START: Duration = Duration::from_millis(25);
 const MERKLE_PROOF_POLL_MAX: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Debug)]
-pub struct AsyncZolanaIndexer {
-    api: ZolanaApi,
+pub struct AsyncSprIndexer {
+    api: SprApi,
 }
 
-impl AsyncZolanaIndexer {
+impl AsyncSprIndexer {
     #[cfg(feature = "reqwest")]
     pub fn new(url: impl AsRef<str>) -> Self {
         Self {
-            api: ZolanaApi::new(url),
+            api: SprApi::new(url),
         }
     }
 
-    pub fn with_api(api: ZolanaApi) -> Self {
+    pub fn with_api(api: SprApi) -> Self {
         Self { api }
     }
 
@@ -59,13 +59,13 @@ impl AsyncZolanaIndexer {
         self
     }
 
-    pub fn api(&self) -> &ZolanaApi {
+    pub fn api(&self) -> &SprApi {
         &self.api
     }
 }
 
 #[async_trait]
-impl AsyncRpc for AsyncZolanaIndexer {
+impl AsyncRpc for AsyncSprIndexer {
     fn should_retry(&self, error: &ClientError) -> bool {
         matches!(error, ClientError::IndexerUnavailable(_))
     }

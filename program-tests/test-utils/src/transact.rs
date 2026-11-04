@@ -45,7 +45,7 @@ use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
 };
 use spr_program::TransactExternalData;
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 use spr_transaction::{
     instructions::transact::PrivateTxHash,
     instructions::transact::{signed_magnitude_to_field, BN254_MODULUS_DEC},
@@ -901,7 +901,7 @@ pub struct SplWithdrawal {
 /// built from reference trees and gated against the on-chain roots. A fixed
 /// nullifier secret keeps the run deterministic.
 pub fn build_spl_withdrawal(
-    pt: &mut ZolanaProgramTest,
+    pt: &mut SprProgramTest,
     authority: &Keypair,
     tree: &Pubkey,
     amount: u64,
@@ -927,7 +927,7 @@ pub fn build_spl_withdrawal(
     let owner = PublicKey::from_ed25519(&payer_bytes);
     let owner_pk_hash = owner.owner_proof_input_hash().expect("owner hash");
     let owner_field = owner_hash(&owner, &nullifier_pk).expect("owner field");
-    let shield = ZolanaProgramTest::spl_shield_data(amount, owner_field, &mint, &user_token);
+    let shield = SprProgramTest::spl_shield_data(amount, owner_field, &mint, &user_token);
     let event = pt.deposit(tree, &payer, &shield).context("SPL deposit")?;
     let utxo = pt
         .indexed_deposit_utxo(&event, owner)
@@ -1085,7 +1085,7 @@ pub fn build_spl_withdrawal(
                 mint,
                 spl_interface: vault,
                 user_token_account: user_token,
-                token_program: ZolanaProgramTest::token_program_id(),
+                token_program: SprProgramTest::token_program_id(),
             },
         )],
         data: data.clone(),

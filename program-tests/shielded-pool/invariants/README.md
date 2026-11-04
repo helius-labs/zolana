@@ -115,7 +115,7 @@ the test backend. Localnet coverage does not count as LiteSVM coverage.
 
 | Label | Meaning |
 |---|---|
-| LiteSVM | A passing test in `program-tests/shielded-pool/tests/` that runs through `Pool`/`ZolanaProgramTest` and asserts the invariant directly |
+| LiteSVM | A passing test in `program-tests/shielded-pool/tests/` that runs through `Pool`/`SprProgramTest` and asserts the invariant directly |
 | Localnet | A validator/RPC/indexer test; complementary, not a LiteSVM substitute |
 | Partial | The behavior is exercised, but an important postcondition, delta, rollback sweep, or backend leg is not asserted |
 | Blocked | The current harness cannot exercise the invariant (for example, a real-proof SPL transact path or a second ring identity) |

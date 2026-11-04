@@ -14,7 +14,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
     prover::MergeCacheTarget, ComputeBudgetConfig, MergeProver, ProofAuthority, ProofCompressed,
-    ProverClient, ProverExt, Rpc, SolanaRpc, WitnessReader, ZolanaClient, ZolanaIndexer,
+    ProverClient, ProverExt, Rpc, SolanaRpc, SprClient, SprIndexer, WitnessReader,
 };
 use spr_interface::instruction::instruction_data::CreateCacheData;
 use spr_program::instruction::{
@@ -102,13 +102,13 @@ fn main() -> Result<()> {
         utxos,
     } = setup_merge_scenario(UTXO_COUNT, DEPOSIT_AMOUNT)?;
 
-    let client = ZolanaClient::from_urls(
+    let client = SprClient::from_urls(
         SolanaRpc::new(rpc_url),
         &indexer_url,
         prover_url.clone(),
         None,
     )?;
-    let indexer = ZolanaIndexer::new(&indexer_url);
+    let indexer = SprIndexer::new(&indexer_url);
     let prover = ProverClient::new(prover_url);
     let assets = AssetRegistry::default();
     let sender_address = sender.shielded_address()?;

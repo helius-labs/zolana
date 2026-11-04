@@ -221,7 +221,7 @@ name = "transact_functional"
 path = "tests/transact/functional.rs"
 required-features = ["proofs"]
 
-# A ZolanaClient whose RPC and indexer are the litesvm harness: proves through
+# A SprClient whose RPC and indexer are the litesvm harness: proves through
 # the workspace prover, sends and confirms in process.
 [[test]]
 name = "client_litesvm"

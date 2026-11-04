@@ -23,7 +23,7 @@ struct CycleEnv {
     rpc_url: String,
     indexer_url: String,
     rpc: SolanaRpc,
-    indexer: ZolanaIndexer,
+    indexer: SprIndexer,
     payer: Keypair,
     recipient_owner: Keypair,
     tree_pubkey: Pubkey,
@@ -43,7 +43,7 @@ fn phase_bootstrap() -> TestResult<CycleEnv> {
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
-    let indexer = ZolanaIndexer::new(indexer_url.clone()).with_http_trace();
+    let indexer = SprIndexer::new(indexer_url.clone()).with_http_trace();
     rpc.assert_executable(&program_id)?;
     let unknown_transactions = indexer.get_shielded_transactions_by_tags(
         vec![[253u8; 32]],
@@ -104,7 +104,7 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
     let payer_owner = PublicKey::from_ed25519(&payer_bytes);
     let payer_owner_field = owner_hash(&payer_owner, &payer_nullifier_pk)?;
 
-    let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field);
+    let shield_data = SprProgramTest::sol_shield_data(AMOUNT, payer_owner_field);
     let shield_view_tag = shield_data.view_tag;
     let shield_ix = Deposit {
         tree: env.tree_pubkey,

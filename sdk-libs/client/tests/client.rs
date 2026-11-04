@@ -18,8 +18,8 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use spr_client::{
-    client::{AsyncZolanaClient, SignedPrivateTransaction, Submission, ZolanaClient},
-    indexer::{AsyncZolanaIndexer, ZolanaIndexer},
+    client::{AsyncSprClient, SignedPrivateTransaction, SprClient, Submission},
+    indexer::{AsyncSprIndexer, SprIndexer},
     prover::{
         tee::{TeeError, TeePolicy},
         transact::assemble,
@@ -69,14 +69,14 @@ fn from_urls_requires_https_off_loopback() {
     ] {
         assert!(
             matches!(
-                ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover, None),
+                SprClient::<(), SprIndexer>::from_urls((), indexer, prover, None),
                 Err(ClientError::InsecureServiceUrl { field: rejected, .. }) if rejected == field
             ),
             "expected {indexer} / {prover} to be rejected for {field}"
         );
     }
 
-    assert!(ZolanaClient::<(), ZolanaIndexer>::from_urls(
+    assert!(SprClient::<(), SprIndexer>::from_urls(
         (),
         "https://indexer.example.com",
         "https://prover.example.com",
@@ -96,7 +96,7 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
         "http://svc.localhost:8784",
     ] {
         assert!(
-            ZolanaClient::<(), ZolanaIndexer>::from_urls((), url, url, None).is_ok(),
+            SprClient::<(), SprIndexer>::from_urls((), url, url, None).is_ok(),
             "expected {url} to be allowed"
         );
     }
@@ -106,7 +106,7 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
         "http://notlocalhost:8784",
     ] {
         assert!(
-            ZolanaClient::<(), ZolanaIndexer>::from_urls((), url, url, None).is_err(),
+            SprClient::<(), SprIndexer>::from_urls((), url, url, None).is_err(),
             "expected {url} to be rejected"
         );
     }
@@ -119,16 +119,12 @@ fn the_insecure_escape_hatch_is_explicit() {
     let indexer = "http://indexer.internal:8784";
     let prover = "http://prover.internal:3001";
     assert!(matches!(
-        ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover, None),
+        SprClient::<(), SprIndexer>::from_urls((), indexer, prover, None),
         Err(ClientError::InsecureServiceUrl { .. })
     ));
 
-    let client = ZolanaClient::<(), ZolanaIndexer>::from_urls_allowing_insecure_http(
-        (),
-        indexer,
-        prover,
-        None,
-    );
+    let client =
+        SprClient::<(), SprIndexer>::from_urls_allowing_insecure_http((), indexer, prover, None);
     assert_eq!(client.indexer().api().base_path(), indexer);
 }
 
@@ -137,12 +133,8 @@ fn the_insecure_escape_hatch_is_explicit() {
 #[tokio::test]
 async fn clients_of_either_mode_are_built_inside_an_async_runtime() {
     let (indexer, prover) = ("http://127.0.0.1:8784", "http://127.0.0.1:3001");
-    drop(
-        AsyncZolanaClient::from_urls((), indexer, prover, None).expect("loopback http is allowed"),
-    );
-    drop(
-        ZolanaClient::<(), ZolanaIndexer>::from_urls((), indexer, prover, None).expect("loopback"),
-    );
+    drop(AsyncSprClient::from_urls((), indexer, prover, None).expect("loopback http is allowed"));
+    drop(SprClient::<(), SprIndexer>::from_urls((), indexer, prover, None).expect("loopback"));
 }
 
 #[test]
@@ -163,14 +155,9 @@ fn url_constructors_apply_the_supplied_policy_before_proving() {
         let prover_url = format!("{}/v1/spr?api-key=fixture", server.url());
         let rpc = MockSubmitRpc::new(Signature::default());
         let client = if insecure_http {
-            ZolanaClient::from_urls_allowing_insecure_http(
-                rpc,
-                server.url(),
-                prover_url,
-                Some(policy),
-            )
+            SprClient::from_urls_allowing_insecure_http(rpc, server.url(), prover_url, Some(policy))
         } else {
-            ZolanaClient::from_urls(rpc, server.url(), prover_url, Some(policy)).unwrap()
+            SprClient::from_urls(rpc, server.url(), prover_url, Some(policy)).unwrap()
         };
         assert!(matches!(
             Rpc::prove(&client, transaction, &owner),
@@ -198,14 +185,14 @@ async fn async_url_constructors_apply_the_supplied_policy_before_proving() {
         let prover_url = format!("{}/v1/spr?api-key=fixture", server.url());
         let rpc = MockSubmitRpc::new(Signature::default());
         let client = if insecure_http {
-            AsyncZolanaClient::from_urls_allowing_insecure_http(
+            AsyncSprClient::from_urls_allowing_insecure_http(
                 rpc,
                 server.url(),
                 prover_url,
                 Some(policy),
             )
         } else {
-            AsyncZolanaClient::from_urls(rpc, server.url(), prover_url, Some(policy)).unwrap()
+            AsyncSprClient::from_urls(rpc, server.url(), prover_url, Some(policy)).unwrap()
         };
         assert!(matches!(
             AsyncRpc::prove(&client, transaction, &owner).await,
@@ -245,9 +232,9 @@ async fn a_blocking_client_is_called_from_inside_a_multi_thread_runtime() {
     let signature = Signature::from([24u8; 64]);
     let server =
         MockIndexerServer::respond_with(vec![indexed_transaction_by_signature_response(signature)]);
-    let client = ZolanaClient::new(
+    let client = SprClient::new(
         MockSubmitRpc::new(signature),
-        ZolanaIndexer::new(server.url()),
+        SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
     );
     client
@@ -357,9 +344,9 @@ fn confirm_private_transaction_sync_waits_for_indexer() {
     ]);
     let rpc = MockSubmitRpc::new(signature);
     let sent = rpc.sent.clone();
-    let client = ZolanaClient::new(
+    let client = SprClient::new(
         rpc,
-        ZolanaIndexer::new(server.url()),
+        SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
     )
     .with_priority_fee(25_000);
@@ -427,9 +414,9 @@ fn submit_validation_binds_fee_payer() {
             .expect("encrypt"),
         settlement_transfers: Vec::new(),
     };
-    let client = ZolanaClient::new(
+    let client = SprClient::new(
         MockSubmitRpc::new(Signature::default()),
-        ZolanaIndexer::new(server.url()),
+        SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
     )
     .with_proof_data_source(spr_client::ProofDataSource::Client);
@@ -504,9 +491,9 @@ fn assert_recorded_one_completed_transfer(prover: &RecordingProver) {
 fn with_prover_replaces_the_prover_server_when_blocking() {
     let (sender, signed, server) = with_prover_fixture();
     let prover = RecordingProver::default();
-    let client = ZolanaClient::with_prover(
+    let client = SprClient::with_prover(
         MockSubmitRpc::new(Signature::default()),
-        ZolanaIndexer::new(server.url()),
+        SprIndexer::new(server.url()),
         prover.clone(),
     );
 
@@ -520,9 +507,9 @@ fn with_prover_replaces_the_prover_server_when_blocking() {
 async fn with_prover_replaces_the_prover_server_when_async() {
     let (sender, signed, server) = with_prover_fixture();
     let prover = RecordingProver::default();
-    let client = AsyncZolanaClient::with_prover(
+    let client = AsyncSprClient::with_prover(
         MockSubmitRpc::new(Signature::default()),
-        AsyncZolanaIndexer::new(server.url()),
+        AsyncSprIndexer::new(server.url()),
         prover.clone(),
     );
 
@@ -538,9 +525,9 @@ async fn with_prover_replaces_the_prover_server_when_async() {
 /// panic.
 #[tokio::test]
 async fn a_blocking_client_inside_a_current_thread_runtime_is_an_error() {
-    let client = ZolanaClient::new(
+    let client = SprClient::new(
         MockSubmitRpc::new(Signature::default()),
-        ZolanaIndexer::new("http://127.0.0.1:1"),
+        SprIndexer::new("http://127.0.0.1:1"),
         ProverClient::new("http://127.0.0.1:2".to_string()),
     );
     let error = client.get_latest_blockhash().unwrap_err();
@@ -557,9 +544,9 @@ async fn a_blocking_client_inside_a_current_thread_runtime_is_an_error() {
 fn a_prover_given_for_one_submission_replaces_the_clients() {
     let own = RecordingProver::default();
     let with_own_prover = |server: &MockIndexerServer| {
-        ZolanaClient::with_prover(
+        SprClient::with_prover(
             MockSubmitRpc::new(Signature::default()),
-            ZolanaIndexer::new(server.url()),
+            SprIndexer::new(server.url()),
             own.clone(),
         )
     };
@@ -567,7 +554,7 @@ fn a_prover_given_for_one_submission_replaces_the_clients() {
     // server, not the client, reads the proof data. The mock indexer answers
     // only the two reads, so a request on that route fails the test.
     let on_indexed_route = |server: &MockIndexerServer| {
-        ZolanaClient::from_urls(
+        SprClient::from_urls(
             MockSubmitRpc::new(Signature::default()),
             server.url(),
             server.url(),
@@ -576,7 +563,7 @@ fn a_prover_given_for_one_submission_replaces_the_clients() {
         .expect("loopback urls")
     };
     for client in [
-        &with_own_prover as &dyn Fn(&MockIndexerServer) -> ZolanaClient<MockSubmitRpc>,
+        &with_own_prover as &dyn Fn(&MockIndexerServer) -> SprClient<MockSubmitRpc>,
         &on_indexed_route,
     ] {
         let (sender, signed, server) = with_prover_fixture();
@@ -609,9 +596,9 @@ fn spend_proofs_are_bound_to_requested_commitments_and_tree() {
                 nullifier_response(tree, input.nullifier),
             ),
         ]);
-        let client = ZolanaClient::new(
+        let client = SprClient::new(
             MockSubmitRpc::new(Signature::default()),
-            ZolanaIndexer::new(server.url()),
+            SprIndexer::new(server.url()),
             ProverClient::new("http://unused.invalid".to_string()),
         );
         let result =
@@ -644,9 +631,9 @@ fn spend_proofs_are_bound_to_requested_commitments_and_tree() {
 #[test]
 fn a_client_writes_its_configured_ceilings_into_the_header() {
     let client = |price: Option<u64>| {
-        let base = ZolanaClient::new(
+        let base = SprClient::new(
             MockSubmitRpc::new(Signature::from([1u8; 64])),
-            ZolanaIndexer::new("http://unused.invalid"),
+            SprIndexer::new("http://unused.invalid"),
             ProverClient::new("http://unused.invalid".to_string()),
         )
         .with_compute_unit_limit(1_000_000);
@@ -679,9 +666,9 @@ fn confirm_private_transaction_sync_times_out_when_indexer_lags() {
         "transactions": [],
     }))]);
     let rpc = MockSubmitRpc::new(signature);
-    let client = ZolanaClient::new(
+    let client = SprClient::new(
         rpc,
-        ZolanaIndexer::new(server.url()),
+        SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
     )
     .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
@@ -703,9 +690,9 @@ fn confirm_private_transaction_async_polls_until_the_event_is_indexed() {
         })),
         indexed_transaction_by_signature_response(signature),
     ]);
-    let client = AsyncZolanaClient::new(
+    let client = AsyncSprClient::new(
         MockSubmitRpc::new(signature),
-        AsyncZolanaIndexer::new(server.url()),
+        AsyncSprIndexer::new(server.url()),
         AsyncProverClient::new("http://unused.invalid".to_string()),
     )
     .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
@@ -731,9 +718,9 @@ fn confirm_private_transaction_sync_retries_transient_indexer_error() {
         rpc_error(-32603, "Internal error"),
         indexed_transaction_by_signature_response(signature),
     ]);
-    let client = ZolanaClient::new(
+    let client = SprClient::new(
         MockSubmitRpc::new(signature),
-        ZolanaIndexer::new(server.url()),
+        SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
     )
     .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
@@ -761,9 +748,9 @@ fn confirm_private_transaction_sync_surfaces_the_last_transient_error() {
         rpc_error(-32603, "Internal error"),
         rpc_error(-32603, "Internal error"),
     ]);
-    let client = ZolanaClient::new(
+    let client = SprClient::new(
         MockSubmitRpc::new(signature),
-        ZolanaIndexer::new(server.url()),
+        SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
     )
     .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
@@ -805,9 +792,9 @@ fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
             { "eventIndex": 1, "transaction": indexed_transaction_json(signature) },
         ],
     }))]);
-    let client = ZolanaClient::new(
+    let client = SprClient::new(
         MockSubmitRpc::new(signature),
-        ZolanaIndexer::new(server.url()),
+        SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
     )
     .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
@@ -820,14 +807,14 @@ fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
 }
 
 /// Confirmation no longer reads view tags, so the forwarders are the only
-/// thing keeping the capability reachable through `ZolanaClient`.
+/// thing keeping the capability reachable through `SprClient`.
 #[test]
 fn client_forwards_transact_output_view_tags_to_the_rpc() {
     let signature = Signature::from([21u8; 64]);
     let expected = vec![[7u8; 32], [9u8; 32]];
-    let client = ZolanaClient::new(
+    let client = SprClient::new(
         MockSubmitRpc::new(signature).with_view_tags(expected.clone()),
-        ZolanaIndexer::new("http://unused.invalid"),
+        SprIndexer::new("http://unused.invalid"),
         ProverClient::new("http://unused.invalid".to_string()),
     );
 
@@ -836,9 +823,9 @@ fn client_forwards_transact_output_view_tags_to_the_rpc() {
         expected
     );
 
-    let client = AsyncZolanaClient::new(
+    let client = AsyncSprClient::new(
         MockSubmitRpc::new(signature).with_view_tags(expected.clone()),
-        AsyncZolanaIndexer::new("http://unused.invalid"),
+        AsyncSprIndexer::new("http://unused.invalid"),
         AsyncProverClient::new("http://unused.invalid".to_string()),
     );
     let runtime = tokio::runtime::Runtime::new().expect("runtime");
@@ -880,9 +867,9 @@ fn a_client_with_its_own_prover_reads_only_its_indexer() {
         settlement_transfers: Vec::new(),
     };
     let prover = RecordingProver::default();
-    let client = ZolanaClient::with_prover(
+    let client = SprClient::with_prover(
         MockSubmitRpc::new(signature),
-        ZolanaIndexer::new(server.url()),
+        SprIndexer::new(server.url()),
         prover.clone(),
     );
 
@@ -1243,7 +1230,7 @@ trait TestSubmission {
     ) -> Result<VersionedMessage, ClientError>;
 }
 
-impl<R: Rpc> TestSubmission for ZolanaClient<R> {
+impl<R: Rpc> TestSubmission for SprClient<R> {
     fn finish_submission_unsigned_sync_with(
         &self,
         signed: &SignedPrivateTransaction,
@@ -1309,7 +1296,7 @@ fn default_transfer_routes_skip_client_indexer_reads() {
         .encrypt(&owner)
         .unwrap();
     let server = MockIndexerServer::respond_with(vec![json!({}), json!({}), json!({})]);
-    let client = ZolanaClient::from_urls(
+    let client = SprClient::from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
@@ -1351,7 +1338,7 @@ async fn default_async_transfer_routes_skip_client_indexer_reads() {
         .encrypt(&owner)
         .unwrap();
     let server = MockIndexerServer::respond_with(vec![json!({}), json!({})]);
-    let client = AsyncZolanaClient::from_urls(
+    let client = AsyncSprClient::from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
@@ -1391,7 +1378,7 @@ fn client_proof_data_opt_in_fetches_paths_before_proving() {
         .unwrap()
         .encrypt(&owner)
         .unwrap();
-    let client = ZolanaClient::from_urls(
+    let client = SprClient::from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
@@ -1416,7 +1403,7 @@ async fn client_proof_data_opt_in_fetches_paths_before_proving_async() {
         .unwrap()
         .encrypt(&owner)
         .unwrap();
-    let client = AsyncZolanaClient::from_urls(
+    let client = AsyncSprClient::from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),

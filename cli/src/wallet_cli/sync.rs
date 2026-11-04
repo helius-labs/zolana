@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use solana_signature::Signature;
 use spr_client::{
     EncryptedUtxoMatch, HistoryFilters, IndexerPollConfig, IndexerRpcConfig, Rpc, SolanaRpc,
-    UtxoScan, ZolanaIndexer,
+    SprIndexer, UtxoScan,
 };
 use spr_transaction::SpendableDecryptionResult;
 
@@ -46,7 +46,7 @@ pub(super) fn sync_context(opts: &SyncOptions, rpc: &SolanaRpc) -> Result<SyncCo
     let config = CliConfigFile::load()?;
     let sync = resolve_sync_with_config(opts, &config)?;
     let material = load_sender_from_resolved_sync(&sync)?;
-    let indexer = ZolanaIndexer::new(sync.indexer_url.clone());
+    let indexer = SprIndexer::new(sync.indexer_url.clone());
     let assets = config.local_asset_registry()?;
     let slot = rpc.get_slot()?;
     let spendable = UtxoScan::new(&material.keypair, &assets)
@@ -80,7 +80,7 @@ fn indexer_poll() -> IndexerPollConfig {
 /// returns that match. A proofless deposit publishes its blinding and UTXO hash
 /// in the clear, so the indexed match identifies the deposited UTXO.
 pub(super) fn wait_for_indexed_utxo(
-    indexer: &ZolanaIndexer,
+    indexer: &SprIndexer,
     tag: [u8; 32],
     signature: Signature,
 ) -> Result<EncryptedUtxoMatch> {

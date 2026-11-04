@@ -4,7 +4,7 @@ use solana_signer::Signer;
 use spr_client::Rpc;
 use spr_interface::{instruction::UpdateProtocolConfigData, pda, state::SplAssetRegistry};
 use spr_keypair::ShieldedKeypair;
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 use spr_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit, SplDepositAssertArgs,
 };
@@ -155,7 +155,7 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
     )
     .expect("recipient wallet");
     let data =
-        ZolanaProgramTest::wallet_spl_shield_data(400_000, &recipient.identity, &mint, &user_token)
+        SprProgramTest::wallet_spl_shield_data(400_000, &recipient.identity, &mint, &user_token)
             .expect("SPL deposit data");
     let tree = pool.tree;
     let root_before = pool.rpc.state_root(&tree).expect("root");
@@ -197,7 +197,7 @@ fn token_2022_interface_and_proofless_deposit_settle() {
     pool.rpc
         .ensure_asset_counter(&pool.authority)
         .expect("asset counter");
-    let token_program = ZolanaProgramTest::token_2022_program_id();
+    let token_program = SprProgramTest::token_2022_program_id();
     let mint = pool
         .rpc
         .create_mint_with_program(token_program)
@@ -215,13 +215,8 @@ fn token_2022_interface_and_proofless_deposit_settle() {
         .mint_to_with_program(&mint, &source, 1_000, token_program)
         .expect("mint Token-2022 balance");
 
-    let data = ZolanaProgramTest::spl_shield_data_with_program(
-        400,
-        [1u8; 32],
-        &mint,
-        &source,
-        token_program,
-    );
+    let data =
+        SprProgramTest::spl_shield_data_with_program(400, [1u8; 32], &mint, &source, token_program);
     pool.rpc
         .deposit(&pool.tree, &depositor, &data)
         .expect("settle Token-2022 deposit");

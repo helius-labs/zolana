@@ -35,7 +35,7 @@ use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplWithdrawalAccounts,
 };
-use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_program_test::{Rejection, SprProgramTest};
 use spr_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};
 
 /// SOL-withdrawal-shaped (negative public amount) transact data with a zeroed
@@ -74,7 +74,7 @@ fn spl_withdrawal_leg(mut ix_data: TransactIxData, amount: u64, mint: &Pubkey) -
     ix_data
 }
 
-fn withdrawal_env() -> (ZolanaProgramTest, Pubkey) {
+fn withdrawal_env() -> (SprProgramTest, Pubkey) {
     let Pool { rpc, tree, .. } = Pool::initialized();
     (rpc, tree)
 }
@@ -164,7 +164,7 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
 /// authority, funded attacker ATA. Each test swaps in exactly one settlement
 /// defect, so the asserted rejection isolates that check.
 struct SplWithdrawalEnv {
-    rpc: ZolanaProgramTest,
+    rpc: SprProgramTest,
     tree: Pubkey,
     attacker: Keypair,
     mint: Pubkey,
@@ -206,7 +206,7 @@ impl SplWithdrawalEnv {
             mint: self.mint,
             spl_interface: self.vault,
             user_token_account: self.attacker_ata,
-            token_program: ZolanaProgramTest::token_program_id(),
+            token_program: SprProgramTest::token_program_id(),
         }
     }
 
@@ -408,7 +408,7 @@ fn spl_withdrawal_rejects_a_user_token_account_with_a_wrong_length() {
         SPL_TOKEN_ACCOUNT_INITIALIZED,
         SPL_TOKEN_ACCOUNT_LEN - 1,
     );
-    let fake = env.write_token_account(ZolanaProgramTest::token_program_id(), bytes);
+    let fake = env.write_token_account(SprProgramTest::token_program_id(), bytes);
     let mut spl = env.valid_withdrawal();
     spl.user_token_account = fake;
     env.expect_settlement_rejection(spl);
@@ -420,7 +420,7 @@ fn spl_withdrawal_rejects_an_uninitialized_user_token_account() {
     // INV-TRANSACT-16: right owner, right length, matching mint, but the
     // state byte is Uninitialized (0) instead of Initialized (1).
     let bytes = token_account_bytes(&env.mint, &env.attacker.pubkey(), 0, SPL_TOKEN_ACCOUNT_LEN);
-    let fake = env.write_token_account(ZolanaProgramTest::token_program_id(), bytes);
+    let fake = env.write_token_account(SprProgramTest::token_program_id(), bytes);
     let mut spl = env.valid_withdrawal();
     spl.user_token_account = fake;
     env.expect_settlement_rejection(spl);

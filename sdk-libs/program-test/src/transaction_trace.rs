@@ -1,4 +1,4 @@
-//! Transaction diagnostics captured by [`crate::ZolanaProgramTest`].
+//! Transaction diagnostics captured by [`crate::SprProgramTest`].
 //!
 //! Every submission records the complete set of message accounts before and
 //! after execution, the instruction layout, logs, compute units, and the typed

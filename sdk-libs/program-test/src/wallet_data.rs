@@ -3,7 +3,7 @@ use spr_instruction::instruction::{AssetDeposit, DepositAsset, DepositSplAccount
 use spr_keypair::shielded::ShieldedAddress;
 use spr_transaction::TransactionError;
 
-use crate::{ProgramTestError, ZolanaProgramTest};
+use crate::{ProgramTestError, SprProgramTest};
 
 /// The public recipient material a proofless deposit contains. The blinding is
 /// derived, so the plain `deposit` rail needs nothing else.
@@ -14,7 +14,7 @@ pub(crate) fn wallet_shield_identity(
     Ok((recipient.viewing_pubkey.u(), owner))
 }
 
-impl ZolanaProgramTest {
+impl SprProgramTest {
     pub fn sol_shield_data(lamports: u64, owner: [u8; 32]) -> AssetDeposit {
         AssetDeposit {
             asset: DepositAsset::Sol,

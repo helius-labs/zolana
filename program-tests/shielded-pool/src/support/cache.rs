@@ -28,7 +28,7 @@ use spr_interface::{
 };
 use spr_keypair::{pubkey::PublicKey, NullifierKey};
 use spr_program::instruction::{CreateCache, Transact};
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 use spr_test_utils::{
     prover::spawn_workspace_prover,
     transact::{
@@ -85,7 +85,7 @@ impl CachedSpendFixture {
 }
 
 impl CachedSpendFixture {
-    pub fn build(self, rpc: &mut ZolanaProgramTest, tree: Pubkey, tree_id: u16) -> CachedSpend {
+    pub fn build(self, rpc: &mut SprProgramTest, tree: Pubkey, tree_id: u16) -> CachedSpend {
         assert!(
             self.n_inputs <= CACHE_CAPACITY,
             "a cache holds at most one slot per input"
@@ -292,7 +292,7 @@ impl CachedSpendFixture {
     /// merge would have written into it.
     fn seat_cache(
         &self,
-        rpc: &mut ZolanaProgramTest,
+        rpc: &mut SprProgramTest,
         tree_id: u16,
         commitments: &[[u8; 32]],
     ) -> Pubkey {

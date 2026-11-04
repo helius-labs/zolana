@@ -3,7 +3,7 @@
 
 use solana_account::Account;
 use solana_pubkey::Pubkey;
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 use spr_test_utils::prover::spawn_workspace_prover;
 use spr_tree::TreeAccount;
 
@@ -16,7 +16,7 @@ pub fn proof_env() -> Pool {
 }
 
 /// Read the on-chain roots used by a `transact` input.
-pub fn tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
+pub fn tree_roots(rpc: &SprProgramTest, tree: &Pubkey, utxo_index: u16) -> ([u8; 32], [u8; 32]) {
     let mut data = rpc.account_data(tree).expect("tree account");
     let account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
     (
@@ -27,7 +27,7 @@ pub fn tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([
 
 /// Read the latest on-chain UTXO root, its current dense history index, and the
 /// current nullifier root used by a `transact` input.
-pub fn current_tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey) -> (u16, [u8; 32], [u8; 32]) {
+pub fn current_tree_roots(rpc: &SprProgramTest, tree: &Pubkey) -> (u16, [u8; 32], [u8; 32]) {
     let mut data = rpc.account_data(tree).expect("tree account");
     let mut account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
     let utxo_index = account.utxo_tree().current_root_index();
@@ -39,7 +39,7 @@ pub fn current_tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey) -> (u16, [u8; 
 }
 
 /// Read the two counters advanced by a successful `transact`.
-pub fn tree_progress(rpc: &ZolanaProgramTest, tree: &Pubkey) -> (u64, u64) {
+pub fn tree_progress(rpc: &SprProgramTest, tree: &Pubkey) -> (u64, u64) {
     let mut data = rpc.account_data(tree).expect("tree account");
     let mut account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
     (
@@ -53,7 +53,7 @@ pub fn tree_progress(rpc: &ZolanaProgramTest, tree: &Pubkey) -> (u64, u64) {
 /// Callers retain control over the payload and owner so malformed-account
 /// tests keep their defect visible at the call site.
 pub fn write_ring_config_account(
-    rpc: &mut ZolanaProgramTest,
+    rpc: &mut SprProgramTest,
     address: Pubkey,
     owner: Pubkey,
     data: Vec<u8>,

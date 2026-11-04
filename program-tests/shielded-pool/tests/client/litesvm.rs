@@ -1,4 +1,4 @@
-//! A `ZolanaClient` whose RPC and indexer are the litesvm harness proves and
+//! A `SprClient` whose RPC and indexer are the litesvm harness proves and
 //! sends a private transfer, and a merge, with nothing beside it but the
 //! prover server: the client fetches the proof data from the harness, the
 //! prover proves it, and the harness runs and indexes the transaction.
@@ -17,7 +17,7 @@ use spr_client::{
 };
 use spr_interface::{instruction::instruction_data::transact::OwnerTag, state::read_tree_id};
 use spr_keypair::ShieldedKeypair;
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 use spr_test_utils::prover::spawn_workspace_prover;
 use spr_transaction::{
     instructions::{
@@ -29,8 +29,8 @@ use spr_transaction::{
 use spr_user_registry_interface::{user_record_pda, UserRecord, USER_REGISTRY_PROGRAM_ID};
 
 /// A harness with a tree, and the tree's address and id.
-fn harness_with_tree() -> (ZolanaProgramTest, Pubkey, u16) {
-    let mut harness = ZolanaProgramTest::new().expect("harness");
+fn harness_with_tree() -> (SprProgramTest, Pubkey, u16) {
+    let mut harness = SprProgramTest::new().expect("harness");
     let authority = Keypair::new();
     harness
         .airdrop(&authority.pubkey(), 10_000_000_000)
@@ -47,14 +47,14 @@ fn harness_with_tree() -> (ZolanaProgramTest, Pubkey, u16) {
 /// The payer shields `amount` lamports to `owner`; the UTXO as the wallet
 /// holds it.
 fn shield(
-    harness: &mut ZolanaProgramTest,
+    harness: &mut SprProgramTest,
     tree: &Pubkey,
     tree_id: u16,
     owner: &ShieldedKeypair,
     amount: u64,
 ) -> WalletUtxo {
     let payer = harness.payer.insecure_clone();
-    let shield = ZolanaProgramTest::wallet_sol_shield_data(
+    let shield = SprProgramTest::wallet_sol_shield_data(
         amount,
         &owner.shielded_address().expect("shielded address"),
     )
@@ -282,7 +282,7 @@ fn a_client_over_the_harness_merges_a_wallets_utxos() {
 }
 
 /// `owner`'s user record with `wallet`'s keys and merging enabled.
-fn write_merging_record(harness: &mut ZolanaProgramTest, owner: Pubkey, wallet: &ShieldedKeypair) {
+fn write_merging_record(harness: &mut SprProgramTest, owner: Pubkey, wallet: &ShieldedKeypair) {
     let (address, bump) = user_record_pda(&owner);
     let record = UserRecord {
         owner,

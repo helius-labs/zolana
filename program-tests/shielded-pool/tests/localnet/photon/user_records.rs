@@ -15,7 +15,7 @@ fn registered_user_record_is_served_by_photon() -> TestResult {
     restart_localnet();
 
     let mut rpc = SolanaRpc::new(spr_test_utils::localnet::localnet_rpc_url());
-    let indexer = ZolanaIndexer::new(spr_test_utils::localnet::localnet_indexer_url());
+    let indexer = SprIndexer::new(spr_test_utils::localnet::localnet_indexer_url());
 
     let owner = Keypair::new();
     rpc.airdrop(&owner.pubkey(), 1_000_000_000)?;

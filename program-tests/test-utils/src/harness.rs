@@ -18,7 +18,7 @@ use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use spr_client::{Rpc, SolanaRpc, TransactionSize, ZolanaIndexer};
+use spr_client::{Rpc, SolanaRpc, SprIndexer, TransactionSize};
 use spr_interface::{
     pda,
     state::{default_tree_fees, nullifier_tree_params},
@@ -168,7 +168,7 @@ pub struct ProtocolSetup {
 /// suite-specific deposit instruction data recorded in [`Actor::last_deposit`].
 pub struct LocalnetHarness<D> {
     pub rpc: SolanaRpc,
-    pub indexer: ZolanaIndexer,
+    pub indexer: SprIndexer,
     pub assets: AssetRegistry,
     pub payer: Keypair,
     pub authority: ProtocolSigners,
@@ -227,7 +227,7 @@ impl<D> LocalnetHarness<D> {
 
     /// Bootstrap step 1: restart the validator + Photon and the workspace
     /// prover, then connect the RPC and indexer clients.
-    pub fn start_stack(config: &BootstrapConfig) -> Result<(SolanaRpc, ZolanaIndexer)> {
+    pub fn start_stack(config: &BootstrapConfig) -> Result<(SolanaRpc, SprIndexer)> {
         // The prover is independent of the validator and indexer, so start it
         // concurrently with the validator + Photon restart and join before use.
         let prover = std::thread::spawn(|| {
@@ -244,7 +244,7 @@ impl<D> LocalnetHarness<D> {
         let rpc_url = localnet_rpc_url();
         let indexer_url = localnet_indexer_url();
         let rpc = SolanaRpc::new(rpc_url);
-        let indexer = ZolanaIndexer::new(indexer_url);
+        let indexer = SprIndexer::new(indexer_url);
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         rpc.assert_executable(&program_id)?;
         Ok((rpc, indexer))

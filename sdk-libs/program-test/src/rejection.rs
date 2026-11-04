@@ -11,7 +11,7 @@ use crate::ProgramTestError;
 /// The expected shape of a rejected instruction: which instruction failed and
 /// with what error. Tests build one `Rejection` and assert it against
 /// whichever backend produced the failure, so error expectations read
-/// identically across [`crate::ZolanaProgramTest`], raw LiteSVM, and
+/// identically across [`crate::SprProgramTest`], raw LiteSVM, and
 /// RPC-client tests, and are always typed (never matched on error text).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rejection {
@@ -48,7 +48,7 @@ impl Rejection {
         TransactionError::InstructionError(self.instruction_index, self.error.clone())
     }
 
-    /// Assert a [`crate::ZolanaProgramTest`] submission failed as expected.
+    /// Assert a [`crate::SprProgramTest`] submission failed as expected.
     #[track_caller]
     pub fn assert_litesvm(&self, err: ProgramTestError) {
         let ProgramTestError::TransactionFailure(failure) = err else {

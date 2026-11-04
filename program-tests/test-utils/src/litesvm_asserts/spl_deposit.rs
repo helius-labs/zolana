@@ -4,7 +4,7 @@ use crate::wallet::{SyncWalletAuthority, Wallet};
 use solana_pubkey::Pubkey;
 use spr_interface::{instruction::deposit_blinding, state::read_tree_id};
 use spr_program::instruction::AssetDeposit;
-use spr_program_test::{DepositOutput, ZolanaProgramTest};
+use spr_program_test::{DepositOutput, SprProgramTest};
 
 /// Verify a settled SPL `deposit` against the integration-test
 /// expectations: the emitted event faithfully mirrors the instruction data and
@@ -34,7 +34,7 @@ pub struct SplDepositAssertArgs<'a, A: ?Sized> {
 
 #[track_caller]
 pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
-    program_test: &mut ZolanaProgramTest,
+    program_test: &mut SprProgramTest,
     recipient: &mut Wallet,
     args: SplDepositAssertArgs<'_, A>,
 ) {

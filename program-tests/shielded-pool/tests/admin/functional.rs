@@ -15,7 +15,7 @@ use spr_interface::{
     },
     NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY,
 };
-use spr_program_test::{ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use spr_program_test::{SprProgramTest, RING_TEST_PROGRAM_ID};
 use spr_protocol_instructions::CreateTree;
 use spr_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
 use spr_test_utils::mollusk::snapshot_instruction_accounts;
@@ -45,7 +45,7 @@ struct RingConfigState {
     bump: u8,
 }
 
-fn read_ring_config(rpc: &ZolanaProgramTest, address: &Pubkey) -> RingConfigState {
+fn read_ring_config(rpc: &SprProgramTest, address: &Pubkey) -> RingConfigState {
     let bytes = rpc.account_data(address).expect("ring config account");
     assert_eq!(bytes.len(), RingConfig::SIZE);
     assert_eq!(bytes.first(), Some(&RING_CONFIG));

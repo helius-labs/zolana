@@ -1,5 +1,5 @@
-//! Use [`ZolanaClient`] by default: it wraps Solana RPC, the indexer, and the prover.
-//! Use `SolanaRpc`, `ZolanaIndexer`, or `ProverClient` (or their async counterparts)
+//! Use [`SprClient`] by default: it wraps Solana RPC, the indexer, and the prover.
+//! Use `SolanaRpc`, `SprIndexer`, or `ProverClient` (or their async counterparts)
 //! when you need direct access to an individual service.
 //!
 //! Note decryption lives in `spr-transaction`; the SDK keeps no wallet
@@ -10,7 +10,7 @@
 //! they drop, and inert otherwise.
 //!
 //! Feature flags:
-//! - `(none)`: [`ZolanaClient`], the indexer and prover clients and the RPC
+//! - `(none)`: [`SprClient`], the indexer and prover clients and the RPC
 //!   traits, over an HTTP client the caller brings (`with_client`)
 //! - `reqwest` (default): the `reqwest` HTTP clients, the `new` and `local`
 //!   constructors, proxies and the local prover launcher
@@ -28,12 +28,12 @@ pub mod user_registry;
 
 pub use authority::ProofAuthority;
 pub use client::{
-    check_merge_record, check_service_url, AsyncIndexer, AsyncZolanaClient, BlockingIndexer,
-    BlockingRpc, MergeSubmission, ProvedMerge, SignedPrivateTransaction, Submission,
-    UnsignedMessage, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
+    check_merge_record, check_service_url, AsyncIndexer, AsyncSprClient, BlockingIndexer,
+    BlockingRpc, MergeSubmission, ProvedMerge, SignedPrivateTransaction, SprClient, Submission,
+    UnsignedMessage, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
 };
 pub use error::ClientError;
-pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
+pub use indexer::{AsyncSprIndexer, SprIndexer};
 pub use prover::timing;
 pub use prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
 pub use prover::{

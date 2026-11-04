@@ -15,7 +15,7 @@ use spr_transaction::utxo::SppProofInputUtxo;
 
 use crate::{
     error::ClientError,
-    indexer::{AsyncZolanaIndexer, ZolanaIndexer},
+    indexer::{AsyncSprIndexer, SprIndexer},
     prover::transact::witness::SpendProof,
     rpc::{
         AsyncRpc, GetMerkleProofsResponse, GetNonInclusionProofsResponse, IndexerRpcConfig,
@@ -49,7 +49,7 @@ pub struct InputWitnesses {
 ///
 /// The default reads through [`Rpc`], one tree after another, so an
 /// in-process indexer that answers [`Rpc`] needs only
-/// `impl WitnessReader for MyIndexer {}`. [`ZolanaIndexer`] overrides it to
+/// `impl WitnessReader for MyIndexer {}`. [`SprIndexer`] overrides it to
 /// run the round trips together.
 pub trait WitnessReader {
     /// Fetch proofs for complete transaction slots, including address-only
@@ -243,7 +243,7 @@ fn scatter(mut placed: Vec<(usize, SpendProof)>) -> Vec<SpendProof> {
     placed.into_iter().map(|(_, proof)| proof).collect()
 }
 
-impl WitnessReader for ZolanaIndexer {
+impl WitnessReader for SprIndexer {
     fn transaction_proofs(
         &self,
         inputs: &[SppProofInputUtxo],
@@ -271,7 +271,7 @@ impl WitnessReader for ZolanaIndexer {
     }
 }
 
-impl AsyncWitnessReader for AsyncZolanaIndexer {
+impl AsyncWitnessReader for AsyncSprIndexer {
     async fn input_witnesses(
         &self,
         inputs: &[&SppProofInputUtxo],
