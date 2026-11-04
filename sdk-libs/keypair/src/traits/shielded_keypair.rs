@@ -1,7 +1,4 @@
-use solana_address::Address;
-
 use crate::{
-    derivation,
     error::KeypairError,
     nullifier_key::NullifierKey,
     pubkey::{Curve, PublicKey},
@@ -55,11 +52,6 @@ pub trait ShieldedKeypairTrait {
 
     /// The owner's nullifier key, used to build spendable inputs.
     fn nullifier_key(&self) -> NullifierKey;
-
-    /// A PDA overrides, the wallet form over its nullifier secret is another key.
-    fn ring_nullifier_key(&self, ring_program_id: &Address) -> Result<NullifierKey, KeypairError> {
-        derivation::ring_nullifier_key(&self.nullifier_key(), ring_program_id)
-    }
 
     fn nullifier_pubkey(&self) -> Result<[u8; 32], KeypairError> {
         self.nullifier_key().pubkey()

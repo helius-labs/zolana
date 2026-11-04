@@ -8,7 +8,7 @@ use solana_address::Address;
 use zeroize::Zeroizing;
 
 use crate::{
-    derivation::{expand_ring_nullifier_key, PdaRoleExpansion, INFO_RING_NF_KEY},
+    derivation::PdaRoleExpansion,
     error::KeypairError,
     hash::owner_hash,
     nullifier_key::NullifierKey,
@@ -26,7 +26,6 @@ pub struct ShieldedPda {
     pda: Address,
     nullifier_key: NullifierKey,
     viewing_key: ViewingKey,
-    expansion: Option<PdaRoleExpansion>,
 }
 
 impl AsRef<NullifierKey> for ShieldedPda {
@@ -46,7 +45,12 @@ impl ShieldedPda {
         counterparty: &X25519Pubkey,
     ) -> Result<Self, KeypairError> {
         let shared = Zeroizing::new(own.ecdh(counterparty)?);
-        Self::expanded(pda, PdaRoleExpansion::new(&shared, pda.to_bytes()))
+        let expansion = PdaRoleExpansion::new(&shared, pda.to_bytes());
+        Ok(Self {
+            pda,
+            nullifier_key: expansion.nullifier_key()?,
+            viewing_key: expansion.viewing_key()?,
+        })
     }
 
     /// Derives both roles from the holder's canonical viewing secret and PDA.
@@ -54,15 +58,11 @@ impl ShieldedPda {
     /// ECDH exchanges, including queries at related fixed points.
     pub fn from_viewing_key(pda: Address, own: &ViewingKey) -> Result<Self, KeypairError> {
         let secret = own.secret_bytes();
-        Self::expanded(pda, PdaRoleExpansion::new(&secret, pda.to_bytes()))
-    }
-
-    fn expanded(pda: Address, expansion: PdaRoleExpansion) -> Result<Self, KeypairError> {
+        let expansion = PdaRoleExpansion::new(&secret, pda.to_bytes());
         Ok(Self {
             pda,
             nullifier_key: expansion.nullifier_key()?,
             viewing_key: expansion.viewing_key()?,
-            expansion: Some(expansion),
         })
     }
 
@@ -79,7 +79,6 @@ impl ShieldedPda {
             pda,
             nullifier_key,
             viewing_key,
-            expansion: None,
         }
     }
 
@@ -132,19 +131,6 @@ impl ShieldedPda {
     ) -> Result<[u8; 32], KeypairError> {
         self.nullifier_key.nullifier(utxo_hash, blinding)
     }
-
-    pub fn ring_nullifier_key(
-        &self,
-        ring_program_id: &Address,
-    ) -> Result<NullifierKey, KeypairError> {
-        let pda = self.pda.to_bytes();
-        // The PDA keeps two PDAs of one holder from sharing a published ring key.
-        let info = [INFO_RING_NF_KEY, ring_program_id.as_ref(), pda.as_slice()];
-        match &self.expansion {
-            Some(expansion) => expansion.ring_nullifier_key(&info),
-            None => expand_ring_nullifier_key(self.nullifier_key.secret().as_slice(), &info),
-        }
-    }
 }
 
 impl ShieldedKeypairTrait for ShieldedPda {
@@ -186,10 +172,6 @@ impl ShieldedKeypairTrait for ShieldedPda {
 
     fn nullifier_key(&self) -> NullifierKey {
         self.nullifier_key.clone()
-    }
-
-    fn ring_nullifier_key(&self, ring_program_id: &Address) -> Result<NullifierKey, KeypairError> {
-        self.ring_nullifier_key(ring_program_id)
     }
 }
 

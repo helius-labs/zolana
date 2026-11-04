@@ -7,32 +7,19 @@
  */
 import { expand, extract, hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
-import type { Address } from "@solana/kit";
 
 import { concatBytes } from "../interface/bytes.js";
-import { addressBytes } from "../interface/internal.js";
 import { type Bytes31, type Bytes32, u64be } from "./bytes.js";
 import { KeypairError } from "./error.js";
-import { NullifierKey } from "./nullifier-key.js";
 import { X25519PublicKey, X25519Keypair } from "./x25519.js";
 
 const encoder = new TextEncoder();
 
 export const DST_X25519_VIEW_ROOT = "TSPP/view_root/x25519/v1";
 
-export const DST_X25519_PDA_ROOT = "TSPP/pda_root/x25519/v1";
-
-export const DST_RING_NF_ROOT = "TSPP/ring_nf_root/v1";
-
 export const INFO_NF_KEY_ED25519 = "TSPP/nf_key/ed25519/v1";
 
 export const INFO_VIEW_KEY_ED25519_X25519 = "TSPP/view_key/ed25519/x25519/v1";
-
-export const INFO_PDA_NF_KEY = "TSPP/pda_nf/v1";
-
-export const INFO_PDA_VIEW_KEY = "TSPP/pda_view/v1";
-
-export const INFO_RING_NF_KEY = "TSPP/ring_nf/v1";
 
 export const INFO_TX_VIEWING_X25519 = "TSPP/tx_viewing/x25519/v1";
 
@@ -291,82 +278,5 @@ export function roleExpansion<T>(seed: Uint8Array, rail: Rail, use: (roles: Role
     prk.fill(0);
     nullifierSecret?.fill(0);
     viewingSecret?.fill(0);
-  }
-}
-
-/** One way, a ring auditor reaches neither the root nor another ring. */
-export function ringNullifierKey(root: NullifierKey, ringProgramId: Address): NullifierKey {
-  return ringNullifierKeyOverSecret(root, ringInfo(ringProgramId));
-}
-
-export function ringNullifierKeyOverSecret(root: NullifierKey, info: Uint8Array): NullifierKey {
-  const secret = root.secretBytes();
-  try {
-    return expandRingNullifierKey(secret, info);
-  } finally {
-    secret.fill(0);
-  }
-}
-
-export interface PdaExpansion {
-  readonly root: Uint8Array;
-  readonly pda: Bytes32;
-}
-
-/** The caller wipes the returned root. */
-export function pdaRoot(seed: Uint8Array): Uint8Array {
-  return extract(sha256, seed, encoder.encode(DST_X25519_PDA_ROOT));
-}
-
-/** The PDA in each info keeps one holder's PDAs apart. */
-export function pdaRoleExpansion<T>(
-  { root, pda }: PdaExpansion,
-  use: (roles: RoleSecrets) => T,
-): T {
-  const nullifierSecret = hkdfExpandPrk(
-    root,
-    concatBytes(encoder.encode(INFO_PDA_NF_KEY), pda),
-    31,
-  );
-  let viewingSecret: Uint8Array | undefined;
-  try {
-    const okm = hkdfExpandPrk(root, concatBytes(encoder.encode(INFO_PDA_VIEW_KEY), pda), 32);
-    try {
-      viewingSecret = clampViewingSecret(okm);
-    } finally {
-      okm.fill(0);
-    }
-    return use({
-      nullifierSecret: nullifierSecret as Bytes31,
-      viewingSecret: viewingSecret as Bytes32,
-    });
-  } finally {
-    nullifierSecret.fill(0);
-    viewingSecret?.fill(0);
-  }
-}
-
-/** The PDA keeps two PDAs of one holder from sharing a published ring key. */
-export function pdaRingInfo(ringProgramId: Address, pda: Bytes32): Uint8Array {
-  return concatBytes(ringInfo(ringProgramId), pda);
-}
-
-function ringInfo(ringProgramId: Address): Uint8Array {
-  return concatBytes(
-    encoder.encode(INFO_RING_NF_KEY),
-    addressBytes(ringProgramId, "ring program id"),
-  );
-}
-
-export function expandRingNullifierKey(root: Uint8Array, info: Uint8Array): NullifierKey {
-  // A zero root has a public ring key.
-  if (root.reduce((seen, byte) => seen | byte, 0) === 0) {
-    throw new KeypairError("KEYPAIR_ZERO_NULLIFIER_SECRET");
-  }
-  const secret = hkdfExpand(encoder.encode(DST_RING_NF_ROOT), root, info, 31);
-  try {
-    return NullifierKey.fromSecret(secret as Bytes31);
-  } finally {
-    secret.fill(0);
   }
 }

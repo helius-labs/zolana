@@ -38,10 +38,8 @@ export {
   DERIVATION_PAYLOAD_PREFIX,
   OFFCHAIN_MESSAGE_MAGIC,
   TSPP_APPLICATION_DOMAIN,
-  INFO_RING_NF_KEY,
   ed25519DerivationMessage,
   isDerivationInput,
-  ringNullifierKey,
 } from "./derivation.js";
 export { poseidon } from "./poseidon.js";
 export { ownerHash, sha256Be, sha256Bytes, splitBigEndian128 } from "./hash.js";

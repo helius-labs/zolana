@@ -1,18 +1,16 @@
-use solana_address::Address;
 use spr_keypair::{
     derivation::{
-        ed25519_derivation_message, expand_roles, is_derivation_input, ring_nullifier_key,
-        DERIVATION_PAYLOAD_PREFIX, DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
-        DOM_SEP_KEY, DOM_SEP_NONCE, DOM_SEP_SILO, ED25519_DERIVATION_MSG, ED25519_SEED_LEN,
-        ENC_INFO_RING_DEPOSIT, ENC_INFO_TRANSFER, HPKE_PREFIX, INFO_NF_KEY_ED25519,
-        INFO_PAIR_DOMAIN_PREFIX, INFO_PAIR_HINT_PREFIX, INFO_PDA_NF_KEY, INFO_PDA_VIEW_KEY,
-        INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX, INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_RING_NF_KEY,
+        ed25519_derivation_message, expand_roles, is_derivation_input, DERIVATION_PAYLOAD_PREFIX,
+        DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1, DOM_SEP_KEY, DOM_SEP_NONCE,
+        DOM_SEP_SILO, ED25519_DERIVATION_MSG, ED25519_SEED_LEN, ENC_INFO_RING_DEPOSIT,
+        ENC_INFO_TRANSFER, HPKE_PREFIX, INFO_NF_KEY_ED25519, INFO_PAIR_DOMAIN_PREFIX,
+        INFO_PAIR_HINT_PREFIX, INFO_PDA_NF_KEY, INFO_PDA_VIEW_KEY,
+        INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX, INFO_RECIPIENT_VIEW_TAG_SECRET,
         INFO_SENDER_VIEW_TAG_PREFIX, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING_X25519,
         INFO_VIEW_KEY_ED25519_X25519, MERGE_INFO, OFFCHAIN_MESSAGE_MAGIC, TSPP_APPLICATION_DOMAIN,
     },
     hash::sha256,
-    Curve, KeypairError, NullifierKey, ShieldedKeypair, ShieldedKeypairTrait, ShieldedPda,
-    SigningKey, ViewingKey,
+    Curve, KeypairError, ShieldedKeypair, SigningKey,
 };
 
 pub(crate) fn hkdf_tags_pairwise_distinct() {
@@ -23,7 +21,6 @@ pub(crate) fn hkdf_tags_pairwise_distinct() {
         INFO_VIEW_KEY_ED25519_X25519,
         INFO_PDA_NF_KEY,
         INFO_PDA_VIEW_KEY,
-        INFO_RING_NF_KEY,
         INFO_SENDER_VIEW_TAG_SECRET,
         INFO_RECIPIENT_VIEW_TAG_SECRET,
         INFO_TX_VIEWING_X25519,
@@ -145,156 +142,6 @@ pub(crate) fn expand_roles_rejects_the_pda_curve() {
         expand_roles(&[0u8; 64], Curve::Pda),
         Err(KeypairError::PdaCannotSign)
     ));
-}
-
-fn ring(n: u8) -> Address {
-    Address::new_from_array([n; 32])
-}
-
-fn wallet(n: u8) -> ShieldedKeypair {
-    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[n; 32])).unwrap()
-}
-
-fn secret(key: &NullifierKey) -> [u8; 31] {
-    *key.secret()
-}
-
-/// Labels spelled out, a renamed constant fails here.
-pub(crate) fn ring_key_is_the_labelled_hkdf_of_the_root() {
-    let root = wallet(7).nullifier_key;
-    let mut info = b"TSPP/ring_nf/v1".to_vec();
-    info.extend_from_slice(ring(1).as_ref());
-    let mut expected = [0u8; 31];
-    hkdf::Hkdf::<sha2::Sha256>::new(Some(b"TSPP/ring_nf_root/v1"), root.secret().as_slice())
-        .expand(&info, &mut expected)
-        .unwrap();
-    assert_eq!(
-        secret(&ring_nullifier_key(&root, &ring(1)).unwrap()),
-        expected
-    );
-}
-
-pub(crate) fn ring_keys_separate_rings_wallets_and_the_root() {
-    let owner = wallet(7);
-    let first = owner.ring_nullifier_key(&ring(1)).unwrap();
-    let second = owner.ring_nullifier_key(&ring(2)).unwrap();
-    assert_ne!(secret(&first), secret(&second));
-    assert_ne!(secret(&first), secret(&owner.nullifier_key));
-    assert_ne!(
-        secret(&first),
-        secret(&wallet(8).ring_nullifier_key(&ring(1)).unwrap())
-    );
-    assert_eq!(
-        secret(&first),
-        secret(&owner.ring_nullifier_key(&ring(1)).unwrap())
-    );
-    let from_ring_secret = ring_nullifier_key(&first, &ring(2)).unwrap();
-    assert_ne!(secret(&from_ring_secret), secret(&second));
-    assert_ne!(secret(&from_ring_secret), secret(&owner.nullifier_key));
-}
-
-pub(crate) fn a_zero_root_has_no_ring_key() {
-    assert_eq!(
-        ring_nullifier_key(&NullifierKey::from_secret([0; 31]), &ring(1)).err(),
-        Some(KeypairError::ZeroNullifierSecret)
-    );
-}
-
-pub(crate) fn pda_ring_keys_expand_the_pda_root() {
-    let holder = ViewingKey::from_bytes(&[5; 32]);
-    let peer = ViewingKey::from_bytes(&[6; 32]);
-    let sole = ShieldedPda::from_viewing_key(ring(3), &holder).unwrap();
-    let key = sole.ring_nullifier_key(&ring(1)).unwrap();
-
-    let other_pda = ShieldedPda::from_viewing_key(ring(4), &holder).unwrap();
-    assert_ne!(
-        secret(&key),
-        secret(&other_pda.ring_nullifier_key(&ring(1)).unwrap())
-    );
-    assert_ne!(
-        secret(&key),
-        secret(&sole.ring_nullifier_key(&ring(2)).unwrap())
-    );
-    assert_ne!(secret(&key), secret(sole.as_ref()));
-    assert_ne!(
-        secret(&key),
-        secret(&ring_nullifier_key(sole.as_ref(), &ring(1)).unwrap()),
-        "the PDA form is not the wallet form over its nullifier secret"
-    );
-
-    let dyn_holder: &dyn ShieldedKeypairTrait = &sole;
-    assert_eq!(
-        secret(&key),
-        secret(&dyn_holder.ring_nullifier_key(&ring(1)).unwrap())
-    );
-
-    let from_holder = ShieldedPda::from_key_exchange(ring(3), &holder, &peer.pubkey()).unwrap();
-    let from_peer = ShieldedPda::from_key_exchange(ring(3), &peer, &holder.pubkey()).unwrap();
-    assert_eq!(
-        secret(&from_holder.ring_nullifier_key(&ring(1)).unwrap()),
-        secret(&from_peer.ring_nullifier_key(&ring(1)).unwrap())
-    );
-}
-
-pub(crate) fn supplied_pda_roles_expand_the_supplied_secret() {
-    let supplied = NullifierKey::from_secret([9; 31]);
-    let party =
-        |pda: u8| ShieldedPda::with_viewing_key(ring(pda), supplied.clone(), ViewingKey::new());
-    let key = party(3).ring_nullifier_key(&ring(1)).unwrap();
-    assert_eq!(
-        secret(&key),
-        secret(&party(3).ring_nullifier_key(&ring(1)).unwrap()),
-        "two parties holding one secret derive one key"
-    );
-    assert_ne!(
-        secret(&key),
-        secret(&party(4).ring_nullifier_key(&ring(1)).unwrap())
-    );
-    assert_ne!(
-        secret(&key),
-        secret(&party(3).ring_nullifier_key(&ring(2)).unwrap())
-    );
-    assert_ne!(secret(&key), secret(&supplied));
-    assert_ne!(
-        secret(&key),
-        secret(&ring_nullifier_key(&supplied, &ring(1)).unwrap()),
-        "a wallet holding the same secret is another key"
-    );
-
-    let mut info = b"TSPP/ring_nf/v1".to_vec();
-    info.extend_from_slice(ring(1).as_ref());
-    info.extend_from_slice(ring(3).as_ref());
-    let mut expected = [0u8; 31];
-    hkdf::Hkdf::<sha2::Sha256>::new(Some(b"TSPP/ring_nf_root/v1"), supplied.secret().as_slice())
-        .expand(&info, &mut expected)
-        .unwrap();
-    assert_eq!(secret(&key), expected);
-}
-
-pub(crate) fn a_zero_supplied_secret_has_no_ring_key() {
-    let zero = ShieldedPda::with_viewing_key(
-        ring(3),
-        NullifierKey::from_secret([0; 31]),
-        ViewingKey::new(),
-    );
-    assert_eq!(
-        zero.ring_nullifier_key(&ring(1)).err(),
-        Some(KeypairError::ZeroNullifierSecret)
-    );
-}
-
-pub(crate) fn resupplying_derived_pda_roles_changes_the_ring_key() {
-    let derived =
-        ShieldedPda::from_viewing_key(ring(3), &ViewingKey::from_bytes(&[5; 32])).unwrap();
-    let resupplied = ShieldedPda::with_viewing_key(
-        ring(3),
-        derived.as_ref().clone(),
-        derived.viewing_key().clone(),
-    );
-    assert_ne!(
-        secret(&derived.ring_nullifier_key(&ring(1)).unwrap()),
-        secret(&resupplied.ring_nullifier_key(&ring(1)).unwrap())
-    );
 }
 
 pub(crate) fn poseidon_tags_pairwise_distinct() {

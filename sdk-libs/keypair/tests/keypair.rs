@@ -209,17 +209,6 @@ fn role_expansion_from_a_device_seed_matches_the_software_path() {
 }
 
 #[test]
-fn ring_nullifier_keys_derive_one_way_per_ring_and_holder() {
-    cases::derivation::ring_key_is_the_labelled_hkdf_of_the_root();
-    cases::derivation::ring_keys_separate_rings_wallets_and_the_root();
-    cases::derivation::a_zero_root_has_no_ring_key();
-    cases::derivation::pda_ring_keys_expand_the_pda_root();
-    cases::derivation::supplied_pda_roles_expand_the_supplied_secret();
-    cases::derivation::a_zero_supplied_secret_has_no_ring_key();
-    cases::derivation::resupplying_derived_pda_roles_changes_the_ring_key();
-}
-
-#[test]
 fn offchain_derivation_message_is_pinned_and_detected() {
     cases::derivation::application_domain_is_payload_hash();
     cases::derivation::offchain_derivation_message_golden();

@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 
 import { sha256 } from "@noble/hashes/sha2.js";
-import { getAddressDecoder, type Address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,16 +13,12 @@ import {
   KeypairError,
   NullifierKey,
   ShieldedKeypair,
-  ShieldedPda,
   SigningKey,
   ViewingKey,
-  X25519PublicKey,
-  ringNullifierKey,
   symmetricApply,
   type Bytes16,
   type Bytes31,
   type Bytes32,
-  type Bytes33,
 } from "../src/keypair/index.js";
 import {
   mergeDummyNullifier,
@@ -106,31 +101,6 @@ type KeyDerivationVectors = Readonly<{
     recipient_pubkey: string;
     tags: readonly CounterTag[];
   }>[];
-  ring_nullifier: Readonly<{
-    wallet: readonly Readonly<{
-      root_secret: string;
-      ring_program_id: string;
-      ring_secret: string;
-      ring_nullifier_pubkey: string;
-    }>[];
-    pda: readonly Readonly<{
-      holder_viewing_secret: string;
-      counterparty_viewing_pubkey: string | null;
-      pda: string;
-      nullifier_secret: string;
-      viewing_secret: string;
-      ring_program_id: string;
-      ring_secret: string;
-      ring_nullifier_pubkey: string;
-    }>[];
-    supplied_pda: readonly Readonly<{
-      supplied_secret: string;
-      pda: string;
-      ring_program_id: string;
-      ring_secret: string;
-      ring_nullifier_pubkey: string;
-    }>[];
-  }>;
 }>;
 
 type CounterTag = Readonly<{ counter: string; tag: string }>;
@@ -141,10 +111,6 @@ const vectors = JSON.parse(
 
 function bytes(value: string): Uint8Array {
   return Uint8Array.from(value.match(/../g)?.map((pair) => Number.parseInt(pair, 16)) ?? []);
-}
-
-function addressOf(value: string): Address {
-  return getAddressDecoder().decode(bytes(value));
 }
 
 function hex(value: Uint8Array): string {
@@ -258,48 +224,6 @@ describe("shared key-derivation vectors (test-vectors/key_derivation.json)", () 
       ((element + (pads[index] ?? 0n)) % BN254_SCALAR_ORDER).toString(16).padStart(64, "0"),
     );
     expect(ciphertext).toEqual(section.output_ciphertext);
-  });
-
-  it("derives one ring nullifier key per wallet and ring", () => {
-    for (const section of vectors.ring_nullifier.wallet) {
-      const root = NullifierKey.fromSecret(bytes(section.root_secret) as Bytes31);
-      const key = ringNullifierKey(root, addressOf(section.ring_program_id));
-      expect(hex(key.secretBytes())).toBe(section.ring_secret);
-      expect(hex(key.publicKey())).toBe(section.ring_nullifier_pubkey);
-    }
-  });
-
-  it("derives one ring nullifier key per PDA and ring", () => {
-    for (const section of vectors.ring_nullifier.pda) {
-      const holder = ViewingKey.fromBytes(bytes(section.holder_viewing_secret) as Bytes32);
-      const pda = bytes(section.pda) as Bytes32;
-      const identity =
-        section.counterparty_viewing_pubkey === null
-          ? ShieldedPda.fromViewingKey(pda, holder)
-          : ShieldedPda.fromKeyExchange(
-              pda,
-              holder,
-              X25519PublicKey.fromBytes(bytes(section.counterparty_viewing_pubkey) as Bytes33),
-            );
-      expect(hex(identity.nullifierKey().secretBytes())).toBe(section.nullifier_secret);
-      expect(hex(identity.viewingKey().secretBytes())).toBe(section.viewing_secret);
-      const key = identity.ringNullifierKey(addressOf(section.ring_program_id));
-      expect(hex(key.secretBytes())).toBe(section.ring_secret);
-      expect(hex(key.publicKey())).toBe(section.ring_nullifier_pubkey);
-    }
-  });
-
-  it("derives one ring nullifier key per supplied PDA and ring", () => {
-    for (const section of vectors.ring_nullifier.supplied_pda) {
-      const identity = ShieldedPda.withViewingKey(
-        bytes(section.pda) as Bytes32,
-        NullifierKey.fromSecret(bytes(section.supplied_secret) as Bytes31),
-        ViewingKey.generate(),
-      );
-      const key = identity.ringNullifierKey(addressOf(section.ring_program_id));
-      expect(hex(key.secretBytes())).toBe(section.ring_secret);
-      expect(hex(key.publicKey())).toBe(section.ring_nullifier_pubkey);
-    }
   });
 
   it("derives the counter view tags", () => {
