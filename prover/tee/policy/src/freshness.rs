@@ -85,7 +85,9 @@ impl<S: Store, K: Ed25519Signer> Freshener<S, K> {
                 .verify_release(&self.signers, now)
                 .map_err(|error| anyhow!("clients refuse the release part: {error}"))?;
             if let Some(served) = &served {
-                no_rollback(&served.body, &approved, &payload)?;
+                if no_rollback(&served.body, &approved, &payload, now)? == Served::AsFresh {
+                    return self.already_published(&served.body, now);
+                }
             }
             let (file, published) = self.freshen(part, approved, &payload, now).await?;
             if self
@@ -100,6 +102,18 @@ impl<S: Store, K: Ed25519Signer> Freshener<S, K> {
             "{} changed {ATTEMPTS} times while this run published",
             self.served_key()
         )
+    }
+
+    /// The served file, which a racing run published for this release no older
+    /// than `now`; writing this run's part over it would roll its freshness back.
+    fn already_published(&self, served: &[u8], now: u64) -> Result<Published> {
+        let verified = SignedPolicyFile::verify(served, &self.signers, now)
+            .map_err(|error| anyhow!("clients refuse the served file: {error}"))?;
+        Ok(Published {
+            release_version: verified.release.version,
+            release_expires_at: verified.release.expires_at,
+            expires_at: verified.expires_at(),
+        })
     }
 
     /// The file to serve: `part` and a freshness part over it, as clients accept it.
@@ -157,9 +171,29 @@ impl<S: Store, K: Ed25519Signer> Freshener<S, K> {
 /// Refuses a release older than the served one, or another payload under its
 /// version: clients that saw the served file refuse both as a rollback. A served
 /// object that is not a signed policy is replaced.
-fn no_rollback(served: &[u8], approved: &ReleasePayload, payload: &[u8]) -> Result<()> {
-    let Some((before, before_payload)) = served_release(served) else {
-        return Ok(());
+/// Whether the served file leaves this run anything to publish.
+#[derive(Debug, PartialEq, Eq)]
+enum Served {
+    /// Another release, or this one with an older freshness part.
+    Older,
+    /// This release with a freshness part issued at or after `now`, which a run
+    /// that raced this one published.
+    AsFresh,
+}
+
+/// Refuses a release older than the served one, or another payload under its
+/// version: clients that saw the served file refuse both as a rollback. Clients
+/// also refuse an earlier `issued_at` for the same release, so a served part
+/// issued at or after `now` is left as it is. A served object that is not a
+/// signed policy is replaced.
+fn no_rollback(
+    served: &[u8],
+    approved: &ReleasePayload,
+    payload: &[u8],
+    now: u64,
+) -> Result<Served> {
+    let Some((before, before_payload, issued_at)) = served_release(served) else {
+        return Ok(Served::Older);
     };
     ensure!(
         approved.version > before.version
@@ -168,13 +202,24 @@ fn no_rollback(served: &[u8], approved: &ReleasePayload, payload: &[u8]) -> Resu
         approved.version,
         before.version
     );
-    Ok(())
+    Ok(
+        if payload == before_payload && issued_at.is_some_and(|issued_at| issued_at >= now) {
+            Served::AsFresh
+        } else {
+            Served::Older
+        },
+    )
 }
 
-fn served_release(served: &[u8]) -> Option<(ReleasePayload, Vec<u8>)> {
+/// The served release, its payload bytes and its freshness part's `issued_at`.
+fn served_release(served: &[u8]) -> Option<(ReleasePayload, Vec<u8>, Option<u64>)> {
     let file: SignedPolicyFile = serde_json::from_slice(served).ok()?;
     let payload = hex::decode(&file.release.payload).ok()?;
-    Some((serde_json::from_slice(&payload).ok()?, payload))
+    let issued_at = hex::decode(&file.freshness.payload)
+        .ok()
+        .and_then(|freshness| serde_json::from_slice::<FreshnessPayload>(&freshness).ok())
+        .map(|freshness| freshness.issued_at);
+    Some((serde_json::from_slice(&payload).ok()?, payload, issued_at))
 }
 
 /// An S3 bucket, with conditional writes.
@@ -356,6 +401,41 @@ mod tests {
         }));
         freshener.publish(NOW + 60).await.unwrap();
         assert_eq!(served_version(&freshener), 5);
+    }
+
+    /// Run A starts at NOW + 100; run B publishes the same release at NOW + 101
+    /// before A writes. A must not replace B's part with its older one.
+    #[tokio::test]
+    async fn a_run_that_raced_a_fresher_part_of_the_same_release_leaves_it() {
+        let freshener = freshener(4).await;
+        freshener.publish(NOW).await.unwrap();
+        let racing = Freshener {
+            store: Memory::default(),
+            signer: LocalSigner::seed(5),
+            network: "fixture".into(),
+            signers: signers(),
+            lifetime_secs: 3 * 86_400,
+        };
+        let part = freshener.store.objects.lock().unwrap()["tee-policy-release/fixture.json"]
+            .0
+            .clone();
+        Memory::set(
+            &mut racing.store.objects.lock().unwrap(),
+            "tee-policy-release/fixture.json",
+            part,
+        );
+        racing.publish(NOW + 101).await.unwrap();
+        let fresher = racing.store.objects.lock().unwrap()["tee-policy/fixture.json"]
+            .0
+            .clone();
+        *freshener.store.before_put.lock().unwrap() = Some(Box::new(move |objects| {
+            Memory::set(objects, "tee-policy/fixture.json", fresher.clone());
+        }));
+        let published = freshener.publish(NOW + 100).await.unwrap();
+        let objects = freshener.store.objects.lock().unwrap();
+        let (_, _, issued_at) = served_release(&objects["tee-policy/fixture.json"].0).unwrap();
+        assert_eq!(issued_at, Some(NOW + 101));
+        assert_eq!(published.expires_at, NOW + 101 + 3 * 86_400);
     }
 
     #[tokio::test]
