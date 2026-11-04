@@ -8,11 +8,13 @@ use std::collections::BTreeMap;
 
 pub use spr_prover_tee::{
     inspect, verify, verify_with, Anchors, Attestation, AttestedIdentity, AttestedProver,
-    DstackIdentity, DstackPolicy, EncryptedRequest, GpuRequirement, KeyProvider, NitroIdentity,
-    NitroMeasurement, NitroPolicy, Platform, PlatformIdentity, PlatformPolicy, PolicyPayload,
-    PolicySignature, PolicySigners, SignedPolicyFile, TdxMeasurement, TeeError, TeePolicy,
-    TeePolicyFile, ATTESTATION_PATH, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION,
-    MAX_ATTESTATION_BYTES, MAX_SIGNED_POLICY_BYTES, NONCE_SIZE, POLICY_DOMAIN, VERSION,
+    DstackIdentity, DstackPolicy, EncryptedRequest, FreshnessPayload, FreshnessSigners,
+    GpuRequirement, KeyProvider, NitroIdentity, NitroMeasurement, NitroPolicy, Platform,
+    PlatformIdentity, PlatformPolicy, PolicySignature, PolicySigners, ReleasePayload, SignedPart,
+    SignedPolicyFile, TdxMeasurement, TeeError, TeePolicy, TeePolicyFile, VerifiedPolicy,
+    ATTESTATION_PATH, FRESHNESS_DOMAIN, HEADER_CIPHERTEXT, HEADER_ENC, HEADER_VERSION,
+    MAX_ATTESTATION_BYTES, MAX_CLOCK_SKEW_SECS, MAX_SIGNED_POLICY_BYTES, NONCE_SIZE,
+    RELEASE_DOMAIN, VERSION,
 };
 
 pub(crate) use session::TeeSession;
@@ -43,9 +45,10 @@ impl TeeNetwork {
     }
 }
 
-/// A policy published at `url` as a [`SignedPolicyFile`] that `signers` sign.
-/// A client downloads it again once it is `max_age_secs` old, when it also attests
-/// again, and never uses it past its expiry.
+/// A policy published at `url` as a [`SignedPolicyFile`]: a release that
+/// `signers` sign, kept in force by a freshness part that the freshness keys
+/// the release names sign. A client downloads it again once it is `max_age_secs`
+/// old, when it also attests again, and never uses it past either expiry.
 #[derive(Clone, Debug)]
 pub struct SignedTeePolicy {
     url: String,
@@ -70,6 +73,7 @@ impl SignedTeePolicy {
     /// The signed policy the SDK pins for `network`.
     pub fn for_network(network: TeeNetwork) -> Self {
         #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
         struct Network {
             url: String,
             public_keys: Vec<String>,

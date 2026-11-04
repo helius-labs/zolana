@@ -24,8 +24,9 @@ pub use nitro::{NitroIdentity, NitroMeasurement, NitroPolicy};
 pub use platform::{Anchors, Platform, PlatformIdentity, PlatformPolicy};
 pub use policy::{GpuRequirement, TeePolicy, TeePolicyFile};
 pub use signed::{
-    PolicyPayload, PolicySignature, PolicySigners, SignedPolicyFile, MAX_SIGNED_POLICY_BYTES,
-    POLICY_DOMAIN,
+    FreshnessPayload, FreshnessSigners, PolicySignature, PolicySigners, ReleasePayload, SignedPart,
+    SignedPolicyFile, VerifiedPolicy, FRESHNESS_DOMAIN, MAX_CLOCK_SKEW_SECS,
+    MAX_SIGNED_POLICY_BYTES, RELEASE_DOMAIN,
 };
 pub use verify::{inspect, verify, verify_with, AttestedIdentity, AttestedProver};
 

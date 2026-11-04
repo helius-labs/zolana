@@ -73,8 +73,8 @@ and nothing reaches a prover server.
 A remote prover requires a caller-supplied URL and policy. The SDK pins who
 signs each network's prover policy, so a client follows new prover releases
 without an SDK release. It downloads the signed policy again whenever it
-attests again, every `max_age_secs` of the policy, and never uses it past its
-expiry:
+attests again, every `max_age_secs` of the policy, and never uses it once its
+release or its freshness part expires:
 
 ```rust
 let prover = ProverClient::new(prover_url)
@@ -83,7 +83,7 @@ let prover = ProverClient::new(prover_url)
 
 An application that reviews each release itself can instead load that
 release's policy JSON with `TeePolicy::from_file_json` and pass it to
-`with_tee`, or its own signers to `SignedTeePolicy::new(url, PolicySigners::new(network, keys, threshold)?)`.
+`with_tee`, or its own release signers to `SignedTeePolicy::new(url, PolicySigners::new(network, keys, threshold)?)`.
 
 The SDK embeds no prover URLs. The same policy parameter works
 with a direct prover URL, a unified Helius API URL or a proxy path. Remote calls

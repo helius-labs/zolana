@@ -10,6 +10,9 @@ The client proves anonymous ring transfers from an owner signer or a
 prepared owner signature.
 Clients can take the confidential signer and merge proving keys from an
 attested prover at runtime instead of the keys the SDK pins.
+The signed prover policy now has two parts: a release that the pinned release
+keys approve, and a short-lived freshness part, signed by the freshness keys the
+release names, that keeps it in force.
 
 Breaking
 
@@ -20,6 +23,7 @@ Breaking
 - `Prover` requires `proveAnonymousRingTransact` → implement the method on custom provers.
 - `ProverInputs`, `IndexedProofInputs` and `CircuitId` add anonymous ring variants → forward them in custom `ProofService` and `ProofAuthority` implementations.
 - `ShieldedPda`, `ProgramOwner`, `bindProgramTransaction`, `decodeProgramTransaction`, `toProgramWalletUtxo`, `transactCpiAccounts` and the `Program*` types move to the experimental `@heliuslabs/spr/program` subpath and may change in any release → import them from `@heliuslabs/spr/program` instead of `/keypair`, `/transaction` and `/interface`.
+- `SignedTeePolicy` reads only the two-part policy file and refuses it once either part expires, when a freshness part runs longer than its release allows, or when it is issued more than a day past the device clock → upgrade before the network publishes the two-part file, which earlier releases refuse; `publicKeys` and `threshold` still pin the release signers.
 
 Added
 

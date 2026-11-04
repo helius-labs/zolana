@@ -9,8 +9,8 @@ use rand_core::{OsRng, TryRngCore};
 
 use super::{
     verify_with, Anchors, Attestation, AttestedProver, EncryptedRequest, SignedPolicyFile,
-    SignedTeePolicy, TeeError, TeePolicy, HEADER_VERSION, MAX_ATTESTATION_BYTES, NONCE_SIZE,
-    VERSION,
+    SignedTeePolicy, TeeError, TeePolicy, VerifiedPolicy, HEADER_VERSION, MAX_ATTESTATION_BYTES,
+    NONCE_SIZE, VERSION,
 };
 use crate::error::ClientError;
 
@@ -48,11 +48,13 @@ struct Flight<K> {
     last: Mutex<(u64, Option<(SharedFailure, K)>)>,
 }
 
-/// The accepted file's policy, version, payload and expiry.
+/// The accepted file's policy, release version and payload, freshness issue
+/// time, and the earlier of its two expiries.
 struct Current {
     policy: Arc<TeePolicy>,
     version: u64,
     payload: Vec<u8>,
+    issued_at: u64,
     expires_at: u64,
     checked: Instant,
 }
@@ -373,7 +375,8 @@ impl Downloaded {
         }
     }
 
-    /// Refuses an older version, or another payload under the same version.
+    /// Refuses an older release version, another release payload under the same
+    /// version, or an older freshness part for the same release.
     fn verified(
         &self,
         (status, body): (StatusCode, Vec<u8>),
@@ -382,26 +385,33 @@ impl Downloaded {
         if !status.is_success() {
             return Err(TeeError::SignedPolicy("unavailable").into());
         }
-        let (approved, payload) = SignedPolicyFile::verify(&body, &self.source.signers, now)?;
+        let verified = SignedPolicyFile::verify(&body, &self.source.signers, now)?;
+        let expires_at = verified.expires_at();
+        let VerifiedPolicy {
+            release,
+            release_payload: payload,
+            freshness,
+        } = verified;
         let current = lock(&self.current);
         let previous = current.as_ref();
+        let same = previous.filter(|previous| previous.payload == payload);
         if previous.is_some_and(|previous| {
-            approved.version < previous.version
-                || (approved.version == previous.version && payload != previous.payload)
-        }) {
+            release.version < previous.version
+                || (release.version == previous.version && payload != previous.payload)
+        }) || same.is_some_and(|previous| freshness.issued_at < previous.issued_at)
+        {
             return Err(TeeError::SignedPolicy("rollback").into());
         }
-        let policy = previous
-            .filter(|previous| previous.payload == payload)
-            .map_or_else(
-                || Arc::new(approved.policy),
-                |previous| Arc::clone(&previous.policy),
-            );
+        let policy = same.map_or_else(
+            || Arc::new(release.policy),
+            |previous| Arc::clone(&previous.policy),
+        );
         Ok(Current {
             policy,
-            version: approved.version,
+            version: release.version,
             payload,
-            expires_at: approved.expires_at,
+            issued_at: freshness.issued_at,
+            expires_at,
             checked: Instant::now(),
         })
     }
@@ -428,11 +438,11 @@ mod tests {
         time::Duration,
     };
 
-    use ed25519_dalek::{Signer, SigningKey};
+    use ed25519_dalek::SigningKey;
     use serde_json::{json, Value};
 
     use super::*;
-    use crate::prover::tee::{Platform, PolicySigners, POLICY_DOMAIN};
+    use crate::prover::tee::{FreshnessSigners, Platform, PolicySigners, ReleasePayload};
 
     const PROBE: &str = include_str!("../../../../../prover/tee/testdata/probe_policy.json");
 
@@ -505,14 +515,14 @@ mod tests {
             .all(|result| matches!(result, Err(ClientError::Tee(TeeError::ReportDataMismatch)))));
     }
 
-    /// Signed by any two of the keys of seeds 1, 2 and 3.
+    fn key(seed: u8) -> SigningKey {
+        SigningKey::from_bytes(&[seed; 32])
+    }
+
+    /// Released by any two of the keys of seeds 1, 2 and 3, kept fresh by the key of seed 5.
     fn signed() -> TeeSession {
         let keys = [1, 2, 3]
-            .map(|seed| {
-                SigningKey::from_bytes(&[seed; 32])
-                    .verifying_key()
-                    .to_bytes()
-            })
+            .map(|seed| key(seed).verifying_key().to_bytes())
             .to_vec();
         let signers = PolicySigners::new("fixture", keys, 2).unwrap();
         TeeSession::signed(SignedTeePolicy::new("https://policy.example/p.json", signers).unwrap())
@@ -522,30 +532,32 @@ mod tests {
         signed_file(version, max_age_secs, &[1, 2])
     }
 
-    /// The probe policy as `version`, signed by the keys of `seeds`.
     fn signed_file(version: u64, max_age_secs: u64, seeds: &[u8]) -> Vec<u8> {
+        fresh_file(version, max_age_secs, seeds, 1_000)
+    }
+
+    /// The probe policy as `version`, released by the keys of `seeds` and kept
+    /// fresh from `issued_at` by the key of seed 5, which the release names.
+    fn fresh_file(version: u64, max_age_secs: u64, seeds: &[u8], issued_at: u64) -> Vec<u8> {
         let mut policy: Value = serde_json::from_str(PROBE).unwrap();
         policy["max_age_secs"] = max_age_secs.into();
-        let payload = serde_json::to_vec(&json!({
+        let release: ReleasePayload = serde_json::from_value(json!({
             "network": "fixture",
             "version": version,
             "expires_at": 4_000_000_000u64,
+            "freshness": FreshnessSigners::of(&[key(5)], 3_000_000_000),
             "policy": policy,
         }))
         .unwrap();
-        let message = [POLICY_DOMAIN, &payload].concat();
-        let signatures: Vec<_> = seeds
-            .iter()
-            .map(|&seed| {
-                let key = SigningKey::from_bytes(&[seed; 32]);
-                json!({
-                    "public_key": hex::encode(key.verifying_key().to_bytes()),
-                    "signature": hex::encode(key.sign(&message).to_bytes()),
-                })
-            })
-            .collect();
-        serde_json::to_vec(&json!({ "payload": hex::encode(payload), "signatures": signatures }))
-            .unwrap()
+        let release_keys: Vec<_> = seeds.iter().map(|&seed| key(seed)).collect();
+        let file = SignedPolicyFile::sign(
+            &release,
+            &release_keys,
+            (issued_at, 3_000_000_000 + issued_at),
+            &[key(5)],
+        )
+        .unwrap();
+        serde_json::to_vec(&file).unwrap()
     }
 
     /// Downloads again whatever policy is in force.
@@ -626,6 +638,51 @@ mod tests {
                 Err(ClientError::Tee(TeeError::SignedPolicy("rollback")))
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn a_newer_freshness_keeps_the_policy_and_its_attestation() {
+        let session = signed();
+        let v2 = download(&session, 200, fresh_file(2, 600, &[1, 2], 1_000))
+            .await
+            .unwrap();
+        attest(&session, &v2, &AtomicUsize::new(0)).unwrap();
+        let renewed = download(&session, 200, fresh_file(2, 600, &[1, 3], 2_000))
+            .await
+            .unwrap();
+        assert!(Arc::ptr_eq(&v2, &renewed));
+        assert_eq!(session.attested_key(&renewed), Some([7; 32]));
+        let Policy::Signed(signed) = &session.policy else {
+            panic!("a signed session");
+        };
+        let current = lock(&signed.current);
+        let current = current.as_ref().unwrap();
+        assert_eq!(
+            (current.issued_at, current.expires_at),
+            (2_000, 3_000_002_000)
+        );
+    }
+
+    #[tokio::test]
+    async fn an_older_freshness_of_the_same_release_is_a_rollback() {
+        let session = signed();
+        let v2 = download(&session, 200, fresh_file(2, 600, &[1, 2], 2_000))
+            .await
+            .unwrap();
+        let older = fresh_file(2, 600, &[1, 2], 1_000);
+        let kept = download(&session, 200, older.clone()).await.unwrap();
+        assert!(Arc::ptr_eq(&v2, &kept));
+        let Policy::Signed(signed) = &session.policy else {
+            panic!("a signed session");
+        };
+        assert!(matches!(
+            signed.verified((StatusCode::OK, older), 0),
+            Err(ClientError::Tee(TeeError::SignedPolicy("rollback")))
+        ));
+        let v3 = download(&session, 200, fresh_file(3, 600, &[1, 2], 1_500))
+            .await
+            .unwrap();
+        assert!(!Arc::ptr_eq(&v2, &v3));
     }
 
     #[tokio::test]

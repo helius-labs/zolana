@@ -1459,7 +1459,8 @@ mod tests {
     use super::super::indexed::IndexedProofRequest;
     use super::*;
     use crate::prover::tee::{
-        FixtureSession, NitroFixture, PolicyPayload, PolicySigners, POLICY_DOMAIN,
+        FixtureSession, FreshnessSigners, NitroFixture, PolicySigners, ReleasePayload,
+        SignedPolicyFile,
     };
 
     #[derive(Debug)]
@@ -2164,27 +2165,30 @@ mod tests {
 
     #[test]
     fn an_attestation_answered_after_its_policy_expired_sends_nothing() {
-        use ed25519_dalek::{Signer, SigningKey};
+        use ed25519_dalek::SigningKey;
 
         let now = now_secs();
         let expires_at = now + 2;
         let fixture = NitroFixture::at([0; 32], now);
         let signer = SigningKey::from_bytes(&[1; 32]);
-        let payload = serde_json::to_vec(&PolicyPayload {
+        let freshener = SigningKey::from_bytes(&[5; 32]);
+        let release = ReleasePayload {
             network: "fixture".into(),
             version: 1,
             expires_at,
+            freshness: FreshnessSigners::of(std::slice::from_ref(&freshener), 3_601),
             policy: fixture.policy().clone(),
-        })
+        };
+        let file = serde_json::to_value(
+            SignedPolicyFile::sign(
+                &release,
+                std::slice::from_ref(&signer),
+                (now - 1, now + 3_600),
+                std::slice::from_ref(&freshener),
+            )
+            .unwrap(),
+        )
         .unwrap();
-        let signature = signer.sign(&[POLICY_DOMAIN, &payload].concat());
-        let file = json!({
-            "payload": hex::encode(&payload),
-            "signatures": [{
-                "public_key": hex::encode(signer.verifying_key().as_bytes()),
-                "signature": hex::encode(signature.to_bytes()),
-            }],
-        });
         let server = MockServer::respond_with(vec![
             MockResponse::json(200, file.clone()),
             MockResponse::computed(move |request| {

@@ -172,10 +172,10 @@ A unified Helius `/v1/spr` base URL can be used for both `indexerUrl` and
 `proverUrl`; policy selection is independent of the URL. Every remote prover
 requires the caller's `proverTee` (`tee` on `ProverClient`) before any HTTP
 request. The client downloads the network's signed policy again whenever it
-attests again, every `max_age_secs` of the policy, and never uses it past its
-expiry. An application that reviews each release
+attests again, every `max_age_secs` of the policy, and never uses it once its
+release or its freshness part expires. An application that reviews each release
 itself can instead pass that release's policy JSON through `teePolicyFromJson`,
-or its own signers to `new SignedTeePolicy({ url, network, publicKeys,
+or its own release signers to `new SignedTeePolicy({ url, network, publicKeys,
 threshold })`. Take pins from a reviewed release, never from the prover's own
 response.
 See the [TEE deployment guide](../../prover/tee/README.md) for policy sources
