@@ -359,7 +359,10 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		// anonymous). Detect it before the plain "ring" case: the name contains both
 		// "transfer" (matched this branch) and "ring".
 		ringAuthority := strings.Contains(lowerPath, "ring_authority")
+		ringAuthorityExit := strings.Contains(lowerPath, "ring_authority_exit")
 		switch {
+		case ringAuthorityExit:
+			ps.CircuitType = TransferRingAuthorityExitCircuitType
 		case ringAuthority:
 			ps.CircuitType = TransferRingAuthorityCircuitType
 		case strings.Contains(lowerPath, "confidential_eddsa"):
@@ -371,7 +374,7 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		default:
 			ps.CircuitType = TransferConfidentialCircuitType
 		}
-		ps.Confidential = !ringAuthority
+		ps.Confidential = !ringAuthority || ringAuthorityExit
 		return ps, nil
 	} else if strings.Contains(lowerPath, "merge") {
 		// Merge reuses TransferProofSystem (generic Groth16 holder); the file name

@@ -186,6 +186,18 @@ impl ExpectedProvingKey {
         )
     }
 
+    pub(crate) fn transfer_ring_authority_exit(
+        n_inputs: usize,
+        n_outputs: usize,
+    ) -> Result<Self, ClientError> {
+        Self::transfer(
+            "transfer_ring_authority_exit",
+            n_inputs,
+            n_outputs,
+            CircuitId::RingAuthorityExit,
+        )
+    }
+
     pub(crate) fn transfer_anonymous_ring_eddsa(
         n_inputs: usize,
         n_outputs: usize,

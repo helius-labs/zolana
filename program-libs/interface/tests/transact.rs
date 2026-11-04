@@ -35,6 +35,14 @@ fn circuit_id_wire_layout_and_unknown_rejection() {
         assert_eq!(wincode::deserialize_exact::<CircuitId>(&bytes).unwrap(), id);
     }
 
+    let exit = CircuitId::RingAuthorityExit(4, 4, 3);
+    let exit_bytes = wincode::serialize(&exit).unwrap();
+    assert_eq!(exit_bytes, [9, 0, 4, 4, 3]);
+    assert_eq!(
+        wincode::deserialize_exact::<CircuitId>(&exit_bytes).unwrap(),
+        exit
+    );
+
     let commitment = Bsb22Commitment {
         commitment: [4u8; 32],
         commitment_pok: [5u8; 32],

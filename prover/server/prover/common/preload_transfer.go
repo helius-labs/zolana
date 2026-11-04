@@ -8,7 +8,7 @@ import (
 
 var transferPreloadCircuits = []CircuitType{
 	TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType,
-	TransferAnonymousRingEddsaCircuitType, TransferConfidentialEddsaCircuitType,
+	TransferRingAuthorityExitCircuitType, TransferAnonymousRingEddsaCircuitType, TransferConfidentialEddsaCircuitType,
 	MergeCircuitType, MergeRingCircuitType,
 }
 

@@ -85,6 +85,12 @@ pub trait ProverExt: Prover {
         self.prove(&requests::ring_authority(inputs)?)
     }
 
+    /// Prove a ring-authority transfer whose outputs may leave the ring, built by
+    /// [`RingAuthorityProver::build_exit`](crate::RingAuthorityProver::build_exit).
+    fn prove_ring_authority_exit(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
+        self.prove(&requests::ring_authority_exit(inputs)?)
+    }
+
     /// Prove a policy-ring merge (`merge-ring`).
     fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::merge_ring(inputs)?)

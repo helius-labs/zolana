@@ -50,7 +50,8 @@ func Parse(body []byte) (*Request, error) {
 	}
 	request := &Request{Circuit: envelope.CircuitType}
 	switch envelope.CircuitType {
-	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
+	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType,
+		common.TransferRingAuthorityExitCircuitType:
 		params := new(transfer.TransferParameters)
 		if err := json.Unmarshal(body, params); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrMalformed, err)

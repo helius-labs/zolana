@@ -285,6 +285,7 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
         (CircuitId::ConfidentialSigner(2, 4, 3), 3usize, 2u8, true),
         (CircuitId::ConfidentialRingEddsa(2, 4, 3), 3, 2, true),
         (CircuitId::RingAuthority(2, 2, 3), 1, 1, false),
+        (CircuitId::RingAuthorityExit(2, 2, 3), 1, 1, true),
         (CircuitId::ConfidentialSigner(32, 2, 3), 29, 29, true),
         (CircuitId::ConfidentialRingEddsa(49, 2, 3), 12, 1, true),
     ] {

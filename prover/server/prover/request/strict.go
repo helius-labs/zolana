@@ -29,7 +29,8 @@ func ParseStrict(body []byte) (*Request, error) {
 	}
 	var schema reflect.Type
 	switch envelope.CircuitType {
-	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
+	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType,
+		common.TransferRingAuthorityExitCircuitType:
 		schema = reflect.TypeOf(transfer.TransferParametersJSON{})
 	case common.TransferConfidentialEddsaCircuitType:
 		schema = reflect.TypeOf(transfer.ConfidentialEddsaTransferParametersJSON{})

@@ -80,7 +80,8 @@ func decodePrepared(request Request) (*Prepared, error) {
 	}
 	shape := common.ProofShape{Circuit: request.CircuitType}
 	switch request.CircuitType {
-	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
+	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType,
+		common.TransferRingAuthorityExitCircuitType:
 		var value transfer.TransferParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {
 			return nil, fmt.Errorf("invalid prepared transfer")
@@ -153,7 +154,8 @@ func decodePrepared(request Request) (*Prepared, error) {
 	opened := make([]bool, len(request.Trees))
 	for index, input := range prepared.inputs {
 		lookup := request.Inputs[index]
-		if input.cached && (input.dummy || request.CircuitType == common.TransferRingAuthorityCircuitType) {
+		if input.cached && (input.dummy || request.CircuitType == common.TransferRingAuthorityCircuitType ||
+			request.CircuitType == common.TransferRingAuthorityExitCircuitType) {
 			return nil, fmt.Errorf("invalid cached input")
 		}
 		if input.dummy && (int(lookup.TreeSlot) >= len(opened) || !opened[lookup.TreeSlot]) {
