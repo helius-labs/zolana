@@ -4,24 +4,32 @@ use solana_pubkey::Pubkey;
 
 use crate::{err, tag, CreatePairData};
 
-/// Creates a unidirectional trading pair. There is no shared pool: the maker
-/// funds each escrow directly, so no pool bootstrap or auxiliary accounts are
-/// needed.
+/// Creates a unidirectional trading pair. The pool starts empty
+/// (`available_liquidity = 0`); the maker commits liquidity afterwards with
+/// `deposit_liquidity`.
 pub struct CreatePair {
     pub payer: Pubkey,
     pub pair: Pubkey,
     pub price: u64,
     pub source_asset_id: u64,
     pub destination_asset_id: u64,
-    pub authority_owner_hash: [u8; 32],
+    /// The maker's settle window in slots; see `Pair::expiry_slots`.
+    pub expiry_slots: u64,
+    /// The worst-case owed per escrow; see `Pair::max_order_size`.
+    pub max_order_size: u64,
+    /// Absolute public quote tolerance; see `Pair::price_tolerance`.
+    pub price_tolerance: u64,
+    /// Minimum private exact-input amount; see `Pair::min_order_amount`.
+    pub min_order_amount: u64,
     /// The source asset's UTXO commitment (`asset_field(source_mint)`); see
     /// `Pair::source_asset`.
     pub source_asset: [u8; 32],
     /// The destination asset's UTXO commitment; see `Pair::destination_asset`.
     pub destination_asset: [u8; 32],
-    /// The escrow_authority identity's published nullifier pubkey; see
-    /// `Pair::escrow_authority_nullifier_pubkey`.
-    pub escrow_authority_nullifier_pubkey: [u8; 32],
+    /// The maker receipt destination; see `Pair::maker_receipt_owner_hash`.
+    pub maker_receipt_owner_hash: [u8; 32],
+    /// The maker's encryption pubkey; see `Pair::maker_encryption_pubkey`.
+    pub maker_encryption_pubkey: [u8; 33],
 }
 
 impl CreatePair {
@@ -30,10 +38,14 @@ impl CreatePair {
             price: self.price,
             source_asset_id: self.source_asset_id,
             destination_asset_id: self.destination_asset_id,
-            authority_owner_hash: self.authority_owner_hash,
+            expiry_slots: self.expiry_slots,
+            max_order_size: self.max_order_size,
+            price_tolerance: self.price_tolerance,
+            min_order_amount: self.min_order_amount,
             source_asset: self.source_asset,
             destination_asset: self.destination_asset,
-            escrow_authority_nullifier_pubkey: self.escrow_authority_nullifier_pubkey,
+            maker_receipt_owner_hash: self.maker_receipt_owner_hash,
+            maker_encryption_pubkey: self.maker_encryption_pubkey,
         };
 
         let mut instruction_data = vec![tag::CREATE_PAIR];
