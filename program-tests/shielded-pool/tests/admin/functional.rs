@@ -123,8 +123,7 @@ fn tree_creation_changes_only_the_tree_account() {
         authority: authority.pubkey(),
         tree_id: 0,
         nullifier_params: nullifier_tree_params(),
-        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
-            .expect("default tree fees"),
+        fees: default_tree_fees(),
     };
     let ix = create.allocation_step();
     let (mollusk, program_id) = setup_mollusk();
@@ -215,8 +214,7 @@ fn tree_creation_completes_in_four_steps_and_advances_next_tree_id() {
         authority: pool.authority.pubkey(),
         tree_id: next_tree_id,
         nullifier_params: nullifier_tree_params(),
-        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
-            .expect("default tree fees"),
+        fees: default_tree_fees(),
     };
     let steps = create.instructions();
     assert_eq!(steps.len(), 4);

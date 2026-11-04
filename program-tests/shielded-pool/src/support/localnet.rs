@@ -54,8 +54,7 @@ pub fn initialize_pool(rpc: &mut SolanaRpc) -> Result<LocalnetPool> {
         &payer.pubkey(),
         &authority.pubkey(),
         nullifier_tree_params(),
-        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
-            .ok_or_else(|| anyhow!("default tree fees do not fit the zkp batch size"))?,
+        default_tree_fees(),
     )?;
     print_signature(
         "create_tree",
@@ -98,8 +97,7 @@ pub fn initialize_indexed_pool(
         &payer.pubkey(),
         &authority.pubkey(),
         nullifier_tree_params(),
-        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
-            .ok_or_else(|| anyhow!("default tree fees do not fit the zkp batch size"))?,
+        default_tree_fees(),
     )?;
     let create_tree_tx = send_indexed(
         rpc,

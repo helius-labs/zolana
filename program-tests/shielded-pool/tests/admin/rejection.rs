@@ -10,7 +10,7 @@ use spr_interface::{
     instruction::{CreateProtocolConfigData, UpdateProtocolConfigData},
     pda,
     state::{
-        default_tree_fees, nullifier_tree_params, ProtocolConfig, RingConfig, MAX_FEE_PER_NULLIFIER,
+        default_tree_fees, nullifier_tree_params, ProtocolConfig, RingConfig, MAX_FEE_PER_TREE,
     },
 };
 use spr_program::instruction::CreateRingConfig;
@@ -107,8 +107,7 @@ fn create_tree_steps(pool: &Pool, tree_id: u16) -> CreateTree {
         authority: pool.authority.pubkey(),
         tree_id,
         nullifier_params: nullifier_tree_params(),
-        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
-            .expect("default tree fees"),
+        fees: default_tree_fees(),
     }
 }
 
@@ -685,7 +684,7 @@ fn tree_creation_rejects_a_fee_above_the_cap() {
     let mut pool = Pool::initialized();
     let tree_id = next_tree_id(&pool.rpc).expect("next tree id");
     let mut create = create_tree_steps(&pool, tree_id);
-    create.fees.fee_per_nullifier = MAX_FEE_PER_NULLIFIER + 1;
+    create.fees.fee_per_tree = MAX_FEE_PER_TREE + 1;
 
     let err = pool
         .rpc
@@ -707,7 +706,7 @@ fn tree_creation_steps_must_repeat_the_first_steps_payload() {
         .expect("first allocation step");
 
     let mut other_fees = create_tree_steps(&pool, tree_id);
-    other_fees.fees.fee_per_nullifier += 1;
+    other_fees.fees.fee_per_tree += 1;
     let err = pool
         .rpc
         .create_and_send_default_payer_transaction(

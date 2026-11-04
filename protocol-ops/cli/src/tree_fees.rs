@@ -53,25 +53,26 @@ impl ForesterClose {
     }
 }
 
+/// A schedule that charges `fee_per_tree` and reimburses foresters at cost:
+/// one base fee per batch append, and one base fee spread over the closes that
+/// fit in one transaction.
 pub fn at_cost_for_transaction_size(
-    zkp_batch_size: u64,
+    fee_per_tree: u64,
     closes_per_transaction: u64,
 ) -> Result<TreeFeeSchedule> {
     if closes_per_transaction == 0 {
         bail!("closes per transaction must be positive");
     }
-    let close_reimbursement = BASE_TRANSACTION_FEE_LAMPORTS.div_ceil(closes_per_transaction);
-    TreeFeeSchedule::at_cost(
-        zkp_batch_size,
-        BASE_TRANSACTION_FEE_LAMPORTS,
-        close_reimbursement,
-    )
-    .ok_or_else(|| anyhow!("fee schedule overflow for zkp_batch_size={zkp_batch_size}"))
+    Ok(TreeFeeSchedule {
+        fee_per_tree,
+        append_reimbursement: BASE_TRANSACTION_FEE_LAMPORTS,
+        close_reimbursement: BASE_TRANSACTION_FEE_LAMPORTS.div_ceil(closes_per_transaction),
+    })
 }
 
 pub fn print_schedule(closes_per_transaction: u64, fees: &TreeFeeSchedule) {
     println!("closes_per_transaction={closes_per_transaction}");
-    println!("fee_per_nullifier={}", fees.fee_per_nullifier);
+    println!("fee_per_tree={}", fees.fee_per_tree);
     println!("append_reimbursement={}", fees.append_reimbursement);
     println!("close_reimbursement={}", fees.close_reimbursement);
 }
@@ -110,33 +111,29 @@ mod tests {
     }
 
     #[test]
-    fn schedule_is_solvent_and_at_cost() {
-        for (zkp_batch_size, closes) in [(4999, 24), (10, 24), (4999, 100)] {
-            let fees = at_cost_for_transaction_size(zkp_batch_size, closes).unwrap();
-            assert_eq!(fees.append_reimbursement, BASE_TRANSACTION_FEE_LAMPORTS);
+    fn schedule_is_at_cost() {
+        for closes in [24, 57, 100] {
+            let fees = at_cost_for_transaction_size(7, closes).unwrap();
             assert_eq!(
-                fees.close_reimbursement,
-                BASE_TRANSACTION_FEE_LAMPORTS.div_ceil(closes)
+                fees,
+                TreeFeeSchedule {
+                    fee_per_tree: 7,
+                    append_reimbursement: BASE_TRANSACTION_FEE_LAMPORTS,
+                    close_reimbursement: BASE_TRANSACTION_FEE_LAMPORTS.div_ceil(closes),
+                }
             );
-            let collected = fees.fee_per_nullifier * zkp_batch_size;
-            let paid = fees.append_reimbursement + zkp_batch_size * fees.close_reimbursement;
-            assert!(collected >= paid);
-            assert!(collected - paid < zkp_batch_size);
         }
-        assert!(at_cost_for_transaction_size(4999, 0).is_err());
+        assert!(at_cost_for_transaction_size(7, 0).is_err());
     }
 
     #[test]
-    fn canonical_batch_size_schedules_are_pinned() {
+    fn canonical_schedule_is_the_default() {
         let forester = forester();
         assert_eq!(forester.closes_per_transaction().unwrap(), 57);
         assert_eq!(
-            at_cost_for_transaction_size(4999, 57).unwrap(),
-            TreeFeeSchedule {
-                fee_per_nullifier: 90,
-                append_reimbursement: BASE_TRANSACTION_FEE_LAMPORTS,
-                close_reimbursement: 88,
-            }
+            at_cost_for_transaction_size(spr_interface::state::DEFAULT_FEE_PER_TREE_LAMPORTS, 57)
+                .unwrap(),
+            spr_interface::state::default_tree_fees()
         );
     }
 }

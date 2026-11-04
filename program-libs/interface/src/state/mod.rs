@@ -15,15 +15,14 @@ pub use ring_config::RingConfig;
 pub use spl_asset_counter::SplAssetCounter;
 pub use spl_asset_registry::SplAssetRegistry;
 #[cfg(feature = "tree")]
-pub use spr_tree::{TreeFeeSchedule, MAX_FEE_PER_NULLIFIER};
+pub use spr_tree::{TreeFeeSchedule, MAX_FEE_PER_TREE};
 #[cfg(feature = "tree")]
 pub use tree::{
     default_tree_fees, nullifier_tree_params, read_tree_id, state_root_offset, tree_account_size,
     tree_creation_lamports, tree_creation_step_count, tree_id_offset,
     tree_liquid_working_capital_lamports, tree_working_capital_lamports,
     AT_COST_APPEND_REIMBURSEMENT_LAMPORTS, AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
-    DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS, DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS,
-    NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
+    DEFAULT_FEE_PER_TREE_LAMPORTS, NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
     NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY, STATE_HEIGHT,
     STATE_ROOT_HISTORY_CAPACITY, TREE_ALLOCATION_STEP,
 };

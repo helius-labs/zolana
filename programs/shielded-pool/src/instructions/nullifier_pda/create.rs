@@ -1,4 +1,4 @@
-use crate::instructions::shared::caused_by;
+use crate::instructions::shared::{caused_by, tree_error};
 use light_program_profiler::profile;
 use pinocchio::{
     cpi::{Seed, Signer},
@@ -11,6 +11,7 @@ use spr_interface::{
     error::ShieldedPoolError, event::InputTreeSequence, NullifierPda, NULLIFIER_PDA_SEED,
     NULLIFIER_PDA_SIZE,
 };
+use spr_tree::TreeAccount;
 
 use super::loader::load_unused_nullifier_pda;
 
@@ -47,14 +48,14 @@ impl NullifierPdaRent {
 /// same fact.
 pub(crate) struct InputTreeResult {
     pub input_tree: InputTreeSequence,
-    pub forester_fee: u64,
+    /// The tree's `fee_per_tree`, already credited to its fee balance.
+    pub tree_fee: u64,
     pub fee_balance: u64,
     pub tree_id: u16,
 }
 
-/// Create one nullifier PDA per queued nullifier and collect the tree's
-/// forester fee from the payer in the same pass. The tree funds each PDA's
-/// rent; the payer pays the fee.
+/// Create one nullifier PDA per queued nullifier and collect the tree's fee
+/// from the payer. The tree funds each PDA's rent; the payer pays the fee.
 ///
 /// Callers must supply each PDA paired with its nullifier, in the order the
 /// tree queued them: transact selects the tree's inputs in input order and
@@ -82,7 +83,7 @@ pub(crate) fn create_nullifier_pdas<'p, 'n>(
     };
     let tree_address = tree.address().to_bytes();
     let first_queue_index = input_tree.input_tree.first_input_queue_seq;
-    collect_forester_fee(payer, tree, input_tree.forester_fee)?;
+    collect_tree_fee(payer, tree, input_tree.tree_fee)?;
 
     for (position, (nullifier_pda, nullifier)) in (0u64..).zip(nullifier_pdas) {
         let queue_index = first_queue_index
@@ -102,8 +103,29 @@ pub(crate) fn create_nullifier_pdas<'p, 'n>(
     Ok(())
 }
 
+/// Credit `fee_per_tree` to the output tree unless it is also an input tree,
+/// which is credited with its nullifiers: each tree an instruction writes is
+/// paid once. Collect the returned amount with [`collect_tree_fee`] once the
+/// tree borrow has ended. The transfer may follow the input trees' PDA
+/// top-ups: it syncs only the payer and the output tree, and neither has a
+/// pending direct lamport change.
+#[inline(always)]
+pub(crate) fn credit_output_tree_fee(
+    output_tree: &mut TreeAccount<'_>,
+    is_input_tree: bool,
+) -> Result<u64, ProgramError> {
+    if is_input_tree {
+        return Ok(0);
+    }
+    output_tree.credit_tree_fee().map_err(tree_error)
+}
+
 #[inline(never)]
-fn collect_forester_fee(payer: &AccountView, tree: &AccountView, amount: u64) -> ProgramResult {
+pub(crate) fn collect_tree_fee(
+    payer: &AccountView,
+    tree: &AccountView,
+    amount: u64,
+) -> ProgramResult {
     if amount == 0 {
         return Ok(());
     }

@@ -61,15 +61,11 @@ pub fn tree_fees<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<(TreeFeeSchedule, u64
     tree_fees_from(&account, tree)
 }
 
-pub fn forester_fee_for_inputs(
-    tree_before: &Account,
-    tree: &Pubkey,
-    num_inputs: u64,
-) -> Result<u64, ClientError> {
+/// The flat fee a transact or merge pays a tree it writes, at the schedule
+/// the tree held before the spend.
+pub fn tree_fee_for_spend(tree_before: &Account, tree: &Pubkey) -> Result<u64, ClientError> {
     let (fees, _) = tree_fees_from(tree_before, tree)?;
-    fees.fee_per_nullifier
-        .checked_mul(num_inputs)
-        .ok_or_else(|| ClientError::Rpc("invalid nullifier forester fee".to_owned()))
+    Ok(fees.fee_per_tree)
 }
 
 pub fn expected_tree_lamports_after_spend(
@@ -89,7 +85,7 @@ pub fn assert_tree_lamports_after_spend<R: Rpc>(
     num_inputs: u64,
 ) -> Result<Account, ClientError> {
     let nullifier_pda_rent = nullifier_pda_rent(rpc)?;
-    let forester_fee = forester_fee_for_inputs(tree_before, tree, num_inputs)?;
+    let forester_fee = tree_fee_for_spend(tree_before, tree)?;
     let tree_after = fetch_account(rpc, tree)?;
     let expected_lamports = expected_tree_lamports_after_spend(
         tree_before.lamports,

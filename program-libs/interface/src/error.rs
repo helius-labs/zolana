@@ -71,7 +71,7 @@ pub enum ShieldedPoolError {
     RingAuthorityTransactDisabled = 7020,
     #[error("output owner tag account index is out of range")]
     OwnerTagAccountMissing = 7021,
-    #[error("forester fee calculation overflowed or used an invalid tree configuration")]
+    #[error("tree fee balance overflowed")]
     InvalidForesterFee = 7022,
     #[error("tree does not contain enough fee funds to reimburse the forester")]
     InsufficientForesterFeeBalance = 7023,
@@ -183,7 +183,7 @@ pub enum ShieldedPoolError {
     ZeroInputNullifier = 7078,
     #[error("output utxo hash must be nonzero; zero marks compact padding")]
     ZeroOutputUtxoHash = 7079,
-    #[error("tree fee per nullifier exceeds the maximum")]
+    #[error("tree fee per tree exceeds the maximum")]
     TreeFeeTooHigh = 7080,
     #[error("tree creation step does not match the step that started it")]
     TreeCreationMismatch = 7081,

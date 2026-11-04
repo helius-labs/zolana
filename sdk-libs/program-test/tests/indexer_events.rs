@@ -257,10 +257,7 @@ fn indexed_emit_event_round_trip_through_index_events() {
         [7; 32],
         7,
         spr_interface::state::nullifier_tree_params(),
-        spr_interface::state::default_tree_fees(
-            spr_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
-        )
-        .expect("tree fees"),
+        spr_interface::state::default_tree_fees(),
     )
     .expect("tree account");
     let account = solana_account::Account {

@@ -10,7 +10,7 @@ use spr_client::ComputeBudgetConfig;
 use spr_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
-    state::{default_tree_fees, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
+    state::{default_tree_fees, DEFAULT_FEE_PER_TREE_LAMPORTS},
     NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
 use spr_program_test::Rejection;
@@ -114,6 +114,7 @@ fn merge_rejects_a_tampered_output_ciphertext_or_salt() {
 
     for (label, data) in tampered {
         let ix = RealMerge {
+            output_tree: merge.output_tree,
             data,
             nullifiers: merge.nullifiers.clone(),
             user_record: merge.user_record,
@@ -171,20 +172,18 @@ fn merge_at_input_count(input_count: usize, real_input_count: usize) {
     );
 
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
-    // The protocol sponsors nullifier-tree maintenance, so the sponsored
-    // default charges nothing per nullifier and the fee balance stays put.
-    const FEE_PER_NULLIFIER: u64 = 0;
     let (fees, fee_balance_after) = tree_fees(&pool.rpc, &tree).expect("tree fees");
     assert_eq!(
         fees,
-        default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE).expect("default tree fees"),
+        default_tree_fees(),
         "merge leaves the fee schedule untouched"
     );
     assert_eq!(
-        fees.fee_per_nullifier, FEE_PER_NULLIFIER,
-        "merge forester fee per nullifier"
+        fees.fee_per_tree, DEFAULT_FEE_PER_TREE_LAMPORTS,
+        "merge fee per tree"
     );
-    let forester_fee = fees.fee_per_nullifier * input_count as u64;
+    // The merge writes one tree, so it pays that tree's fee once.
+    let forester_fee = fees.fee_per_tree;
     assert_eq!(
         fee_balance_after,
         fee_balance_before + forester_fee,
@@ -305,4 +304,114 @@ fn merge_verifies_the_wide_shape_on_chain() {
 #[test]
 fn merge_verifies_several_real_inputs_padded_to_the_wide_shape() {
     merge_at_input_count(MAX_MERGE_INPUTS, 9);
+}
+
+/// A merge into a tree other than its input tree pays each tree its own
+/// `fee_per_tree`. One lamport short of the output tree's fee fails the whole
+/// merge and changes no account but the transaction fee payer.
+#[test]
+fn merge_pays_a_distinct_output_tree_its_own_fee() {
+    const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
+    const INPUT_TREE_FEE: u64 = 1_234;
+    const OUTPUT_TREE_FEE: u64 = 4_321;
+    let mut pool = proof_env();
+    let payer = pool.rpc.payer.pubkey();
+    let input_tree = pool.tree;
+    let authority = pool.authority.insecure_clone();
+    let output_tree = pool
+        .rpc
+        .create_tree(&authority)
+        .expect("create the output tree");
+    for (tree, fee_per_tree) in [(input_tree, INPUT_TREE_FEE), (output_tree, OUTPUT_TREE_FEE)] {
+        pool.rpc
+            .set_tree_fees(
+                &authority,
+                &tree,
+                spr_tree::TreeFeeSchedule {
+                    fee_per_tree,
+                    ..default_tree_fees()
+                },
+            )
+            .expect("set tree fee");
+    }
+    let output_tree_id = spr_interface::state::read_tree_id(
+        &pool.rpc.account_data(&output_tree).expect("output tree"),
+    )
+    .expect("output tree id");
+    let merge = RealMergeProof {
+        input_count: 8,
+        real_input_count: 3,
+    }
+    .build_compact_into(&mut pool, output_tree, output_tree_id);
+    let ix = merge.instruction(&pool);
+    let real_inputs = merge.data.nullifiers.len() as u64;
+
+    let payer_floor = pool.rpc.svm.minimum_balance_for_rent_exemption(0);
+    let exact = payer_floor + LAMPORTS_PER_SIGNATURE + INPUT_TREE_FEE + OUTPUT_TREE_FEE;
+    let set_payer_lamports = |pool: &mut shielded_pool_tests::support::fixtures::Pool,
+                              lamports: u64| {
+        let mut account = pool.rpc.svm.get_account(&payer).expect("payer");
+        account.lamports = lamports;
+        pool.rpc.svm.set_account(payer, account).expect("set payer");
+    };
+    let send = |pool: &mut shielded_pool_tests::support::fixtures::Pool| {
+        pool.rpc.svm.expire_blockhash();
+        pool.rpc
+            .create_and_send_default_payer_transaction_with_budget(
+                std::slice::from_ref(&ix),
+                &[],
+                ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+            )
+    };
+    let writable: Vec<Pubkey> = ix
+        .accounts
+        .iter()
+        .filter(|meta| meta.is_writable && meta.pubkey != payer)
+        .map(|meta| meta.pubkey)
+        .collect();
+    let snapshot = |pool: &shielded_pool_tests::support::fixtures::Pool| {
+        writable
+            .iter()
+            .map(|address| pool.rpc.svm.get_account(address))
+            .collect::<Vec<_>>()
+    };
+
+    set_payer_lamports(&mut pool, exact - 1);
+    let before = snapshot(&pool);
+    send(&mut pool).expect_err("one lamport short of the output tree's fee");
+    assert_eq!(snapshot(&pool), before, "a failed merge changes no account");
+
+    set_payer_lamports(&mut pool, exact);
+    let (_, input_balance_before) = tree_fees(&pool.rpc, &input_tree).expect("input tree fees");
+    let (_, output_balance_before) = tree_fees(&pool.rpc, &output_tree).expect("output fees");
+    let input_lamports_before = pool.rpc.svm.get_balance(&input_tree).expect("input tree");
+    let output_lamports_before = pool.rpc.svm.get_balance(&output_tree).expect("output tree");
+    send(&mut pool).expect("merge into a distinct output tree");
+
+    let nullifier_pda_rent = nullifier_pda_rent(&pool.rpc).expect("nullifier PDA rent");
+    assert_eq!(pool.rpc.svm.get_balance(&payer), Some(payer_floor));
+    assert_eq!(
+        pool.rpc.svm.get_balance(&input_tree),
+        Some(input_lamports_before + INPUT_TREE_FEE - real_inputs * nullifier_pda_rent),
+        "the input tree collects its fee and funds one nullifier PDA per real input"
+    );
+    assert_eq!(
+        pool.rpc.svm.get_balance(&output_tree),
+        Some(output_lamports_before + OUTPUT_TREE_FEE),
+        "the output tree collects exactly its own fee"
+    );
+    assert_eq!(
+        (
+            tree_fees(&pool.rpc, &input_tree)
+                .expect("input tree fees")
+                .1,
+            tree_fees(&pool.rpc, &output_tree)
+                .expect("output tree fees")
+                .1,
+        ),
+        (
+            input_balance_before + INPUT_TREE_FEE,
+            output_balance_before + OUTPUT_TREE_FEE,
+        )
+    );
 }

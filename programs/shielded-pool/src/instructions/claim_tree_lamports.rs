@@ -16,11 +16,13 @@ use crate::instructions::{
     shared::{check_reimbursement_recipient, pay_reimbursement_with_rent_minimum, tree_error},
 };
 
-/// Move every lamport above the tree's reserve to `recipient`. The reserve is
-/// the tree's rent exemption, the forester fee balance, and the rent for every
-/// nullifier PDA the working capital may still have to fund beyond those
-/// already open, all at the current rent, so a claim never starves nullifier
-/// PDA creation and never touches forester money.
+/// Move every lamport above the tree's reserve to `recipient`. The fee balance
+/// first drops to what the open nullifier PDAs may still draw in forester
+/// reimbursements. The reserve is the tree's rent exemption, that fee balance,
+/// and the rent for every nullifier PDA the working capital may still have to
+/// fund beyond those already open, all at the current rent, so a claim never
+/// starves nullifier PDA creation and never takes reimbursements foresters are
+/// still owed.
 #[inline(never)]
 pub fn process_claim_tree_lamports(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     if !data.is_empty() {
@@ -45,6 +47,7 @@ pub fn process_claim_tree_lamports(accounts: &mut [AccountView], data: &[u8]) ->
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
+        tree_account.release_fee_surplus();
         let working_capital = tree_liquid_working_capital_lamports(
             tree_account.nullifier_tree().batch_size,
             tree_account.live_nullifier_pdas(),

@@ -7,7 +7,7 @@ use spr_account_checks::AccountError;
 use spr_interface::{
     error::ShieldedPoolError,
     instruction::UpdateProtocolConfigData,
-    state::{nullifier_tree_params, TreeFeeSchedule, MAX_FEE_PER_NULLIFIER},
+    state::{TreeFeeSchedule, MAX_FEE_PER_TREE},
 };
 use spr_program_test::Rejection;
 use spr_protocol_instructions::SetTreeFees;
@@ -157,17 +157,16 @@ fn set_tree_fees_is_gated_by_the_fee_authority_alone() {
 fn set_tree_fees_stores_insolvent_schedules() {
     let mut pool = Pool::initialized();
     let authority = pool.authority.insecure_clone();
-    let batch_size = nullifier_tree_params().input_queue_zkp_batch_size;
-    // One lamport per input funds the batch append, and one funds its close.
-    // This positive baseline breaks even exactly, independent of default fees.
+    // A one-input spend owes its tree at most one close and one whole batch
+    // append, so this positive baseline breaks even exactly for it.
     let balanced = TreeFeeSchedule {
-        fee_per_nullifier: 2,
-        append_reimbursement: batch_size,
+        fee_per_tree: 2,
+        append_reimbursement: 1,
         close_reimbursement: 1,
     };
     let insolvent = [
         TreeFeeSchedule {
-            append_reimbursement: batch_size.checked_add(1).expect("batch size plus one"),
+            append_reimbursement: 2,
             ..balanced
         },
         TreeFeeSchedule {
@@ -175,19 +174,13 @@ fn set_tree_fees_stores_insolvent_schedules() {
             ..balanced
         },
         TreeFeeSchedule {
-            fee_per_nullifier: 1,
+            fee_per_tree: 1,
             ..balanced
         },
     ];
     for fees in insolvent {
-        let required = TreeFeeSchedule::at_cost(
-            batch_size,
-            fees.append_reimbursement,
-            fees.close_reimbursement,
-        )
-        .expect("at-cost schedule");
         assert!(
-            fees.fee_per_nullifier < required.fee_per_nullifier,
+            fees.fee_per_tree < fees.append_reimbursement + fees.close_reimbursement,
             "fixture must be insolvent: {fees:?}"
         );
         pool.rpc
@@ -205,11 +198,11 @@ fn set_tree_fees_stores_insolvent_schedules() {
 }
 
 #[test]
-fn set_tree_fees_caps_the_fee_per_nullifier() {
+fn set_tree_fees_caps_the_fee_per_tree() {
     let mut pool = Pool::initialized();
     let authority = pool.authority.insecure_clone();
     let at_cap = TreeFeeSchedule {
-        fee_per_nullifier: MAX_FEE_PER_NULLIFIER,
+        fee_per_tree: MAX_FEE_PER_TREE,
         ..SET_TREE_FEES_FIXTURE_SCHEDULE
     };
     pool.rpc
@@ -221,7 +214,7 @@ fn set_tree_fees_caps_the_fee_per_nullifier() {
     );
 
     let above_cap = TreeFeeSchedule {
-        fee_per_nullifier: MAX_FEE_PER_NULLIFIER + 1,
+        fee_per_tree: MAX_FEE_PER_TREE + 1,
         ..at_cap
     };
     let error = pool

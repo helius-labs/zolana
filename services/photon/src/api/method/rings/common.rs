@@ -561,8 +561,7 @@ mod tests {
         let mut update_roots = Vec::with_capacity(slots.len());
         {
             let params = nullifier_tree_params();
-            let fees = default_tree_fees(params.input_queue_zkp_batch_size)
-                .expect("default fixture tree fees");
+            let fees = default_tree_fees();
             let mut tree = TreeAccount::init(
                 &mut data,
                 TREE_ACCOUNT_DISCRIMINATOR,

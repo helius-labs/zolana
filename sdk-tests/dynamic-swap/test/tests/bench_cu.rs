@@ -157,8 +157,7 @@ fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32],
             tree.to_bytes(),
             BENCH_TREE_ID,
             nullifier_tree_params(),
-            default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
-                .expect("default tree fees"),
+            default_tree_fees(),
         )
         .expect("init tree account");
         for (slot, leaf) in (1_u64..).zip(leaves) {

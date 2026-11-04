@@ -65,7 +65,11 @@ fn roots() -> ReadRoots {
         tree_address,
         TREE_ID,
         NullifierTreeInitParams::default(),
-        TreeFeeSchedule::at_cost(250, 5_000, 46).unwrap(),
+        TreeFeeSchedule {
+            fee_per_tree: 5_000,
+            append_reimbursement: 5_000,
+            close_reimbursement: 46,
+        },
     )
     .unwrap();
     let mut tree = get_account_view(

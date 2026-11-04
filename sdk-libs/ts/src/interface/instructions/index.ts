@@ -189,8 +189,7 @@ export async function createSplInterfaceInstruction(
  * Mirrors Rust `CreateTree::instructions`. The tree PDA is allocated in
  * `TREE_ALLOCATION_STEP` chunks, so creation is `TREE_CREATION_STEP_COUNT`
  * identical instructions that must land in one transaction. `treeId` has to be
- * the protocol config's `nextTreeId`. `fees` defaults to the at-cost schedule
- * for the chosen ZKP batch size.
+ * the protocol config's `nextTreeId`. `fees` defaults to `defaultTreeFees()`.
  */
 export async function createTreeInstructions(
   input: Readonly<{
@@ -207,7 +206,7 @@ export async function createTreeInstructions(
     encodeCreateTreeData({
       treeId: input.treeId,
       nullifierParams,
-      fees: input.fees ?? defaultTreeFees(nullifierParams.inputQueueZkpBatchSize),
+      fees: input.fees ?? defaultTreeFees(),
     }),
   );
   const accounts = [

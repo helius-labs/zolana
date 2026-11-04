@@ -102,8 +102,6 @@ pub enum ProgramTestError {
     AccountIndexOutOfRange { index: u8, keys: usize },
     #[error("pubkey: {0}")]
     Pubkey(#[from] solana_pubkey::PubkeyError),
-    #[error("the default tree fee schedule does not fit zkp batch size {0}")]
-    InvalidTreeFees(u64),
     #[error("account fixture: {0}")]
     Fixture(String),
     #[error("localnet: {0}")]

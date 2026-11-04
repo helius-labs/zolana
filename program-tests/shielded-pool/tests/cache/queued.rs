@@ -899,3 +899,117 @@ fn a_read_cache_and_a_write_cache_may_differ_in_tree_and_writer() {
     assert_eq!(cache_state(&pool.rpc, cache_a), expected_a);
     assert_eq!(cache_state(&pool.rpc, cache_b), expected_b);
 }
+
+/// A transact whose output tree is not one of its input trees pays both trees
+/// their own `fee_per_tree`: the input tree with its nullifier PDA, the output
+/// tree once its outputs are appended. One lamport short of the second fee
+/// fails the whole transaction and changes no other account.
+#[test]
+fn a_distinct_output_tree_pays_its_own_tree_fee() {
+    const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
+    const DEPOSIT: u64 = 100;
+    const INPUT_TREE_FEE: u64 = 1_234;
+    const OUTPUT_TREE_FEE: u64 = 4_321;
+    let mut pool = proof_env();
+    let payer = pool.rpc.payer.pubkey();
+    pool.rpc
+        .airdrop(&spr_interface::SOL_INTERFACE_PUBKEY, 1_000_000)
+        .expect("fund SOL interface rent reserve");
+    let authority = pool.authority.insecure_clone();
+    let output_tree = pool
+        .rpc
+        .create_tree(&authority)
+        .expect("create the output tree");
+    for (tree, fee_per_tree) in [(pool.tree, INPUT_TREE_FEE), (output_tree, OUTPUT_TREE_FEE)] {
+        pool.rpc
+            .set_tree_fees(
+                &authority,
+                &tree,
+                spr_tree::TreeFeeSchedule {
+                    fee_per_tree,
+                    ..spr_interface::state::default_tree_fees()
+                },
+            )
+            .expect("set tree fee");
+    }
+    let tree_x = Tree::read(&pool.rpc, pool.tree);
+    let tree_y = Tree::read(&pool.rpc, output_tree);
+    let writer = Keypair::new();
+    pool.rpc
+        .airdrop(&writer.pubkey(), 1_000_000)
+        .expect("fund writer");
+    let cache = create_cache(&mut pool.rpc, &writer, 901, tree_y.id);
+    let nf_tree = nullifier_tree().expect("nullifier tree");
+    let mut notes: Vec<Option<Note>> = vec![None; 36];
+    let step = prepare(
+        payer,
+        &Owner::of(payer),
+        &nf_tree,
+        StepSpec {
+            index: 9,
+            n_inputs: 1,
+            reads: &[],
+            outputs: &[(Some(3), DEPOSIT), (Some(9), 0)],
+            deposit: DEPOSIT,
+            input_tree: &tree_x,
+            output_tree: &tree_y,
+            write_cache: Some(cache),
+        },
+        &mut notes,
+    );
+    let mut builder = step.builder;
+    builder.data.proof =
+        pack_transact_proof(&prove_with_backpressure(&step.witness)).expect("pack proof");
+    let ix = builder.instruction_with_cache_write(cache, writer.pubkey());
+
+    // The payer ends at exactly its rent exemption after both signatures, the
+    // deposit and both tree fees; one lamport less cannot cover the output
+    // tree's fee.
+    let payer_floor = pool.rpc.svm.minimum_balance_for_rent_exemption(0);
+    let exact =
+        payer_floor + 2 * LAMPORTS_PER_SIGNATURE + DEPOSIT + INPUT_TREE_FEE + OUTPUT_TREE_FEE;
+    let set_payer_lamports = |pool: &mut shielded_pool_tests::support::fixtures::Pool,
+                              lamports: u64| {
+        let mut account = pool.rpc.svm.get_account(&payer).expect("payer");
+        account.lamports = lamports;
+        pool.rpc.svm.set_account(payer, account).expect("set payer");
+    };
+    set_payer_lamports(&mut pool, exact - 1);
+    assert_rejected_atomically(&mut pool.rpc, ix.clone(), &writer, None);
+
+    set_payer_lamports(&mut pool, exact);
+    pool.rpc.svm.expire_blockhash();
+    let nullifier_pda_rent =
+        spr_test_utils::nullifier_pda::nullifier_pda_rent(&pool.rpc).expect("nullifier PDA rent");
+    let (_, input_balance_before) =
+        spr_test_utils::nullifier_pda::tree_fees(&pool.rpc, &pool.tree).expect("input tree fees");
+    let (_, output_balance_before) =
+        spr_test_utils::nullifier_pda::tree_fees(&pool.rpc, &output_tree).expect("output fees");
+    let input_lamports_before = pool.rpc.svm.get_balance(&pool.tree).expect("input tree");
+    let output_lamports_before = pool.rpc.svm.get_balance(&output_tree).expect("output tree");
+    send(&mut pool.rpc, ix, &writer);
+
+    assert_eq!(pool.rpc.svm.get_balance(&payer), Some(payer_floor));
+    assert_eq!(
+        pool.rpc.svm.get_balance(&pool.tree),
+        Some(input_lamports_before + INPUT_TREE_FEE - nullifier_pda_rent),
+        "the input tree collects its fee and funds its one nullifier PDA"
+    );
+    assert_eq!(
+        pool.rpc.svm.get_balance(&output_tree),
+        Some(output_lamports_before + OUTPUT_TREE_FEE),
+        "the output tree collects exactly its own fee"
+    );
+    assert_eq!(
+        spr_test_utils::nullifier_pda::tree_fees(&pool.rpc, &pool.tree)
+            .expect("input tree fees")
+            .1,
+        input_balance_before + INPUT_TREE_FEE
+    );
+    assert_eq!(
+        spr_test_utils::nullifier_pda::tree_fees(&pool.rpc, &output_tree)
+            .expect("output tree fees")
+            .1,
+        output_balance_before + OUTPUT_TREE_FEE
+    );
+}

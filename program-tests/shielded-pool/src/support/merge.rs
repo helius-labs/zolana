@@ -189,6 +189,7 @@ impl ZeroDeposits<'_> {
 }
 
 pub struct RealMerge {
+    pub output_tree: Pubkey,
     pub data: MergeTransactIxData,
     pub nullifiers: Vec<[u8; 32]>,
     pub user_record: Pubkey,
@@ -199,7 +200,7 @@ impl RealMerge {
     pub fn instruction(&self, pool: &Pool) -> solana_instruction::Instruction {
         MergeTransact {
             input_tree: pool.tree,
-            output_tree: pool.tree,
+            output_tree: self.output_tree,
             payer: pool.rpc.payer.pubkey(),
             user_record: self.user_record,
             data: self.data.clone(),
@@ -218,16 +219,27 @@ pub struct PaddedMerge {
     pub dummy_nullifier_proofs: Vec<NonInclusionProof>,
 }
 
+/// The tree a merge spends from, and the id of the tree it writes to.
+pub struct MergeTrees {
+    pub input_tree: Pubkey,
+    pub input_tree_id: u16,
+    pub output_tree_id: u16,
+}
+
 impl PaddedMerge {
     pub fn assemble(
         deposits: &RealDeposits,
         keypair: &ShieldedKeypair,
-        tree: Pubkey,
-        tree_id: u16,
+        trees: MergeTrees,
         input_count: usize,
         ring: Option<Pubkey>,
         compact: bool,
     ) -> Self {
+        let MergeTrees {
+            input_tree: tree,
+            input_tree_id: tree_id,
+            output_tree_id,
+        } = trees;
         let nullifier_key = keypair.nullifier_key();
         let nullifier_root = deposits.nullifier_root;
         let merkle_context = MerkleContext {
@@ -273,7 +285,7 @@ impl PaddedMerge {
         }
         .expect("merge");
         let mut transaction = merge
-            .with_output_tree_id(tree_id)
+            .with_output_tree_id(output_tree_id)
             .encrypt(keypair)
             .expect("encrypt merge");
         let first_nullifier = transaction
@@ -348,13 +360,23 @@ impl RealMergeProof {
     }
 
     fn build_with_cache(self, pool: &mut Pool, cache: Option<MergeCacheTarget>) -> RealMerge {
-        self.build_with(pool, cache, false)
+        self.build_with(pool, cache, false, None)
     }
 
     /// Compact padding fills the circuit width past the real inputs; the
     /// instruction carries only the real nullifiers.
     pub fn build_compact(self, pool: &mut Pool) -> RealMerge {
-        self.build_with(pool, None, true)
+        self.build_with(pool, None, true, None)
+    }
+
+    /// A compact merge of the pool tree's inputs into a different tree.
+    pub fn build_compact_into(
+        self,
+        pool: &mut Pool,
+        output_tree: Pubkey,
+        output_tree_id: u16,
+    ) -> RealMerge {
+        self.build_with(pool, None, true, Some((output_tree, output_tree_id)))
     }
 
     fn build_with(
@@ -362,6 +384,7 @@ impl RealMergeProof {
         pool: &mut Pool,
         cache: Option<MergeCacheTarget>,
         compact: bool,
+        output: Option<(Pubkey, u16)>,
     ) -> RealMerge {
         let RealMergeProof {
             input_count,
@@ -379,6 +402,7 @@ impl RealMergeProof {
         let payer = pool.rpc.payer.insecure_clone();
         let tree = pool.tree;
         let tree_id = pool.tree_id;
+        let (output_tree, output_tree_id) = output.unwrap_or((tree, tree_id));
         let keypair = ShieldedKeypair::from_keypair(&payer).expect("shielded keypair");
         let user_record = write_user_record(&mut pool.rpc, payer.pubkey(), true);
         let nullifier_key = keypair.nullifier_key();
@@ -402,8 +426,11 @@ impl RealMergeProof {
         } = PaddedMerge::assemble(
             &deposits,
             &keypair,
-            tree,
-            tree_id,
+            MergeTrees {
+                input_tree: tree,
+                input_tree_id: tree_id,
+                output_tree_id,
+            },
             input_count,
             None,
             compact,
@@ -445,6 +472,7 @@ impl RealMergeProof {
             .expect("merge rail proof");
 
         RealMerge {
+            output_tree,
             data: result.instruction_data(merge_proof),
             nullifiers: result.nullifiers.clone(),
             user_record,
@@ -637,8 +665,11 @@ impl RealRingMergeProof {
         } = PaddedMerge::assemble(
             &deposits,
             &keypair,
-            tree,
-            tree_id,
+            MergeTrees {
+                input_tree: tree,
+                input_tree_id: tree_id,
+                output_tree_id: tree_id,
+            },
             input_count,
             Some(ring_program_id),
             false,

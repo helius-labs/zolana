@@ -16,16 +16,17 @@ duplicate pending nullifier surfaces as
 `ShieldedPoolError::NullifierAlreadyQueued = 7043`.
 
 Fee model (`program-libs/tree/src/fees.rs`): the tree header stores
-`fees: TreeFeeSchedule { fee_per_nullifier, append_reimbursement, close_reimbursement }`
-(bytes 8..32) and `fee_balance: u64` (bytes 32..40). Every queued nullifier
-charges `fee_per_nullifier` from the payer into the tree and credits
-`fee_balance`; `batch_update_nullifier_tree` and `close_nullifier_pdas` pay
+`fees: TreeFeeSchedule { fee_per_tree, append_reimbursement, close_reimbursement }`
+(bytes 8..32) and `fee_balance: u64` (bytes 32..40). Every transact or merge
+charges `fee_per_tree` once from the payer into each distinct tree it writes and
+credits `fee_balance`; proofless deposits pay nothing; `batch_update_nullifier_tree` and `close_nullifier_pdas` pay
 `min(owed, fee_balance)` to their `reimbursement_recipient` and debit
 `fee_balance`. The lamport invariant `tree.lamports >= rent_minimum + fee_balance`
 keeps PDA working capital and the fee pool apart (INV-TRANSACT-49). The header also
 tracks `live_nullifier_pdas`; claims reserve rent only for PDAs still to be funded.
-Both creation and fee updates require `fee_per_nullifier <= MAX_FEE_PER_NULLIFIER`
-(1,000,000 lamports).
+Both creation and fee updates require `fee_per_tree <= MAX_FEE_PER_TREE`
+(1,000,000 lamports). `claim_tree_lamports` releases `fee_balance` above
+`fee_balance_reserve()` (INV-CLAIM-06).
 
 SPEC_DIVERGENCE (resolved 2026-07-23): the spec previously stated UTXO tree height 26
 and omitted `batch_update_nullifier_tree` from the instruction table; `docs/spec.md`
@@ -125,10 +126,10 @@ now states H=32 and lists tag 4.
 ### Fee Schedule
 
 - [x] **INV-CREATE-TREE-10: the initial fee schedule is stored as submitted and the fee balance starts at zero**
-  - Covered by: `program-libs/tree/tests/fees.rs` `init_writes_a_valid_schedule_with_an_empty_balance`, `init_stores_an_insolvent_schedule` (a schedule whose payouts exceed collections initializes and reads back verbatim); `program-tests/shielded-pool/tests/admin/functional.rs` `tree_creation_completes_in_four_steps_and_advances_next_tree_id` (tree bytes 8..32 equal the submitted `fees`, `tree_fees()` reads `(fees, 0)`)
+  - Covered by: `program-libs/tree/tests/fees.rs` `init_writes_a_valid_schedule_with_an_empty_balance`, `init_stores_an_insolvent_schedule` (a schedule whose payouts exceed collections initializes and reads back verbatim); `program-libs/interface/tests/tree.rs` `default_tree_fees_cover_the_widest_transaction`; `program-tests/shielded-pool/tests/admin/functional.rs` `tree_creation_completes_in_four_steps_and_advances_next_tree_id` (tree bytes 8..32 equal the submitted `fees`, `tree_fees()` reads `(fees, 0)`)
   - Kind: postcondition
-  - Statement: the final `create_tree` step stores `data.fees` after validating the fee cap, without a solvency check against `Z = nullifier_params.input_queue_zkp_batch_size`; after success `fee_balance` is exactly 0 and the schedule bytes equal the submitted `TreeFeeSchedule`. The default `default_tree_fees(Z)` is sponsored (all three rates zero) and satisfies `fee_per_nullifier * Z >= append_reimbursement + Z * close_reimbursement` trivially; the at-cost schedule (append 5_000, close `ceil(5_000 / C) = 88`, `fee_per_nullifier = ceil((5_000 + Z * 88) / Z)`: 90 for `Z = 4999`, 588 for `Z = 10`) satisfies it with equality up to rounding. An insolvent schedule only truncates payouts to the fee balance (INV-BATCH-NULL-08, INV-CLOSE-PDA-10).
-  - Location: `programs/shielded-pool/src/instructions/create_tree/processor.rs:92-103` (`fn process_create_tree`, `data.fees`), `program-libs/tree/src/lib.rs` (`fn TreeAccount::init`), `program-libs/tree/src/fees.rs` (`fn TreeFeeSchedule::at_cost`)
+  - Statement: the final `create_tree` step stores `data.fees` after validating the fee cap, without a solvency check against `Z = nullifier_params.input_queue_zkp_batch_size`; after success `fee_balance` is exactly 0 and the schedule bytes equal the submitted `TreeFeeSchedule`. The default `default_tree_fees()` is `fee_per_tree` 5_000 with at-cost reimbursements (append 5_000, close `ceil(5_000 / C) = 88`), and one `fee_per_tree` covers the reimbursements of the widest (52-input) spend: `52 * (append_reimbursement + Z * close_reimbursement) <= fee_per_tree * Z`. An insolvent schedule only truncates payouts to the fee balance (INV-BATCH-NULL-08, INV-CLOSE-PDA-10).
+  - Location: `programs/shielded-pool/src/instructions/create_tree/processor.rs:92-103` (`fn process_create_tree`, `data.fees`), `program-libs/tree/src/lib.rs` (`fn TreeAccount::init`), `program-libs/interface/src/state/tree.rs` (`fn default_tree_fees`)
   - Severity: Medium (payouts are capped by `fee_balance`, so an insolvent schedule cannot overdraw the tree)
   - Suggested test: positive; harness: tree unit + mollusk unit
 
@@ -143,9 +144,9 @@ now states H=32 and lists tag 4.
   - Severity: High
 
 - [x] **INV-CREATE-TREE-12: the fee cap is checked before the first allocation**
-  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_a_fee_above_the_cap`; `program-libs/tree/tests/fees.rs` `fee_schedule_validation_caps_the_fee_per_nullifier`, `init_rejects_a_fee_above_the_cap`
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_a_fee_above_the_cap`; `program-libs/tree/tests/fees.rs` `fee_schedule_validation_caps_the_fee_per_tree`, `init_rejects_a_fee_above_the_cap`
   - Kind: precondition
-  - Statement: `fee_per_nullifier > MAX_FEE_PER_NULLIFIER` fails before funding or recording the pending creation, leaving the tree id available; exactly the cap is valid.
+  - Statement: `fee_per_tree > MAX_FEE_PER_TREE` fails before funding or recording the pending creation, leaving the tree id available; exactly the cap is valid.
   - Location: `programs/shielded-pool/src/instructions/create_tree/processor.rs`, `program-libs/tree/src/fees.rs` (`TreeFeeSchedule::validate`)
   - Error: `ShieldedPoolError::TreeFeeTooHigh = 7080`
   - Severity: High
@@ -313,9 +314,9 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
   - Suggested test: positive; harness: program-tests integration (proofs tier)
 
 - [x] **INV-TRANSACT-49: the tree funds only the missing PDA rent and never drops below its rent floor plus the fee balance**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_a_tree_short_of_nullifier_pda_rent` (bare rent and `rent + 2 * nullifier_pda_rent - 1` both rejected, no PDA survives), `transact_rejects_when_working_capital_would_borrow_from_the_fee_pool` (`fee_balance = 1_000_000` written into the header and funded; tree at `rent + fee_balance + 2 * nullifier_pda_rent - 1` rejects a 2-input spend with exact 7044 and leaves no PDA), `program-tests/shielded-pool/tests/nullifier/nullifier_pdas_proof.rs` `transact_tops_up_prefunded_nullifier_pdas` (underfunded PDA topped up to exactly its rent, overfunded PDA keeps its surplus, tree debited only the missing rent), `transact_creates_one_nullifier_pda_per_input` (`assert_tree_lamports_after_spend`: tree delta is exactly `forester_fee - n * nullifier_pda_rent`)
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_a_tree_short_of_nullifier_pda_rent` (bare rent and `rent + 2 * nullifier_pda_rent - 1` both rejected, no PDA survives), `transact_rejects_when_working_capital_would_borrow_from_the_fee_pool` (`fee_balance = 1_000_000` written into the header and funded; tree at `rent + fee_balance + 2 * nullifier_pda_rent - 1` rejects a 2-input spend with exact 7044 and leaves no PDA), `program-tests/shielded-pool/tests/nullifier/nullifier_pdas_proof.rs` `transact_tops_up_prefunded_nullifier_pdas` (underfunded PDA topped up to exactly its rent, overfunded PDA keeps its surplus, tree debited only the missing rent), `transact_creates_one_nullifier_pda_per_input` (`assert_tree_lamports_after_spend`: tree delta is exactly `fee_per_tree - n * nullifier_pda_rent`)
   - Kind: postcondition + precondition
-  - Statement: for every created PDA the tree's lamports decrease by exactly `max(0, Rent::minimum_balance(NULLIFIER_PDA_SIZE) - nullifier_pda_lamports_before)`; if that debit would leave the tree below `Rent::minimum_balance(tree.data_len()) + fee_balance` (the fee balance as credited by this instruction's own insertion fee, INV-TRANSACT-42) the instruction returns Err and no PDA is created, so working capital never borrows from collected fees. A PDA prefunded above its rent keeps the surplus and costs the tree nothing.
+  - Statement: for every created PDA the tree's lamports decrease by exactly `max(0, Rent::minimum_balance(NULLIFIER_PDA_SIZE) - nullifier_pda_lamports_before)`; if that debit would leave the tree below `Rent::minimum_balance(tree.data_len()) + fee_balance` (the fee balance as credited by this instruction's own tree fee, INV-TRANSACT-42) the instruction returns Err and no PDA is created, so working capital never borrows from collected fees. A PDA prefunded above its rent keeps the surplus and costs the tree nothing.
   - Location: `programs/shielded-pool/src/instructions/nullifier_pda/create.rs` (`struct NullifierPdaRent`, `fn create_nullifier_pdas`; `tree_minimum = rent + reserved_lamports`), `transact/processor.rs` (`create_nullifier_pdas(.., input_tree_result.fee_balance)`), `merge/processor.rs`
   - Error: `ShieldedPoolError::InsufficientNullifierPdaRent = 7044`
   - Severity: High (tree-fund drainage, liveness once working capital is exhausted)
@@ -532,9 +533,9 @@ so a schedule can be fixed while writes are frozen.
   - Suggested test: negative (short, long); harness: mollusk unit
 
 - [x] **INV-SET-FEES-06: schedules within the cap are stored regardless of the tree's ZKP batch size**
-  - Covered by: `program-tests/shielded-pool/tests/admin/set_tree_fees.rs` `set_tree_fees_stores_insolvent_schedules` (an explicit positive break-even schedule with `append_reimbursement + 1`, with `close_reimbursement + 1`, and with `fee_per_nullifier - 1`: each is asserted insolvent, succeeds, and `tree_fees()` reads `(fees, 0)`); `program-libs/tree/tests/fees.rs` `zero_schedule_charges_and_pays_nothing`
+  - Covered by: `program-tests/shielded-pool/tests/admin/set_tree_fees.rs` `set_tree_fees_stores_insolvent_schedules` (break-even `{fee_per_tree 2, append 1, close 1}` with `append_reimbursement + 1`, with `close_reimbursement + 1`, and with `fee_per_tree - 1`: each is asserted `fee_per_tree < append_reimbursement + close_reimbursement`, succeeds, and `tree_fees()` reads `(fees, 0)`); `program-libs/tree/tests/fees.rs` `zero_schedule_charges_and_pays_nothing`
   - Kind: postcondition
-  - Statement: after validating the fee cap, `set_tree_fees` performs no solvency check against `Z = tree.nullifier_tree.zkp_batch_size`; a schedule whose payouts exceed `fee_per_nullifier * Z` is stored verbatim and only truncates future payouts to `min(owed, fee_balance)`. The all-zero schedule disables fees and payouts.
+  - Statement: after validating the fee cap, `set_tree_fees` performs no solvency check against `Z = tree.nullifier_tree.zkp_batch_size`; a schedule whose payouts exceed what `fee_per_tree` collects is stored verbatim and only truncates future payouts to `min(owed, fee_balance)`. The all-zero schedule disables fees and payouts.
   - Location: `programs/shielded-pool/src/instructions/set_tree_fees.rs` (`set_fee_schedule`), `program-libs/tree/src/fees.rs` (`fn TreeAccount::take_reimbursement`)
   - Severity: Medium (payouts are capped by `fee_balance`, so an insolvent schedule cannot overdraw the tree)
   - Suggested test: positive boundary (each term off by one); harness: litesvm
@@ -572,9 +573,9 @@ so a schedule can be fixed while writes are frozen.
 ### Fee Cap
 
 - [x] **INV-SET-FEES-10: updates enforce the same cap as creation**
-  - Covered by: `program-tests/shielded-pool/tests/admin/set_tree_fees.rs` `set_tree_fees_caps_the_fee_per_nullifier`; `program-libs/tree/tests/fees.rs` `fee_schedule_validation_caps_the_fee_per_nullifier`
+  - Covered by: `program-tests/shielded-pool/tests/admin/set_tree_fees.rs` `set_tree_fees_caps_the_fee_per_tree`; `program-libs/tree/tests/fees.rs` `fee_schedule_validation_caps_the_fee_per_tree`
   - Kind: precondition + rollback
-  - Statement: a fee above 1,000,000 lamports per nullifier is rejected by the shared `TreeFeeSchedule::validate`; the old schedule and fee balance are preserved, and a schedule exactly at the cap is accepted.
+  - Statement: a `fee_per_tree` above 1,000,000 lamports is rejected by the shared `TreeFeeSchedule::validate`; the old schedule and fee balance are preserved, and a schedule exactly at the cap is accepted.
   - Location: `programs/shielded-pool/src/instructions/set_tree_fees.rs`, `program-libs/tree/src/fees.rs`
   - Error: `ShieldedPoolError::TreeFeeTooHigh = 7080`
   - Severity: High
@@ -584,10 +585,12 @@ so a schedule can be fixed while writes are frozen.
 `claim_tree_lamports` (tag 20) lets the fee authority recover lamports a tree
 holds above its reserve, typically after a rent reduction. Accounts:
 `authority` (signer), `protocol_config`, `tree` (writable), `recipient`
-(writable, not program-owned); data: empty. The reserve is
+(writable, not program-owned); data: empty. It first lowers `fee_balance` to
+`fee_balance_reserve()` (the reimbursements the open nullifier PDAs may still
+draw). The reserve is then
 `rent_minimum(tree) + fee_balance + max(0, (NUM_BATCHES + 1) * input_queue_batch_size - live_nullifier_pdas) * rent_minimum(NULLIFIER_PDA_SIZE)`
 at the current rent, so a claim never starves nullifier PDA creation and never
-touches forester money. It works on paused trees.
+takes reimbursements foresters are still owed. It works on paused trees.
 
 ### Authorization
 
@@ -612,7 +615,7 @@ touches forester money. It works on paused trees.
 ### Account Constraints
 
 - [x] **INV-CLAIM-03: the tree must be an initialized shielded-pool tree; paused is allowed**
-  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_rejects_a_non_tree_account` (System-owned impostor -> exact 7001), `mollusk_claim_tree_lamports_rejects_every_account_privilege_downgrade` (read-only tree meta -> account-checks `AccountNotMutable`), `claim_tree_lamports_keeps_the_fee_balance_and_works_on_a_paused_tree` (state byte `PAUSED` before and after)
+  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_rejects_a_non_tree_account` (System-owned impostor -> exact 7001), `mollusk_claim_tree_lamports_rejects_every_account_privilege_downgrade` (read-only tree meta -> account-checks `AccountNotMutable`), `claim_tree_lamports_keeps_the_reimbursement_reserve_and_works_on_a_paused_tree` (state byte `PAUSED` before and after)
   - Kind: precondition
   - Statement: the tree account must be writable, owned by the program, carry the tree discriminator and a valid layout; a tree still in its multi-step creation has no discriminator and is rejected; a paused tree is accepted.
   - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs` (`from_account_view_mut_allow_paused`)
@@ -642,22 +645,22 @@ touches forester money. It works on paused trees.
 
 ### Success Postconditions
 
-- [x] **INV-CLAIM-06: the tree ends exactly at its reserve and the surplus reaches the recipient**
-  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_pays_exactly_the_surplus` (airdropped surplus moves in full; tree lamports equal the reserve), `claim_tree_lamports_keeps_the_fee_balance_and_works_on_a_paused_tree` (forged `fee_balance` stays in the tree and in the header), `claim_tree_lamports_recovers_a_rent_reduction` (halving `Rent` releases exactly the old minus the new reserve), `claim_tree_lamports_rejects_a_tree_without_surplus` (a tree at its reserve fails with exact 7057 and is rolled back)
+- [x] **INV-CLAIM-06: the fee balance drops to its reimbursement reserve, the tree ends exactly at its reserve, and the surplus reaches the recipient**
+  - Covered by: `program-libs/tree/tests/fees.rs` `fee_balance_reserve_counts_closes_and_started_batches` (0, 1, Z, Z + 1 and 2Z live PDAs), `release_fee_surplus_lowers_the_balance_to_the_reserve`, `release_fee_surplus_keeps_a_balance_below_the_reserve`; `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_pays_exactly_the_surplus` (airdropped surplus moves in full; tree lamports equal the reserve), `claim_tree_lamports_keeps_the_reimbursement_reserve_and_works_on_a_paused_tree` (`live_nullifier_pdas = 3`, `fee_balance = 6_000`: the header's `fee_balance` drops to exactly `3 * close_reimbursement + 1 * append_reimbursement`, the pause state survives, the recipient gains everything above rent + that reserve + liquid working capital), `claim_tree_lamports_recovers_a_rent_reduction` (halving `Rent` releases exactly the old minus the new reserve), `claim_tree_lamports_rejects_a_tree_without_surplus` (a tree at its reserve fails with exact 7057 and is rolled back)
   - Kind: postcondition
-  - Statement: after a successful claim `tree.lamports == rent_minimum(tree) + fee_balance + max(0, (NUM_BATCHES + 1) * input_queue_batch_size - live_nullifier_pdas) * rent_minimum(NULLIFIER_PDA_SIZE)` at the Rent sysvar of that slot, and the recipient gains exactly the difference; a tree at or below that reserve returns `NoClaimableTreeLamports` and moves nothing. `fee_balance` and the working capital are never claimable.
-  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs`, `program-libs/interface/src/state/tree.rs` (`fn tree_liquid_working_capital_lamports`), `shared.rs` (`pay_reimbursement_with_rent_minimum`)
+  - Statement: a claim first sets `fee_balance = min(fee_balance_before, live_nullifier_pdas * close_reimbursement + ceil(live_nullifier_pdas / zkp_batch_size) * append_reimbursement)`; after a successful claim `tree.lamports == rent_minimum(tree) + fee_balance + max(0, (NUM_BATCHES + 1) * input_queue_batch_size - live_nullifier_pdas) * rent_minimum(NULLIFIER_PDA_SIZE)` at the Rent sysvar of that slot, and the recipient gains exactly the difference; a tree at or below that reserve returns `NoClaimableTreeLamports` and moves nothing (the released `fee_balance` is rolled back with it). `fee_balance` above the reimbursement reserve is claimable; the reserve and the working capital are not.
+  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs`, `program-libs/tree/src/fees.rs` (`fn TreeAccount::release_fee_surplus`, `fn TreeAccount::fee_balance_reserve`), `program-libs/interface/src/state/tree.rs` (`fn tree_liquid_working_capital_lamports`), `shared.rs` (`pay_reimbursement_with_rent_minimum`)
   - Error: `ShieldedPoolError::NoClaimableTreeLamports = 7057`
   - Severity: Critical (an over-claim would make nullifier PDA creation fail with 7024 and halt spends)
   - Suggested test: positive with exact balances; harness: litesvm + mollusk unit
 
 ### Frame Conditions
 
-- [x] **INV-CLAIM-07: only lamports move**
+- [x] **INV-CLAIM-07: only lamports and the fee balance move**
   - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `mollusk_claim_tree_lamports_moves_only_lamports` (authority and config accounts byte-identical; tree and recipient differ from their pre-call state only in lamports), `claim_tree_lamports_is_gated_by_the_fee_authority_alone` (`assert_rolled_back_except(payer)` on rejection)
   - Kind: frame condition
-  - Statement: a successful claim changes no account data and no owner; only the tree's and the recipient's lamports change, by the same amount. On any Err every account other than the transaction fee payer is unchanged.
-  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs` (no writes besides the lamport move)
+  - Statement: a successful claim changes no owner and no account data except the tree's `fee_balance` bytes (lowered to the reimbursement reserve, INV-CLAIM-06); only the tree's and the recipient's lamports change, by the same amount. On any Err every account other than the transaction fee payer is unchanged.
+  - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs` (no writes besides `release_fee_surplus` and the lamport move)
   - Severity: Medium
   - Suggested test: positive; harness: mollusk unit
 

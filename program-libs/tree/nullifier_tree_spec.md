@@ -35,7 +35,7 @@ The account header also holds the fee schedule and the fee balance:
 | 1 | `state: u8` | `UNINITIALIZED`, `INITIALIZED`, or `PAUSED` |
 | 2 | `tree_id: u16` | id assigned at creation |
 | 4 | padding | 4 bytes |
-| 8 | `fees.fee_per_nullifier: u64` | lamports charged per queued nullifier |
+| 8 | `fees.fee_per_tree: u64` | lamports charged once per instruction that writes the tree |
 | 16 | `fees.append_reimbursement: u64` | lamports paid per applied ZKP batch |
 | 24 | `fees.close_reimbursement: u64` | lamports paid per closed PDA |
 | 32 | `fee_balance: u64` | collected fees not yet paid out |
@@ -45,25 +45,25 @@ The account header also holds the fee schedule and the fee balance:
 | 17152 | nullifier tree | `NullifierTreeLayout` |
 
 The schedule is runtime state: `create_tree` writes it and `set_tree_fees`
-overwrites it. Both reject a `fee_per_nullifier` above `MAX_FEE_PER_NULLIFIER`
-(1,000,000 lamports, `ShieldedPoolError::TreeFeeTooHigh`, 7080). Spends pay the
-tree's rate at execution and the payer does not sign it, so the cap bounds what
-a fee change can charge a payer; neither path checks solvency. `set_tree_fees`
-also accepts a `PAUSED` tree, so the schedule can be retuned while the write
-paths are frozen.
-It is a per-tree parameter, and the default charges nothing (see
-[Fee schedule](#fee-schedule)).
-`TreeFeeSchedule::at_cost` derives the smallest `fee_per_nullifier` satisfying
+overwrites it. Both reject a `fee_per_tree` above `MAX_FEE_PER_TREE`
+(1,000,000 lamports, `ShieldedPoolError::TreeFeeTooHigh`, 7080). Transacts and
+merges pay the tree's rate at execution and the payer does not sign it, so the
+cap bounds what a fee change can charge a payer; neither path checks solvency.
+`set_tree_fees` also accepts a `PAUSED` tree, so the schedule can be retuned
+while the write paths are frozen.
+It is a per-tree parameter (see [Fee schedule](#fee-schedule)).
+`fee_balance` is the lamport amount held for future reimbursements; both
+payouts are capped by it (`min(owed, fee_balance)`), so the balance never goes
+negative and an insolvent schedule never fails an update. `claim_tree_lamports`
+lowers it to the reimbursement reserve
 
 ```text
-fees.fee_per_nullifier * Z >= fees.append_reimbursement + Z * fees.close_reimbursement
+live_nullifier_pdas * close_reimbursement
+  + ceil(live_nullifier_pdas / Z) * append_reimbursement
 ```
 
-so one ZKP batch of insertions collects at least what its append and its `Z`
-PDA closes pay out, but the fee authority may store any schedule.
-`fee_balance` is the lamport amount owed to future reimbursements; both
-payouts are capped by it (`min(owed, fee_balance)`), so the balance never goes
-negative and an insolvent schedule never fails an update.
+before it claims. Every queued value not yet appended still has its PDA open,
+so the open PDAs bound both the closes and the appends still owed.
 The lamport invariant
 
 ```text
@@ -229,11 +229,13 @@ The instruction also receives the writable PDA.
    to zero. When `num_full_zkp_batches == K`, set the batch to `Full` and
    advance `c` modulo `N`.
 6. Increment `q` once.
-7. Charge `fees.fee_per_nullifier` from the transaction payer to the tree
+7. Charge `fees.fee_per_tree` from the transaction payer to the tree
    (System transfer) and add the same amount to `fee_balance`. The inserting
-   instruction charges once for all of its inputs, before it funds the PDAs,
+   instruction charges once per tree, not per input, before it funds the PDAs,
    so the PDA rent check in step 9 sees the tree floored at
-   `rent_minimum + fee_balance`.
+   `rent_minimum + fee_balance`. A tree the instruction only appends to is
+   charged the same way, and a tree it both appends to and inserts into is
+   charged once.
 8. Require the PDA account writable. Derive the canonical PDA and bump, and
    require the supplied address to match. An initialized PDA fails with
    `ShieldedPoolError::NullifierAlreadyQueued` (7043).
@@ -555,43 +557,38 @@ lock capital beyond this amount and eventually stop insertion. With
 
 ### Fee schedule
 
-The arithmetic above motivates the rates. The schedule stored in the tree
-header (see [State](#state)) is what applies: every insertion charges
-`fees.fee_per_nullifier` into `fee_balance`, every applied ZKP batch
-pays `fees.append_reimbursement`, and every closed PDA pays
-`fees.close_reimbursement`, each payout capped by the fee balance. A schedule
-satisfying the solvency inequality
+The schedule stored in the tree header (see [State](#state)) is what applies:
+every transact or merge that writes the tree charges `fees.fee_per_tree` once
+into `fee_balance`, every applied ZKP batch pays `fees.append_reimbursement`,
+and every closed PDA pays `fees.close_reimbursement`, each payout capped by the
+fee balance. With `n` the most values one instruction queues into one tree, a
+schedule satisfying
 
 ```text
-fee_per_nullifier * Z >= append_reimbursement + Z * close_reimbursement
+fee_per_tree * Z >= n * (append_reimbursement + Z * close_reimbursement)
 ```
 
-collects over the `Z` insertions of one ZKP batch at least what that batch's
-append and its `Z` closes pay out, so a tree that starts with `fee_balance =
-0` never runs short on its own schedule. The program does not enforce the
-inequality; `TreeFeeSchedule::at_cost` derives the smallest fee that satisfies
-it. A schedule change applies to insertions and payouts from that point on:
-raising the payouts ahead of the collected balance only reduces payouts to
-`min(owed, fee_balance)`, it never blocks an append or a close.
+collects from every instruction at least the reimbursements its values cause,
+so a tree that starts with `fee_balance = 0` never runs short on its own
+schedule. The program does not enforce the inequality. A schedule change
+applies to instructions and payouts from that point on: raising the payouts
+ahead of the collected balance only reduces payouts to `min(owed,
+fee_balance)`, it never blocks an append or a close.
 
-The default schedule is sponsored: all three rates are zero, so no insertion
-fee is collected and neither reimbursement pays out. The forester bears its own
-transaction fees.
-
-An operator switches to the at-cost schedule, which charges one transaction
-base fee per append and one more spread over the `C` closes that fee covers:
+The default schedule charges 5,000 lamports per tree and reimburses foresters
+at cost: one transaction base fee per append and one more spread over the `C`
+closes that fee covers:
 
 ```text
+fee_per_tree         = 5_000
 append_reimbursement = 5_000
 close_reimbursement  = ceil(5_000 / C) = 88
-fee_per_nullifier    = ceil((5_000 + Z * 88) / Z)
 
-Z = 4999: 90 lamports per nullifier
-Z = 10:  588 lamports per nullifier
+n = 48, Z = 4999: 48 * (5_000 + 4_999 * 88) = 21_355_776 <= 5_000 * 4_999
 ```
 
 `C` is re-measured when the schedule is computed, so it tracks the transaction
-the forester sends. With these values nothing accumulates in the fee balance
-beyond rounding. The fee
-authority retunes the schedule with `set_tree_fees` when Solana's limits or
-priority fees move.
+the forester sends. The fee balance accumulates what the reimbursements do not
+use, and `claim_tree_lamports` releases it down to the reimbursement reserve.
+The fee authority retunes the schedule with `set_tree_fees` when Solana's
+limits or priority fees move.

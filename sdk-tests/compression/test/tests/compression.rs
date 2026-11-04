@@ -569,8 +569,7 @@ fn create_pool_tree(env: &Environment) -> Result<PoolTree> {
     let authority = fixture::protocol_authority();
     let id = next_tree_id(&env.localnet.client)?;
     let params = nullifier_tree_params();
-    let fees = default_tree_fees(params.input_queue_zkp_batch_size)
-        .ok_or_else(|| anyhow!("default tree fees do not fit the zkp batch size"))?;
+    let fees = default_tree_fees();
     let creation = create_tree_instructions(
         &env.localnet.client,
         &env.authority.pubkey(),

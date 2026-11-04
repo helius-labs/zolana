@@ -111,18 +111,27 @@ fn claim_tree_lamports_rejects_a_tree_without_surplus() {
 }
 
 #[test]
-fn claim_tree_lamports_keeps_the_fee_balance_and_works_on_a_paused_tree() {
+fn claim_tree_lamports_keeps_the_reimbursement_reserve_and_works_on_a_paused_tree() {
     let mut pool = Pool::initialized();
     let authority = pool.authority.insecure_clone();
     let tree = pool.tree;
     let recipient = pool.funded_signer(RECIPIENT_FUNDING).pubkey();
-    let fee_balance = 777;
+    // Three open nullifier PDAs may still draw three closes and one batch
+    // append, so that much of the fee balance stays; the rest is released.
+    let live_nullifier_pdas = 3;
+    let fee_balance = 6_000;
     let surplus = 5_000;
     let mut account = pool.rpc.svm.get_account(&tree).expect("tree");
-    {
+    let fee_reserve = {
         let layout: &mut Layout = wincode::deserialize_mut(&mut account.data).expect("tree layout");
         layout.fee_balance = fee_balance;
-    }
+        layout.live_nullifier_pdas = live_nullifier_pdas;
+        live_nullifier_pdas * layout.fees.close_reimbursement + layout.fees.append_reimbursement
+    };
+    assert!(
+        fee_reserve < fee_balance,
+        "the fixture releases part of the balance"
+    );
     account.lamports += fee_balance + surplus;
     pool.rpc
         .svm
@@ -131,12 +140,7 @@ fn claim_tree_lamports_keeps_the_fee_balance_and_works_on_a_paused_tree() {
     pool.rpc
         .pause_tree(&authority, &tree, true)
         .expect("pause tree");
-    let mut tree_before = pool.rpc.svm.get_account(&tree).expect("tree");
-    {
-        let layout: &mut Layout =
-            wincode::deserialize_mut(&mut tree_before.data).expect("tree layout");
-        assert_eq!((layout.state, layout.fee_balance), (PAUSED, fee_balance));
-    }
+    let tree_before = pool.rpc.svm.get_account(&tree).expect("tree");
 
     pool.rpc
         .claim_tree_lamports(&authority, &tree, &recipient)
@@ -145,11 +149,22 @@ fn claim_tree_lamports_keeps_the_fee_balance_and_works_on_a_paused_tree() {
     let tree_after = pool.rpc.svm.get_account(&tree).expect("tree");
     let rent: Rent = pool.rpc.svm.get_sysvar();
     assert_eq!(tree_after.lamports, reserve(&rent, &tree_after));
+    let mut expected_data = tree_before.data.clone();
+    {
+        let layout: &mut Layout =
+            wincode::deserialize_mut(&mut expected_data).expect("tree layout");
+        assert_eq!(layout.state, PAUSED);
+        layout.fee_balance = fee_reserve;
+    }
     assert_eq!(
-        tree_after.data, tree_before.data,
-        "the pause state and the fee balance survive a claim"
+        tree_after.data, expected_data,
+        "a claim keeps the pause state and lowers the fee balance to the reserve"
     );
-    assert_eq!(lamports(&pool, &recipient), RECIPIENT_FUNDING + surplus);
+    assert_eq!(
+        lamports(&pool, &recipient),
+        RECIPIENT_FUNDING + tree_before.lamports - tree_after.lamports
+    );
+    assert!(tree_before.lamports - tree_after.lamports >= surplus + fee_balance - fee_reserve);
 }
 
 #[test]

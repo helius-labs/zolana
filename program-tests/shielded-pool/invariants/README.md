@@ -157,6 +157,15 @@ ciphertext as public inputs, and the widest merge shape is 52 inputs instead
 of 54. INV-MERGE-29..31 added (3, all covered); INV-MERGE-12/-14 and
 INV-RING-MERGE-08/-13 restated. The counts below include them.
 
+Flat tree fee sync (2026-11-04): `fee_per_nullifier` became `fee_per_tree`
+(`MAX_FEE_PER_TREE`, same offset, 7080 unchanged). The transact and merge
+families pay it once per distinct tree they write, proofless deposits pay
+nothing, `default_tree_fees()` is 5,000 per tree with at-cost reimbursements,
+and `claim_tree_lamports` first releases `fee_balance` above the reimbursement
+reserve. INV-TRANSACT-29/-30/-40/-42, INV-MERGE-15/-19, INV-CREATE-TREE-10/-12,
+INV-TRANSACT-49, INV-SET-FEES-06/-10, INV-CLAIM-03/-06/-07 and INV-XC-31
+restated; no IDs added or removed.
+
 Current coverage (2026-10-20):
 
 - Covered: 276 / 305

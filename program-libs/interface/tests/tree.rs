@@ -6,53 +6,47 @@ use spr_interface::{
         default_tree_fees, nullifier_tree_params, read_tree_id, tree_account_size,
         tree_creation_step_count, tree_id_offset, tree_liquid_working_capital_lamports,
         tree_working_capital_lamports, AT_COST_APPEND_REIMBURSEMENT_LAMPORTS,
-        AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
-        NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
-        STATE_HEIGHT, STATE_ROOT_HISTORY_CAPACITY, TREE_ALLOCATION_STEP,
+        AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS, DEFAULT_FEE_PER_TREE_LAMPORTS,
+        NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+        NULLIFIER_TREE_ROOT_HISTORY_CAPACITY, STATE_HEIGHT, STATE_ROOT_HISTORY_CAPACITY,
+        TREE_ALLOCATION_STEP,
     },
     tree_slot::tree_id_field,
     NULLIFIER_PDA_SIZE,
 };
 use spr_tree::{TreeAccount, TreeFeeSchedule};
 
-/// The sponsored default charges nothing, so nothing accrues to reimburse
-/// from either: a schedule that paid a forester out of an empty fee balance
-/// would advertise a rate `take_reimbursement` can never honour.
+/// The default schedule charges the flat per-tree fee and reimburses
+/// foresters at cost. The fee one transaction pays a tree covers the
+/// reimbursements of every nullifier it can queue there: one close each, plus
+/// its share of a zkp batch append. 52 is the widest input set (merge).
 #[test]
-fn default_tree_fees_are_sponsored_for_every_batch_size() {
-    for zkp_batch_size in [nullifier_tree_params().input_queue_zkp_batch_size, 10, 1] {
-        assert_eq!(
-            default_tree_fees(zkp_batch_size),
-            Some(TreeFeeSchedule::default()),
-            "zkp_batch_size {zkp_batch_size}"
-        );
-    }
-    assert_eq!(default_tree_fees(0), None);
+fn default_tree_fees_cover_the_widest_transaction() {
+    let fees = default_tree_fees();
+    assert_eq!(
+        fees,
+        TreeFeeSchedule {
+            fee_per_tree: DEFAULT_FEE_PER_TREE_LAMPORTS,
+            append_reimbursement: AT_COST_APPEND_REIMBURSEMENT_LAMPORTS,
+            close_reimbursement: AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
+        }
+    );
+    const WIDEST_INPUTS: u64 = 52;
+    let zkp_batch_size = NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+    assert!(
+        WIDEST_INPUTS * (fees.append_reimbursement + zkp_batch_size * fees.close_reimbursement)
+            <= fees.fee_per_tree * zkp_batch_size
+    );
 }
 
-/// The documented at-cost figures: the close rate is
-/// `ceil(append / closes_per_transaction)` at the count
-/// `protocol-ops/forester/tests/close_nullifier_pdas.rs` pins, and the pair prices the
-/// canonical zkp batch at the 90 lamports per nullifier `protocol-ops/cli/src/tree_fees.rs`
-/// pins.
+/// The documented at-cost close rate is `ceil(append / closes_per_transaction)`
+/// at the count `protocol-ops/forester/tests/close_nullifier_pdas.rs` pins.
 #[test]
 fn at_cost_reimbursements_match_the_pinned_closes_per_transaction() {
     const CLOSES_PER_TRANSACTION: u64 = 57;
     assert_eq!(
         AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
         AT_COST_APPEND_REIMBURSEMENT_LAMPORTS.div_ceil(CLOSES_PER_TRANSACTION)
-    );
-
-    let zkp_batch_size = nullifier_tree_params().input_queue_zkp_batch_size;
-    assert_eq!(
-        TreeFeeSchedule::at_cost(
-            zkp_batch_size,
-            AT_COST_APPEND_REIMBURSEMENT_LAMPORTS,
-            AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
-        )
-        .expect("at-cost schedule")
-        .fee_per_nullifier,
-        90
     );
 }
 
@@ -103,7 +97,7 @@ fn read_tree_id_reads_the_initialized_id_at_offset_two() {
         [7u8; 32],
         0x1234,
         nullifier_tree_params(),
-        default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE).expect("default tree fees"),
+        default_tree_fees(),
     )
     .expect("init tree")
     .tree_id_array();

@@ -1,4 +1,3 @@
-import { unsignedBigint } from "./internal.js";
 import type { TreeFeeSchedule } from "./types.js";
 
 export const StateDiscriminator = Object.freeze({
@@ -40,33 +39,22 @@ export const NULLIFIER_TREE_HEIGHT = 40;
 export const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY = 100;
 export const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE =
   NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE * BigInt(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY);
-/// What one batch append and one nullifier-PDA close reimburse by default:
-/// nothing. The protocol sponsors nullifier-tree maintenance.
-export const DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS = 0n;
-export const DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS = 0n;
+/// The flat fee every tree is created with: a transact or merge pays it once to
+/// each tree it writes. Mirrors Rust `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+export const DEFAULT_FEE_PER_TREE_LAMPORTS = 5_000n;
+/// What one batch append and one nullifier-PDA close cost a forester. Mirrors
+/// Rust `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS` and
+/// `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS`.
+export const AT_COST_APPEND_REIMBURSEMENT_LAMPORTS = 5_000n;
+export const AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS = 88n;
 
-const U64_MAX = (1n << 64n) - 1n;
-
-/// The sponsored schedule every tree is created with: a transaction pays nothing
-/// per nullifier, so the fee balance stays empty and a forester claims nothing
-/// back from the tree. Mirrors Rust `default_tree_fees`, per-nullifier fee
-/// included: it covers the default reimbursements per ZKP batch, rounded up.
-export function defaultTreeFees(zkpBatchSize: bigint): TreeFeeSchedule {
-  const batchSize = unsignedBigint(zkpBatchSize, U64_MAX, "zkpBatchSize");
-  if (batchSize === 0n) {
-    return Object.freeze({
-      feePerNullifier: 0n,
-      appendReimbursement: 0n,
-      closeReimbursement: 0n,
-    });
-  }
-  const perBatch =
-    batchSize * DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS + DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS;
-  const remainder = perBatch % batchSize === 0n ? 0n : 1n;
+/// The schedule every tree is created with: the default fee per tree written,
+/// and forester reimbursements at cost. Mirrors Rust `default_tree_fees`.
+export function defaultTreeFees(): TreeFeeSchedule {
   return Object.freeze({
-    feePerNullifier: perBatch / batchSize + remainder,
-    appendReimbursement: DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS,
-    closeReimbursement: DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS,
+    feePerTree: DEFAULT_FEE_PER_TREE_LAMPORTS,
+    appendReimbursement: AT_COST_APPEND_REIMBURSEMENT_LAMPORTS,
+    closeReimbursement: AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
   });
 }
 

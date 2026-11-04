@@ -369,12 +369,7 @@ impl<D> LocalnetHarness<D> {
             authority: setup.accounts.tree_vault,
             tree_id,
             nullifier_params: nullifier_params.unwrap_or_else(nullifier_tree_params),
-            fees: default_tree_fees(
-                nullifier_params
-                    .unwrap_or_else(nullifier_tree_params)
-                    .input_queue_zkp_batch_size,
-            )
-            .ok_or_else(|| anyhow!("default tree fees do not fit the zkp batch size"))?,
+            fees: default_tree_fees(),
         };
         let steps = execute_sync_each(
             &setup.accounts.tree_settings,

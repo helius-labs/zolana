@@ -17,8 +17,8 @@ use spr_program::instruction::Transact;
 use spr_program_test::{Rejection, Rpc, TransactionTrace};
 use spr_test_utils::{
     nullifier_pda::{
-        assert_nullifier_pda, assert_tree_lamports_after_spend, forester_fee_for_inputs,
-        nullifier_pda_addresses, nullifier_pda_rent, nullifier_queue_next_index, tree_fees,
+        assert_nullifier_pda, assert_tree_lamports_after_spend, nullifier_pda_addresses,
+        nullifier_pda_rent, nullifier_queue_next_index, tree_fee_for_spend, tree_fees,
         tree_fees_from, tree_id,
     },
     transact::{
@@ -35,7 +35,7 @@ use spr_tree::TreeAccount;
 
 const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 
-fn proof_env_with_fee(fee_per_nullifier: u64) -> Pool {
+fn proof_env_with_fee(fee_per_tree: u64) -> Pool {
     let mut env = proof_env();
     let authority = env.authority.insecure_clone();
     env.rpc
@@ -43,7 +43,7 @@ fn proof_env_with_fee(fee_per_nullifier: u64) -> Pool {
             &authority,
             &env.tree,
             TreeFeeSchedule {
-                fee_per_nullifier,
+                fee_per_tree,
                 ..TreeFeeSchedule::default()
             },
         )
@@ -251,8 +251,7 @@ fn assert_transact_frame(env: &Pool, trace: &TransactionTrace, nullifiers: &[[u8
         changed, expected,
         "transact changes only the payer, the tree and the new nullifier PDAs"
     );
-    let forester_fee = forester_fee_for_inputs(&tree_account(env), &tree, nullifiers.len() as u64)
-        .expect("forester fee");
+    let forester_fee = tree_fee_for_spend(&tree_account(env), &tree).expect("forester fee");
     let system_invocations = trace
         .logs
         .iter()
@@ -275,8 +274,8 @@ fn transact_collects_fee_with_unfunded_nullifier_pdas() {
     assert_creates_nullifier_pdas(123);
 }
 
-fn assert_creates_nullifier_pdas(fee_per_nullifier: u64) {
-    let mut env = proof_env_with_fee(fee_per_nullifier);
+fn assert_creates_nullifier_pdas(fee_per_tree: u64) {
+    let mut env = proof_env_with_fee(fee_per_tree);
     let tree = env.tree;
     let data = build_valid_transact_ix(&mut env);
     let nullifiers = nullifiers_of(&data);
@@ -294,8 +293,7 @@ fn assert_creates_nullifier_pdas(fee_per_nullifier: u64) {
     }
     assert_tree_lamports_after_spend(&env.rpc, &tree, &tree_before, nullifiers.len() as u64)
         .expect("tree lamports");
-    let forester_fee = forester_fee_for_inputs(&tree_before, &tree, nullifiers.len() as u64)
-        .expect("forester fee");
+    let forester_fee = tree_fee_for_spend(&tree_before, &tree).expect("forester fee");
     assert_eq!(
         payer_before,
         payer_lamports(&env) + LAMPORTS_PER_SIGNATURE + forester_fee,
@@ -364,8 +362,8 @@ fn transact_collects_fee_with_prefunded_nullifier_pdas() {
     assert_tops_up_prefunded_nullifier_pdas(123);
 }
 
-fn assert_tops_up_prefunded_nullifier_pdas(fee_per_nullifier: u64) {
-    let mut env = proof_env_with_fee(fee_per_nullifier);
+fn assert_tops_up_prefunded_nullifier_pdas(fee_per_tree: u64) {
+    let mut env = proof_env_with_fee(fee_per_tree);
     let tree = env.tree;
     let payer = env.rpc.payer.pubkey();
     let data = build_valid_transact_ix(&mut env);
@@ -431,8 +429,7 @@ fn assert_tops_up_prefunded_nullifier_pdas(fee_per_nullifier: u64) {
         "overfunded nullifier PDA keeps its surplus and is initialized in place"
     );
 
-    let forester_fee = forester_fee_for_inputs(&tree_before, &tree, nullifiers.len() as u64)
-        .expect("forester fee");
+    let forester_fee = tree_fee_for_spend(&tree_before, &tree).expect("forester fee");
     let tree_after = tree_account(&env);
     assert_eq!(
         (

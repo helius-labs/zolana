@@ -15,16 +15,13 @@ pub const NULLIFIER_TREE_HEIGHT: u32 = 40;
 pub const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY: u32 =
     spr_tree::nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES as u32;
 
-/// What one nullifier-tree batch append reimburses by default: nothing. The
-/// protocol sponsors nullifier-tree maintenance.
-pub const DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 0;
-/// What one nullifier-PDA close reimburses by default: nothing, for the same
-/// reason as [`DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS`].
-pub const DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS: u64 = 0;
+/// The flat fee every tree is created with: a transact or merge pays it once to
+/// each tree it writes. It funds the forester reimbursements through the fee
+/// balance; `claim_tree_lamports` releases what they do not need.
+pub const DEFAULT_FEE_PER_TREE_LAMPORTS: u64 = 5_000;
 
 /// What one nullifier-tree batch append costs a forester: one transaction base
-/// fee. `zolana-protocol set-tree-fees` spreads it over the zkp batch when it computes a
-/// schedule that runs at cost.
+/// fee.
 pub const AT_COST_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 
 /// What one nullifier-PDA close costs a forester:
@@ -33,23 +30,21 @@ pub const AT_COST_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 /// it, so the per-close figure only means anything against a transaction's
 /// limits -- and the 64-address limit of a v1 transaction binds before its
 /// 4,096 bytes do. 57 closes fit (`protocol-ops/forester/tests/close_nullifier_pdas.rs` pins that),
-/// which makes this 88, and the two together price a 4999-nullifier zkp batch at
-/// 90 lamports per nullifier (`protocol-ops/cli/src/tree_fees.rs` pins that).
+/// which makes this 88.
 ///
 /// `zolana-protocol set-tree-fees` measures `closes_per_transaction` from a real
 /// transaction rather than reading this constant, so an operator's schedule
 /// tracks the instruction it will actually send.
 pub const AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS: u64 = 88;
 
-/// The sponsored fee schedule every tree is created with: a transaction pays
-/// nothing per nullifier, so the fee balance stays empty and a forester claims
-/// nothing back from the tree. `None` when `zkp_batch_size` is zero.
-pub fn default_tree_fees(zkp_batch_size: u64) -> Option<TreeFeeSchedule> {
-    TreeFeeSchedule::at_cost(
-        zkp_batch_size,
-        DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS,
-        DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS,
-    )
+/// The schedule every tree is created with: [`DEFAULT_FEE_PER_TREE_LAMPORTS`]
+/// per tree written, and forester reimbursements at cost.
+pub fn default_tree_fees() -> TreeFeeSchedule {
+    TreeFeeSchedule {
+        fee_per_tree: DEFAULT_FEE_PER_TREE_LAMPORTS,
+        append_reimbursement: AT_COST_APPEND_REIMBURSEMENT_LAMPORTS,
+        close_reimbursement: AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
+    }
 }
 
 /// Nullifier-PDA rent needed while one reused batch overlaps the two preceding

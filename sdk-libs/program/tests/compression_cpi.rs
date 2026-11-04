@@ -30,7 +30,11 @@ fn tree_data() -> Vec<u8> {
         OUTPUT_TREE,
         5,
         NullifierTreeInitParams::default(),
-        TreeFeeSchedule::at_cost(250, 5_000, 46).unwrap(),
+        TreeFeeSchedule {
+            fee_per_tree: 5_000,
+            append_reimbursement: 5_000,
+            close_reimbursement: 46,
+        },
     )
     .unwrap();
     bytes

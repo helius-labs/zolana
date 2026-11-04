@@ -312,7 +312,11 @@ fn inited_tree_bytes(tree_pubkey: Pubkey) -> Vec<u8> {
             tree_pubkey.to_bytes(),
             0,
             params,
-            TreeFeeSchedule::at_cost(params.input_queue_zkp_batch_size, 5_000, 170).unwrap(),
+            TreeFeeSchedule {
+                fee_per_tree: 5_000,
+                append_reimbursement: 5_000,
+                close_reimbursement: 170,
+            },
         )
         .unwrap();
     }

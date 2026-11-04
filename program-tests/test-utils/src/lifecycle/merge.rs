@@ -20,7 +20,7 @@ use spr_user_registry_interface::{
 use super::LifecycleHarness;
 use crate::{
     localnet::{pack_merge_proof, send_transaction, send_transaction_with_budget, ZERO},
-    nullifier_pda::{assert_nullifier_pdas, forester_fee_for_inputs, nullifier_pda_rent},
+    nullifier_pda::{assert_nullifier_pdas, nullifier_pda_rent, tree_fee_for_spend},
     test_validator_asserts::{
         assert_account_unchanged, fetch_account, wait_for_indexed_transaction,
         wait_for_merkle_proof, wait_for_merkle_proofs, wait_for_non_inclusion_proofs,
@@ -212,12 +212,12 @@ impl LifecycleHarness {
             &[&merge_key],
             budget,
         )?;
-        // A successful merge collects the tree's insertion fee from the inner payer:
-        // fee_per_nullifier per inserted nullifier, transferred into the tree. The
-        // tree then funds one nullifier PDA per inserted nullifier. A merge key
+        // A successful merge collects the tree's flat fee_per_tree from the inner
+        // payer, once for the tree it writes. The tree then funds one nullifier
+        // PDA per inserted nullifier. A merge key
         // paying directly also pays the transaction fee.
         let sent_count = sent_nullifiers.len() as u64;
-        let forester_fee = forester_fee_for_inputs(&tree_before, &self.tree, sent_count)?;
+        let forester_fee = tree_fee_for_spend(&tree_before, &self.tree)?;
         let transaction_fee = if merge_key_pays {
             self.rpc
                 .fetch_confirmed_transaction(&sig)?
@@ -232,7 +232,7 @@ impl LifecycleHarness {
         assert_eq!(
             payer_before.lamports - payer_after.lamports,
             forester_fee + transaction_fee,
-            "merge must charge the payer one forester share per nullifier"
+            "merge must charge the payer the tree fee once"
         );
         let nullifier_pda_rent = nullifier_pda_rent(&self.rpc)?;
         let tree_after = fetch_account(&self.rpc, &self.tree)?;
