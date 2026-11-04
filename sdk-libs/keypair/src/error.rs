@@ -39,9 +39,6 @@ pub enum KeypairError {
     #[error("a zero nullifier secret has no ring nullifier key")]
     ZeroNullifierSecret,
 
-    #[error("a PDA with supplied roles holds no root for a ring nullifier key")]
-    PdaRootNotHeld,
-
     #[error("HKDF expansion failed")]
     Hkdf,
 

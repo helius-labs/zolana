@@ -8,7 +8,7 @@ use solana_address::Address;
 use zeroize::Zeroizing;
 
 use crate::{
-    derivation::PdaRoleExpansion,
+    derivation::{expand_ring_nullifier_key, PdaRoleExpansion, INFO_RING_NF_KEY},
     error::KeypairError,
     hash::owner_hash,
     nullifier_key::NullifierKey,
@@ -137,10 +137,13 @@ impl ShieldedPda {
         &self,
         ring_program_id: &Address,
     ) -> Result<NullifierKey, KeypairError> {
-        self.expansion
-            .as_ref()
-            .ok_or(KeypairError::PdaRootNotHeld)?
-            .ring_nullifier_key(ring_program_id)
+        let pda = self.pda.to_bytes();
+        // The PDA keeps two PDAs of one holder from sharing a published ring key.
+        let info = [INFO_RING_NF_KEY, ring_program_id.as_ref(), pda.as_slice()];
+        match &self.expansion {
+            Some(expansion) => expansion.ring_nullifier_key(&info),
+            None => expand_ring_nullifier_key(self.nullifier_key.secret().as_slice(), &info),
+        }
     }
 }
 

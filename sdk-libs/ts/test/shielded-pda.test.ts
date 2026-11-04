@@ -11,7 +11,9 @@ import {
   bytes31,
   bytes32,
   ringNullifierKey,
+  type Bytes32,
 } from "../src/keypair/index.js";
+import { expandRingNullifierKey } from "../src/keypair/derivation.js";
 import { ProgramOwner } from "../src/transaction/index.js";
 
 const PDA = bytes32(new Uint8Array(32).fill(8));
@@ -71,18 +73,41 @@ describe("ring nullifier keys", () => {
     const pda = ShieldedPda.fromViewingKey(PDA, ViewingKey.generate());
     pda.destroy();
     expect(() => pda.ringNullifierKey(RING_A)).toThrow(
-      expect.objectContaining({ code: "KEYPAIR_PDA_ROOT_NOT_HELD" }),
+      expect.objectContaining({ code: "KEYPAIR_INVALID_SECRET_KEY" }),
     );
   });
 
-  it("refuse a PDA with supplied roles", () => {
+  it("give two parties holding one supplied secret one key", () => {
+    const supplied = NullifierKey.fromSecret(bytes31(new Uint8Array(31).fill(9)));
+    const party = (pda: Bytes32): ShieldedPda =>
+      ShieldedPda.withViewingKey(pda, supplied.clone(), ViewingKey.generate());
+    const key = secretHex(party(PDA).ringNullifierKey(RING_A));
+    expect(secretHex(party(PDA).ringNullifierKey(RING_A))).toBe(key);
+    expect(secretHex(party(PDA).ringNullifierKey(RING_B))).not.toBe(key);
+    expect(secretHex(party(bytes32(new Uint8Array(32).fill(9))).ringNullifierKey(RING_A))).not.toBe(
+      key,
+    );
+    expect(key).not.toBe(secretHex(supplied));
+    expect(key).not.toBe(secretHex(ringNullifierKey(supplied, RING_A)));
+  });
+
+  it("refuse a zero root at the one expansion every form takes", () => {
+    expect(() => expandRingNullifierKey(new Uint8Array(32), new Uint8Array(1))).toThrow(
+      expect.objectContaining({ code: "KEYPAIR_ZERO_NULLIFIER_SECRET" }),
+    );
+  });
+
+  it("refuse a zero supplied secret", () => {
     const pda = ShieldedPda.withViewingKey(
       PDA,
-      NullifierKey.fromSecret(bytes31(new Uint8Array(31).fill(9))),
+      NullifierKey.fromSecret(bytes31(new Uint8Array(31))),
       ViewingKey.generate(),
     );
     expect(() => pda.ringNullifierKey(RING_A)).toThrow(
-      expect.objectContaining({ code: "KEYPAIR_PDA_ROOT_NOT_HELD", rustVariant: "PdaRootNotHeld" }),
+      expect.objectContaining({
+        code: "KEYPAIR_ZERO_NULLIFIER_SECRET",
+        rustVariant: "ZeroNullifierSecret",
+      }),
     );
   });
 });

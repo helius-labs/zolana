@@ -296,13 +296,13 @@ export function roleExpansion<T>(seed: Uint8Array, rail: Rail, use: (roles: Role
 
 /** One way, a ring auditor reaches neither the root nor another ring. */
 export function ringNullifierKey(root: NullifierKey, ringProgramId: Address): NullifierKey {
+  return ringNullifierKeyOverSecret(root, ringInfo(ringProgramId));
+}
+
+export function ringNullifierKeyOverSecret(root: NullifierKey, info: Uint8Array): NullifierKey {
   const secret = root.secretBytes();
   try {
-    // A zero root has a public ring key.
-    if (secret.reduce((seen, byte) => seen | byte, 0) === 0) {
-      throw new KeypairError("KEYPAIR_ZERO_NULLIFIER_SECRET");
-    }
-    return expandRingNullifierKey(secret, ringInfo(ringProgramId));
+    return expandRingNullifierKey(secret, info);
   } finally {
     secret.fill(0);
   }
@@ -346,12 +346,9 @@ export function pdaRoleExpansion<T>(
   }
 }
 
-/** The PDA in the info keeps two PDAs of one holder from sharing a published ring key. */
-export function pdaRingNullifierKey(
-  { root, pda }: PdaExpansion,
-  ringProgramId: Address,
-): NullifierKey {
-  return expandRingNullifierKey(root, concatBytes(ringInfo(ringProgramId), pda));
+/** The PDA keeps two PDAs of one holder from sharing a published ring key. */
+export function pdaRingInfo(ringProgramId: Address, pda: Bytes32): Uint8Array {
+  return concatBytes(ringInfo(ringProgramId), pda);
 }
 
 function ringInfo(ringProgramId: Address): Uint8Array {
@@ -361,7 +358,11 @@ function ringInfo(ringProgramId: Address): Uint8Array {
   );
 }
 
-function expandRingNullifierKey(root: Uint8Array, info: Uint8Array): NullifierKey {
+export function expandRingNullifierKey(root: Uint8Array, info: Uint8Array): NullifierKey {
+  // A zero root has a public ring key.
+  if (root.reduce((seen, byte) => seen | byte, 0) === 0) {
+    throw new KeypairError("KEYPAIR_ZERO_NULLIFIER_SECRET");
+  }
   const secret = hkdfExpand(encoder.encode(DST_RING_NF_ROOT), root, info, 31);
   try {
     return NullifierKey.fromSecret(secret as Bytes31);

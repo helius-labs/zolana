@@ -421,6 +421,29 @@
         "ring_secret": "a8e61b9d002a7b174109413a3259f228df980c28b219f098a67732c3975124",
         "ring_nullifier_pubkey": "2642b1eb83a1604917052ded1684ce9d5ed342ca4b8b24d371cbfc898a583ac8"
       }
+    ],
+    "supplied_pda": [
+      {
+        "supplied_secret": "09090909090909090909090909090909090909090909090909090909090909",
+        "pda": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "ring_program_id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "ring_secret": "d050bd10fe1923ba0e738b2f94396eba19213991eacd7e3c5b4159b7f3402e",
+        "ring_nullifier_pubkey": "2afa2a68843bddc0504698df63d7618c53a19d9475251b6cfe7303120bf23218"
+      },
+      {
+        "supplied_secret": "09090909090909090909090909090909090909090909090909090909090909",
+        "pda": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+        "ring_program_id": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "ring_secret": "f285f05574661e89a84c7ba104952c2411a39b859599bdc7c33e7892190c82",
+        "ring_nullifier_pubkey": "13a095b9de49fc63050b0f7b024de7634797625fea5b7ccb8432a9489db534e6"
+      },
+      {
+        "supplied_secret": "09090909090909090909090909090909090909090909090909090909090909",
+        "pda": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "ring_program_id": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "ring_secret": "3aad3d84e797a8d596e9821baeaae56b38220cdbdad5b20e6b9eaf67cb3937",
+        "ring_nullifier_pubkey": "261ff862f88c28ea04af52e1dc868705dcc178e9d6114e974ebf78093f20a7c6"
+      }
     ]
   }
 }

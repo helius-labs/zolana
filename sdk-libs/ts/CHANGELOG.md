@@ -24,7 +24,7 @@ Added
 - `ZolanaClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `ZolanaClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
 - `ringNullifierKey(root, ringProgramId)` and `ShieldedKeypair.ringNullifierKey` give a wallet a separate nullifier key per ring program without a new signature, and refuse a zero secret with `KEYPAIR_ZERO_NULLIFIER_SECRET`.
-- `ShieldedPda.fromKeyExchange` and `ShieldedPda.fromViewingKey` derive a PDA identity as the Rust SDK does, and `ShieldedPda.ringNullifierKey` gives it one key per ring and PDA, refusing a PDA with supplied roles with `KEYPAIR_PDA_ROOT_NOT_HELD`.
+- `ShieldedPda.fromKeyExchange` and `ShieldedPda.fromViewingKey` derive a PDA identity as the Rust SDK does, and `ShieldedPda.ringNullifierKey` gives it one key per ring and PDA, including a PDA with supplied roles whose secret is not zero.
 - `ZolanaClientConfig.provingKeys`, with `proofDataSource: "client"`, makes every proof use the set's keys and `checkProverProvingKeys()` check only those keys; a circuit outside the set and the indexed route fail with `CLIENT_PROVING_KEY_SET`, whose `details.check` names the reason.
 
 Changed

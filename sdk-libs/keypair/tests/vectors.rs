@@ -40,6 +40,16 @@ struct KeyDerivationVectors {
 struct RingNullifier {
     wallet: Vec<WalletRingKey>,
     pda: Vec<PdaRingKey>,
+    supplied_pda: Vec<SuppliedPdaRingKey>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct SuppliedPdaRingKey {
+    supplied_secret: String,
+    pda: String,
+    ring_program_id: String,
+    ring_secret: String,
+    ring_nullifier_pubkey: String,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -408,7 +418,30 @@ fn compute_ring_nullifier() -> RingNullifier {
         }
     })
     .collect();
-    RingNullifier { wallet, pda }
+    let supplied_secret = [0x09; 31];
+    let supplied_pda = [(pda_c, ring_a), (pda_d, ring_a), (pda_c, ring_b)]
+        .into_iter()
+        .map(|(address, ring)| {
+            let identity = ShieldedPda::with_viewing_key(
+                address,
+                NullifierKey::from_secret(supplied_secret),
+                holder.clone(),
+            );
+            let key = identity.ring_nullifier_key(&ring).unwrap();
+            SuppliedPdaRingKey {
+                supplied_secret: hex::encode(supplied_secret),
+                pda: hex::encode(address.as_array()),
+                ring_program_id: hex::encode(ring.as_array()),
+                ring_secret: hex::encode(key.secret().as_slice()),
+                ring_nullifier_pubkey: hex::encode(key.pubkey().unwrap()),
+            }
+        })
+        .collect();
+    RingNullifier {
+        wallet,
+        pda,
+        supplied_pda,
+    }
 }
 
 fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
