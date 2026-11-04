@@ -4,9 +4,14 @@ import { SOL_MINT, type SprClientConfig } from "@heliuslabs/spr";
 import { atSlot, type SprClient } from "@heliuslabs/spr/client";
 import {
   encodeTransactInstructionData,
-  transactCpiAccounts,
   type TransactInstructionData,
 } from "@heliuslabs/spr/interface";
+import {
+  transactCpiAccounts,
+  ProgramOwner,
+  toProgramWalletUtxo,
+  type ProgramWalletUtxo,
+} from "@heliuslabs/spr/program";
 import {
   ShieldedKeypair,
   SigningKey,
@@ -18,16 +23,13 @@ import {
 import {
   EncryptedScheme,
   LocalShieldedKeys,
-  ProgramOwner,
   TransactionError,
   Wallet,
   decodeConfidential,
   decodeOutputData,
   decryptTransactions,
-  toProgramWalletUtxo,
   type AssetRegistry,
   type IndexedShieldedTransaction,
-  type ProgramWalletUtxo,
 } from "@heliuslabs/spr/transaction";
 import {
   AccountRole,

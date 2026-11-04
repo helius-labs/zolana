@@ -1,20 +1,24 @@
 import type { Address } from "@solana/kit";
 
-import { bytes32, type Bytes32, type Bytes64 } from "./bytes.js";
-import { KeypairError } from "./error.js";
-import { ownerHash } from "./hash.js";
-import { NullifierKey } from "./nullifier-key.js";
-import { ShieldedPublicKey, type ViewTag } from "./public-key.js";
+import { bytes32, type Bytes32, type Bytes64 } from "../keypair/bytes.js";
+import { KeypairError } from "../keypair/error.js";
+import { ownerHash } from "../keypair/hash.js";
+import { NullifierKey } from "../keypair/nullifier-key.js";
+import { ShieldedPublicKey, type ViewTag } from "../keypair/public-key.js";
 import {
   CompressedShieldedAddress,
   ShieldedAddress,
   type ShieldedKeypairLike,
   type ViewingKeyLike,
-} from "./shielded.js";
-import { ViewingKey, type Salt } from "./viewing-key.js";
-import type { X25519PublicKey } from "./x25519.js";
+} from "../keypair/shielded.js";
+import { ViewingKey, type Salt } from "../keypair/viewing-key.js";
+import type { X25519PublicKey } from "../keypair/x25519.js";
 
-/** A PDA signing identity with supplied privacy roles and no signing secret. */
+/**
+ * A PDA signing identity with supplied privacy roles and no signing secret.
+ *
+ * @experimental
+ */
 export class ShieldedPda implements ShieldedKeypairLike, ViewingKeyLike {
   readonly #signing: ShieldedPublicKey;
   readonly #nullifier: NullifierKey;

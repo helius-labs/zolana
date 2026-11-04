@@ -1,11 +1,7 @@
-export { bindProgramTransaction } from "@heliuslabs/spr/transaction";
-export type { ProgramTransaction } from "@heliuslabs/spr/transaction";
-export {
-  ed25519DerivationMessage,
-  X25519PublicKey,
-  X25519Keypair,
-  ShieldedPda,
-} from "@heliuslabs/spr/keypair";
+export { bindProgramTransaction } from "@heliuslabs/spr/program";
+export type { ProgramTransaction } from "@heliuslabs/spr/program";
+export { ed25519DerivationMessage, X25519PublicKey, X25519Keypair } from "@heliuslabs/spr/keypair";
+export { ShieldedPda } from "@heliuslabs/spr/program";
 /** Named exports the changelog promises, resolved through the package exports map. */
 export {
   MAX_INPUT_TREES,
@@ -81,7 +77,8 @@ export type {
   SerializedSyncCheckpoints,
 } from "@heliuslabs/spr/transaction";
 export type { SettlementTransfer } from "@heliuslabs/spr/transaction";
-export { encodeTransactInstructionData, transactCpiAccounts } from "@heliuslabs/spr/interface";
+export { encodeTransactInstructionData } from "@heliuslabs/spr/interface";
+export { transactCpiAccounts } from "@heliuslabs/spr/program";
 export type { TransactAccountsInput, TransactInstructionData } from "@heliuslabs/spr/interface";
 export type { TransactAccountsInput as InstructionsTransactAccountsInput } from "@heliuslabs/spr/instructions";
 export { bytes16, bytes31, bytes32, bytes33, bytes34, bytes64 } from "@heliuslabs/spr/keypair";
@@ -101,13 +98,13 @@ export type {
   ProgramTransactionKeys,
   ProgramUtxo,
   ProgramWalletUtxo,
-} from "@heliuslabs/spr/transaction";
+} from "@heliuslabs/spr/program";
+export { Mint } from "@heliuslabs/spr/transaction";
 export {
-  Mint,
   ProgramOwner,
   decodeProgramTransaction,
   toProgramWalletUtxo,
-} from "@heliuslabs/spr/transaction";
+} from "@heliuslabs/spr/program";
 export type {
   SerializedSyncCheckpoint as RootSerializedSyncCheckpoint,
   SerializedNoteReservation as RootSerializedNoteReservation,

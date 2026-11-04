@@ -595,18 +595,26 @@ describe("address and instruction builders", () => {
 });
 
 describe("ZK program transaction surface", () => {
-  it("exports the program adapters through @heliuslabs/spr/transaction only", async () => {
-    const [transaction, root] = await Promise.all([
+  it("exports the program adapters through @heliuslabs/spr/program only", async () => {
+    const [program, transaction, keypair, iface, root] = await Promise.all([
+      import("../src/program/index.js"),
       import("../src/transaction/index.js"),
+      import("../src/keypair/index.js"),
+      import("../src/interface/index.js"),
       import("../src/index.js"),
     ]);
     for (const name of [
+      "bindProgramTransaction",
       "decodeProgramTransaction",
       "toProgramWalletUtxo",
       "ProgramOwner",
+      "ShieldedPda",
+      "transactCpiAccounts",
     ] as const) {
-      expect(transaction[name]).toBeTypeOf("function");
-      expect(root).not.toHaveProperty(name);
+      expect(program[name]).toBeTypeOf("function");
+      for (const other of [transaction, keypair, iface, root]) {
+        expect(other).not.toHaveProperty(name);
+      }
     }
   });
 });

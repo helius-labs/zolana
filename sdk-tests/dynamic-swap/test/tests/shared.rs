@@ -17,7 +17,8 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::user_registry::ensure_registered;
 use spr_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
-use spr_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
+use spr_keypair::{ShieldedKeypair, SigningKey};
+use spr_program::ShieldedPda;
 use spr_program_test::{
     fixture,
     localnet::{FixtureLocalnet, LocalnetPaths, LocalnetPorts},

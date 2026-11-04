@@ -51,8 +51,9 @@ use spr_interface::{
     },
     SHIELDED_POOL_PROGRAM_ID,
 };
-use spr_keypair::{random_blinding, ShieldedKeypair, ShieldedPda, SigningKey};
+use spr_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use spr_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use spr_program::ShieldedPda;
 use spr_transaction::{
     instructions::transact::{
         asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo, BN254_MODULUS_DEC,

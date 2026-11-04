@@ -40,7 +40,6 @@ export {
   depositInstruction,
   nullifierPdaAccounts,
   ringTransactAccounts,
-  transactCpiAccounts,
   transactInstruction,
 } from "./instructions/index.js";
 export type { CacheWriteAccounts, TransactAccountsInput } from "./instructions/index.js";

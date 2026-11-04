@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use dynamic_swap_program::instructions::shared::u64_right_align;
-use spr_keypair::{hash::poseidon, ShieldedPda};
+use spr_keypair::hash::poseidon;
+use spr_program::ShieldedPda;
 use spr_transaction::{
     instructions::transact::SppProofOutputUtxo,
     utxo::{Blinding, SppProofInputUtxo, Utxo},

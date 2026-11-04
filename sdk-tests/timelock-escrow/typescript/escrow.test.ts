@@ -4,17 +4,17 @@ import { createSprClient, initializePoseidon } from "@heliuslabs/spr";
 import { DepositAsset, depositInstruction } from "@heliuslabs/spr/interface";
 import {
   SOLANA_OWNER_TAG,
-  ShieldedPda,
   bytes32,
   randomBlinding,
   solanaOwnerIdentity,
 } from "@heliuslabs/spr/keypair";
 import {
-  AssetRegistry,
+  ShieldedPda,
   ProgramOwner,
   bindProgramTransaction,
   type ProgramWalletUtxo,
-} from "@heliuslabs/spr/transaction";
+} from "@heliuslabs/spr/program";
+import { AssetRegistry } from "@heliuslabs/spr/transaction";
 import { getAddressEncoder } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 

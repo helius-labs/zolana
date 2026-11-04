@@ -14,11 +14,10 @@ export const obsoleteSyncConfig: SyncWalletConfig = { tagWindow: 1n };
 
 import type {
   DecodedProgramTransaction,
-  ExternalData,
   ProgramFinalizedTransaction,
   ProgramWalletUtxo,
-  SettlementTransfer,
-} from "../src/transaction/index.js";
+} from "../src/program/index.js";
+import type { ExternalData, SettlementTransfer } from "../src/transaction/index.js";
 declare const settlementTransfers: readonly SettlementTransfer[];
 export const externalDataTransfers: ExternalData["interfaceTransfers"] = settlementTransfers;
 declare const decodedProgram: DecodedProgramTransaction;

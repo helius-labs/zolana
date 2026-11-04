@@ -17,8 +17,11 @@ import {
   Data,
   LocalShieldedKeys,
   Utxo,
-  bindProgramTransaction,
   createProofOutput,
+  type WalletUtxo,
+} from "../src/transaction/index.js";
+import {
+  bindProgramTransaction,
   decodeProgramTransaction,
   toProgramWalletUtxo,
   type ProgramData,
@@ -30,8 +33,7 @@ import {
   type ProgramUtxo,
   type ProgramTransaction,
   type ProgramWalletUtxo,
-  type WalletUtxo,
-} from "../src/transaction/index.js";
+} from "../src/program/index.js";
 import { dummyCiphertextLength } from "../src/transaction/instructions/transact.js";
 
 type FixtureBytes = readonly number[];
