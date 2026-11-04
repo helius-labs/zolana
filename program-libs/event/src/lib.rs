@@ -15,8 +15,8 @@ pub mod tag;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 pub use merge_output::{
-    encode_merge_output_data, split_merge_output_body, MergeOutputDataRef, MERGE_OUTPUT_BODY_LEN,
-    MERGE_OUTPUT_SCHEME,
+    encode_merge_output_data, split_merge_output_body, MergeCiphertextBinding, MergeOutputDataRef,
+    MERGE_OUTPUT_BODY_LEN, MERGE_OUTPUT_SCHEME,
 };
 pub use output_data::MessageData;
 pub use output_utxo::OutputUtxo;
@@ -110,7 +110,8 @@ pub struct MergeEvent {
     pub output_leaf_index: u64,
     /// Owner-indexing tag of the merged output: the registered signing view tag
     /// (user-record state) for `merge_transact`, the first nullifier for
-    /// `merge_ring`.
+    /// `merge_ring` and a nonzero-key `merge_ring_v2`, the published
+    /// `owner_pk_hash` for a zero-key `merge_ring_v2`.
     pub output_view_tag: [u8; 32],
 }
 

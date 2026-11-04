@@ -108,6 +108,7 @@ fn is_general_event_source_tag(tag_byte: u8) -> bool {
             | tag::RING_AUTHORITY_TRANSACT
             | tag::MERGE_TRANSACT
             | tag::RING_MERGE_TRANSACT
+            | tag::RING_MERGE_V2
     )
 }
 
@@ -133,6 +134,7 @@ fn is_ring_wrapper_event_source(
                 | tag::RING_TRANSACT
                 | tag::RING_AUTHORITY_TRANSACT
                 | tag::RING_MERGE_TRANSACT
+                | tag::RING_MERGE_V2
         )
     ) && instruction.accounts.contains(&shielded_pool_program_id)
 }

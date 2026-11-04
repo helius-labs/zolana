@@ -2,7 +2,9 @@ use alloc::vec;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use spr_interface::{
-    instruction::{tag, MergeRingIxData, MergeTransactIxData},
+    instruction::{
+        tag, MergeRingAuthority, MergeRingIxData, MergeRingV2IxData, MergeTransactIxData,
+    },
     pda, PROGRAM_ID_PUBKEY,
 };
 
@@ -66,6 +68,78 @@ impl MergeRing {
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         ];
+        accounts.extend(nullifier_pda_accounts(
+            &self.input_tree,
+            self.data.nullifiers.iter(),
+        ));
+        accounts.extend(
+            self.cache
+                .into_iter()
+                .flat_map(CacheWriteAccounts::account_metas),
+        );
+
+        Instruction {
+            program_id,
+            accounts,
+            data: instruction_data,
+        }
+    }
+}
+
+/// Builder for `merge_ring_v2`. The layout is [`MergeRing`]'s with the owner
+/// (signer) ahead of the nullifier PDAs when one is set, which also selects
+/// [`MergeRingAuthority::OwnerSigned`].
+pub struct MergeRingV2 {
+    pub input_tree: Pubkey,
+    pub output_tree: Pubkey,
+    pub ring_program_id: Pubkey,
+    pub payer: Pubkey,
+    /// The signing owner of a zero-key merge: a wallet, or a PDA through CPI.
+    pub owner: Option<Pubkey>,
+    pub data: MergeTransactIxData,
+    pub output_ring_data_hash: [u8; 32],
+    pub cache: Option<CacheWriteAccounts>,
+}
+
+impl MergeRingV2 {
+    /// Instruction sent to the ring program, which CPIs into SPP.
+    pub fn instruction(&self) -> Instruction {
+        self.build_instruction(self.ring_program_id, false)
+    }
+
+    /// The SPP instruction a ring program constructs for its own CPI.
+    pub fn cpi_instruction(&self) -> Instruction {
+        self.build_instruction(PROGRAM_ID_PUBKEY, true)
+    }
+
+    fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
+        let ix_data = MergeRingV2IxData {
+            output_ring_data_hash: self.output_ring_data_hash,
+            authority: match self.owner {
+                Some(_) => MergeRingAuthority::OwnerSigned,
+                None => MergeRingAuthority::Ring,
+            },
+            merge: self.data.clone(),
+        };
+        let mut instruction_data = vec![tag::RING_MERGE_V2];
+        instruction_data.extend_from_slice(
+            &ix_data
+                .serialize()
+                .expect("shielded-pool instruction serialization is infallible"),
+        );
+
+        let mut accounts = vec![
+            AccountMeta::new(self.input_tree, false),
+            AccountMeta::new(self.output_tree, false),
+            AccountMeta::new_readonly(pda::ring_auth(&self.ring_program_id).0, auth_signer),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+        ];
+        accounts.extend(
+            self.owner
+                .map(|owner| AccountMeta::new_readonly(owner, true)),
+        );
         accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
             self.data.nullifiers.iter(),
@@ -188,5 +262,38 @@ mod tests {
             Some(true),
             "the ring_auth PDA signs the CPI instruction"
         );
+    }
+
+    /// The owner sits ahead of the nullifier PDAs and names the authority in the data.
+    #[test]
+    fn v2_lays_out_the_owner_and_names_the_authority() {
+        let owner = Pubkey::new_unique();
+        let signed = MergeRingV2 {
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
+            ring_program_id: Pubkey::new_unique(),
+            payer: Pubkey::new_unique(),
+            owner: Some(owner),
+            data: data(),
+            output_ring_data_hash: [7u8; 32],
+            cache: None,
+        };
+        let ix = signed.cpi_instruction();
+        assert_eq!(ix.data.first(), Some(&tag::RING_MERGE_V2));
+        assert_eq!(ix.data.get(1..33), Some(&[7u8; 32][..]));
+        assert_eq!(ix.data.get(33), Some(&1));
+        assert_eq!(
+            ix.accounts.get(6),
+            Some(&AccountMeta::new_readonly(owner, true))
+        );
+        assert_eq!(ix.accounts.len(), 7 + 8);
+
+        let ring = MergeRingV2 {
+            owner: None,
+            ..signed
+        };
+        let ix = ring.cpi_instruction();
+        assert_eq!(ix.data.get(33), Some(&0));
+        assert_eq!(ix.accounts.len(), 6 + 8);
     }
 }

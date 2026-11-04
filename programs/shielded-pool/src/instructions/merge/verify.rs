@@ -10,7 +10,7 @@ use spr_interface::{
             merge_circuit_width, MergeOutputEncryption, MergeTransactIxDataRef,
             MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS,
         },
-        tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
+        tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT, RING_MERGE_V2},
     },
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
     verifying_keys::{
@@ -42,6 +42,16 @@ pub enum MergeOwnerBinding {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
     },
+    /// `merge_ring_v2`: the `Ring` binding plus the published owner and the
+    /// proven output ciphertext. `published_owner` is the hashed key of the
+    /// signing owner, or zero when no owner signs. A proof over any other value
+    /// fails, so an opening alone admits no zero-key merge.
+    RingOwnerSigned {
+        ring_program_id: [u8; 32],
+        output_ring_data_hash: [u8; 32],
+        published_owner: [u8; 32],
+        output_encryption: MergeOutputEncryption,
+    },
 }
 
 impl MergeOwnerBinding {
@@ -51,6 +61,7 @@ impl MergeOwnerBinding {
         match self {
             MergeOwnerBinding::Default { .. } => MERGE_TRANSACT,
             MergeOwnerBinding::Ring { .. } => RING_MERGE_TRANSACT,
+            MergeOwnerBinding::RingOwnerSigned { .. } => RING_MERGE_V2,
         }
     }
 }
@@ -125,6 +136,10 @@ impl<'a> MergeProof<'a> {
             (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
             (MergeOwnerBinding::Ring { .. }, 24) => &merge_ring_24_1::VERIFYINGKEY,
             (MergeOwnerBinding::Ring { .. }, 52) => &merge_ring_52_1::VERIFYINGKEY,
+            // Refused until the merge_ring_v2 keys are generated and pinned.
+            (MergeOwnerBinding::RingOwnerSigned { .. }, _) => {
+                return Err(ShieldedPoolError::CircuitFeatureDisabled.into())
+            }
             _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
         };
         Ok(vk)
@@ -141,7 +156,8 @@ impl<'a> MergeProof<'a> {
     /// scheme's ciphertext elements (PoseidonCtrV1: the salt and the three
     /// ciphertext elements). The policy-ring merge omits that identity (no
     /// registry to bind it against) and the ciphertext, and appends the output
-    /// `ring_data_hash` and `ring_program_id`. The 7-element prefix is 1 + 3 + 3,
+    /// `ring_data_hash` and `ring_program_id`, and `merge_ring_v2` also appends
+    /// the published owner and the ciphertext elements. The 7-element prefix is 1 + 3 + 3,
     /// so it ends on a complete HashChain4 group without padding. Continuing
     /// from its hash with the tail is therefore equivalent to folding all
     /// elements together.
@@ -182,6 +198,23 @@ impl<'a> MergeProof<'a> {
                 *output_ring_data_hash,
                 *ring_program_id,
             ]),
+            MergeOwnerBinding::RingOwnerSigned {
+                ring_program_id,
+                output_ring_data_hash,
+                published_owner,
+                output_encryption,
+            } => {
+                let mut inputs =
+                    ArrayVec::<[u8; 32], { 4 + MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS }>::new();
+                inputs.push(prefix_hash);
+                inputs.push(*output_ring_data_hash);
+                inputs.push(*ring_program_id);
+                inputs.push(*published_owner);
+                output_encryption
+                    .append_public_inputs(&mut inputs)
+                    .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+                create_hash_chain_4_from_slice(&inputs)
+            }
         }
         .map_err(Into::into)
     }

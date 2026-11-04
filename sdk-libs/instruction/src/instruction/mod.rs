@@ -14,7 +14,7 @@ pub use cache::{CloseCache, CreateCache};
 pub use create_associated_token_account::CreateAssociatedTokenAccount;
 pub use create_spl_interface::CreateSplInterface;
 pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositSplAccounts};
-pub use merge_ring::MergeRing;
+pub use merge_ring::{MergeRing, MergeRingV2};
 pub use merge_transact::{CacheWriteAccounts, MergeTransact};
 pub use ring_authority_transact::RingAuthorityTransact;
 pub use ring_config::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner};

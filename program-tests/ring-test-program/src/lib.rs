@@ -34,7 +34,8 @@ pub fn process_instruction(
         | tag::RING_DEPOSIT
         | tag::RING_TRANSACT
         | tag::RING_AUTHORITY_TRANSACT
-        | tag::RING_MERGE_TRANSACT => forward_to_spp(program_id, accounts, data),
+        | tag::RING_MERGE_TRANSACT
+        | tag::RING_MERGE_V2 => forward_to_spp(program_id, accounts, data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

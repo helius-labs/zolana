@@ -2947,6 +2947,7 @@ mod tests {
                     salt: &prepared.output_ciphertext_salt,
                     ciphertext: &prepared.output_ciphertext,
                     prefix: &[],
+                    binding: spr_event::MergeCiphertextBinding::Proven,
                 }),
             }],
             messages: Vec::new(),

@@ -155,8 +155,8 @@ fn is_general_event_source(source_instruction_tag: u8) -> bool {
     // Keep this in sync with shielded-pool processors that call
     // `emit_event` with a GeneralEvent-view kind (Deposit, Transact, Merge).
     // Self-emitting instructions: TRANSACT, RING_TRANSACT,
-    // RING_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, RING_MERGE_TRANSACT
-    // (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently
+    // RING_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, RING_MERGE_TRANSACT,
+    // RING_MERGE_V2 (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently
     // drops those transactions from the index (they never get a rings_transactions
     // row).
     matches!(
@@ -166,6 +166,7 @@ fn is_general_event_source(source_instruction_tag: u8) -> bool {
             | tag::RING_AUTHORITY_TRANSACT
             | tag::MERGE_TRANSACT
             | tag::RING_MERGE_TRANSACT
+            | tag::RING_MERGE_V2
             | tag::DEPOSIT
             | tag::RING_DEPOSIT
     )

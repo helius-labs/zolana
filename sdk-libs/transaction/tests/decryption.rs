@@ -7,7 +7,9 @@ use std::{
 
 use common::{keypair, wallet_utxo};
 use solana_signature::Signature;
-use spr_event::{encode_merge_output_data, MergeOutputDataRef, OutputDataEncoding};
+use spr_event::{
+    encode_merge_output_data, MergeCiphertextBinding, MergeOutputDataRef, OutputDataEncoding,
+};
 use spr_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
 use spr_transaction::{
     decrypt, decrypt_spendable,
@@ -1049,6 +1051,10 @@ fn merge_publication(
         salt: &salt,
         ciphertext: &ciphertext,
         prefix: ring_data_hash.as_slice(),
+        binding: match ring_data_hash {
+            Some(_) => MergeCiphertextBinding::Unverified,
+            None => MergeCiphertextBinding::Proven,
+        },
     });
     let mut tx = publication(&output, vec![slot(&output, payload)]);
     tx.nullifiers = nullifiers;

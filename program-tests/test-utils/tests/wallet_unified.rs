@@ -1,6 +1,6 @@
 mod wallet_common;
 
-use spr_event::{encode_merge_output_data, MergeOutputDataRef};
+use spr_event::{encode_merge_output_data, MergeCiphertextBinding, MergeOutputDataRef};
 use spr_keypair::NullifierKey;
 #[cfg(feature = "parallel")]
 use spr_test_utils::wallet::PrivateTransactionDirection;
@@ -43,6 +43,10 @@ fn merge_payload(
         prefix: ring_data_hash
             .map(core::slice::from_ref)
             .unwrap_or_default(),
+        binding: match ring_data_hash {
+            Some(_) => MergeCiphertextBinding::Unverified,
+            None => MergeCiphertextBinding::Proven,
+        },
     })
 }
 

@@ -37,7 +37,7 @@ use crate::instructions::{
     create_tree::process_create_tree,
     deposit::{process_deposit, process_ring_deposit},
     merge::process_merge_transact_ix,
-    merge_ring::process_merge_ring_ix,
+    merge_ring::{process_merge_ring_ix, process_merge_ring_v2_ix},
     protocol_config::{
         create::process_create_protocol_config, pause_tree::process_pause_tree,
         update::process_update_protocol_config,
@@ -100,6 +100,7 @@ pub fn process_instruction(
         InstructionTag::SetRingActivation => process_set_ring_activation(accounts, payload),
         InstructionTag::MergeTransact => process_merge_transact_ix(accounts, payload),
         InstructionTag::RingMergeTransact => process_merge_ring_ix(accounts, payload),
+        InstructionTag::RingMergeV2 => process_merge_ring_v2_ix(accounts, payload),
         InstructionTag::CreateCache => process_create_cache(accounts, payload),
         InstructionTag::CloseCache => process_close_cache(accounts, payload),
         InstructionTag::CloseNullifierPdas => process_close_nullifier_pdas(accounts, payload),

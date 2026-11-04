@@ -17,7 +17,7 @@ use spr_client::{
     IndexerRpcConfig, OutputContext, OutputSlot, PaginationToken, ProgramAccountsFilter, Rpc,
     ShieldedTransaction, UtxoScan,
 };
-use spr_event::{encode_merge_output_data, MergeOutputDataRef};
+use spr_event::{encode_merge_output_data, MergeCiphertextBinding, MergeOutputDataRef};
 use spr_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
 use spr_keypair::{ShieldedKeypair, SigningKey, ViewingKey};
 use spr_transaction::{
@@ -397,6 +397,7 @@ fn merge(
         salt: &salt,
         ciphertext: &ciphertext,
         prefix: &[],
+        binding: MergeCiphertextBinding::Proven,
     });
     let merged = note(owner, utxo, [0; 32]);
     let tx = ShieldedTransaction {

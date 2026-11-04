@@ -130,7 +130,7 @@ fn ring_config_index(source_instruction_tag: u8) -> Option<usize> {
         // tree, depositor, ring_config
         InstructionTag::RingDeposit => Some(2),
         // input_tree, output_tree, ring_config
-        InstructionTag::RingMergeTransact => Some(2),
+        InstructionTag::RingMergeTransact | InstructionTag::RingMergeV2 => Some(2),
         _ => None,
     }
 }
@@ -197,6 +197,7 @@ mod tests {
             (tag::RING_AUTHORITY_TRANSACT, 4),
             (tag::RING_DEPOSIT, 2),
             (tag::RING_MERGE_TRANSACT, 2),
+            (tag::RING_MERGE_V2, 2),
         ] {
             assert_eq!(
                 ring_configs(source_tag, numbered_accounts(8)),
