@@ -160,13 +160,24 @@ where
 }
 
 impl R2DirectoryAdapter {
+    /// The object key of `path`, a name relative to the prefix as
+    /// `list_files` returns it.
+    fn key(&self, path: &str) -> String {
+        if self.r2_prefix.is_empty() {
+            path.to_string()
+        } else {
+            format!("{}/{}", self.r2_prefix, path)
+        }
+    }
+
     async fn read_file(
         arc_self: Arc<Self>,
         path: String,
     ) -> impl Stream<Item = Result<Bytes>> + std::marker::Send + 'static {
         stream! {
             let r2_directory_adapter = arc_self.clone();
-            let mut result = r2_directory_adapter.r2_bucket.get_object_stream(path.clone()).await.with_context(|| format!("Failed to read file: {:?}", path))?;
+            let key = r2_directory_adapter.key(&path);
+            let mut result = r2_directory_adapter.r2_bucket.get_object_stream(key.clone()).await.with_context(|| format!("Failed to read file: {:?}", key))?;
             let stream = result.bytes();
 
             while let Some(byte) = stream.next().await {
@@ -176,24 +187,28 @@ impl R2DirectoryAdapter {
         }
     }
 
+    /// Names relative to the prefix. A failed listing is an error: read as an
+    /// empty bucket, it would restart the snapshot from the network start.
     async fn list_files(&self) -> Result<Vec<String>> {
         let results = self
             .r2_bucket
             .list(self.r2_prefix.clone(), None)
             .await
-            .unwrap_or_default();
+            .context("Failed to list snapshot files in the bucket")?;
 
         let mut files = Vec::new();
         for result in results {
             for object in result.contents {
-                files.push(object.key);
+                if let Some(relative) = relative_path(&self.r2_prefix, &object.key) {
+                    files.push(relative.to_string());
+                }
             }
         }
         Ok(files)
     }
 
     async fn delete_file(&self, path: String) -> Result<()> {
-        self.r2_bucket.delete_object(path).await?;
+        self.r2_bucket.delete_object(self.key(&path)).await?;
         Ok(())
     }
 
@@ -202,7 +217,7 @@ impl R2DirectoryAdapter {
         path: String,
         byte_stream: impl Stream<Item = Result<Bytes>> + std::marker::Send + 'static,
     ) -> Result<()> {
-        let path = format!("{}/{}", self.r2_prefix, path);
+        let path = self.key(&path);
 
         pin_mut!(byte_stream);
         // Create a stream that converts `Result<u8, S3Error>` to `Result<Vec<u8>, S3Error>`
@@ -262,7 +277,7 @@ impl GCSDirectoryAdapter {
         let mut files = Vec::new();
 
         for object in objects {
-            if let Some(relative) = relative_gcs_path(&self.gcs_prefix, &object) {
+            if let Some(relative) = relative_path(&self.gcs_prefix, &object) {
                 files.push(relative.to_string());
             }
         }
@@ -302,7 +317,8 @@ impl GCSDirectoryAdapter {
     }
 }
 
-fn relative_gcs_path<'a>(prefix: &str, object: &'a str) -> Option<&'a str> {
+/// `object` relative to `prefix`, `None` for an object outside it.
+fn relative_path<'a>(prefix: &str, object: &'a str) -> Option<&'a str> {
     let relative = if prefix.is_empty() {
         object
     } else {
@@ -390,6 +406,20 @@ impl FileSystemDirectoryAdapter {
     }
 }
 
+/// AWS endpoints take virtual-host requests. A custom `AWS_ENDPOINT` gets
+/// path-style ones: a bucket name in front of an IP address or `localhost`
+/// is not a host the client can resolve.
+fn s3_bucket_client(bucket: &str, region: Region, credentials: Credentials) -> Result<Box<Bucket>> {
+    let custom_endpoint = matches!(region, Region::Custom { .. });
+    let bucket =
+        Bucket::new(bucket, region, credentials).context("Failed to create S3 bucket client")?;
+    Ok(if custom_endpoint {
+        bucket.with_path_style()
+    } else {
+        bucket
+    })
+}
+
 pub enum DirectoryAdapter {
     FileSystem(Arc<FileSystemDirectoryAdapter>),
     R2(Arc<R2DirectoryAdapter>),
@@ -426,6 +456,26 @@ impl DirectoryAdapter {
         Ok(Self::R2(Arc::new(R2DirectoryAdapter {
             r2_bucket,
             r2_prefix,
+        })))
+    }
+
+    /// An AWS S3 bucket, or any S3-compatible one when `AWS_ENDPOINT` is set.
+    /// The region comes from `AWS_REGION`; credentials from the environment,
+    /// the `AWS_PROFILE` profile (or `default`), or the ECS task or instance
+    /// role, refreshed as they expire.
+    pub async fn from_s3_bucket_and_prefix_and_env(
+        s3_bucket: String,
+        s3_prefix: String,
+    ) -> Result<Self> {
+        let profile = std::env::var("AWS_PROFILE").ok();
+        let credentials = Credentials::new(None, None, None, None, profile.as_deref())
+            .context("No AWS credentials found")?;
+        let region = Region::from_default_env().context("AWS_REGION is not set")?;
+        let bucket = s3_bucket_client(&s3_bucket, region, credentials)?;
+        // The R2 adapter is plain S3 underneath; only addressing differs.
+        Ok(Self::R2(Arc::new(R2DirectoryAdapter {
+            r2_bucket: *bucket,
+            r2_prefix: s3_prefix,
         })))
     }
 
@@ -552,6 +602,35 @@ pub async fn get_snapshot_files_with_metadata(
     }
     snapshot_files_with_slots.sort_by_key(|file| file.start_slot);
     Ok(snapshot_files_with_slots)
+}
+
+/// The slot of the first block stored in `file`, the slot the store was
+/// started at. Reads only as much of the file as that block takes.
+pub async fn first_snapshot_block_slot(
+    directory_adapter: &DirectoryAdapter,
+    file: &SnapshotFileWithSlots,
+) -> Result<u64> {
+    let byte_stream = directory_adapter.read_file(file.file.clone()).await;
+    first_block_slot(byte_stream)
+        .await
+        .with_context(|| format!("Failed to read the first block of {}", file.file))
+}
+
+async fn first_block_slot(byte_stream: impl Stream<Item = Result<Bytes>>) -> Result<u64> {
+    pin_mut!(byte_stream);
+    let mut buffered = Vec::new();
+    while let Some(bytes) = byte_stream.next().await {
+        buffered.extend_from_slice(&bytes?);
+        match bincode::serde::decode_from_slice::<BlockInfo, _>(
+            &buffered,
+            bincode::config::legacy(),
+        ) {
+            Ok((block, _)) => return Ok(block.metadata.slot),
+            Err(bincode::error::DecodeError::UnexpectedEnd { .. }) => continue,
+            Err(err) => return Err(err).context("Failed to decode snapshot block"),
+        }
+    }
+    Err(anyhow!("Snapshot file ended before its first block"))
 }
 
 fn create_temp_snapshot_file(dir: &str) -> Result<(File, PathBuf)> {
@@ -915,16 +994,68 @@ pub async fn create_snapshot_from_byte_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ingester::typedefs::block_info::BlockMetadata;
 
     #[test]
-    fn gcs_paths_strip_only_a_complete_utf8_prefix() {
+    fn bucket_paths_strip_only_a_complete_utf8_prefix() {
+        assert_eq!(relative_path("snapshots", "snapshots/1.bin"), Some("1.bin"));
+        assert_eq!(relative_path("é", "é/1.bin"), Some("1.bin"));
+        assert_eq!(relative_path("é", "éclair.bin"), None);
+        assert_eq!(relative_path("", "1.bin"), Some("1.bin"));
+        // A prefix may contain the hyphens snapshot names are split on.
         assert_eq!(
-            relative_gcs_path("snapshots", "snapshots/1.bin"),
-            Some("1.bin")
+            relative_path("devnet-c", "devnet-c/snapshot-1-2"),
+            Some("snapshot-1-2")
         );
-        assert_eq!(relative_gcs_path("é", "é/1.bin"), Some("1.bin"));
-        assert_eq!(relative_gcs_path("é", "éclair.bin"), None);
-        assert_eq!(relative_gcs_path("", "1.bin"), Some("1.bin"));
+        assert_eq!(relative_path("devnet-c", "devnet-c2/snapshot-1-2"), None);
+    }
+
+    #[test]
+    fn custom_s3_endpoints_use_path_style() {
+        let credentials = Credentials::new(Some("key"), Some("secret"), None, None, None).unwrap();
+        let local = Region::Custom {
+            region: "us-east-1".to_string(),
+            endpoint: "http://127.0.0.1:9000".to_string(),
+        };
+        let bucket = s3_bucket_client("snapshots", local, credentials.clone()).unwrap();
+        assert!(bucket.is_path_style());
+        assert_eq!(bucket.host(), "127.0.0.1:9000");
+
+        let bucket = s3_bucket_client("snapshots", Region::UsEast1, credentials).unwrap();
+        assert!(!bucket.is_path_style());
+    }
+
+    #[tokio::test]
+    async fn reads_the_first_block_slot_across_chunks() {
+        let block = |slot| BlockInfo {
+            metadata: BlockMetadata {
+                slot,
+                parent_slot: slot - 3,
+                ..Default::default()
+            },
+            transactions: vec![],
+        };
+        let mut bytes = Vec::new();
+        for slot in [104, 105] {
+            bytes.extend(
+                bincode::serde::encode_to_vec(block(slot), bincode::config::legacy()).unwrap(),
+            );
+        }
+        let chunks = bytes
+            .chunks(7)
+            .map(|chunk| Ok(Bytes::copy_from_slice(chunk)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            first_block_slot(futures::stream::iter(chunks))
+                .await
+                .unwrap(),
+            104
+        );
+
+        let truncated = Ok(Bytes::copy_from_slice(&bytes[..5]));
+        assert!(first_block_slot(futures::stream::iter([truncated]))
+            .await
+            .is_err());
     }
 
     #[test]
