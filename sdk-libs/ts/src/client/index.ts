@@ -1,5 +1,5 @@
-export { MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, ZolanaClient } from "./client.js";
-export type { AuthorizedPrivateTransaction, ProvedMerge, ZolanaClientConfig } from "./client.js";
+export { MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, SprClient } from "./client.js";
+export type { AuthorizedPrivateTransaction, ProvedMerge, SprClientConfig } from "./client.js";
 export { LocalKeys, NullifierKeyProofAuthority } from "./keys.js";
 export type {
   AnonymousRingTransactInput,

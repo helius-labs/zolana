@@ -20,12 +20,12 @@ import {
   ClientError,
   LocalKeys,
   NullifierKeyProofAuthority,
-  ZolanaClient,
+  SprClient,
   proverRequestBody,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
   type SpendProof,
-  type ZolanaClientConfig,
+  type SprClientConfig,
 } from "../src/client/index.js";
 import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
 import { BN254_MODULUS, bigintToBytes, bytesField, checkedBytes } from "../src/client/internal.js";
@@ -179,7 +179,7 @@ function proofFixture(
   return { proofInputs, spendProof, dummyProofs, keypair };
 }
 
-type ServiceOverrides = Pick<ZolanaClientConfig, "indexerUrl" | "proverUrl">;
+type ServiceOverrides = Pick<SprClientConfig, "indexerUrl" | "proverUrl">;
 
 async function serviceRequestUrls(
   solanaRpcUrl: string | URL,
@@ -206,7 +206,7 @@ async function serviceRequestUrls(
     }
     throw new Error(`unexpected request: ${requestUrl}`);
   }) as typeof globalThis.fetch;
-  const instance = new ZolanaClient({
+  const instance = new SprClient({
     solanaRpcUrl,
     proofDataSource: "client",
     ...overrides,
@@ -233,8 +233,8 @@ function proverFetch(): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
   );
 }
 
-function client(fetch = vi.fn<typeof globalThis.fetch>()): ZolanaClient {
-  return new ZolanaClient({
+function client(fetch = vi.fn<typeof globalThis.fetch>()): SprClient {
+  return new SprClient({
     solanaRpcUrl: "http://127.0.0.1:8899",
     proofDataSource: "client",
     indexerUrl: "http://127.0.0.1:8784",
@@ -247,7 +247,7 @@ function client(fetch = vi.fn<typeof globalThis.fetch>()): ZolanaClient {
   });
 }
 
-describe("ZolanaClient", () => {
+describe("SprClient", () => {
   it("uses Solana's adjacent WebSocket port for explicit local RPC ports", () => {
     expect(defaultSolanaRpcSubscriptionsUrl("http://127.0.0.1:8899/")).toBe("ws://127.0.0.1:8900/");
     expect(defaultSolanaRpcSubscriptionsUrl("https://api.devnet.solana.com/")).toBe(
@@ -264,11 +264,11 @@ describe("ZolanaClient", () => {
 
   it("builds against tree 0 by default and follows an explicit tree id", () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
-    const byDefault = new ZolanaClient({ solanaRpcUrl: RPC_URL, fetch });
+    const byDefault = new SprClient({ solanaRpcUrl: RPC_URL, fetch });
     expect(byDefault.treeId).toBe(0);
     expect(byDefault.tree).toBe(treeAddress(0));
 
-    const explicit = new ZolanaClient({ solanaRpcUrl: RPC_URL, treeId: 3, fetch });
+    const explicit = new SprClient({ solanaRpcUrl: RPC_URL, treeId: 3, fetch });
     expect(explicit.treeId).toBe(3);
     expect(explicit.tree).toBe(treeAddress(3));
     expect(fetch).not.toHaveBeenCalled();
@@ -280,10 +280,10 @@ describe("ZolanaClient", () => {
     for (const config of [
       { tree: FOREIGN_TREE },
       { treeId: 1, tree: treeAddress(0) },
-    ] satisfies readonly Pick<ZolanaClientConfig, "tree" | "treeId">[]) {
+    ] satisfies readonly Pick<SprClientConfig, "tree" | "treeId">[]) {
       let error: unknown;
       try {
-        new ZolanaClient({ solanaRpcUrl: RPC_URL, ...config });
+        new SprClient({ solanaRpcUrl: RPC_URL, ...config });
       } catch (cause) {
         error = cause;
       }
@@ -378,7 +378,7 @@ describe("ZolanaClient", () => {
   it("rejects malformed service URLs before any request", () => {
     expect(
       () =>
-        new ZolanaClient({
+        new SprClient({
           solanaRpcUrl: "file:///tmp/rpc",
           indexerUrl: "http://127.0.0.1:8784",
           proverUrl: "http://127.0.0.1:3001",
@@ -395,7 +395,7 @@ describe("ZolanaClient", () => {
   ])("allows secure or loopback service URL %s", (serviceUrl) => {
     expect(
       () =>
-        new ZolanaClient({
+        new SprClient({
           solanaRpcUrl: "http://127.0.0.1:8899",
           proofDataSource: "client",
           indexerUrl: serviceUrl,
@@ -408,7 +408,7 @@ describe("ZolanaClient", () => {
     for (const field of ["indexerUrl", "proverUrl"] as const) {
       let error: unknown;
       try {
-        new ZolanaClient({
+        new SprClient({
           solanaRpcUrl: RPC_URL,
           [field]: `http://${field}.example.com`,
         });
@@ -429,14 +429,12 @@ describe("ZolanaClient", () => {
         proverUrl: "https://beta-devnet.helius-rpc.com/v1/spr?api-key=k",
       },
     ]) {
-      expect(new ZolanaClient(config).proofDataSource).toBe("prover");
+      expect(new SprClient(config).proofDataSource).toBe("prover");
       for (const proofDataSource of ["client", "prover"] as const) {
-        expect(new ZolanaClient({ ...config, proofDataSource }).proofDataSource).toBe(
-          proofDataSource,
-        );
+        expect(new SprClient({ ...config, proofDataSource }).proofDataSource).toBe(proofDataSource);
       }
     }
-    expect(new ZolanaClient({ solanaRpcUrl: RPC_URL }).proofDataSource).toBe("prover");
+    expect(new SprClient({ solanaRpcUrl: RPC_URL }).proofDataSource).toBe("prover");
   });
 
   it("allows plaintext non-loopback URLs only when asked explicitly", () => {
@@ -445,7 +443,7 @@ describe("ZolanaClient", () => {
     // shielded client over plaintext stays a visible decision.
     expect(
       () =>
-        new ZolanaClient({
+        new SprClient({
           solanaRpcUrl: RPC_URL,
           indexerUrl: "http://indexer.internal:8784",
           proverUrl: "http://prover.internal:3001",
@@ -463,7 +461,7 @@ describe("ZolanaClient", () => {
     ]) {
       expect(
         () =>
-          new ZolanaClient({
+          new SprClient({
             solanaRpcUrl: RPC_URL,
             indexerUrl,
             allowInsecureHttp: true,
@@ -486,12 +484,12 @@ describe("ZolanaClient", () => {
         field: "solanaRpcUrl",
       },
     ] satisfies readonly Readonly<{
-      config: ZolanaClientConfig;
+      config: SprClientConfig;
       field: "solanaRpcUrl";
     }>[]) {
       let error: unknown;
       try {
-        new ZolanaClient(config);
+        new SprClient(config);
       } catch (cause) {
         error = cause;
       }
@@ -1013,7 +1011,7 @@ describe("prover indexer fetching", () => {
     const proof = parseProof(
       proofFor({ circuitType: "transfer-confidential", nInputs: 1, nOutputs: 2 }),
     );
-    const instance = new ZolanaClient({ proofDataSource: "prover", fetch: vi.fn() });
+    const instance = new SprClient({ proofDataSource: "prover", fetch: vi.fn() });
     try {
       for (const [index, resolution] of resolutions.entries()) {
         const keys = {
@@ -1099,7 +1097,7 @@ describe("prover indexer fetching", () => {
           },
         }),
       );
-      const client = new ZolanaClient({ fetch });
+      const client = new SprClient({ fetch });
       const keys = LocalKeys.fromKeypair(fixture.keypair, client.proofService);
       try {
         const result = await client.proveTransact(transaction, keys);
@@ -1147,7 +1145,7 @@ describe("prover indexer fetching", () => {
           },
         }),
       );
-      const instance = new ZolanaClient({ proofDataSource, fetch });
+      const instance = new SprClient({ proofDataSource, fetch });
       const state = vi.spyOn(instance, "getMerkleProofs").mockResolvedValue({
         context: { blockTime: 1n, slot: 1n },
         proofs: [fixture.spendProof.state],
@@ -1245,7 +1243,7 @@ describe("prover indexer fetching", () => {
           { headers: { "content-type": "application/json" } },
         );
       });
-      const instance = new ZolanaClient({
+      const instance = new SprClient({
         proofDataSource: "prover",
         proverUrl: "http://127.0.0.1:3001/v1/spr?api-key=secret",
         fetch,
@@ -1328,7 +1326,7 @@ describe("prover indexer fetching", () => {
             { headers: { "content-type": "application/json" } },
           ),
       );
-      const instance = new ZolanaClient({ proofDataSource: "prover", fetch });
+      const instance = new SprClient({ proofDataSource: "prover", fetch });
       const keys = LocalKeys.fromKeypair(fixture.keypair, instance.proofService);
       try {
         await expect(instance.proveTransact(fixture.proofInputs, keys)).rejects.toMatchObject({

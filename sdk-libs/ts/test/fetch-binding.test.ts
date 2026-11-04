@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { address } from "@solana/kit";
 
-import { ZolanaApi } from "../src/api/index.js";
+import { SprApi } from "../src/api/index.js";
 import { ProverClient } from "../src/client/prover/client.js";
 
 // A browser's `fetch` throws "Illegal invocation" unless called on the global,
@@ -35,7 +35,7 @@ describe("fetch binding", () => {
     const { fetch, calls } = strictFetch();
     vi.stubGlobal("fetch", fetch);
     try {
-      await new ZolanaApi({ url: "https://indexer.example" })
+      await new SprApi({ url: "https://indexer.example" })
         .getEncryptedUtxosByTags({
           tags: [],
           ringProgramId: address("11111111111111111111111111111111"),

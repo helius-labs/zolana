@@ -35,10 +35,10 @@ import {
   USER_REGISTRY_PROGRAM_ID,
   ShieldedKeypair,
   SigningKey,
-  createZolanaClient,
+  createSprClient,
   initializePoseidon,
   type Bytes32,
-  type ZolanaClientConfig,
+  type SprClientConfig,
 } from "@heliuslabs/spr";
 import { TRANSACTION_SIZE_LIMIT } from "@heliuslabs/spr/interface";
 
@@ -75,7 +75,7 @@ export interface ExampleSetup {
    * export the resulting URLs; those must reach the client or it polls dead
    * default ports until the test times out.
    */
-  readonly clientConfig: ZolanaClientConfig;
+  readonly clientConfig: SprClientConfig;
 }
 
 function requiredEnv(name: string): string {
@@ -84,7 +84,7 @@ function requiredEnv(name: string): string {
   return value;
 }
 
-function clientConfigFromEnv(): ZolanaClientConfig {
+function clientConfigFromEnv(): SprClientConfig {
   const solanaRpcUrl = process.env["ZOLANA_LOCALNET_URL"];
   const indexerUrl = process.env["ZOLANA_INDEXER_URL"];
   const proverUrl = process.env["ZOLANA_PROVER_URL"];
@@ -159,7 +159,7 @@ export interface ConfirmedTransaction {
  * confirms also carries the landed slot, so no request is issued twice.
  */
 export function sendAndConfirmFactory(
-  client: Awaited<ReturnType<typeof createZolanaClient>>,
+  client: Awaited<ReturnType<typeof createSprClient>>,
   feePayer: TransactionSigner,
 ): (
   instructions: readonly Instruction[],
@@ -203,7 +203,7 @@ export function sendAndConfirmFactory(
 }
 
 export async function signSendAndConfirm(
-  client: Awaited<ReturnType<typeof createZolanaClient>>,
+  client: Awaited<ReturnType<typeof createSprClient>>,
   transaction: Transaction,
   signers: readonly TransactionPartialSigner[],
 ): Promise<ConfirmedTransaction> {
@@ -217,14 +217,14 @@ export async function signSendAndConfirm(
   return { signature, slot };
 }
 
-function localnetRpcUrl(clientConfig: ZolanaClientConfig): string {
+function localnetRpcUrl(clientConfig: SprClientConfig): string {
   return typeof clientConfig.solanaRpcUrl === "string"
     ? clientConfig.solanaRpcUrl
     : DEFAULT_LOCALNET_RPC_URL;
 }
 
 async function airdrop(
-  clientConfig: ZolanaClientConfig,
+  clientConfig: SprClientConfig,
   recipient: Address,
   amount: bigint,
 ): Promise<void> {
@@ -240,7 +240,7 @@ async function airdrop(
 }
 
 export async function fundedSigner(
-  clientConfig: ZolanaClientConfig,
+  clientConfig: SprClientConfig,
   amount: bigint,
 ): Promise<KeyPairSigner> {
   const signer = await generateKeyPairSigner();
@@ -249,7 +249,7 @@ export async function fundedSigner(
 }
 
 export async function fundedKeypair(
-  clientConfig: ZolanaClientConfig,
+  clientConfig: SprClientConfig,
   amount: bigint,
 ): Promise<ShieldedKeypair> {
   const keypair = randomKeypair();

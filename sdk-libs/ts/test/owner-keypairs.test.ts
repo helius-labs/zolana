@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ZolanaClient, type ProofDataSource, type SpendProof } from "../src/client/index.js";
+import { SprClient, type ProofDataSource, type SpendProof } from "../src/client/index.js";
 import { assemble } from "../src/client/prover/assembly.js";
 import { bytesField, poseidon } from "../src/client/internal.js";
 import { parseProof } from "../src/client/prover/proof.js";
@@ -120,7 +120,7 @@ function fixture(owners: readonly Owner[], specialSlots = false) {
 
 function setup(transaction: ReturnType<typeof fixture>, source: ProofDataSource = "client") {
   const network = vi.fn<typeof fetch>();
-  const client = new ZolanaClient({ proofDataSource: source, fetch: network });
+  const client = new SprClient({ proofDataSource: source, fetch: network });
   const merkle = vi.spyOn(client, "getMerkleProofs").mockResolvedValue({
     context: { blockTime: 1n, slot: 1n },
     proofs: transaction.proofs.map((proof) => proof.state),

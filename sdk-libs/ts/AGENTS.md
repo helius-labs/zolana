@@ -32,7 +32,7 @@ a defect.
   documented architectural reason. Never add an exception for convenience.
 - Capability contracts and their DTOs live in `src/client/ports.ts`. A port
   MUST NOT import `client.ts`. Public builders accept the smallest named port
-  composition they use, never `ZolanaClient`, broad facades, or structural
+  composition they use, never `SprClient`, broad facades, or structural
   bags with unrelated capabilities.
 - Concrete clients implement ports. Domain code depends on ports. Transport,
   selection, settlement, compilation, retry, persistence, and error policy

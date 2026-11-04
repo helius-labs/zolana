@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
-import { SOL_MINT, type ZolanaClientConfig } from "@heliuslabs/spr";
-import { atSlot, type ZolanaClient } from "@heliuslabs/spr/client";
+import { SOL_MINT, type SprClientConfig } from "@heliuslabs/spr";
+import { atSlot, type SprClient } from "@heliuslabs/spr/client";
 import {
   encodeTransactInstructionData,
   transactCpiAccounts,
@@ -104,7 +104,7 @@ export function escrowProgramId(): Address {
   return address(requiredEnv("TIMELOCK_ESCROW_PROGRAM_ID"));
 }
 
-export function clientConfig(): ZolanaClientConfig {
+export function clientConfig(): SprClientConfig {
   const solanaRpcUrl = process.env["ZOLANA_LOCALNET_URL"];
   const indexerUrl = process.env["ZOLANA_INDEXER_URL"];
   const proverUrl = process.env["ZOLANA_PROVER_URL"];
@@ -125,7 +125,7 @@ export function randomKeypair(): ShieldedKeypair {
 }
 
 export async function airdrop(
-  config: ZolanaClientConfig,
+  config: SprClientConfig,
   recipient: Address,
   amount: bigint,
 ): Promise<void> {
@@ -141,7 +141,7 @@ export async function airdrop(
 }
 
 export function sendAndConfirmFactory(
-  client: ZolanaClient,
+  client: SprClient,
   feePayer: TransactionSigner,
 ): (instructions: readonly Instruction[]) => Promise<bigint> {
   const sendTransaction = sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc });
@@ -174,7 +174,7 @@ export function escrowAuthority(programId: Address, creator: Address): Promise<P
 }
 
 export async function creatorTransactions(
-  client: ZolanaClient,
+  client: SprClient,
   creator: ShieldedKeypair,
   authority: ProgramOwner,
   slot: bigint,
@@ -187,7 +187,7 @@ export async function creatorTransactions(
 }
 
 export async function spendableSol(
-  client: ZolanaClient,
+  client: SprClient,
   creator: ShieldedKeypair,
   transactions: readonly IndexedShieldedTransaction[],
   assets: AssetRegistry,
@@ -318,7 +318,7 @@ export function prove(
 
 interface ProgramTransactInput {
   readonly programId: Address;
-  readonly client: ZolanaClient;
+  readonly client: SprClient;
   readonly creator: TransactionSigner;
   readonly authority: ProgramOwner;
   readonly proof: CompressedGroth16Proof;

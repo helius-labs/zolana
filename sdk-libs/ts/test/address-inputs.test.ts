@@ -1,7 +1,7 @@
 import { address } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LocalKeys, ZolanaClient } from "../src/client/index.js";
+import { LocalKeys, SprClient } from "../src/client/index.js";
 import { assembleMergeWithProofs } from "../src/client/prover/merge.js";
 import { assemble, prepareTransfer } from "../src/client/prover/assembly.js";
 import { decodeIndexedInputs } from "../src/client/prover/indexed.js";
@@ -492,7 +492,7 @@ describe("reserved address inputs", () => {
           },
         });
       });
-      const client = new ZolanaClient({
+      const client = new SprClient({
         solanaRpcUrl: "http://127.0.0.1:8899",
         indexerUrl: "http://127.0.0.1:8784",
         proverUrl: "http://127.0.0.1:3001",

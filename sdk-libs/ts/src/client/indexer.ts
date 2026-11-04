@@ -4,7 +4,7 @@ import { KeypairError } from "../keypair/error.js";
 import { X25519PublicKey } from "../keypair/x25519.js";
 import { isAddress } from "@solana/kit";
 
-import { ZolanaApi, ApiError } from "../api/index.js";
+import { SprApi, ApiError } from "../api/index.js";
 import { hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
@@ -53,11 +53,11 @@ import {
   type NonInclusionProof,
 } from "./rpc.js";
 
-export class ZolanaIndexer {
-  readonly #api: ZolanaApi;
+export class SprIndexer {
+  readonly #api: SprApi;
 
-  constructor(api: ZolanaApi) {
-    if (!(api instanceof ZolanaApi)) {
+  constructor(api: SprApi) {
+    if (!(api instanceof SprApi)) {
       throw new ClientError("CLIENT_INVALID_INDEXER", {
         details: { field: "api" },
       });

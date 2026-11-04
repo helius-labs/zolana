@@ -56,7 +56,7 @@ import {
 } from "../src/transaction/serialization/merge.js";
 import { SOL_ASSET_ID } from "../src/transaction/asset.js";
 import { KeyMemo } from "../src/transaction/wallet/key-memo.js";
-import { ZolanaClient } from "../src/client/client.js";
+import { SprClient } from "../src/client/client.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
 import { syncPersistedWallet } from "../src/wallet/persisted.js";
 import { kitReads, solanaRpcReads, syncReads, plainCipher } from "./helpers/clients.js";
@@ -595,7 +595,7 @@ describe("wallet sync freshness", () => {
         },
       });
     });
-    const client = new ZolanaClient({
+    const client = new SprClient({
       fetch,
       indexerConfig: { requireSlot, poll: { numRetries: 2, delayMs: 0n, maxDelayMs: 0n } },
     });
@@ -672,7 +672,7 @@ describe("wallet sync freshness", () => {
           result: { context: { blockTime: 1, slot: 5 }, data: [], paginationToken: null },
         });
       });
-      const client = new ZolanaClient({
+      const client = new SprClient({
         fetch,
         indexerConfig: { requireSlot: 10n, poll: { numRetries: 2, delayMs: 0n, maxDelayMs: 0n } },
       });

@@ -7,7 +7,7 @@ import { concatBytes, hexToBytes, randomBytes, utf8ToBytes } from "@noble/hashes
 import { address } from "@solana/kit";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { ZolanaClient } from "../src/client/client.js";
+import { SprClient } from "../src/client/client.js";
 import { asField, createDummyTransferInput, createOutput } from "../src/client/prover/assembly.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import { provingKeySetFromCatalog, type ProvingKeySet } from "../src/client/prover/key-set.js";
@@ -482,7 +482,7 @@ describe("fetching a runtime proving key set", () => {
         refusedWith("attestation_required"),
       );
       await expect(
-        new ZolanaClient({ proverUrl: url, fetch }).fetchProvingKeySet(),
+        new SprClient({ proverUrl: url, fetch }).fetchProvingKeySet(),
       ).rejects.toMatchObject(refusedWith("attestation_required"));
     }
     expect(fetch).not.toHaveBeenCalled();
@@ -491,7 +491,7 @@ describe("fetching a runtime proving key set", () => {
   it("reads the set over the encrypted channel of a client with only a prover", async () => {
     const sent: string[] = [];
     const fetch = prover((init) => sealedAnswer(init, 200, JSON.stringify(vector)), sent);
-    const client = new ZolanaClient({
+    const client = new SprClient({
       proverUrl: "https://prover.example",
       proverTee: policy,
       fetch,
@@ -694,9 +694,9 @@ describe("proving with a runtime proving key set", () => {
 
   it("requires the client proof data source", () => {
     const base = { proverUrl: "http://127.0.0.1:3001", provingKeys: set };
-    expect(() => new ZolanaClient({ ...base, proofDataSource: "client" })).not.toThrow();
+    expect(() => new SprClient({ ...base, proofDataSource: "client" })).not.toThrow();
     for (const config of [base, { ...base, proofDataSource: "prover" as const }]) {
-      expect(() => new ZolanaClient(config)).toThrow(
+      expect(() => new SprClient(config)).toThrow(
         expect.objectContaining({
           code: "CLIENT_INVALID_CONFIG",
           details: { field: "proofDataSource" },
@@ -713,7 +713,7 @@ describe("proving with a runtime proving key set", () => {
     ];
     for (const provingKeys of handMade) {
       expect(() =>
-        Reflect.construct(ZolanaClient, [{ proofDataSource: "client", provingKeys }]),
+        Reflect.construct(SprClient, [{ proofDataSource: "client", provingKeys }]),
       ).toThrow(
         expect.objectContaining({
           code: "CLIENT_INVALID_CONFIG",

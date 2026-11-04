@@ -3,7 +3,7 @@ import { getAddressDecoder } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import vector from "../../../test-vectors/anonymous_ring_eddsa_request.json" with { type: "json" };
-import { LocalKeys, ZolanaClient, signTransactMessage } from "../src/client/index.js";
+import { LocalKeys, SprClient, signTransactMessage } from "../src/client/index.js";
 import { prepareTransfer, resolvedPublicInputHash } from "../src/client/prover/assembly.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { solanaOwnerIdentity } from "../src/hasher/index.js";
@@ -151,7 +151,7 @@ function indexedResponse(
   };
 }
 
-describe("ZolanaClient.proveAnonymousRingTransact", () => {
+describe("SprClient.proveAnonymousRingTransact", () => {
   it.each([
     ["client", "signer", "ring", vector.request, vector.circuit],
     ["client", "prepared signature", "ring", vector.request, vector.circuit],
@@ -176,7 +176,7 @@ describe("ZolanaClient.proveAnonymousRingTransact", () => {
             : { ...proofFor(body), proofCommitment: ZERO_POINT, proofCommitmentPok: ZERO_POINT },
         );
       });
-      const client = new ZolanaClient({
+      const client = new SprClient({
         solanaRpcUrl: "http://127.0.0.1:8899",
         proofDataSource,
         indexerUrl: "http://127.0.0.1:8784",

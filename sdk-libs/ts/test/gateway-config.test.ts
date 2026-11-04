@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ZolanaApi } from "../src/api/index.js";
+import { SprApi } from "../src/api/index.js";
 import { ProverClient } from "../src/client/prover/client.js";
-import { ZolanaClient } from "../src/client/index.js";
+import { SprClient } from "../src/client/index.js";
 
 const clients = [
   {
-    name: "ZolanaApi",
+    name: "SprApi",
     code: "API_INVALID_CONFIG",
     create: (url: string, fetch: typeof globalThis.fetch, apiKey?: string) =>
-      new ZolanaApi({ url, fetch, ...(apiKey === undefined ? {} : { apiKey }) }),
+      new SprApi({ url, fetch, ...(apiKey === undefined ? {} : { apiKey }) }),
   },
 ];
 
@@ -80,7 +80,7 @@ it("rejects malformed prover credentials through the public client before a requ
   const fetch = vi.fn<typeof globalThis.fetch>();
   expect(
     () =>
-      new ZolanaClient({
+      new SprClient({
         solanaRpcUrl: "https://rpc.example",
         indexerUrl: "https://indexer.example",
         proverUrl: "https://prover.example?api-key=%FF",

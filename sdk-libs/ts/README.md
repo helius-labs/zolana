@@ -46,13 +46,13 @@ import {
   SOL_MINT,
   Wallet,
   buildDepositTransaction,
-  createZolanaClient,
+  createSprClient,
   getPrivateTransactions,
   syncWallet,
   type Bytes32,
 } from "@heliuslabs/spr";
 
-const client = await createZolanaClient({});
+const client = await createSprClient({});
 
 // Load this from the app wallet or key store.
 declare function loadOwnerSeed(): Promise<Bytes32>;
@@ -131,7 +131,7 @@ Every builder returns a version 1 transaction, up to 4,096 bytes, which is what
 a proof-carrying transfer needs. Version 1 carries the compute unit limit, the
 loaded accounts data size limit and the priority fee in the message itself, so a
 transaction from this SDK holds no compute budget instruction and no address
-lookup table. `ZolanaClientConfig.computeUnitLimit` sets the budget a transact
+lookup table. `SprClientConfig.computeUnitLimit` sets the budget a transact
 asks for and `priorityFeeLamports` the fee for the whole transaction, not a
 price per compute unit. The RPC and the validator must accept version 1.
 
@@ -158,9 +158,9 @@ examples; the SDK embeds no prover URLs. It pins who signs each network's
 prover policy, so a client follows new prover releases without an SDK release:
 
 ```ts
-import { SignedTeePolicy, ZolanaClient } from "@heliuslabs/spr/client";
+import { SignedTeePolicy, SprClient } from "@heliuslabs/spr/client";
 
-const client = new ZolanaClient({
+const client = new SprClient({
   solanaRpcUrl: rpcUrl,
   indexerUrl: indexerUrl,
   proverUrl: proverUrl,
@@ -188,7 +188,7 @@ listen, and the client connects to them automatically without needing
 endpoint configuration.
 
 ```ts
-const client = await createZolanaClient({});
+const client = await createSprClient({});
 ```
 
 Every prover URL, including a unified Helius API URL, uses key-specific
@@ -216,11 +216,11 @@ prover instead of the keys the SDK pins, so a key rotation needs no SDK
 release:
 
 ```ts
-const provingKeys = await new ZolanaClient({
+const provingKeys = await new SprClient({
   proverUrl,
   proverTee: SignedTeePolicy.forNetwork("mainnet"),
 }).fetchProvingKeySet();
-const client = new ZolanaClient({
+const client = new SprClient({
   solanaRpcUrl: rpcUrl,
   indexerUrl: indexerUrl,
   proverUrl: proverUrl,
@@ -473,7 +473,7 @@ saves the current format.
 
 Common exports from `@heliuslabs/spr` include:
 
-- setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`, `LocalKeys`.
+- setup: `createSprClient`, `ShieldedKeypair`, `Wallet`, `LocalKeys`.
 - transactions: `buildDepositTransaction`, `buildTransferTransaction`,
   `buildMultiTransferTransaction`, `buildWithdrawalTransaction`,
   `buildSplitTransaction`, `buildMergeTransaction`.

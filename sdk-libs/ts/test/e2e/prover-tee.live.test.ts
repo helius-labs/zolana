@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   SignedTeePolicy,
   teePolicyFromJson,
-  ZolanaClient,
+  SprClient,
   compressProof,
   type CircuitUtxo,
   type ProverInputs,
@@ -168,7 +168,7 @@ describe.skipIf(!process.env["ZOLANA_TEE_PROVER_URL"])("configured TEE prover", 
     };
     // The supplied policy still requires nonce, certificate, measurements,
     // HPKE pin and encrypted-response authentication.
-    const client = new ZolanaClient({
+    const client = new SprClient({
       proverUrl: endpoint,
       proverTee: policy,
       fetch: observedFetch,

@@ -12,7 +12,7 @@ import {
   type Transaction,
 } from "@solana/kit";
 
-import { ZolanaApi } from "../api/index.js";
+import { SprApi } from "../api/index.js";
 import { resolveClientEndpoints } from "../endpoint.js";
 import { equalBytes } from "../interface/bytes.js";
 import {
@@ -38,7 +38,7 @@ import { compileUnsignedTransaction } from "../flows/compile.js";
 import { checkedComputeUnitLimit, checkedPriorityFee } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
 import { checkedServiceUrl, hasProofMethods, inputTreeAddress } from "./internal.js";
-import { ZolanaIndexer } from "./indexer.js";
+import { SprIndexer } from "./indexer.js";
 import { KeypairProofAuthority } from "./keys.js";
 import {
   authorizedPrivateTransactionMaterial,
@@ -138,7 +138,7 @@ import {
 const DEFAULT_TRANSACT_CU_LIMIT = 450_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
-export interface ZolanaClientConfig {
+export interface SprClientConfig {
   /**
    * Defaults to `"prover"` for every endpoint, including the Helius gateway.
    * Set `"client"` to fetch proof data in the SDK instead.
@@ -203,7 +203,7 @@ export type {
   WalletKeys,
 } from "./ports.js";
 
-export class ZolanaClient
+export class SprClient
   implements
     ChainReader,
     BlockhashProvider,
@@ -224,14 +224,14 @@ export class ZolanaClient
   readonly commitment: Commitment;
   /** The prover server, for a `LocalKeys` to forward completed inputs to. */
   readonly proofService: ProofService & IndexedProofAuthority;
-  readonly #indexer: ZolanaIndexer;
+  readonly #indexer: SprIndexer;
   readonly #prover: ProverClient;
   readonly #computeUnitLimit: number;
   readonly #priorityFee: bigint | undefined;
   readonly #indexerConfig: IndexerRpcConfig;
   readonly #proofDataSource: ProofDataSource;
 
-  constructor(input: ZolanaClientConfig) {
+  constructor(input: SprClientConfig) {
     const candidate: unknown = input;
     if (typeof candidate !== "object" || candidate === null) {
       throw new ClientError("CLIENT_INVALID_CONFIG");
@@ -284,10 +284,10 @@ export class ZolanaClient
       allowInsecureHttp,
     );
     const proverUrl = checkedServiceUrl(endpoints.prover, endpoints.proverField, allowInsecureHttp);
-    let indexer: ZolanaIndexer;
+    let indexer: SprIndexer;
     try {
-      indexer = new ZolanaIndexer(
-        new ZolanaApi({
+      indexer = new SprIndexer(
+        new SprApi({
           url: indexerUrl,
           ...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
           ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
@@ -337,7 +337,7 @@ export class ZolanaClient
     this.#indexerConfig = indexerConfig;
   }
 
-  /// Mirrors Rust's `ZolanaClient::indexer_config`: the config every indexer
+  /// Mirrors Rust's `SprClient::indexer_config`: the config every indexer
   /// call falls back to and the schedule confirmation polls.
   get indexerConfig(): IndexerRpcConfig {
     return this.#indexerConfig;

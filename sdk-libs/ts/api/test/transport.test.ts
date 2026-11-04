@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { treeAddress } from "../../src/interface/pda/index.js";
 
-import { ApiError, ZolanaApi } from "../../src/api/index.js";
+import { ApiError, SprApi } from "../../src/api/index.js";
 
 const HASH = "11111111111111111111111111111111";
 const SIGNATURE = "1".repeat(64);
@@ -35,7 +35,7 @@ async function expectApiError(promise: Promise<unknown>, code: string): Promise<
 describe("transport configuration", () => {
   it("uses the explicitly injected fetch and preserves safe query parameters", async () => {
     const injected = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(success()));
-    const api = new ZolanaApi({
+    const api = new SprApi({
       url: new URL("https://rpc.example.test/root/?tenant=one"),
       apiKey: "test-key",
       fetch: injected,
@@ -52,7 +52,7 @@ describe("transport configuration", () => {
 
   it("preserves query parameters from a shared endpoint", async () => {
     const injected = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(success()));
-    const api = new ZolanaApi({
+    const api = new SprApi({
       url: "https://gateway.example/zolana?api-key=k%2B1&tenant=alpha",
       fetch: injected,
     });
@@ -67,7 +67,7 @@ describe("transport configuration", () => {
   it("copies URL configuration before use", async () => {
     const url = new URL("https://rpc.example.test/first");
     const injected = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(success()));
-    const api = new ZolanaApi({ url, fetch: injected });
+    const api = new SprApi({ url, fetch: injected });
     url.pathname = "/second";
 
     await api.getMerkleProofs(REQUEST);
@@ -81,7 +81,7 @@ describe("transport configuration", () => {
     const url = new URL("https://gateway.example/zolana?flag&api%2Dkey=k%2B1&x=a%20b&y=~");
     const original = url.href;
     const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(success()));
-    const api = new ZolanaApi({ url, fetch });
+    const api = new SprApi({ url, fetch });
 
     await api.getMerkleProofs(REQUEST);
 
@@ -115,7 +115,7 @@ describe("transport configuration", () => {
         }),
       ),
     );
-    const api = new ZolanaApi({ url: "https://rpc.example.test", fetch: injected });
+    const api = new SprApi({ url: "https://rpc.example.test", fetch: injected });
 
     const response = await api.getShieldedTransactionsBySignature({
       txSignature: SIGNATURE as never,
@@ -140,7 +140,7 @@ describe("transport configuration", () => {
         }),
       ),
     );
-    const api = new ZolanaApi({ url: "https://rpc.example.test", fetch: injected });
+    const api = new SprApi({ url: "https://rpc.example.test", fetch: injected });
 
     const response = await api.getShieldedTransactionsByNullifiers({
       nullifiers: [HASH],
@@ -169,7 +169,7 @@ describe("transport configuration", () => {
     [{ url: "https://rpc.example.test", apiKey: "line\nbreak" }, "apiKey"],
   ])("rejects invalid URL or API-key configuration", (config, field) => {
     try {
-      new ZolanaApi(config);
+      new SprApi(config);
     } catch (error) {
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).code).toBe("API_INVALID_CONFIG");
@@ -181,7 +181,7 @@ describe("transport configuration", () => {
 
   it("rejects malformed timeouts before fetch", async () => {
     const injected = vi.fn(() => Promise.resolve(success()));
-    const api = new ZolanaApi({ url: "https://rpc.example.test", fetch: injected });
+    const api = new SprApi({ url: "https://rpc.example.test", fetch: injected });
 
     const error = await expectApiError(
       api.getMerkleProofs(REQUEST, { timeoutMs: 0 }),
@@ -198,7 +198,7 @@ describe("abort and timeout composition", () => {
     const controller = new AbortController();
     controller.abort();
     const injected = vi.fn(() => Promise.resolve(success()));
-    const api = new ZolanaApi({ url: "https://rpc.example.test", fetch: injected });
+    const api = new SprApi({ url: "https://rpc.example.test", fetch: injected });
 
     const error = await expectApiError(
       api.getMerkleProofs(REQUEST, { signal: controller.signal }),
@@ -211,7 +211,7 @@ describe("abort and timeout composition", () => {
 
   it("composes a caller abort with the fetch signal", async () => {
     const controller = new AbortController();
-    const api = new ZolanaApi({
+    const api = new SprApi({
       url: "https://rpc.example.test",
       fetch: (_input, init) =>
         new Promise<Response>((_resolve, reject) => {
@@ -235,7 +235,7 @@ describe("abort and timeout composition", () => {
   it("classifies an elapsed timeout as retryable", async () => {
     vi.useFakeTimers();
     try {
-      const api = new ZolanaApi({
+      const api = new SprApi({
         url: "https://rpc.example.test",
         fetch: (_input, init) =>
           new Promise<Response>((_resolve, reject) => {
@@ -262,7 +262,7 @@ describe("abort and timeout composition", () => {
 
   it("classifies transport failures as retryable without retaining their cause", async () => {
     const secret = "transport-secret";
-    const api = new ZolanaApi({
+    const api = new SprApi({
       url: "https://rpc.example.test",
       fetch: () => Promise.reject(new Error(secret)),
     });
@@ -280,8 +280,8 @@ describe("abort and timeout composition", () => {
 // bodies are raw text because `JSON.stringify` would round the literal under
 // test before the transport ever saw it.
 describe("integers past the safe-integer bound", () => {
-  function respondWith(body: string): ZolanaApi {
-    return new ZolanaApi({
+  function respondWith(body: string): SprApi {
+    return new SprApi({
       url: "https://rpc.example.test",
       fetch: () =>
         Promise.resolve(

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { LocalKeys, ZolanaClient } from "../src/client/index.js";
+import { LocalKeys, SprClient } from "../src/client/index.js";
 
 import { inputFlags } from "../src/client/internal.js";
 import { assemble, prepareTransfer } from "../src/client/prover/assembly.js";
@@ -412,7 +412,7 @@ describe("a client proving from two trees", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) =>
       Response.json(proofFor(String(init?.body))),
     );
-    const client = new ZolanaClient({
+    const client = new SprClient({
       proofDataSource: "client",
       solanaRpcUrl: "http://127.0.0.1:8899",
       indexerUrl: "http://127.0.0.1:8784",
@@ -466,7 +466,7 @@ describe("a client proving from two trees", () => {
 
   it("asks a tree holding only padding for no state proofs", async () => {
     const fixture = twoTreeFixture();
-    const client = new ZolanaClient({
+    const client = new SprClient({
       proofDataSource: "client",
       solanaRpcUrl: "http://127.0.0.1:8899",
       indexerUrl: "http://127.0.0.1:8784",

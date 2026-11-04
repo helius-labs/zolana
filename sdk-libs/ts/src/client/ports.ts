@@ -243,7 +243,7 @@ export interface IndexedProofAuthority {
 /**
  * Proves inputs that are complete. What an in-process `ProofAuthority`
  * forwards to once it has filled the nullifier secrets in; the prover server
- * behind `ZolanaClient`.
+ * behind `SprClient`.
  */
 export interface ProofService {
   prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof>;

@@ -21,11 +21,11 @@ import {
   ShieldedKeypair,
   SigningKey,
   Wallet,
-  createZolanaClient,
+  createSprClient,
   syncWallet,
   type Bytes32,
 } from "../../src/index.js";
-import type { ZolanaClient } from "../../src/client/client.js";
+import type { SprClient } from "../../src/client/client.js";
 import type { IndexedShieldedTransaction } from "../../src/transaction/instructions/transact.js";
 import type { SyncWalletConfig } from "../../src/wallet/sync.js";
 
@@ -38,7 +38,7 @@ export interface Actor {
 }
 
 export interface LiveHarness {
-  readonly client: ZolanaClient;
+  readonly client: SprClient;
   readonly rpcUrl: string;
   readonly indexerUrl: string;
   readonly proverUrl: string;
@@ -56,7 +56,7 @@ function requiredEnv(name: string): string {
   return value;
 }
 
-export async function actor(client: ZolanaClient, seedByte: number): Promise<Actor> {
+export async function actor(client: SprClient, seedByte: number): Promise<Actor> {
   const seed = new Uint8Array(32).fill(seedByte) as Bytes32;
   const publicKey = ed25519.getPublicKey(seed);
   const signer = await createKeyPairSignerFromBytes(Uint8Array.of(...seed, ...publicKey));
@@ -91,7 +91,7 @@ export async function liveHarness(): Promise<LiveHarness> {
   const token2022Mint = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_MINT"));
   const testToken2022Account = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_ACCOUNT"));
   const testAuthority = await signerFromWalletFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"));
-  const client = await createZolanaClient({
+  const client = await createSprClient({
     solanaRpcUrl: rpcUrl,
     indexerUrl,
     proverUrl,
@@ -115,7 +115,7 @@ export async function liveHarness(): Promise<LiveHarness> {
 }
 
 export async function waitForSignature(
-  rpc: ZolanaClient["solanaRpc"],
+  rpc: SprClient["solanaRpc"],
   signature: Signature,
 ): Promise<void> {
   const deadline = Date.now() + 30_000;
@@ -136,7 +136,7 @@ export async function waitForSignature(
 }
 
 export async function signSendAndConfirm(
-  client: ZolanaClient,
+  client: SprClient,
   transaction: Transaction,
   signers: readonly (TransactionModifyingSigner | TransactionPartialSigner)[],
 ): Promise<Signature> {
@@ -149,7 +149,7 @@ export async function signSendAndConfirm(
   return signature;
 }
 
-export async function fund(client: ZolanaClient, ...actors: readonly Actor[]): Promise<void> {
+export async function fund(client: SprClient, ...actors: readonly Actor[]): Promise<void> {
   for (const owner of actors) {
     const signature = await client.solanaRpc
       .requestAirdrop(owner.signer.address, lamports(5_000_000_000n))
@@ -163,12 +163,12 @@ export async function fund(client: ZolanaClient, ...actors: readonly Actor[]): P
  * per-operation decision, so it is read at call time rather than baked into the
  * client's config.
  */
-export async function currentSlot(client: ZolanaClient): Promise<bigint> {
+export async function currentSlot(client: SprClient): Promise<bigint> {
   return BigInt(await client.solanaRpc.getSlot().send());
 }
 
 export async function sync(
-  client: ZolanaClient,
+  client: SprClient,
   owner: Actor,
   config: SyncWalletConfig = {},
 ): Promise<void> {
@@ -184,7 +184,7 @@ export async function sync(
 }
 
 export async function indexedTransaction(
-  client: ZolanaClient,
+  client: SprClient,
   signature: Signature,
 ): Promise<IndexedShieldedTransaction> {
   const response = await client.getShieldedTransactionsBySignature(
@@ -197,7 +197,7 @@ export async function indexedTransaction(
   throw new Error(`Photon did not return ${signature}`);
 }
 
-export async function tokenBalance(client: ZolanaClient, tokenAccount: Address): Promise<bigint> {
+export async function tokenBalance(client: SprClient, tokenAccount: Address): Promise<bigint> {
   const response = await client.solanaRpc.getTokenAccountBalance(tokenAccount).send();
   return BigInt(response.value.amount);
 }

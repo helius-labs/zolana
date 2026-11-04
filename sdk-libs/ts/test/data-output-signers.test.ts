@@ -1,7 +1,7 @@
 import { address, type Address } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { LocalKeys, ZolanaClient, type SpendProof } from "../src/client/index.js";
+import { LocalKeys, SprClient, type SpendProof } from "../src/client/index.js";
 import { mintAuthorizedPrivateTransaction } from "../src/client/ports.js";
 import { prepareTransfer, signerIdentity } from "../src/client/prover/assembly.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
@@ -172,7 +172,7 @@ describe("owners of outputs that carry data", () => {
       bodies.push({ ...body });
       return Response.json(proofFor(body));
     });
-    const client = new ZolanaClient({
+    const client = new SprClient({
       solanaRpcUrl: "http://127.0.0.1:8899",
       indexerUrl: "http://127.0.0.1:8784",
       proverUrl: "http://127.0.0.1:3001",

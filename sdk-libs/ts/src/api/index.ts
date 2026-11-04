@@ -61,18 +61,18 @@ export class ApiError extends Error {
   }
 }
 
-export interface ZolanaApiConfig {
+export interface SprApiConfig {
   readonly url: URL | string;
   readonly apiKey?: string;
   readonly fetch?: typeof globalThis.fetch;
 }
 
-export class ZolanaApi {
+export class SprApi {
   readonly #apiKey?: string;
   readonly #baseUrl: URL;
   readonly #fetch: typeof globalThis.fetch;
 
-  constructor(config: ZolanaApiConfig) {
+  constructor(config: SprApiConfig) {
     const parsed = parseConfig(config);
     this.#baseUrl = parsed.url;
     this.#fetch = parsed.fetch;

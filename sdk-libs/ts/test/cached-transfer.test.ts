@@ -1,7 +1,7 @@
 import { address, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
-import { ClientError, LocalKeys, ZolanaClient } from "../src/client/index.js";
+import { ClientError, LocalKeys, SprClient } from "../src/client/index.js";
 import { bigintToBytes, bytesField } from "../src/client/internal.js";
 import { assemble, transferPublicInputHash } from "../src/client/prover/assembly.js";
 import { assembleMergeWithProofs } from "../src/client/prover/merge.js";
@@ -783,8 +783,8 @@ function proverFetch(
 function client(
   fetch: typeof globalThis.fetch,
   proofDataSource: "client" | "prover" = "client",
-): ZolanaClient {
-  return new ZolanaClient({
+): SprClient {
+  return new SprClient({
     solanaRpcUrl: "http://127.0.0.1:8899",
     indexerUrl: "http://127.0.0.1:8784",
     proverUrl: "http://127.0.0.1:3001",
@@ -795,7 +795,7 @@ function client(
   });
 }
 
-describe("ZolanaClient.proveTransact reading from a cache", () => {
+describe("SprClient.proveTransact reading from a cache", () => {
   it.each(["client", "prover"] as const)(
     "fetches only a nullifier proof for a fully cached run with %s fetching",
     async (proofDataSource) => {

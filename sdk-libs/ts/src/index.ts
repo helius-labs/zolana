@@ -1,4 +1,4 @@
-import { ZolanaClient, type ZolanaClientConfig } from "./client/index.js";
+import { SprClient, type SprClientConfig } from "./client/index.js";
 import { initializePoseidon } from "./hasher/index.js";
 
 export type { ErrorEnvelope } from "./errors/internal.js";
@@ -11,9 +11,9 @@ export { initializePoseidon };
  * `solanaRpcUrl` is shared by all services unless a service-specific URL is
  * provided. Omitting all URLs uses the local stack ports.
  */
-export async function createZolanaClient(config: ZolanaClientConfig = {}): Promise<ZolanaClient> {
+export async function createSprClient(config: SprClientConfig = {}): Promise<SprClient> {
   await initializePoseidon();
-  return new ZolanaClient(config);
+  return new SprClient(config);
 }
 
 export {
@@ -26,7 +26,7 @@ export {
   type ProofAuthority,
   type ProofService,
   type WalletKeys,
-  type ZolanaClientConfig,
+  type SprClientConfig,
 } from "./client/index.js";
 export {
   MergeEncryptionScheme,

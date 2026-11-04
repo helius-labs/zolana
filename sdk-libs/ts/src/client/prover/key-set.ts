@@ -41,7 +41,7 @@ let issue: ((keys: ReadonlyMap<string, ProvingKeySetKey>) => ProvingKeySet) | un
 /**
  * The confidential signer and merge keys of one protocol release, read from
  * the `/proving-keys` answer of an attested prover by
- * `ZolanaClient.fetchProvingKeySet`. Only that call creates one. Pass it as
+ * `SprClient.fetchProvingKeySet`. Only that call creates one. Pass it as
  * `provingKeys` so every proof comes from these keys; a client holds one set
  * for its lifetime, so a rotation never mixes releases.
  */

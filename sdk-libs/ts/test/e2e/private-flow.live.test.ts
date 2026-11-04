@@ -21,7 +21,7 @@ import {
   buildSplitTransaction,
   buildTransferTransaction,
   buildWithdrawalTransaction,
-  createZolanaClient,
+  createSprClient,
   deserializeWallet,
   serializeWallet,
   syncWallet,
@@ -34,7 +34,7 @@ import {
 } from "../../src/index.js";
 import type { ApprovalHandler } from "../../src/transaction/wallet/intent.js";
 import { getAssociatedTokenAddress, getSplAssetVaultAddress } from "../../src/addresses.js";
-import type { ZolanaClient } from "../../src/client/client.js";
+import type { SprClient } from "../../src/client/client.js";
 import { compileUnsignedTransaction } from "../../src/flows/compile.js";
 import {
   getRegisterInstructionAsync,
@@ -121,7 +121,7 @@ function uniqueSigners(signers: readonly SolanaSigner[]): readonly SolanaSigner[
 
 async function deposit(
   input: Omit<DepositTransactionParams, "feePayer" | "depositor"> & {
-    readonly client: ZolanaClient;
+    readonly client: SprClient;
     readonly feePayer: SolanaSigner;
     readonly depositor?: SolanaSigner;
     readonly waitForIndexer?: boolean;
@@ -153,7 +153,7 @@ async function deposit(
 
 async function transfer(
   input: Omit<TransferTransactionParams, "feePayer"> & {
-    readonly client: ZolanaClient;
+    readonly client: SprClient;
     readonly feePayer: SolanaSigner;
     readonly skipPreflight?: boolean;
     readonly waitForIndexer?: boolean;
@@ -181,7 +181,7 @@ async function transfer(
 
 async function withdraw(
   input: Omit<WithdrawalTransactionParams, "feePayer"> & {
-    readonly client: ZolanaClient;
+    readonly client: SprClient;
     readonly feePayer: SolanaSigner;
     readonly skipPreflight?: boolean;
     readonly waitForIndexer?: boolean;
@@ -209,7 +209,7 @@ async function withdraw(
 
 async function split(
   input: Omit<SplitTransactionParams, "feePayer"> & {
-    readonly client: ZolanaClient;
+    readonly client: SprClient;
     readonly feePayer: SolanaSigner;
     readonly skipPreflight?: boolean;
     readonly waitForIndexer?: boolean;
@@ -236,7 +236,7 @@ async function split(
 
 async function registerIfAbsent(
   input: Readonly<{
-    client: ZolanaClient;
+    client: SprClient;
     funding: SolanaSigner;
     keypair: ShieldedKeypair;
   }>,
@@ -270,7 +270,7 @@ async function registerIfAbsent(
 
 async function setMergeEncryption(
   input: Readonly<{
-    client: ZolanaClient;
+    client: SprClient;
     owner: SolanaSigner;
     scheme: MergeEncryptionScheme;
   }>,
@@ -283,7 +283,7 @@ async function setMergeEncryption(
   return signSendAndConfirm(input.client, transaction, [input.owner]);
 }
 
-async function register(client: ZolanaClient, owner: Actor): Promise<void> {
+async function register(client: SprClient, owner: Actor): Promise<void> {
   await expect(
     registerIfAbsent({
       client,
@@ -837,7 +837,7 @@ describe("live SDK lifecycle", { concurrent: false }, () => {
       reachedProver = resolve;
     });
     const baseFetch = globalThis.fetch.bind(globalThis);
-    const abortingClient = await createZolanaClient({
+    const abortingClient = await createSprClient({
       solanaRpcUrl: harness.rpcUrl,
       indexerUrl: harness.indexerUrl,
       proverUrl: harness.proverUrl,

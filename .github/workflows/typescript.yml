@@ -54,13 +54,13 @@ jobs:
           kit_range="$(node -p "require('./sdk-libs/ts/package.json').peerDependencies['@solana/kit']")"
           npm --prefix "$tmp" install "$tarball" "@solana/kit@$kit_range" --ignore-scripts
           cat > "$tmp/smoke.mts" <<'TS'
-          import { createZolanaClient, type ZolanaClientConfig } from "@heliuslabs/spr";
-          const config: ZolanaClientConfig = {
+          import { createSprClient, type SprClientConfig } from "@heliuslabs/spr";
+          const config: SprClientConfig = {
             solanaRpcUrl: new URL("http://127.0.0.1:8899"),
             indexerUrl: undefined,
             proverUrl: undefined,
           };
-          await createZolanaClient(config);
+          await createSprClient(config);
           TS
           ./node_modules/.bin/tsc \
             --noEmit --strict --exactOptionalPropertyTypes --skipLibCheck \
@@ -77,7 +77,7 @@ jobs:
             ),
           );
           if (!sdk.buildTransferTransaction || !instructions.getDepositInstructionAsync) process.exit(1);
-          await sdk.createZolanaClient({
+          await sdk.createSprClient({
             solanaRpcUrl: "http://127.0.0.1:8899",
           });
           NODE

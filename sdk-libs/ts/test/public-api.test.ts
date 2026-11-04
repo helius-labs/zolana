@@ -30,7 +30,7 @@ import {
   buildKeyUpdateTransaction,
   buildRegistrationTransaction,
   buildSetMergeEncryptionTransaction,
-  createZolanaClient,
+  createSprClient,
 } from "../src/index.js";
 import {
   getAssociatedTokenAddress,
@@ -95,7 +95,7 @@ function onlyInstructionAccounts(transaction: Transaction) {
 
 describe("public package surface", () => {
   it("creates the default client and initializes protocol crypto", async () => {
-    const client = await createZolanaClient();
+    const client = await createSprClient();
     expect(client.tree).toBe(TREE);
     expect(client.commitment).toBe("confirmed");
     expect(client.solanaRpc).toBeDefined();
