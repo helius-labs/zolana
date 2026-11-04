@@ -902,3 +902,241 @@ fn merge_output_tree_defaults_to_the_first_inputs_latest_tree() {
         5
     );
 }
+
+mod ring_v2 {
+    use serde_json::Value;
+    use solana_address::Address;
+    use spr_hasher::primitives::solana_owner_identity;
+    use spr_keypair::{constants::BLINDING_LEN, NullifierKey, PublicKey, ViewingKey};
+    use spr_transaction::{
+        instructions::merge::{MergeOutputPlaintext, MergeRail, MergeSeed, MergeTransaction},
+        utxo::Utxo,
+        Data, Mint, TransactionError, WalletUtxo,
+    };
+
+    fn vector() -> Value {
+        serde_json::from_str(include_str!("../../../test-vectors/merge_ring_v2.json")).unwrap()
+    }
+
+    fn field(value: &Value) -> [u8; 32] {
+        hex::decode(value.as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap()
+    }
+
+    const RING: Address = Address::new_from_array([0x0b; 32]);
+
+    #[test]
+    fn seed_derivations_match_the_shared_vector() {
+        let vector = vector();
+        let first_nullifier = field(&vector["first_nullifier"]);
+        let viewing_key = ViewingKey::from_bytes(&field(&vector["viewing_secret"]));
+        let seed = MergeSeed::derive(&viewing_key, &RING, &first_nullifier).unwrap();
+        assert_eq!(seed.as_bytes(), &field(&vector["merge_seed"]));
+        assert_eq!(
+            seed.output_blinding(&first_nullifier).unwrap(),
+            field(&vector["output_blinding"])
+        );
+        assert_eq!(
+            seed.output_key(&first_nullifier).unwrap(),
+            field(&vector["output_key"])
+        );
+        assert_eq!(
+            seed.private_tx_blinding(&first_nullifier).unwrap(),
+            field(&vector["private_tx_blinding"])
+        );
+        assert_eq!(
+            seed.dummy_nullifier(
+                &first_nullifier,
+                vector["dummy_slot_index"].as_u64().unwrap() as u8
+            )
+            .unwrap(),
+            field(&vector["dummy_nullifier"])
+        );
+        let salt: [u8; 16] = hex::decode(vector["output_ciphertext_salt"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let ciphertext = MergeOutputPlaintext {
+            amount: vector["output_amount"].as_u64().unwrap(),
+            mint: Address::new_from_array(field(&vector["output_mint"])),
+        }
+        .encrypt(&seed.output_key(&first_nullifier).unwrap(), &salt)
+        .unwrap();
+        for (index, element) in ciphertext.iter().enumerate() {
+            assert_eq!(element, &field(&vector["output_ciphertext"][index]));
+        }
+    }
+
+    #[test]
+    fn a_seed_from_a_record_must_be_a_nonzero_field_element() {
+        assert!(matches!(
+            MergeSeed::from_bytes([0; 32]),
+            Err(TransactionError::InvalidMergeSeed)
+        ));
+        assert!(matches!(
+            MergeSeed::from_bytes([0xff; 32]),
+            Err(TransactionError::InvalidMergeSeed)
+        ));
+        assert!(MergeSeed::from_bytes(field(&vector()["merge_seed"])).is_ok());
+    }
+
+    #[test]
+    fn the_seed_follows_the_viewing_key_and_the_first_nullifier() {
+        let vector = vector();
+        let first_nullifier = field(&vector["first_nullifier"]);
+        let key = ViewingKey::from_bytes(&field(&vector["viewing_secret"]));
+        let seed = MergeSeed::derive(&key, &RING, &first_nullifier).unwrap();
+        let other = ViewingKey::from_bytes(&[9; 32]);
+        assert_ne!(
+            MergeSeed::derive(&other, &RING, &first_nullifier)
+                .unwrap()
+                .as_bytes(),
+            seed.as_bytes()
+        );
+        assert_ne!(
+            MergeSeed::derive(&key, &RING, &[8; 32]).unwrap().as_bytes(),
+            seed.as_bytes()
+        );
+        let other_ring = Address::new_from_array([0x0c; 32]);
+        assert_ne!(
+            MergeSeed::derive(&key, &other_ring, &first_nullifier)
+                .unwrap()
+                .as_bytes(),
+            seed.as_bytes()
+        );
+    }
+
+    #[test]
+    fn zero_key_derivations_resist_the_secret_zero_guess() {
+        let zero = MergeSeed::from_nullifier_key(&NullifierKey::from_secret([0; BLINDING_LEN]));
+        let vector = vector();
+        let first_nullifier = field(&vector["first_nullifier"]);
+        let seed = MergeSeed::from_bytes(field(&vector["merge_seed"])).unwrap();
+        assert_ne!(
+            zero.output_blinding(&first_nullifier).unwrap(),
+            seed.output_blinding(&first_nullifier).unwrap()
+        );
+        assert_ne!(
+            zero.output_key(&first_nullifier).unwrap(),
+            seed.output_key(&first_nullifier).unwrap()
+        );
+        assert_ne!(
+            zero.private_tx_blinding(&first_nullifier).unwrap(),
+            seed.private_tx_blinding(&first_nullifier).unwrap()
+        );
+        assert_ne!(
+            zero.dummy_nullifier(&first_nullifier, 2).unwrap(),
+            seed.dummy_nullifier(&first_nullifier, 2).unwrap()
+        );
+    }
+
+    fn zero_key_note(owner: PublicKey, nonce: u8) -> WalletUtxo {
+        let key = NullifierKey::from_secret([0; BLINDING_LEN]);
+        let nullifier_pubkey = key.pubkey().unwrap();
+        let utxo = Utxo {
+            owner,
+            asset: Mint::SOL,
+            amount: 10,
+            blinding: [nonce; 32],
+            ring_program_id: Some(RING),
+            data: Data::default(),
+        };
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], 3).unwrap();
+        WalletUtxo {
+            nullifier: key.nullifier(&utxo_hash, &utxo.blinding).unwrap(),
+            utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            tx_viewing_key: None,
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id: 3,
+            leaf_index: u64::from(nonce),
+            latest_tree_id: None,
+            slot: 0,
+            tx_signature: Default::default(),
+            slot_index: 0,
+        }
+    }
+
+    fn zero_key_owner(owner: PublicKey, viewing_key: &ViewingKey) -> spr_keypair::ShieldedAddress {
+        spr_keypair::ShieldedAddress {
+            signing_pubkey: owner,
+            nullifier_pubkey: NullifierKey::from_secret([0; BLINDING_LEN])
+                .pubkey()
+                .unwrap(),
+            viewing_pubkey: viewing_key.pubkey(),
+        }
+    }
+
+    #[test]
+    fn a_zero_key_merge_opens_from_the_seed_alone() {
+        let owner = PublicKey::from_pda(&Address::new_from_array([0x2a; 32]));
+        let viewing_key = ViewingKey::new();
+        let notes = vec![zero_key_note(owner, 1), zero_key_note(owner, 2)];
+        let first_nullifier = notes[0].nullifier;
+        let seed = MergeSeed::derive(&viewing_key, &RING, &first_nullifier).unwrap();
+        let merge = MergeTransaction::new_ring_v2(notes, RING, None)
+            .unwrap()
+            .encrypt_zero_key(&zero_key_owner(owner, &viewing_key), seed)
+            .unwrap();
+        assert!(matches!(merge.rail, MergeRail::RingV2ZeroKey(_)));
+        // SPP compares the signer's identity with the hash the proof publishes.
+        assert_eq!(
+            owner.owner_proof_input_hash().unwrap(),
+            solana_owner_identity(&[0x2a; 32]).unwrap()
+        );
+
+        let recovered = MergeSeed::derive(&viewing_key, &RING, &first_nullifier).unwrap();
+        let mut body = Vec::from(merge.output_ciphertext_salt);
+        body.extend_from_slice(merge.output_ciphertext.as_flattened());
+        let plaintext =
+            MergeOutputPlaintext::decrypt(&body, &recovered.output_key(&first_nullifier).unwrap())
+                .unwrap();
+        assert_eq!(plaintext.amount, 20);
+        assert_eq!(
+            merge.output_utxo.blinding,
+            recovered.output_blinding(&first_nullifier).unwrap()
+        );
+        assert_eq!(
+            merge.input_utxos[7].nullifier,
+            recovered.dummy_nullifier(&first_nullifier, 7).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_zero_key_merge_refuses_another_owner_key_and_a_default_ring_merge() {
+        let owner = PublicKey::from_pda(&Address::new_from_array([0x2a; 32]));
+        let viewing_key = ViewingKey::new();
+        let seed = || MergeSeed::from_bytes(field(&vector()["merge_seed"])).unwrap();
+        let mut address = zero_key_owner(owner, &viewing_key);
+        address.nullifier_pubkey = [5; 32];
+        assert!(matches!(
+            MergeTransaction::new_ring_v2(vec![zero_key_note(owner, 1)], RING, None)
+                .unwrap()
+                .encrypt_zero_key(&address, seed()),
+            Err(TransactionError::MergeInputNullifierKeyMismatch { .. })
+        ));
+        assert!(matches!(
+            MergeTransaction::new(vec![super::wallet_utxo(
+                &super::keypair(1),
+                Mint::SOL,
+                2,
+                0,
+                1
+            )])
+            .unwrap()
+            .encrypt_zero_key(&zero_key_owner(owner, &viewing_key), seed()),
+            Err(TransactionError::ZeroKeyMergeWithoutRing)
+        ));
+        let other = PublicKey::from_pda(&Address::new_from_array([0x2b; 32]));
+        assert!(matches!(
+            MergeTransaction::new_ring_v2(vec![zero_key_note(owner, 1)], RING, None)
+                .unwrap()
+                .encrypt_zero_key(&zero_key_owner(other, &viewing_key), seed()),
+            Err(TransactionError::MergeInputOwnerMismatch { .. })
+        ));
+    }
+}

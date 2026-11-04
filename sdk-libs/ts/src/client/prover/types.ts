@@ -113,6 +113,13 @@ export interface MergeInputs {
   readonly publicInputHash: Field;
   readonly outputRingDataHash: Field;
   readonly ringProgramId: Field;
+  /** Present on `merge_ring_v2` alone. */
+  readonly ringV2?: MergeRingV2Inputs;
+}
+
+export interface MergeRingV2Inputs {
+  readonly mergeSeed: Field;
+  readonly publishedOwner: Field;
 }
 
 /**

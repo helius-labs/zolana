@@ -34,7 +34,6 @@ const (
 	// to the default merge.
 	MergeRingCircuitType CircuitType = "merge-ring"
 
-	// MergeRingV2CircuitType is the policy-ring merge with a proven output
-	// ciphertext and zero-key support, used by merge_ring_v2.
+	// MergeRingV2CircuitType proves the output ciphertext and admits zero-key notes.
 	MergeRingV2CircuitType CircuitType = "merge-ring-v2"
 )

@@ -34,8 +34,6 @@ func R1CSMergeRing(nInputs int) (constraint.ConstraintSystem, error) {
 	)
 }
 
-// R1CSMergeRingV2 compiles the merge_ring_v2 circuit under the same compression
-// threshold.
 func R1CSMergeRingV2(nInputs int) (constraint.ConstraintSystem, error) {
 	return frontend.Compile(
 		ecc.BN254.ScalarField(),

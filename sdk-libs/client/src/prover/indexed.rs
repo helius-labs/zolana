@@ -66,6 +66,7 @@ pub enum IndexedCircuit {
     TransferConfidentialEddsa,
     Merge,
     MergeRing,
+    MergeRingV2,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -139,7 +140,7 @@ impl IndexedProofRequest {
             return Err(invalid());
         }
         match metadata.circuit_type {
-            IndexedCircuit::Merge | IndexedCircuit::MergeRing => {
+            IndexedCircuit::Merge | IndexedCircuit::MergeRing | IndexedCircuit::MergeRingV2 => {
                 if !MERGE_SUPPORTED_INPUT_COUNTS.contains(&metadata.inputs.len()) {
                     return Err(invalid());
                 }
@@ -194,10 +195,12 @@ impl IndexedProofRequest {
                 return Err(invalid());
             }
             let (flag, real) = match metadata.circuit_type {
-                IndexedCircuit::Merge | IndexedCircuit::MergeRing => (
-                    input.domain.as_deref().ok_or_else(invalid)?,
-                    right_align_slice(&spr_interface::UTXO_DOMAIN.to_be_bytes())?,
-                ),
+                IndexedCircuit::Merge | IndexedCircuit::MergeRing | IndexedCircuit::MergeRingV2 => {
+                    (
+                        input.domain.as_deref().ok_or_else(invalid)?,
+                        right_align_slice(&spr_interface::UTXO_DOMAIN.to_be_bytes())?,
+                    )
+                }
                 _ => (input.is_dummy.as_deref().ok_or_else(invalid)?, [0; 32]),
             };
             let flag = decode_field(flag).map_err(|_| invalid())?;
@@ -218,6 +221,7 @@ impl IndexedProofRequest {
                             | IndexedCircuit::TransferRingAuthorityExit
                             | IndexedCircuit::Merge
                             | IndexedCircuit::MergeRing
+                            | IndexedCircuit::MergeRingV2
                     ))
             {
                 return Err(invalid());
@@ -287,6 +291,7 @@ impl IndexedProofRequest {
             }
             IndexedCircuit::Merge => ExpectedProvingKey::merge(n_inputs)?,
             IndexedCircuit::MergeRing => ExpectedProvingKey::merge_ring(n_inputs)?,
+            IndexedCircuit::MergeRingV2 => ExpectedProvingKey::merge_ring_v2(n_inputs)?,
         };
         Ok(Self {
             data,
@@ -442,6 +447,9 @@ impl IndexedCircuit {
             // The prefix without the tree hash and the ring tail; the ring
             // merge proof binds no ciphertext.
             Self::MergeRing => 8,
+            // The prefix without the tree hash, the ring tail, the published
+            // owner, the ciphertext salt and the three ciphertext elements.
+            Self::MergeRingV2 => 13,
         }
     }
 }

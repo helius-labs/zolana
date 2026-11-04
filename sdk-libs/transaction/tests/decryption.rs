@@ -1098,6 +1098,34 @@ fn merge_outputs_decrypt_from_the_batch_in_any_order() {
 }
 
 #[test]
+fn a_nonzero_key_ring_v2_merge_decrypts_under_the_proven_encoding() {
+    let owner = keypair(59);
+    let assets = AssetRegistry::default();
+    let ring = Address::new_from_array([0x0b; 32]);
+    let mut note = wallet_utxo(&owner, Mint::SOL, 30, 3, 1);
+    note.utxo.ring_program_id = Some(ring);
+    note.utxo_hash = note
+        .utxo
+        .hash(&note.nullifier_pubkey, &[0; 32], &[0; 32], note.tree_id)
+        .unwrap();
+    note.nullifier = owner
+        .nullifier(&note.utxo_hash, &note.utxo.blinding)
+        .unwrap();
+    let ring_data_hash = [7u8; 32];
+    let (mut merge, merged) = merge_publication(&owner, &[&note], 10, Some(ring_data_hash));
+    let slot = merge.output_slots.first_mut().unwrap();
+    let OutputDataEncoding::Encrypted(blob) =
+        borsh::from_slice::<OutputDataEncoding>(&slot.payload).unwrap()
+    else {
+        panic!("merge_ring publishes Encrypted");
+    };
+    slot.payload = borsh::to_vec(&OutputDataEncoding::VerifiablyEncrypted(blob)).unwrap();
+
+    let decrypted = decrypt(&owner, std::slice::from_ref(&merge), &assets).unwrap();
+    assert_eq!(decrypted.utxos, vec![merged]);
+}
+
+#[test]
 fn a_merge_decrypts_from_its_own_transaction() {
     let owner = keypair(47);
     let assets = AssetRegistry::default();

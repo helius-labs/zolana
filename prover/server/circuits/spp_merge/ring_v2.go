@@ -7,13 +7,8 @@ import (
 	mergeshared "github.com/helius-labs/zolana/prover/server/circuits/spp_merge/shared"
 )
 
-// RingV2Circuit is the policy-ring merge with a proven output ciphertext and
-// zero-key support. A zero nullifier secret selects zero-key mode.
-//
-// Nonzero key: the seed is the nullifier secret and PublishedOwner is zero, so
-// the owner stays hidden. Zero key: every note opening computes the nullifier,
-// so the seed is the private MergeSeed and PublishedOwner is OwnerPkHash, which
-// SPP compares with a signer. That check is the merge authorization.
+// RingV2Circuit under a zero nullifier secret has no spend secret, so SPP's signer
+// check on PublishedOwner is the merge authorization.
 type RingV2Circuit struct {
 	NumInputs int `gnark:"-"`
 
@@ -25,15 +20,13 @@ type RingV2Circuit struct {
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
-	// MergeSeed is read only under a zero nullifier secret.
-	MergeSeed frontend.Variable
+	MergeSeed           frontend.Variable
 
 	mergeshared.CommonPublicInputs
 
 	OutputRingDataHash frontend.Variable
 	RingProgramID      frontend.Variable
-	// PublishedOwner is OwnerPkHash under a zero key and zero otherwise.
-	PublishedOwner frontend.Variable
+	PublishedOwner     frontend.Variable
 	// OutputCiphertextSalt is 16 bytes of instruction data, canonical without a
 	// range check.
 	OutputCiphertextSalt frontend.Variable
@@ -41,8 +34,6 @@ type RingV2Circuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
-// NewMergeRingV2Circuit allocates the circuit for n input slots. One proving
-// system exists per supported count, Define rejects any other.
 func NewMergeRingV2Circuit(n int) *RingV2Circuit {
 	return &RingV2Circuit{
 		NumInputs:          n,

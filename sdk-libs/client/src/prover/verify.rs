@@ -135,6 +135,14 @@ impl MergeProofStatement {
         .verify(proof)
     }
 
+    /// Refused until the rotation pins the `merge_ring_v2` keys.
+    pub fn verify_ring_v2(self, _proof: &Proof) -> Result<(), ClientError> {
+        Err(ClientError::UnsupportedShape {
+            n_in: self.n_inputs,
+            n_out: 1,
+        })
+    }
+
     pub fn verify(self, proof: &Proof) -> Result<(), ClientError> {
         StatementVerification {
             verifying_key: merge_verifying_key(self.n_inputs)?,

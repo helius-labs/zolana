@@ -867,6 +867,10 @@ impl AsyncProverClient {
         self.prove(&requests::merge_ring(inputs)?).await
     }
 
+    pub async fn prove_merge_ring_v2(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
+        self.prove(&requests::merge_ring_v2(inputs)?).await
+    }
+
     pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::transfer_ring(inputs)?).await
     }

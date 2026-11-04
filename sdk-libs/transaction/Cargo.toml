@@ -16,6 +16,7 @@ spr-interface = { workspace = true }
 spr-event = { workspace = true }
 spr-hasher = { workspace = true }
 spr-keypair = { workspace = true }
+zeroize = { workspace = true }
 spr-instruction = { workspace = true }
 borsh = { workspace = true }
 thiserror = { workspace = true }

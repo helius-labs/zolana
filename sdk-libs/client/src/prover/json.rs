@@ -307,6 +307,10 @@ pub(crate) struct MergeParametersJson {
         skip_serializing_if = "Option::is_none"
     )]
     pub output_ciphertext_salt: Option<String>,
+    #[serde(rename = "mergeSeed", skip_serializing_if = "Option::is_none")]
+    pub merge_seed: Option<String>,
+    #[serde(rename = "publishedOwner", skip_serializing_if = "Option::is_none")]
+    pub published_owner: Option<String>,
     #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
@@ -366,7 +370,12 @@ fn merge_output_to_json(output: &TransferOutput) -> MergeOutputParamsJson {
     }
 }
 
-fn merge_params_json(inputs: &MergeInputs, circuit_type: &str, ring: bool) -> String {
+fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
+    let (salt, seeded) = match circuit_type {
+        "merge" => (true, false),
+        "merge-ring-v2" => (true, true),
+        _ => (false, false),
+    };
     let json = MergeParametersJson {
         circuit_type: circuit_type.to_string(),
         inputs: inputs.inputs.iter().map(merge_input_to_json).collect(),
@@ -374,7 +383,9 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str, ring: bool) -> St
         tree_slots: tree_slots_to_json(&inputs.tree_slots),
         output_tree_id: big_uint_to_string(&inputs.output_tree_id),
         mint_chunks: inputs.mint_chunks.iter().map(big_uint_to_string).collect(),
-        output_ciphertext_salt: (!ring).then(|| big_uint_to_string(&inputs.output_ciphertext_salt)),
+        output_ciphertext_salt: salt.then(|| big_uint_to_string(&inputs.output_ciphertext_salt)),
+        merge_seed: seeded.then(|| big_uint_to_string(&inputs.merge_seed)),
+        published_owner: seeded.then(|| big_uint_to_string(&inputs.published_owner)),
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
         user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
@@ -390,13 +401,17 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str, ring: bool) -> St
 
 /// Serialize the default merge witness to the prover server's JSON request body.
 pub(crate) fn to_json_merge(inputs: &MergeInputs) -> String {
-    merge_params_json(inputs, "merge", false)
+    merge_params_json(inputs, "merge")
 }
 
 /// Serialize the policy-ring merge witness; the prover server routes `"merge-ring"`
 /// to the merge-ring circuit and reads the top-level `ringProgramId`.
 pub(crate) fn to_json_merge_ring(inputs: &MergeInputs) -> String {
-    merge_params_json(inputs, "merge-ring", true)
+    merge_params_json(inputs, "merge-ring")
+}
+
+pub(crate) fn to_json_merge_ring_v2(inputs: &MergeInputs) -> String {
+    merge_params_json(inputs, "merge-ring-v2")
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -645,9 +660,19 @@ mod merge_tests {
             public_input_hash: BigUint::from(8u8),
             output_ring_data_hash: BigUint::ZERO,
             ring_program_id: BigUint::ZERO,
+            merge_seed: BigUint::from(9u8),
+            published_owner: BigUint::from(10u8),
         };
 
+        let v2: serde_json::Value = serde_json::from_str(&to_json_merge_ring_v2(&inputs)).unwrap();
+        assert_eq!(v2["circuitType"], "merge-ring-v2");
+        assert_eq!(v2["mergeSeed"], "0x9");
+        assert_eq!(v2["publishedOwner"], "0xa");
+        assert_eq!(v2["outputCiphertextSalt"], "0x5a17");
+
         let value: serde_json::Value = serde_json::from_str(&to_json_merge(&inputs)).unwrap();
+        assert!(value.get("mergeSeed").is_none());
+        assert!(value.get("publishedOwner").is_none());
         assert_eq!(value["circuitType"], "merge");
         for key in [
             "inputs",

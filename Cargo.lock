@@ -10790,6 +10790,7 @@ dependencies = [
  "tsify",
  "wasm-bindgen",
  "wincode",
+ "zeroize",
 ]
 
 [[package]]

@@ -8,10 +8,8 @@ import (
 	transaction "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
-// ConstrainSeeded proves the merge statement with every derived output and
-// padding value keyed on seed, and every input nullifier keyed on
-// UserNullifierSecret. A note opening reveals its secret when that secret is
-// zero, so the two roles stay apart.
+// ConstrainSeeded keys input nullifiers on UserNullifierSecret and derived values
+// on seed, since a note opening reveals a zero secret.
 func (t Transaction) ConstrainSeeded(api frontend.API, seed frontend.Variable) Derived {
 	userOwnerHash := gadget.PoseidonHash(
 		api,

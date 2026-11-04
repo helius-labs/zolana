@@ -683,8 +683,11 @@ export function mergeProverRequestBody(inputs: MergeInputs): ProverRequestBody {
   return mergeProverRequest(inputs, pendingSecret);
 }
 
-/** A merge inside a custom ring is proven by the `merge-ring` circuit. */
-function mergeCircuit(inputs: MergeInputs | PreparedMergeInputs): "merge" | "merge-ring" {
+/** A merge inside a custom ring is proven by a `merge-ring` circuit. */
+function mergeCircuit(
+  inputs: MergeInputs | PreparedMergeInputs,
+): "merge" | "merge-ring" | "merge-ring-v2" {
+  if (inputs.ringV2 !== undefined) return "merge-ring-v2";
   return BigInt(inputs.ringProgramId) === 0n ? "merge" : "merge-ring";
 }
 
@@ -708,9 +711,15 @@ function mergeProverRequest(
     mintChunks: inputs.mintChunks.map((chunk) => hex(chunk, "mintChunks")),
     // The merge-ring circuit binds no ciphertext, and the prover refuses a
     // salt on a merge-ring request.
-    ...(circuitType === "merge"
-      ? { outputCiphertextSalt: hex(inputs.outputCiphertextSalt, "outputCiphertextSalt") }
-      : {}),
+    ...(circuitType === "merge-ring"
+      ? {}
+      : { outputCiphertextSalt: hex(inputs.outputCiphertextSalt, "outputCiphertextSalt") }),
+    ...(inputs.ringV2 === undefined
+      ? {}
+      : {
+          mergeSeed: secret(inputs.ringV2.mergeSeed, "mergeSeed"),
+          publishedOwner: hex(inputs.ringV2.publishedOwner, "publishedOwner"),
+        }),
     ownerPkHash: hex(inputs.ownerPublicKeyHash, "ownerPkHash"),
     userNullifierPk: hex(inputs.userNullifierPublicKey, "userNullifierPk"),
     userNullifierSecret: secret(inputs.userNullifierSecret, "userNullifierSecret"),

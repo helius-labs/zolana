@@ -282,9 +282,10 @@ describe("merge output data", () => {
       ringDataHash,
       encrypted: plainBody,
     });
+    // A `merge_ring_v2` proof binds the ciphertext after the hash.
     expect(
       readMergeOutputBody(encodeOutputData(EncryptedScheme.merge, ringBody, "verifiable")),
-    ).toBeUndefined();
+    ).toEqual({ ringDataHash, encrypted: plainBody });
     expect(
       readMergeOutputBody(encodeOutputData(EncryptedScheme.merge, plainBody, "encrypted")),
     ).toBeUndefined();

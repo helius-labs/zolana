@@ -85,8 +85,9 @@ export function encryptedSchemeToByte(scheme: EncryptedScheme): number {
 
 /**
  * The encoding a merge output slot is published with: `"verifiable"` for a
- * default merge, whose proof binds the ciphertext, and `"encrypted"` for a ring
- * merge, whose proof does not. Rust `encode_merge_output_data`.
+ * default merge or `merge_ring_v2`, whose proofs bind the ciphertext, and
+ * `"encrypted"` for `merge_ring`, whose proof does not. Rust
+ * `encode_merge_output_data`.
  */
 export function mergeOutputDataEncoding(ringMerge: boolean): OutputDataEncoding {
   return ringMerge ? "encrypted" : "verifiable";

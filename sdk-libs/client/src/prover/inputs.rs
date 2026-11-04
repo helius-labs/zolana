@@ -91,8 +91,8 @@ pub struct MergeInputs {
     /// The `hash_bytes_32` chunks of the merged mint; the circuit derives the
     /// asset from them and encrypts them for the owner.
     pub mint_chunks: [BigUint; 2],
-    /// Per-proof pad nonce of the output ciphertext, a public input of the
-    /// default merge only; the merge-ring request omits it.
+    /// Per-proof pad nonce of the output ciphertext. The merge-ring request
+    /// omits it.
     pub output_ciphertext_salt: BigUint,
     /// Shared owner identity: `owner_pk_hash` carries the owner's pk_field on
     /// both owner rails.
@@ -112,6 +112,10 @@ pub struct MergeInputs {
     /// Policy-ring merge only: the ring program's `pk_field`, the merge-ring
     /// circuit's top-level public input. `0` for the default merge.
     pub ring_program_id: BigUint,
+    /// Keys the derivations under the zero key on `merge_ring_v2`, else `0`.
+    pub merge_seed: BigUint,
+    /// `owner_pk_hash` under the zero key on `merge_ring_v2`, else `0`.
+    pub published_owner: BigUint,
 }
 
 /// Flat witness for the batch address-append circuit used by the nullifier tree

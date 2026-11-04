@@ -8,12 +8,12 @@ use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::{
-            merge_ring::MergeRingIxData,
+            merge_ring::{MergeRingAuthority, MergeRingIxData, MergeRingV2IxData},
             merge_transact::{
                 MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeTransactIxData,
             },
         },
-        tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
+        tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT, RING_MERGE_V2},
     },
     state::cache::CACHE_CAPACITY,
     tree_slot::tree_slots_hash_chain,
@@ -21,8 +21,7 @@ use spr_interface::{
 use spr_keypair::{viewing_key::Salt, NullifierKey};
 use spr_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
-        MergeOutputCiphertext, MergeOutputPlaintext, MergeProofInputs,
+        MergeOutputCiphertext, MergeOutputPlaintext, MergeProofInputs, MergeRail, MergeSeed,
         MERGE_SUPPORTED_INPUT_COUNTS,
     },
     utxo::program_id_proof_input_hash,
@@ -81,6 +80,7 @@ pub struct MergeProofResult {
     pub output_ring_data_hash: [u8; 32],
     pub output_ciphertext_salt: Salt,
     pub output_ciphertext: MergeOutputCiphertext,
+    pub rail: MergeRail,
 }
 
 impl MergeProofResult {
@@ -115,15 +115,98 @@ impl MergeProofResult {
             merge: self.instruction_data(proof),
         }
     }
+
+    /// The caller passes a zero-key merge's owner signer to the `MergeRingV2` builder.
+    pub fn ring_v2_instruction_data(&self, proof: MergeProof) -> MergeRingV2IxData {
+        MergeRingV2IxData {
+            output_ring_data_hash: self.output_ring_data_hash,
+            authority: rail_authority(&self.rail),
+            merge: self.instruction_data(proof),
+        }
+    }
+}
+
+/// Read by `merge_ring_v2` alone.
+pub(crate) fn rail_authority(rail: &MergeRail) -> MergeRingAuthority {
+    match rail {
+        MergeRail::RingV2ZeroKey(_) => MergeRingAuthority::OwnerSigned,
+        MergeRail::Classic | MergeRail::RingV2 => MergeRingAuthority::Ring,
+    }
+}
+
+/// The SPP instruction whose discriminator domain-separates the external data
+/// hash, one per circuit.
+pub(crate) fn merge_instruction_tag(merge: &MergeProofInputs) -> u8 {
+    match (&merge.rail, merge.ring_program_id) {
+        (MergeRail::RingV2 | MergeRail::RingV2ZeroKey(_), _) => RING_MERGE_V2,
+        (MergeRail::Classic, Some(_)) => RING_MERGE_TRANSACT,
+        (MergeRail::Classic, None) => MERGE_TRANSACT,
+    }
+}
+
+/// The hash a zero-key proof publishes for SPP to compare with its signer.
+pub(crate) fn published_owner(rail: &MergeRail, owner_pk_hash: [u8; 32]) -> [u8; 32] {
+    match rail {
+        MergeRail::RingV2ZeroKey(_) => owner_pk_hash,
+        MergeRail::Classic | MergeRail::RingV2 => [0; 32],
+    }
+}
+
+pub(crate) struct MergeTail {
+    pub signing_key_hash: [u8; 32],
+    pub nullifier_public_key: [u8; 32],
+    pub output_ring_data_hash: [u8; 32],
+    pub ring_program_hash: [u8; 32],
+}
+
+impl MergeTail {
+    pub(crate) fn binding(self, merge: &MergeProofInputs) -> MergePublicInputBinding {
+        let output_encryption = MergeOutputEncryption::PoseidonCtrV1 {
+            salt: merge.output_ciphertext_salt,
+            ciphertext: merge.output_ciphertext,
+        };
+        match (&merge.rail, merge.ring_program_id) {
+            (MergeRail::RingV2 | MergeRail::RingV2ZeroKey(_), _) => {
+                MergePublicInputBinding::RingV2 {
+                    output_data_hash: self.output_ring_data_hash,
+                    program_id_hash: self.ring_program_hash,
+                    published_owner: published_owner(&merge.rail, self.signing_key_hash),
+                    output_encryption,
+                }
+            }
+            (MergeRail::Classic, Some(_)) => MergePublicInputBinding::Ring {
+                output_data_hash: self.output_ring_data_hash,
+                program_id_hash: self.ring_program_hash,
+            },
+            (MergeRail::Classic, None) => MergePublicInputBinding::Owner {
+                signing_key_hash: self.signing_key_hash,
+                nullifier_public_key: self.nullifier_public_key,
+                output_encryption,
+            },
+        }
+    }
+}
+
+/// The circuit selects its mode from the secret, so a rail under the other key
+/// cannot be proven.
+pub(crate) fn check_rail_key(
+    rail: &MergeRail,
+    nullifier_key: &NullifierKey,
+) -> Result<(), ClientError> {
+    let zero_secret = nullifier_key.secret().iter().all(|byte| *byte == 0);
+    if zero_secret != matches!(rail, MergeRail::RingV2ZeroKey(_)) {
+        return Err(ClientError::MergeNullifierKeyMismatch);
+    }
+    Ok(())
 }
 
 /// Refuses a merge whose ciphertext does not encrypt its output's amount and
-/// mint under the owner's per-merge key. The circuit binds the ciphertext it
+/// mint under the per-merge key. The circuit binds the ciphertext it
 /// computes, so such a request could not be proven; this names the mismatch
 /// before the prover round trip.
 pub(crate) fn check_output_ciphertext(
     merge: &MergeProofInputs,
-    nullifier_key: &NullifierKey,
+    seed: &MergeSeed,
     first_nullifier: &[u8; 32],
 ) -> Result<(), ClientError> {
     let expected = MergeOutputPlaintext {
@@ -131,7 +214,7 @@ pub(crate) fn check_output_ciphertext(
         mint: merge.output_utxo.asset.asset,
     }
     .encrypt(
-        &merge_output_key(nullifier_key, first_nullifier)?,
+        &seed.output_key(first_nullifier)?,
         &merge.output_ciphertext_salt,
     )?;
     if merge.output_ciphertext != expected {
@@ -151,6 +234,8 @@ impl MergeProver {
             });
         }
         tx.check_padding()?;
+        check_rail_key(&tx.rail, &self.nullifier_key)?;
+        let seed = tx.seed(&self.nullifier_key);
         let first = tx
             .input_utxos
             .first()
@@ -166,9 +251,7 @@ impl MergeProver {
                     got: n_inputs,
                     max: usize::from(u8::MAX),
                 })?;
-                if input.nullifier
-                    != merge_dummy_nullifier(&self.nullifier_key, &first_nullifier, slot)?
-                {
+                if input.nullifier != seed.dummy_nullifier(&first_nullifier, slot)? {
                     return Err(ClientError::InputNullifierMismatch { index });
                 }
                 continue;
@@ -210,19 +293,31 @@ impl MergeProver {
         {
             return Err(ClientError::MergeOutputMismatch);
         }
-        if output.blinding != merge_output_blinding(&self.nullifier_key, &first_nullifier)? {
+        if output.blinding != seed.output_blinding(&first_nullifier)? {
             return Err(ClientError::OutputBlindingMismatch { index: 0 });
         }
-        check_output_ciphertext(tx, &self.nullifier_key, &first_nullifier)?;
+        check_output_ciphertext(tx, &seed, &first_nullifier)?;
+        let spp_instruction_discriminator = merge_instruction_tag(tx);
+        let user_signing_pk_hash = tx.signing_pubkey.owner_proof_input_hash()?;
+        let output_ring_data_hash = tx.output_utxo.ring_data_hash.unwrap_or_default();
+        let ring_hash = program_id_proof_input_hash(&tx.ring_program_id)?;
+        let binding = MergeTail {
+            signing_key_hash: user_signing_pk_hash,
+            nullifier_public_key: nullifier_pubkey,
+            output_ring_data_hash,
+            ring_program_hash: ring_hash,
+        }
+        .binding(tx);
         let MergeProofInputs {
             input_utxos,
             output_utxo,
             expiry_unix_ts,
-            signing_pubkey,
             output_tree_id,
             ring_program_id,
             output_ciphertext_salt,
             output_ciphertext,
+            rail,
+            ..
         } = self.transaction;
         let [mint_chunk_0, mint_chunk_1] = pack_be::<32, 2>(output_utxo.asset.asset.as_array());
         let inputs = attach_input_proofs(input_utxos, &self.proofs, &self.dummy_nullifier_proofs)?;
@@ -240,11 +335,7 @@ impl MergeProver {
             None => None,
         };
         let external_data_hash = MergeExternalDataHash {
-            spp_instruction_discriminator: if ring_program_id.is_some() {
-                RING_MERGE_TRANSACT
-            } else {
-                MERGE_TRANSACT
-            },
+            spp_instruction_discriminator,
             expiry_unix_ts,
             output_utxo_hash: &output_hash,
             cache: self
@@ -254,12 +345,9 @@ impl MergeProver {
                 .zip(cache_slot),
         }
         .hash()?;
-        let private_tx_blinding = merge_private_tx_blinding(&self.nullifier_key, &first_nullifier)?;
+        let private_tx_blinding = seed.private_tx_blinding(&first_nullifier)?;
         let private_tx =
             private_tx_hash(&assembled_inputs, &assembled_outputs, &private_tx_blinding)?;
-        let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
-        let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
-        let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
         let public_input_hash = MergePublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hash,
@@ -267,21 +355,7 @@ impl MergeProver {
             private_tx_hash: private_tx,
             external_data_hash,
             allow_dummy_inputs: true,
-            binding: if ring_program_id.is_some() {
-                MergePublicInputBinding::Ring {
-                    output_data_hash: output_ring_data_hash,
-                    program_id_hash: ring_hash,
-                }
-            } else {
-                MergePublicInputBinding::Owner {
-                    signing_key_hash: user_signing_pk_hash,
-                    nullifier_public_key: nullifier_pubkey,
-                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
-                        salt: output_ciphertext_salt,
-                        ciphertext: output_ciphertext,
-                    },
-                }
-            },
+            binding,
         }
         .hash(tree_slots_hash_chain(&assembled_inputs.tree_slots)?)?;
         let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
@@ -306,6 +380,11 @@ impl MergeProver {
             public_input_hash: be(&public_input_hash),
             output_ring_data_hash: be(&output_ring_data_hash),
             ring_program_id: be(&ring_hash),
+            merge_seed: match &rail {
+                MergeRail::RingV2ZeroKey(seed) => be(seed.as_bytes()),
+                MergeRail::Classic | MergeRail::RingV2 => BigUint::ZERO,
+            },
+            published_owner: be(&published_owner(&rail, user_signing_pk_hash)),
         };
         Ok(MergeProofResult {
             inputs,
@@ -322,6 +401,7 @@ impl MergeProver {
             output_ring_data_hash,
             output_ciphertext_salt,
             output_ciphertext,
+            rail,
         })
     }
 }

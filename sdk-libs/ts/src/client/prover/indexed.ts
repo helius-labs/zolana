@@ -42,6 +42,7 @@ import {
 import type {
   CircuitUtxo,
   EddsaOwnerAuthorization,
+  MergeRingV2Inputs,
   TransferOutput,
   Field,
   Proof,
@@ -125,6 +126,13 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     if (chunk0 === undefined || chunk1 === undefined || rest.length !== 0) throw invalid();
     return [chunk0, chunk1];
   };
+  const decodeRingV2 = (value: unknown): MergeRingV2Inputs => {
+    const ringV2 = requestDecoder.record(value, "ringV2");
+    return {
+      mergeSeed: requestField(ringV2["mergeSeed"]),
+      publishedOwner: requestField(ringV2["publishedOwner"]),
+    };
+  };
   const transfer = (): PreparedTransferInputs => ({
     ...common,
     outputs: requestDecoder.list(payload["outputs"], "outputs").map(decodeOutput),
@@ -163,6 +171,7 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
             ...(payload["userNullifierSecret"] === undefined
               ? {}
               : { userNullifierSecret: field("userNullifierSecret") }),
+            ...(payload["ringV2"] === undefined ? {} : { ringV2: decodeRingV2(payload["ringV2"]) }),
             allowDummyInputs: field("allowDummyInputs"),
             outputRingDataHash: field("outputRingDataHash"),
           },

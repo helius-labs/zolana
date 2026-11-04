@@ -5,7 +5,7 @@ use crate::OutputDataEncoding;
 /// Scheme byte of a PoseidonCtrV1 merge output body. A `merge_transact` or
 /// `merge_ring_v2` output publishes it inside
 /// [`OutputDataEncoding::VerifiablyEncrypted`] (the merge proof binds the
-/// ciphertext); a `merge_ring` output inside [`OutputDataEncoding::Encrypted`]
+/// ciphertext), a `merge_ring` output inside [`OutputDataEncoding::Encrypted`]
 /// (the ring merge proof does not).
 pub const MERGE_OUTPUT_SCHEME: u8 = 6;
 
@@ -24,23 +24,19 @@ pub const MERGE_OUTPUT_BODY_LEN: usize = MERGE_OUTPUT_SALT_LEN + MERGE_OUTPUT_CI
 pub struct MergeOutputDataRef<'a> {
     pub salt: &'a [u8; MERGE_OUTPUT_SALT_LEN],
     pub ciphertext: &'a [[u8; 32]],
-    /// Elements written before the salt: the output `ring_data_hash` a ring
+    /// Elements written before the salt, the output `ring_data_hash` a ring
     /// merge binds, empty on `merge_transact`.
     pub prefix: &'a [[u8; 32]],
     pub binding: MergeCiphertextBinding,
 }
 
-/// Whether the merge proof binds the output ciphertext.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MergeCiphertextBinding {
     Proven,
     Unverified,
 }
 
-/// Encodes a merge output's data slot: `scheme || prefix || salt || ciphertext`,
-/// `VerifiablyEncrypted` when the proof binds the ciphertext and `Encrypted`
-/// otherwise. The ring data hash leads, as it does in the ring merge
-/// instruction data.
+/// The ring data hash leads, as it does in the ring merge instruction data.
 pub fn encode_merge_output_data(data: MergeOutputDataRef<'_>) -> Vec<u8> {
     let mut blob = Vec::with_capacity(
         1 + MERGE_OUTPUT_SALT_LEN + 32 * (data.prefix.len() + data.ciphertext.len()),

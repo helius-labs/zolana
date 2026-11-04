@@ -4,14 +4,20 @@ mod support;
 
 use solana_pubkey::Pubkey;
 use spr_event::{
-    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MessageData, NullifierTreeUpdateEvent,
-    OutputUtxo, SplTransfer, TransactEvent,
+    encode_merge_output_data, tag, EventKind, GeneralEvent, Input, InputTreeSequence,
+    MergeCiphertextBinding, MergeOutputDataRef, MessageData, NullifierTreeUpdateEvent, OutputUtxo,
+    SplTransfer, TransactEvent,
 };
 use spr_event_parser::{
     indexed_events_from_instruction_groups, reconstruct_general_event, EventDecodeError,
     InstructionGroup, ParsedInstruction,
 };
-use spr_interface::instruction::instruction_data::merge_transact::MERGE_DEFAULT_INPUT_COUNT;
+use spr_interface::instruction::instruction_data::merge_ring::{
+    MergeRingAuthority, MergeRingV2IxData,
+};
+use spr_interface::instruction::instruction_data::merge_transact::{
+    MergeOutputEncryption, MERGE_DEFAULT_INPUT_COUNT,
+};
 use spr_interface::instruction::{InputUtxo, InterfaceTransfer, OwnerTag, TransactOutput};
 use spr_interface::verifying_keys::{CacheAccess, CircuitId};
 use support::{
@@ -563,6 +569,44 @@ fn merge_ring_event_republishes_the_output_ring_data_hash() {
     assert_eq!(
         event,
         expected_merge([0x40; 32], merge_output_data(Some([0xE0; 32])))
+    );
+}
+
+#[test]
+fn merge_ring_v2_event_publishes_a_proven_output_under_its_tag() {
+    let spp = Pubkey::new_unique();
+    let ring = merge_ring_ix([0xC0; 32], [0xE0; 32]);
+    let MergeOutputEncryption::PoseidonCtrV1 { salt, ciphertext } = ring.merge.output_encryption;
+    let src = source(
+        spp,
+        tag::RING_MERGE_V2,
+        Vec::new(),
+        MergeRingV2IxData {
+            output_ring_data_hash: ring.output_ring_data_hash,
+            authority: MergeRingAuthority::OwnerSigned,
+            merge: ring.merge,
+        }
+        .serialize()
+        .expect("serialize merge ring v2"),
+        1,
+    );
+
+    let event = reconstruct_general_event(
+        &src,
+        &emit_event_data(EventKind::Merge, &merge_event([0x40; 32])),
+    )
+    .expect("reconstruct merge ring v2");
+
+    let output_data = encode_merge_output_data(MergeOutputDataRef {
+        salt: &salt,
+        ciphertext: &ciphertext,
+        prefix: &[[0xE0; 32]],
+        binding: MergeCiphertextBinding::Proven,
+    });
+    assert_eq!(event, expected_merge([0x40; 32], output_data));
+    assert_eq!(
+        event.outputs.first().map(|output| output.view_tag),
+        Some([0x40; 32])
     );
 }
 

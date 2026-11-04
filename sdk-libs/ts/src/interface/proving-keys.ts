@@ -252,7 +252,8 @@ export type ProvingKeyCircuit =
       readonly nOutputs: number;
     }
   | { readonly circuit: "merge"; readonly nInputs: number }
-  | { readonly circuit: "merge-ring"; readonly nInputs: number };
+  | { readonly circuit: "merge-ring"; readonly nInputs: number }
+  | { readonly circuit: "merge-ring-v2"; readonly nInputs: number };
 
 /** The proving key a proof must come from. */
 export type ExpectedProvingKey = Readonly<{ name: string; sha256: string }>;
@@ -292,5 +293,7 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `merge_${request.nInputs}_1.key`;
     case "merge-ring":
       return `merge_ring_${request.nInputs}_1.key`;
+    case "merge-ring-v2":
+      return `merge_ring_v2_${request.nInputs}_1.key`;
   }
 }

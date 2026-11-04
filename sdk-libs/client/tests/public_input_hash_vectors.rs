@@ -14,7 +14,7 @@ use spr_client::{
 };
 use spr_interface::{
     instruction::instruction_data::MergeOutputEncryption,
-    tree_slot::{tree_slots_hash_chain, TreeSlot},
+    tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, N_PUBLIC_SLOTS,
 };
 
@@ -383,4 +383,73 @@ fn print_public_input_hash_vectors() {
         "{}",
         serde_json::to_string_pretty(&compute_vectors()).unwrap()
     );
+}
+
+/// The statement order against the Go host mirrors of `merge_ring_v2`.
+#[test]
+fn ring_v2_public_input_hash_matches_the_shared_vector() {
+    let vector: serde_json::Value =
+        serde_json::from_str(include_str!("../../../test-vectors/merge_ring_v2.json")).unwrap();
+    let hex32 = |value: &serde_json::Value| -> [u8; 32] {
+        hex_decode(value.as_str().unwrap()).try_into().unwrap()
+    };
+    let statement = &vector["statement"];
+    let nullifiers: Vec<[u8; 32]> = statement["nullifiers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(hex32)
+        .collect();
+    let mut padded = nullifiers.clone();
+    padded.resize(statement["width"].as_u64().unwrap() as usize, [0; 32]);
+    let ciphertext = &vector["output_ciphertext"];
+    let output_encryption = MergeOutputEncryption::PoseidonCtrV1 {
+        salt: hex_decode(vector["output_ciphertext_salt"].as_str().unwrap())
+            .try_into()
+            .unwrap(),
+        ciphertext: [
+            hex32(&ciphertext[0]),
+            hex32(&ciphertext[1]),
+            hex32(&ciphertext[2]),
+        ],
+    };
+    let slot = TreeSlot {
+        id: tree_id_field(statement["tree_id"].as_u64().unwrap() as u16),
+        utxo_root: hex32(&statement["utxo_root"]),
+        nullifier_root: hex32(&statement["nullifier_root"]),
+    };
+    let mut slots = [TreeSlot::ZERO; INPUT_TREES];
+    slots[0] = slot;
+    for (published_owner, expected) in [
+        ([0u8; 32], "nonzero_key_public_input_hash"),
+        (
+            hex32(&vector["owner_pk_hash"]),
+            "zero_key_public_input_hash",
+        ),
+    ] {
+        let hash = MergePublicInputs {
+            nullifiers: &padded,
+            output_hash: hex32(&statement["output_hash"]),
+            output_tree_id: statement["output_tree_id"].as_u64().unwrap() as u16,
+            private_tx_hash: hex32(&statement["private_tx_hash"]),
+            external_data_hash: hex32(&statement["external_data_hash"]),
+            allow_dummy_inputs: true,
+            binding: MergePublicInputBinding::RingV2 {
+                output_data_hash: hex32(&statement["output_ring_data_hash"]),
+                program_id_hash: hex32(&statement["ring_program_hash"]),
+                published_owner,
+                output_encryption,
+            },
+        }
+        .hash(tree_slots_hash_chain(&slots).unwrap())
+        .unwrap();
+        assert_eq!(hash, hex32(&statement[expected]), "{expected}");
+    }
+}
+
+fn hex_decode(value: &str) -> Vec<u8> {
+    (0..value.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&value[index..index + 2], 16).unwrap())
+        .collect()
 }

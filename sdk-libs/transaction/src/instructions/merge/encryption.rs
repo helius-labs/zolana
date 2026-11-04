@@ -1,8 +1,8 @@
-use spr_keypair::{random_salt, ShieldedAddress};
+use spr_keypair::{constants::BLINDING_LEN, random_salt, NullifierKey, ShieldedAddress};
 
 use super::{
     inputs::{pad_with_compact, validate_merge_owner},
-    MergeOutputPlaintext, MergeProofInputs, MergeTransaction,
+    MergeOutputPlaintext, MergeProofInputs, MergeRail, MergeSeed, MergeTransaction,
 };
 use crate::{
     error::TransactionError,
@@ -67,6 +67,41 @@ impl MergeTransaction {
         )
     }
 
+    /// The owner's signing key signs the instruction.
+    pub fn encrypt_zero_key(
+        mut self,
+        owner: &ShieldedAddress,
+        seed: MergeSeed,
+    ) -> Result<MergeProofInputs, TransactionError> {
+        if self.ring_program_id.is_none() {
+            return Err(TransactionError::ZeroKeyMergeWithoutRing);
+        }
+        if owner.nullifier_pubkey != NullifierKey::from_secret([0; BLINDING_LEN]).pubkey()? {
+            return Err(TransactionError::MergeInputNullifierKeyMismatch { index: 0 });
+        }
+        let first_nullifier = self
+            .inputs
+            .first()
+            .ok_or(TransactionError::NoInputs)?
+            .nullifier;
+        let dummy_nullifiers = (self.inputs.len()..self.validated_inputs.padded_input_count)
+            .map(|slot| {
+                let slot_index =
+                    u8::try_from(slot).map_err(|_| TransactionError::TooManyInputs {
+                        got: slot + 1,
+                        max: usize::from(u8::MAX),
+                    })?;
+                seed.dummy_nullifier(&first_nullifier, slot_index)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let secrets = MergeOutputSecrets {
+            blinding: seed.output_blinding(&first_nullifier)?,
+            key: seed.output_key(&first_nullifier)?,
+        };
+        self.rail = MergeRail::RingV2ZeroKey(seed);
+        self.encrypt_with_derived(owner, secrets, &dummy_nullifiers)
+    }
+
     /// `dummy_nullifiers` holds each padding slot's derived merge dummy
     /// nullifier in slot order; the compact slot proves it absent. Each call
     /// generates a fresh output ciphertext salt.
@@ -83,6 +118,7 @@ impl MergeTransaction {
             output_tree_id,
             ring_program_id,
             output_ring_data_hash,
+            rail,
         } = self;
         validate_merge_owner(sender, &inputs)?;
         let mut output_utxo =
@@ -117,6 +153,7 @@ impl MergeTransaction {
             ring_program_id,
             output_ciphertext_salt: salt,
             output_ciphertext,
+            rail,
         })
     }
 }
