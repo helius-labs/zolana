@@ -12,7 +12,7 @@ use input_fixture::wallet_utxo;
 use solana_account::Account;
 use solana_address::Address;
 use spr_client::{
-    client::ZolanaClient, rpc::IndexerRpcConfig, ClientError, InputWitnesses, MergeSubmission,
+    client::SprClient, rpc::IndexerRpcConfig, ClientError, InputWitnesses, MergeSubmission,
     MerkleContext, MerkleProof, NonInclusionProof, ProverClient, Rpc, SpendProof, WitnessReader,
 };
 use spr_interface::pda;
@@ -140,7 +140,7 @@ fn a_witness_proof_from_another_tree_than_the_inputs_is_refused() {
         witnesses(tree, other, tree),
         witnesses(tree, tree, other),
     ] {
-        let client = ZolanaClient::new(
+        let client = SprClient::new(
             Chain {
                 record: record_account(owner, &sender),
             },

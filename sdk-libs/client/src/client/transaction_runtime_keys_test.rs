@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use super::*;
 use crate::{
-    indexer::AsyncZolanaIndexer,
+    indexer::AsyncSprIndexer,
     prover::{
         CacheReadInputs, Proof, ProofInputUtxo, ProveRequest, ProvingKeySet, TransferInput,
         TransferInputs, TransferOutput,
@@ -125,9 +125,9 @@ async fn transfer_result_uses_the_selected_verifier_and_rejects_another_statemen
         .unwrap();
     gnark["sha256"] = digest;
     let keys = ProvingKeySet::from_attested_response(&catalog.to_string()).unwrap();
-    let client = AsyncZolanaClient::with_prover(
+    let client = AsyncSprClient::with_prover(
         NoRpc,
-        AsyncZolanaIndexer::new("http://127.0.0.1:1"),
+        AsyncSprIndexer::new("http://127.0.0.1:1"),
         FixtureProver {
             proof,
             keys: Some(keys),
@@ -157,9 +157,9 @@ async fn transfer_result_uses_the_selected_verifier_and_rejects_another_statemen
         Err(ClientError::ProofVerification(_))
     ));
 
-    let compiled = AsyncZolanaClient::with_prover(
+    let compiled = AsyncSprClient::with_prover(
         NoRpc,
-        AsyncZolanaIndexer::new("http://127.0.0.1:1"),
+        AsyncSprIndexer::new("http://127.0.0.1:1"),
         FixtureProver { proof, keys: None },
     );
     assert!(matches!(

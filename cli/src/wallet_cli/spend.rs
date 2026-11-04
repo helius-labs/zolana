@@ -10,7 +10,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
     sign_transaction, Rpc, RpcSendTransactionConfig, SignedPrivateTransaction, SolanaRpc,
-    Submission, ZolanaClient,
+    SprClient, Submission,
 };
 use spr_program::instruction::TransactInterfaceTransferAccounts;
 use spr_transaction::instructions::transact::ConfidentialTransaction;
@@ -29,7 +29,7 @@ pub(super) enum Send {
 /// Encrypt, prove, sign with the funding key, send and wait for the indexer.
 pub(super) fn send_private(
     ctx: &SyncContext,
-    client: &ZolanaClient<SolanaRpc>,
+    client: &SprClient<SolanaRpc>,
     transaction: ConfidentialTransaction,
     settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
     send: Send,

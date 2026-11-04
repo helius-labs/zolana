@@ -10,7 +10,7 @@ use client_example::{
 use solana_signer::Signer;
 use spr_client::{
     ComputeBudgetConfig, IndexerRpcConfig, MergeProver, ProverClient, ProverExt, Rpc, SolanaRpc,
-    WitnessReader, ZolanaClient, ZolanaIndexer,
+    SprClient, SprIndexer, WitnessReader,
 };
 use spr_program::instruction::{MergeTransact, Transact};
 use spr_transaction::{
@@ -76,13 +76,13 @@ fn main() -> Result<()> {
         utxos,
     } = setup_merge_scenario(UTXO_COUNT, DEPOSIT_AMOUNT)?;
 
-    let client = ZolanaClient::from_urls(
+    let client = SprClient::from_urls(
         SolanaRpc::new(rpc_url),
         &indexer_url,
         prover_url.clone(),
         None,
     )?;
-    let indexer = ZolanaIndexer::new(&indexer_url);
+    let indexer = SprIndexer::new(&indexer_url);
     let prover = ProverClient::new(prover_url);
     let assets = AssetRegistry::default();
     let sender_address = sender.shielded_address()?;

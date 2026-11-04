@@ -27,7 +27,7 @@ use spr_merkle_tree::indexed::IndexedMerkleTree;
 use spr_program::instruction::{
     CreateCache, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_program_test::{Rejection, SprProgramTest};
 use spr_test_utils::transact::*;
 use spr_transaction::{instructions::transact::PrivateTxHash, Mint, Utxo};
 
@@ -74,7 +74,7 @@ struct Tree {
 }
 
 impl Tree {
-    fn read(rpc: &ZolanaProgramTest, account: Pubkey) -> Self {
+    fn read(rpc: &SprProgramTest, account: Pubkey) -> Self {
         let id = read_tree_id(&rpc.account_data(&account).expect("tree")).expect("tree id");
         let (state_root, nullifier_root) = tree_roots(rpc, &account, 0);
         Self {
@@ -353,16 +353,11 @@ fn prove_with_backpressure(witness: &TransferInputs) -> Proof {
     }
 }
 
-fn cache_state(rpc: &ZolanaProgramTest, cache: Address) -> CacheAccount {
+fn cache_state(rpc: &SprProgramTest, cache: Address) -> CacheAccount {
     *bytemuck::from_bytes(&rpc.account_data(&cache).expect("cache"))
 }
 
-fn create_cache(
-    rpc: &mut ZolanaProgramTest,
-    writer: &Keypair,
-    nonce: u64,
-    tree_id: u16,
-) -> Address {
+fn create_cache(rpc: &mut SprProgramTest, writer: &Keypair, nonce: u64, tree_id: u16) -> Address {
     let create = CreateCache {
         payer: rpc.payer.pubkey(),
         data: CreateCacheData {
@@ -377,7 +372,7 @@ fn create_cache(
     create.cache()
 }
 
-fn send(rpc: &mut ZolanaProgramTest, ix: Instruction, writer: &Keypair) {
+fn send(rpc: &mut SprProgramTest, ix: Instruction, writer: &Keypair) {
     let signers: Vec<&dyn Signer> = if ix
         .accounts
         .iter()
@@ -396,7 +391,7 @@ fn send(rpc: &mut ZolanaProgramTest, ix: Instruction, writer: &Keypair) {
 }
 
 fn assert_rejected_atomically(
-    rpc: &mut ZolanaProgramTest,
+    rpc: &mut SprProgramTest,
     ix: Instruction,
     writer: &Keypair,
     code: Option<u32>,

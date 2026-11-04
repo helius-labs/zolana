@@ -31,8 +31,8 @@ use std::{
 use serde_json::{json, Value};
 use solana_address::Address;
 use spr_client::{
-    AsyncWitnessReader, AsyncZolanaIndexer, ClientError, InputWitnesses, WitnessReader,
-    ZolanaIndexer, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    AsyncSprIndexer, AsyncWitnessReader, ClientError, InputWitnesses, SprIndexer, WitnessReader,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use spr_interface::pda;
 use spr_transaction::utxo::SppProofInputUtxo;
@@ -103,7 +103,7 @@ fn assert_in_input_order(witnesses: &InputWitnesses, inputs: &[SppProofInputUtxo
 
 #[test]
 fn witnesses_from_interleaved_trees_come_back_in_input_order() {
-    let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
+    let indexer = SprIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
     let inputs = interleaved_inputs();
 
     let witnesses = WitnessReader::input_witnesses(
@@ -129,7 +129,7 @@ fn witnesses_from_interleaved_trees_come_back_in_input_order() {
 
 #[tokio::test]
 async fn async_witnesses_from_interleaved_trees_come_back_in_input_order() {
-    let indexer = AsyncZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
+    let indexer = AsyncSprIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
     let inputs = interleaved_inputs();
 
     let witnesses = AsyncWitnessReader::input_witnesses(
@@ -148,7 +148,7 @@ async fn async_witnesses_from_interleaved_trees_come_back_in_input_order() {
 /// The tree a proof must come from is the one the input names.
 #[test]
 fn a_proof_from_another_tree_is_refused() {
-    let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AlwaysTreeZero));
+    let indexer = SprIndexer::new(spawn_echo_indexer(TreeAnswer::AlwaysTreeZero));
     let inputs = [input(0, 7, 10)];
 
     assert!(matches!(
@@ -161,7 +161,7 @@ fn a_proof_from_another_tree_is_refused() {
 /// to prove it against.
 #[test]
 fn padding_without_a_real_input_is_refused() {
-    let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
+    let indexer = SprIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
 
     assert!(matches!(
         WitnessReader::input_witnesses(&indexer, &[], &[[0x55; 32]], None),
@@ -194,7 +194,7 @@ fn blocking_transaction_proofs_fetch_all_tree_proofs_concurrently() {
         input.utxo.owner = owner;
     }
     let expected = inputs.clone();
-    let reader = thread::spawn(move || ZolanaIndexer::new(url).transaction_proofs(&inputs, None));
+    let reader = thread::spawn(move || SprIndexer::new(url).transaction_proofs(&inputs, None));
 
     // Two proof kinds for each tree must arrive before any response is sent.
     // A sequential reader stalls here waiting for its first response.
@@ -370,7 +370,7 @@ fn write_response(stream: &mut TcpStream, body: &Value) {
 
 #[test]
 fn address_only_transactions_fetch_non_inclusion_from_each_named_tree() {
-    let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
+    let indexer = SprIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
     let owner = spr_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
     let inputs: Vec<_> = [(7, 1u8), (9, 2), (7, 3)]
         .into_iter()
@@ -400,7 +400,7 @@ fn address_only_transactions_fetch_non_inclusion_from_each_named_tree() {
 
 #[tokio::test]
 async fn async_address_only_transaction_fetches_its_tree() {
-    let indexer = AsyncZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
+    let indexer = AsyncSprIndexer::new(spawn_echo_indexer(TreeAnswer::AsAsked));
     let owner = spr_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
     let input = SppProofInputUtxo::new_address(owner, [0; 32], 7).unwrap();
     let witnesses = indexer
@@ -421,7 +421,7 @@ async fn async_address_only_transaction_fetches_its_tree() {
 /// address in one tree expect one state proof and two nullifier proofs.
 #[test]
 fn incomplete_transaction_proofs_report_each_kind_separately() {
-    let indexer = ZolanaIndexer::new(spawn_echo_indexer(TreeAnswer::ExtraProof));
+    let indexer = SprIndexer::new(spawn_echo_indexer(TreeAnswer::ExtraProof));
     let owner = spr_keypair::PublicKey::from_pda(&Address::new_from_array([7; 32]));
     let mut spend = input(0, 7, 1);
     spend.utxo.owner = owner;

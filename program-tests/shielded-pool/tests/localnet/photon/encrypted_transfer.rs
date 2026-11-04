@@ -22,7 +22,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
 
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut rpc = SolanaRpc::new(rpc_url.clone());
-    let indexer = ZolanaIndexer::new(indexer_url.clone());
+    let indexer = SprIndexer::new(indexer_url.clone());
     rpc.assert_executable(&program_id)?;
 
     let LocalnetPool {
@@ -49,7 +49,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     let sender_owner = sender.signing_pubkey();
     let owner_field = owner_hash(&sender_owner, &sender_nullifier_pk)?;
     for _ in 0..2 {
-        let shield_data = ZolanaProgramTest::sol_shield_data(half, owner_field);
+        let shield_data = SprProgramTest::sol_shield_data(half, owner_field);
         let shield_view_tag = shield_data.view_tag;
         let shield_ix = Deposit {
             tree: tree_pubkey,

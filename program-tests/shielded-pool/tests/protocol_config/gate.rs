@@ -16,7 +16,7 @@ use spr_interface::{
     error::ShieldedPoolError, pda, state::ProtocolConfig, BPF_LOADER_UPGRADEABLE_PUBKEY,
     SHIELDED_POOL_PROGRAM_ID,
 };
-use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_program_test::{Rejection, SprProgramTest};
 use spr_protocol_instructions::CreateProtocolConfig;
 
 /// Loader-v3 `Program` state: u32 tag 2 || programdata address. Owner is the
@@ -61,7 +61,7 @@ fn program_data_account(upgrade_authority: Option<&Pubkey>) -> Account {
 
 /// Install the shielded-pool program as an upgradeable deployment whose
 /// `ProgramData` names `upgrade_authority`.
-fn install_upgradeable_deploy(rpc: &mut ZolanaProgramTest, upgrade_authority: Option<&Pubkey>) {
+fn install_upgradeable_deploy(rpc: &mut SprProgramTest, upgrade_authority: Option<&Pubkey>) {
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     rpc.svm
         .set_account(program_id, upgradeable_program_account())
@@ -91,7 +91,7 @@ fn create_ix(
     .instruction()
 }
 
-fn boot_with_deploy(upgrade_authority: Option<&Pubkey>, payer: &Keypair) -> ZolanaProgramTest {
+fn boot_with_deploy(upgrade_authority: Option<&Pubkey>, payer: &Keypair) -> SprProgramTest {
     let mut rpc = program_test();
     rpc.airdrop(&payer.pubkey(), 10_000_000_000)
         .expect("airdrop");

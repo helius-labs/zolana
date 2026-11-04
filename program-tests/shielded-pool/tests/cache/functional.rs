@@ -24,7 +24,7 @@ use spr_interface::{
     },
 };
 use spr_program::instruction::CreateCache;
-use spr_program_test::{test_blinding, Rejection, ZolanaProgramTest};
+use spr_program_test::{test_blinding, Rejection, SprProgramTest};
 use spr_tree::TreeAccount;
 use spr_user_registry_interface::state::UserRecord;
 
@@ -65,11 +65,11 @@ impl CacheFixture {
     }
 }
 
-fn now(rpc: &ZolanaProgramTest) -> i64 {
+fn now(rpc: &SprProgramTest) -> i64 {
     rpc.svm.get_sysvar::<solana_clock::Clock>().unix_timestamp
 }
 
-fn cache_state(rpc: &ZolanaProgramTest, cache: &Pubkey) -> CacheAccount {
+fn cache_state(rpc: &SprProgramTest, cache: &Pubkey) -> CacheAccount {
     *bytemuck::from_bytes(&rpc.account_data(cache).expect("cache data"))
 }
 
@@ -529,7 +529,7 @@ fn a_cached_spend_rejects_every_broken_cache_binding() {
     assert_eq!(cache_state(&pool.rpc, &spend.cache), other_tree);
 }
 
-fn store_cache(rpc: &mut ZolanaProgramTest, cache: Pubkey, state: CacheAccount) {
+fn store_cache(rpc: &mut SprProgramTest, cache: Pubkey, state: CacheAccount) {
     let mut account = rpc.svm.get_account(&cache).expect("cache account");
     account.data = bytemuck::bytes_of(&state).to_vec();
     rpc.svm.set_account(cache, account).expect("store cache");

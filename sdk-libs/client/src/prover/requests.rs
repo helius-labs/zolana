@@ -1,7 +1,7 @@
 //! One request per circuit this crate proves: the body in the prover's wire
 //! format and what a backend needs to prove it. The
 //! [`ProverExt`](super::ProverExt) trait, [`AsyncProverClient`](super::AsyncProverClient) and
-//! [`ZolanaClient`](crate::ZolanaClient) all build their requests here, so each
+//! [`SprClient`](crate::SprClient) all build their requests here, so each
 //! circuit is described once.
 
 use zeroize::Zeroizing;

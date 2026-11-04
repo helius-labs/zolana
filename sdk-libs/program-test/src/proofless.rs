@@ -11,7 +11,7 @@ use spr_event_parser::general_event_from_indexed;
 
 use crate::{
     deposit_outputs_from_event, single_deposit_view, DepositOutput, ProgramTestError,
-    ZolanaProgramTest,
+    SprProgramTest,
 };
 
 /// Result of a batched deposit: every appended output in slot order, plus the
@@ -21,7 +21,7 @@ pub struct DepositBatch {
     pub spl_transfers: Vec<SplTransfer>,
 }
 
-impl ZolanaProgramTest {
+impl SprProgramTest {
     pub fn deposit(
         &mut self,
         tree: &Pubkey,

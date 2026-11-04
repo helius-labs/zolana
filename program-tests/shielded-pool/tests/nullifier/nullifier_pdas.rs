@@ -17,7 +17,7 @@ use spr_interface::{
     NullifierPda, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS,
 };
 use spr_program::instruction::Transact;
-use spr_program_test::{ProgramTestError, Rejection, Rpc, TransactionTrace, ZolanaProgramTest};
+use spr_program_test::{ProgramTestError, Rejection, Rpc, SprProgramTest, TransactionTrace};
 use spr_protocol_instructions::CloseNullifierPdas;
 use spr_test_utils::{
     nullifier_pda::{
@@ -98,7 +98,7 @@ fn close_instruction_for(
 fn send_close(env: &mut Pool, ix: Instruction) -> Result<(), ProgramTestError> {
     let payer = env.rpc.payer.insecure_clone();
     let authority = env.authority.insecure_clone();
-    ZolanaProgramTest::create_and_send_transaction(
+    SprProgramTest::create_and_send_transaction(
         &mut env.rpc,
         &[ix],
         &payer.pubkey(),
@@ -545,7 +545,7 @@ fn close_rejects_a_non_forester_authority() {
         nullifiers: vec![nullifier],
     }
     .instruction();
-    let error = ZolanaProgramTest::create_and_send_transaction(
+    let error = SprProgramTest::create_and_send_transaction(
         &mut env.rpc,
         &[ix],
         &intruder.pubkey(),

@@ -24,7 +24,7 @@ use spr_keypair::{
 use spr_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof as IndexedNonInclusionProof};
 use spr_merkle_tree::MerkleTree;
 use spr_program::instruction::{CacheWriteAccounts, MergeRing, MergeTransact};
-use spr_program_test::{test_blinding, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use spr_program_test::{test_blinding, SprProgramTest, RING_TEST_PROGRAM_ID};
 use spr_test_utils::transact::nullifier_tree;
 use spr_transaction::{instructions::merge::merge_dummy_nullifier, Data, Mint, Utxo};
 use spr_user_registry_interface::{
@@ -44,11 +44,7 @@ pub fn merge_verifying_key(input_count: usize) -> &'static Groth16Verifyingkey<'
     }
 }
 
-pub fn write_user_record(
-    rpc: &mut ZolanaProgramTest,
-    owner: Pubkey,
-    merging_enabled: bool,
-) -> Pubkey {
+pub fn write_user_record(rpc: &mut SprProgramTest, owner: Pubkey, merging_enabled: bool) -> Pubkey {
     let viewing_pubkey = *spr_keypair::ViewingKey::from_bytes(&[7; 32])
         .pubkey()
         .as_bytes();
@@ -113,7 +109,7 @@ impl RealDeposits {
 }
 
 pub struct ZeroDeposits<'a> {
-    pub rpc: &'a mut ZolanaProgramTest,
+    pub rpc: &'a mut SprProgramTest,
     pub tree: Pubkey,
     pub depositor: &'a Keypair,
     pub owner: PublicKey,
@@ -469,7 +465,7 @@ pub fn activate_ring_test_program(pool: &mut Pool) -> Pubkey {
 }
 
 pub struct RingZeroDeposits<'a> {
-    pub rpc: &'a mut ZolanaProgramTest,
+    pub rpc: &'a mut SprProgramTest,
     pub tree: Pubkey,
     pub depositor: &'a Keypair,
     pub ring_program_id: Pubkey,

@@ -7,9 +7,9 @@ use crate::{
     rpc::{AsyncRpc, IndexerPollConfig},
 };
 
-use super::{AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc, ZolanaClient};
+use super::{AsyncIndexer, AsyncSprClient, BlockingIndexer, BlockingRpc, SprClient};
 
-impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
+impl<R: AsyncRpc, I: AsyncIndexer> AsyncSprClient<R, I> {
     /// Wait until Solana confirms the transaction and Photon has indexed a
     /// Rings event for it.
     ///
@@ -24,8 +24,8 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncZolanaClient<R, I> {
     }
 }
 
-impl<R: BlockingRpc, I: BlockingIndexer> ZolanaClient<R, I> {
-    /// See [`AsyncZolanaClient::confirm_private_transaction`].
+impl<R: BlockingRpc, I: BlockingIndexer> SprClient<R, I> {
+    /// See [`AsyncSprClient::confirm_private_transaction`].
     pub fn confirm_private_transaction_sync(
         &self,
         signature: Signature,

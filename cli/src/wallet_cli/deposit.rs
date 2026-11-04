@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use solana_signer::Signer;
 use spr_client::{
-    user_registry::resolve_registered_address, ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaIndexer,
+    user_registry::resolve_registered_address, ComputeBudgetConfig, Rpc, SolanaRpc, SprIndexer,
 };
 use spr_program::instruction::{AssetDeposit, Deposit, DepositAsset, DepositSplAccounts};
 use spr_transaction::Address;
@@ -25,7 +25,7 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
     let spl_token_account = configured_spl_token_account(&config, asset)?;
     let network = get_network_with_config(&opts.network, &config)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
-    let indexer = ZolanaIndexer::new(network.sync.indexer_url.clone());
+    let indexer = SprIndexer::new(network.sync.indexer_url.clone());
     let material = load_sender_from_resolved_sync(&network.sync)?;
     maybe_airdrop(&mut rpc, &material, network.airdrop_lamports)?;
     let tree = network.tree;

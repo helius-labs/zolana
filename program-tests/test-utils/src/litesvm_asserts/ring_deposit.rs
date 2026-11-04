@@ -2,7 +2,7 @@
 
 use solana_pubkey::Pubkey;
 use spr_program::instruction::RingAssetDeposit;
-use spr_program_test::{RingDepositOutput, ZolanaProgramTest};
+use spr_program_test::{RingDepositOutput, SprProgramTest};
 
 /// Verify a settled `ring_deposit` against the integration-test
 /// expectations: the emitted owner-hidden event faithfully mirrors the
@@ -25,7 +25,7 @@ pub struct RingDepositAssertArgs<'a> {
 
 #[track_caller]
 pub fn litesvm_assert_ring_deposit(
-    program_test: &mut ZolanaProgramTest,
+    program_test: &mut SprProgramTest,
     args: RingDepositAssertArgs<'_>,
 ) {
     let RingDepositAssertArgs {

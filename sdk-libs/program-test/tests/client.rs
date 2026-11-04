@@ -1,4 +1,4 @@
-//! The harness as a `ZolanaClient`'s indexer: the proofs it serves are bound
+//! The harness as a `SprClient`'s indexer: the proofs it serves are bound
 //! to the roots the chain holds, and a transaction it sent is confirmed and
 //! indexed.
 
@@ -6,13 +6,13 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 use spr_client::Rpc;
 use spr_keypair::{hash::owner_hash, ShieldedKeypair};
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 use spr_tree::TreeAccount;
 
 #[test]
 #[ignore = "needs the SBF build in target/deploy; run by `just test-program-fast`"]
 fn the_handle_serves_the_proofs_the_chain_verifies() {
-    let mut harness = ZolanaProgramTest::new().expect("harness");
+    let mut harness = SprProgramTest::new().expect("harness");
     let payer = harness.payer.insecure_clone();
     let authority = Keypair::new();
     harness

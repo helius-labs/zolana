@@ -9,12 +9,12 @@ use spr_interface::{
     },
     pda,
 };
-use spr_program_test::{ProgramTestError, ZolanaProgramTest};
+use spr_program_test::{ProgramTestError, SprProgramTest};
 
 pub use spr_test_utils::backend::LiteSvmPoolBackend as Pool;
 
 pub fn sol_deposit_accounts(
-    rpc: &ZolanaProgramTest,
+    rpc: &SprProgramTest,
     tree: Pubkey,
     depositor: Pubkey,
 ) -> Vec<AccountMeta> {
@@ -28,11 +28,11 @@ pub fn sol_deposit_accounts(
 }
 
 pub fn raw_sol_deposit(
-    rpc: &mut ZolanaProgramTest,
+    rpc: &mut SprProgramTest,
     depositor: &Keypair,
     accounts: Vec<AccountMeta>,
 ) -> Result<(), ProgramTestError> {
-    let deposit = ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32]);
+    let deposit = SprProgramTest::sol_shield_data(1_000_000, [8u8; 32]);
     let ix_data = DepositIxData {
         assets: vec![DepositAssetKind::Sol],
         deposits: vec![DepositEntry {
@@ -67,7 +67,7 @@ pub fn sol_group_accounts() -> Vec<AccountMeta> {
 /// order (token program, mint, funding token account, interface vault).
 pub fn spl_group_accounts(mint: Pubkey, user_token: Pubkey) -> Vec<AccountMeta> {
     vec![
-        AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
+        AccountMeta::new_readonly(SprProgramTest::token_program_id(), false),
         AccountMeta::new_readonly(mint, false),
         AccountMeta::new(user_token, false),
         AccountMeta::new(pda::spl_interface(&mint), false),
@@ -86,7 +86,7 @@ pub fn spl_accounts(
         AccountMeta::new(tree, false),
         AccountMeta::new(depositor, true),
         AccountMeta::new_readonly(spr_interface::PROGRAM_ID_PUBKEY, false),
-        AccountMeta::new_readonly(ZolanaProgramTest::token_program_id(), false),
+        AccountMeta::new_readonly(SprProgramTest::token_program_id(), false),
         AccountMeta::new_readonly(mint, false),
         AccountMeta::new(user_token, false),
         AccountMeta::new(pda::spl_interface(&mint), false),
@@ -97,7 +97,7 @@ pub fn spl_accounts(
 /// layout, so a test can violate an instruction-data invariant the `Deposit`
 /// builder never produces.
 pub fn raw_deposit_batch(
-    rpc: &mut ZolanaProgramTest,
+    rpc: &mut SprProgramTest,
     tree: Pubkey,
     depositor: &Keypair,
     assets: Vec<DepositAssetKind>,

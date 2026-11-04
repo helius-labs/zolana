@@ -12,7 +12,7 @@ use spr_interface::{
     state::{discriminator, ProtocolConfig},
     SHIELDED_POOL_PROGRAM_ID,
 };
-use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_program_test::{Rejection, SprProgramTest};
 use spr_protocol_instructions::UpdateProtocolConfig;
 use spr_test_utils::mollusk::{expect_err_exact, mollusk_with_program};
 
@@ -83,7 +83,7 @@ fn update_rejects_a_cosplay_config_account() {
 
 #[test]
 fn update_rejects_a_malformed_borsh_payload() {
-    let mut backend = ZolanaProgramTest::new().expect("program test");
+    let mut backend = SprProgramTest::new().expect("program test");
     let authority = Keypair::new();
     backend
         .create_protocol_config(&authority)
@@ -123,7 +123,7 @@ fn update_rejects_a_malformed_borsh_payload() {
 
 /// Parse the on-chain config account back into its typed layout, so every
 /// assertion below covers each field rather than "something changed".
-fn read_config(backend: &ZolanaProgramTest) -> ProtocolConfig {
+fn read_config(backend: &SprProgramTest) -> ProtocolConfig {
     let data = backend
         .account_data(&pda::protocol_config())
         .expect("config account");
@@ -136,7 +136,7 @@ fn read_config(backend: &ZolanaProgramTest) -> ProtocolConfig {
 /// sibling field.
 #[test]
 fn create_and_update_protocol_config() {
-    let mut backend = ZolanaProgramTest::new().expect("program test");
+    let mut backend = SprProgramTest::new().expect("program test");
     let authority = Keypair::new();
     assert!(backend.account_data(&pda::protocol_config()).is_none());
     backend

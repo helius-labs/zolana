@@ -8,7 +8,7 @@ use spr_event_parser::general_event_from_indexed;
 use spr_interface::{instruction::deposit_blinding, pda, state::STATE_ROOT_HISTORY_CAPACITY};
 use spr_keypair::ShieldedKeypair;
 use spr_program::instruction::{AssetDeposit, Deposit};
-use spr_program_test::{DepositOutput, RingDepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use spr_program_test::{DepositOutput, RingDepositOutput, SprProgramTest, RING_TEST_PROGRAM_ID};
 use spr_test_utils::litesvm_asserts::{
     litesvm_assert_deposit, litesvm_assert_ring_deposit, DepositAssertArgs, RingDepositAssertArgs,
     SolDepositOracle,
@@ -84,7 +84,7 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
         AssetRegistry::default(),
     )
     .expect("recipient wallet");
-    let mut data = ZolanaProgramTest::wallet_sol_shield_data(750_000_000, &recipient.identity)
+    let mut data = SprProgramTest::wallet_sol_shield_data(750_000_000, &recipient.identity)
         .expect("deposit data");
     data.memo = Some(b"manual program test".to_vec());
 
@@ -148,7 +148,7 @@ fn deposits_advance_history_once_per_updated_slot_without_gap_entries() {
         .deposit(
             &tree,
             &depositor,
-            &ZolanaProgramTest::sol_shield_data(1_000_000, [1; 32]),
+            &SprProgramTest::sol_shield_data(1_000_000, [1; 32]),
         )
         .expect("first deposit");
     assert_eq!(pool.rpc.svm.get_sysvar::<Clock>().slot, target_slot);
@@ -175,7 +175,7 @@ fn deposits_advance_history_once_per_updated_slot_without_gap_entries() {
         .deposit(
             &tree,
             &depositor,
-            &ZolanaProgramTest::sol_shield_data(1_000_000, [3; 32]),
+            &SprProgramTest::sol_shield_data(1_000_000, [3; 32]),
         )
         .expect("second deposit");
     assert_eq!(pool.rpc.svm.get_sysvar::<Clock>().slot, target_slot);
@@ -223,7 +223,7 @@ fn deposits_advance_history_once_per_updated_slot_without_gap_entries() {
         .deposit(
             &tree,
             &depositor,
-            &ZolanaProgramTest::sol_shield_data(1_000_000, [5; 32]),
+            &SprProgramTest::sol_shield_data(1_000_000, [5; 32]),
         )
         .expect("deposit after slot gap");
 
@@ -252,7 +252,7 @@ fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
     let tree = pool.tree;
-    let data = ZolanaProgramTest::sol_shield_data(AMOUNT, [9u8; 32]);
+    let data = SprProgramTest::sol_shield_data(AMOUNT, [9u8; 32]);
     let ix = Deposit {
         tree,
         depositor: depositor.pubkey(),
@@ -365,7 +365,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
     let mut owner_utxo_hashes = Vec::new();
     let mut view_tags = Vec::new();
     for (i, amount) in AMOUNTS.into_iter().enumerate() {
-        let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient.identity)
+        let data = SprProgramTest::wallet_sol_shield_data(amount, &recipient.identity)
             .expect("wallet deposit data");
         let event = pool.rpc.deposit(&tree, &depositor, &data).expect("deposit");
         oracle.record_accepted(&data, &event);
@@ -449,9 +449,8 @@ fn ring_sol_deposit_settles_and_indexes_the_exact_output() {
     let blinding =
         derive_transact_output_blinding(&FIXTURE_FIRST_NULLIFIER, &output_blinding_seed, 0)
             .expect("output blinding");
-    let mut data =
-        ZolanaProgramTest::wallet_ring_sol_shield_data(600_000_000, &recipient, blinding)
-            .expect("ring SOL deposit data");
+    let mut data = SprProgramTest::wallet_ring_sol_shield_data(600_000_000, &recipient, blinding)
+        .expect("ring SOL deposit data");
     data.ring_data_hash = [5u8; 32];
     let root_before = pool.rpc.state_root(&tree).expect("root");
     let depositor_before = pool
@@ -586,7 +585,7 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
         )
         .expect("output blinding");
         let ring_data_hash = [position.checked_add(1).expect("ring-data seed"); 32];
-        let mut data = ZolanaProgramTest::wallet_ring_sol_shield_data(amount, &recipient, blinding)
+        let mut data = SprProgramTest::wallet_ring_sol_shield_data(amount, &recipient, blinding)
             .expect("ring deposit data");
         data.ring_data_hash = ring_data_hash;
         data.encrypted.ciphertext = vec![position, position.checked_add(10).expect("payload byte")];
@@ -679,7 +678,7 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
     let blinding =
         derive_transact_output_blinding(&FIXTURE_FIRST_NULLIFIER, &output_blinding_seed, 0)
             .expect("output blinding");
-    let mut data = ZolanaProgramTest::wallet_ring_spl_shield_data(
+    let mut data = SprProgramTest::wallet_ring_spl_shield_data(
         350_000, mint, user_token, &recipient, blinding,
     )
     .expect("ring SPL deposit data");
@@ -719,7 +718,7 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
 /// the same leaves one at a time into its reference tree. Equal roots prove
 /// the batch append and the leaf-by-leaf append agree.
 #[track_caller]
-fn assert_batch_root_matches_reference(rpc: &ZolanaProgramTest, tree: &Pubkey) {
+fn assert_batch_root_matches_reference(rpc: &SprProgramTest, tree: &Pubkey) {
     let onchain = rpc.state_root(tree).expect("state root");
     assert_eq!(
         rpc.indexer().root(tree),
@@ -747,7 +746,7 @@ fn assert_distinct_leaves(outputs: &[DepositOutput], count: usize) {
     assert_eq!(hashes.len(), count, "batch leaves must be distinct");
 }
 
-fn sol_interface_lamports(rpc: &ZolanaProgramTest) -> u64 {
+fn sol_interface_lamports(rpc: &SprProgramTest) -> u64 {
     rpc.svm
         .get_account(&pda::sol_interface())
         .map_or(0, |account| account.lamports)
@@ -764,7 +763,7 @@ fn sol_deposit_batch_settles_once_and_appends_three_distinct_leaves() {
     let tree = pool.tree;
     let interface_before = sol_interface_lamports(&pool.rpc);
     let deposits: Vec<AssetDeposit> =
-        vec![ZolanaProgramTest::sol_shield_data(AMOUNT, [7u8; 32]); COUNT as usize];
+        vec![SprProgramTest::sol_shield_data(AMOUNT, [7u8; 32]); COUNT as usize];
 
     let batch = pool
         .rpc
@@ -809,7 +808,7 @@ fn repeating_an_identical_deposit_in_a_later_transaction_appends_a_distinct_leaf
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
     let tree = pool.tree;
-    let data = ZolanaProgramTest::sol_shield_data(AMOUNT, [9u8; 32]);
+    let data = SprProgramTest::sol_shield_data(AMOUNT, [9u8; 32]);
 
     let first = pool
         .rpc
@@ -851,9 +850,9 @@ fn multi_asset_deposit_batch_settles_each_asset_once_and_appends_three_distinct_
     let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
 
     let deposits = vec![
-        ZolanaProgramTest::sol_shield_data(LAMPORTS, [1u8; 32]),
-        ZolanaProgramTest::spl_shield_data(TOKENS, [2u8; 32], &mint, &user_token),
-        ZolanaProgramTest::sol_shield_data(LAMPORTS, [3u8; 32]),
+        SprProgramTest::sol_shield_data(LAMPORTS, [1u8; 32]),
+        SprProgramTest::spl_shield_data(TOKENS, [2u8; 32], &mint, &user_token),
+        SprProgramTest::sol_shield_data(LAMPORTS, [3u8; 32]),
     ];
     let batch = pool
         .rpc

@@ -18,7 +18,7 @@ use spr_transaction::{owner_utxo_hash, Blinding};
 
 use crate::{
     instructions::RING_TEST_PROGRAM_ID, paths::default_ring_test_program_path,
-    wallet_data::wallet_shield_identity, ProgramTestError, RingDepositOutput, ZolanaProgramTest,
+    wallet_data::wallet_shield_identity, ProgramTestError, RingDepositOutput, SprProgramTest,
 };
 
 pub struct RingDepositBatch {
@@ -26,7 +26,7 @@ pub struct RingDepositBatch {
     pub spl_transfers: Vec<SplTransfer>,
 }
 
-impl ZolanaProgramTest {
+impl SprProgramTest {
     fn ring_test_program_id() -> Pubkey {
         Pubkey::new_from_array(RING_TEST_PROGRAM_ID)
     }

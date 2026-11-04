@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use client_example::{setup, SetupContext};
 use solana_signature::Signature;
 use solana_signer::Signer;
-use spr_client::{IndexerRpcConfig, Rpc, SolanaRpc, ZolanaClient};
+use spr_client::{IndexerRpcConfig, Rpc, SolanaRpc, SprClient};
 use spr_interface::pda;
 use spr_program::instruction::{
     AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
@@ -42,7 +42,7 @@ fn main() -> Result<()> {
     } = setup()?;
 
     // Load the funded fee payer and localnet settings, then connect.
-    let client = ZolanaClient::from_urls(SolanaRpc::new(rpc_url), &indexer_url, prover_url, None)?;
+    let client = SprClient::from_urls(SolanaRpc::new(rpc_url), &indexer_url, prover_url, None)?;
 
     // Mints that are registered with Solana Rings for privacy.
     let assets = AssetRegistry::default();
@@ -296,7 +296,7 @@ fn main() -> Result<()> {
 
 /// Slot the confirmed transaction landed in, which drives the indexer
 /// freshness gate on the fetches that read the transaction back.
-fn landed_slot(client: &ZolanaClient<SolanaRpc>, signature: Signature) -> Result<u64> {
+fn landed_slot(client: &SprClient<SolanaRpc>, signature: Signature) -> Result<u64> {
     client
         .get_signature_statuses(vec![signature])?
         .first()

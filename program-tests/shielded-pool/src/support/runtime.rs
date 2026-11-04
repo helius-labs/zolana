@@ -1,12 +1,12 @@
 use spr_interface::state;
-use spr_program_test::{ProgramTestError, ZolanaProgramTest};
+use spr_program_test::{ProgramTestError, SprProgramTest};
 
 pub fn tree_account_size() -> u64 {
     state::tree_account_size() as u64
 }
 
-pub fn program_test() -> ZolanaProgramTest {
-    match ZolanaProgramTest::new() {
+pub fn program_test() -> SprProgramTest {
+    match SprProgramTest::new() {
         Ok(test) => test,
         Err(ProgramTestError::MissingProgram(path)) => panic!(
             "shielded-pool .so is missing at {path:?}: run `cargo build-sbf -p shielded-pool-program`"

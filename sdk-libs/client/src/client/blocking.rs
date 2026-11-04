@@ -20,10 +20,10 @@ use crate::{
     },
 };
 
-use super::{BlockingIndexer, BlockingRpc, ZolanaClient};
+use super::{BlockingIndexer, BlockingRpc, SprClient};
 
 /// Every call is the `async` client's, run to completion.
-impl<R: BlockingRpc, I: BlockingIndexer> Rpc for ZolanaClient<R, I> {
+impl<R: BlockingRpc, I: BlockingIndexer> Rpc for SprClient<R, I> {
     fn get_program_accounts_filtered(
         &self,
         program_id: Address,

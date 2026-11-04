@@ -12,9 +12,9 @@ use spr_protocol_instructions::{
 use spr_interface::state::{default_tree_fees, nullifier_tree_params};
 use spr_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
-use crate::{instructions::create_tree_instructions, ProgramTestError, ZolanaProgramTest};
+use crate::{instructions::create_tree_instructions, ProgramTestError, SprProgramTest};
 
-impl ZolanaProgramTest {
+impl SprProgramTest {
     pub fn create_protocol_config(
         &mut self,
         authority: &Keypair,

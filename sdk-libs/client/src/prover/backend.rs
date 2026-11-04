@@ -22,7 +22,7 @@ use crate::{
 /// [`ProverClient`](crate::ProverClient) sends each request to a prover server.
 /// Implement [`Self::prove`] to prove somewhere else instead, such as in
 /// process or on a mobile device, and pass the implementation to
-/// [`ZolanaClient::with_prover`](crate::ZolanaClient::with_prover) or any
+/// [`SprClient::with_prover`](crate::SprClient::with_prover) or any
 /// `&dyn Prover` parameter. The typed proofs are [`ProverExt`] methods.
 ///
 /// A body carries nullifier secrets. An implementation must not log it or

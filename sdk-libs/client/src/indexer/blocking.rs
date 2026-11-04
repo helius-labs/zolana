@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use solana_address::Address;
 use solana_signature::Signature;
-use spr_api::{BlockingRuntime, BlockingZolanaApi, ZolanaApi};
+use spr_api::{BlockingRuntime, BlockingSprApi, SprApi};
 #[cfg(feature = "reqwest")]
 use spr_interface::instruction::instruction_data::transact::TransactIxData;
 #[cfg(feature = "reqwest")]
@@ -24,29 +24,29 @@ use crate::{
     },
 };
 
-use super::AsyncZolanaIndexer;
+use super::AsyncSprIndexer;
 
-/// Blocking client for the Zolana indexer: an [`AsyncZolanaIndexer`] run on a
+/// Blocking client for the Zolana indexer: an [`AsyncSprIndexer`] run on a
 /// Tokio runtime of its own, as [`ProverClient`] runs its async client.
 #[derive(Clone, Debug)]
-pub struct ZolanaIndexer {
-    indexer: AsyncZolanaIndexer,
+pub struct SprIndexer {
+    indexer: AsyncSprIndexer,
     /// Shared by clones: one runtime per indexer.
     runtime: Arc<BlockingRuntime>,
 }
 
-impl ZolanaIndexer {
+impl SprIndexer {
     /// An indexer whose requests are each bounded by
-    /// [`BlockingZolanaApi::new`]'s timeout.
+    /// [`BlockingSprApi::new`]'s timeout.
     #[cfg(feature = "reqwest")]
     pub fn new(url: impl AsRef<str>) -> Self {
-        Self::with_api(BlockingZolanaApi::new(url))
+        Self::with_api(BlockingSprApi::new(url))
     }
 
-    pub fn with_api(api: BlockingZolanaApi) -> Self {
+    pub fn with_api(api: BlockingSprApi) -> Self {
         let (api, runtime) = api.into_parts();
         Self {
-            indexer: AsyncZolanaIndexer::with_api(api),
+            indexer: AsyncSprIndexer::with_api(api),
             runtime,
         }
     }
@@ -56,7 +56,7 @@ impl ZolanaIndexer {
         self
     }
 
-    pub fn api(&self) -> &ZolanaApi {
+    pub fn api(&self) -> &SprApi {
         self.indexer.api()
     }
 
@@ -66,7 +66,7 @@ impl ZolanaIndexer {
         Arc::clone(&self.runtime)
     }
 
-    pub(crate) fn async_indexer(&self) -> &AsyncZolanaIndexer {
+    pub(crate) fn async_indexer(&self) -> &AsyncSprIndexer {
         &self.indexer
     }
 
@@ -99,18 +99,18 @@ impl ZolanaIndexer {
     }
 }
 
-impl AsyncZolanaIndexer {
+impl AsyncSprIndexer {
     /// This indexer for blocking callers, run on a Tokio runtime of its own.
-    /// As with `ZolanaApi::into_blocking`, give it an HTTP client of its own.
-    pub fn into_blocking(self) -> ZolanaIndexer {
-        ZolanaIndexer {
+    /// As with `SprApi::into_blocking`, give it an HTTP client of its own.
+    pub fn into_blocking(self) -> SprIndexer {
+        SprIndexer {
             indexer: self,
             runtime: Arc::new(BlockingRuntime::new()),
         }
     }
 }
 
-impl Rpc for ZolanaIndexer {
+impl Rpc for SprIndexer {
     fn should_retry(&self, error: &ClientError) -> bool {
         self.indexer.should_retry(error)
     }

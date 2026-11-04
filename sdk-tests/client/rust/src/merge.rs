@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use solana_signature::Signature;
 use spr_client::{
     BlockingRpc, IndexerRpcConfig, MergeProofResult, Proof, ProofCompressed, Rpc,
-    ShieldedTransaction, ZolanaClient,
+    ShieldedTransaction, SprClient,
 };
 use spr_interface::instruction::instruction_data::MergeTransactIxData;
 use spr_keypair::ShieldedKeypair;
@@ -30,7 +30,7 @@ pub fn merge_instruction_data(
     Ok(merge.instruction_data(ProofCompressed::try_from(proof)?.to_merge_proof()?))
 }
 
-pub fn landed_slot<R: BlockingRpc>(client: &ZolanaClient<R>, signature: Signature) -> Result<u64> {
+pub fn landed_slot<R: BlockingRpc>(client: &SprClient<R>, signature: Signature) -> Result<u64> {
     client
         .get_signature_statuses(vec![signature])?
         .first()
@@ -79,7 +79,7 @@ pub fn assert_merge_output_is_predicted(
 
 /// The recipient received the transfer and the sender kept the change.
 pub fn assert_balances_after_transfer<R: BlockingRpc>(
-    client: &ZolanaClient<R>,
+    client: &SprClient<R>,
     sender: &ShieldedKeypair,
     recipient: &ShieldedKeypair,
     assets: &AssetRegistry,

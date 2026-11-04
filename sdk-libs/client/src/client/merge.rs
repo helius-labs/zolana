@@ -29,8 +29,8 @@ use crate::{
 };
 
 use super::{
-    prove_on_blocking_pool, transaction::prove_with_blockhash, AsyncIndexer, AsyncZolanaClient,
-    BlockingIndexer, BlockingRpc, UnsignedMessage, ZolanaClient,
+    prove_on_blocking_pool, transaction::prove_with_blockhash, AsyncIndexer, AsyncSprClient,
+    BlockingIndexer, BlockingRpc, SprClient, UnsignedMessage,
 };
 
 /// Compute-unit ceiling of a `merge_transact`. The widest shape, "Merge 52x1"
@@ -118,7 +118,7 @@ impl<'a> MergeSubmission<'a> {
     /// with `client`'s prover or [`Self::prover`], and verify the proof.
     pub async fn prove<R: AsyncRpc, I: AsyncIndexer>(
         &self,
-        client: &AsyncZolanaClient<R, I>,
+        client: &AsyncSprClient<R, I>,
     ) -> Result<ProvedMerge, ClientError> {
         let user_record = user_record_pda(&self.owner).0;
         let record = fetch_user_record_optional_checked_async(client.rpc(), self.owner)
@@ -171,7 +171,7 @@ impl<'a> MergeSubmission<'a> {
     /// Proof errors return without waiting for the blockhash request.
     pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
         &self,
-        client: &AsyncZolanaClient<R, I>,
+        client: &AsyncSprClient<R, I>,
         fee_payer: Address,
     ) -> Result<UnsignedMessage, ClientError> {
         let (proved, (recent_blockhash, last_valid_block_height)) =
@@ -194,7 +194,7 @@ impl<'a> MergeSubmission<'a> {
     /// merge is confirmed and indexed.
     pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
         &self,
-        client: &AsyncZolanaClient<R, I>,
+        client: &AsyncSprClient<R, I>,
         fee_payer: &dyn Signer,
     ) -> Result<Signature, ClientError> {
         let unsigned = self.finish_unsigned(client, fee_payer.pubkey()).await?;
@@ -208,7 +208,7 @@ impl<'a> MergeSubmission<'a> {
     /// See [`Self::prove`].
     pub fn prove_sync<R: BlockingRpc, I: BlockingIndexer>(
         &self,
-        client: &ZolanaClient<R, I>,
+        client: &SprClient<R, I>,
     ) -> Result<ProvedMerge, ClientError> {
         client.block_on(self.prove(&client.client))
     }
@@ -216,7 +216,7 @@ impl<'a> MergeSubmission<'a> {
     /// See [`Self::finish_unsigned`].
     pub fn finish_unsigned_sync<R: BlockingRpc, I: BlockingIndexer>(
         &self,
-        client: &ZolanaClient<R, I>,
+        client: &SprClient<R, I>,
         fee_payer: Address,
     ) -> Result<UnsignedMessage, ClientError> {
         client.block_on(self.finish_unsigned(&client.client, fee_payer))
@@ -225,7 +225,7 @@ impl<'a> MergeSubmission<'a> {
     /// See [`Self::send`].
     pub fn send_sync<R: BlockingRpc, I: BlockingIndexer>(
         &self,
-        client: &ZolanaClient<R, I>,
+        client: &SprClient<R, I>,
         fee_payer: &dyn Signer,
     ) -> Result<Signature, ClientError> {
         client.block_on(self.send(&client.client, fee_payer))

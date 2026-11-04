@@ -1,8 +1,8 @@
 //! High-level Zolana client.
 //!
-//! [`AsyncZolanaClient`] owns the three services a private transaction
+//! [`AsyncSprClient`] owns the three services a private transaction
 //! needs: the Solana RPC, the indexer and the prover, and is `async`.
-//! [`ZolanaClient`] is that client for blocking callers: the same core run on
+//! [`SprClient`] is that client for blocking callers: the same core run on
 //! a Tokio runtime it owns, over a blocking RPC and indexer lifted by
 //! [`Blocking`], so it is built, used and dropped from plain threads or from
 //! inside a multi-thread runtime alike; only a `current_thread` runtime cannot
@@ -25,7 +25,7 @@ use spr_api::BlockingRuntime;
 use crate::{
     authority::ProofAuthority,
     error::ClientError,
-    indexer::AsyncZolanaIndexer,
+    indexer::AsyncSprIndexer,
     prover::{
         indexed::{PreparedIndexedTransfer, ProofDataSource},
         requests::CircuitRequest,
@@ -35,7 +35,7 @@ use crate::{
     rpc::{AsyncRpc, Blocking, ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig, Rpc},
 };
 #[cfg(feature = "reqwest")]
-use crate::{indexer::ZolanaIndexer, prover::tee::TeePolicy};
+use crate::{indexer::SprIndexer, prover::tee::TeePolicy};
 
 pub use merge::{check_merge_record, MergeSubmission, ProvedMerge, MERGE_CU_LIMIT};
 pub use transaction::{SignedPrivateTransaction, Submission, UnsignedMessage};
@@ -54,7 +54,7 @@ pub use validation::check_service_url;
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 
 /// An indexer of the `async` client: it answers the indexer half of
-/// [`AsyncRpc`] and reads input witnesses. [`AsyncZolanaIndexer`] reads
+/// [`AsyncRpc`] and reads input witnesses. [`AsyncSprIndexer`] reads
 /// Photon; [`Blocking`] lifts a [`BlockingIndexer`]. Implemented for every
 /// such type.
 pub trait AsyncIndexer: AsyncRpc + AsyncWitnessReader {}
@@ -92,7 +92,7 @@ enum ProverBackend {
 /// through each step. This client owns those services. Proving and native
 /// Solana transaction construction happen when a private transaction is
 /// signed; submission is the caller's RPC adapter.
-pub struct AsyncZolanaClient<R, I = AsyncZolanaIndexer> {
+pub struct AsyncSprClient<R, I = AsyncSprIndexer> {
     rpc: R,
     indexer: I,
     prover: ProverBackend,
@@ -101,7 +101,7 @@ pub struct AsyncZolanaClient<R, I = AsyncZolanaIndexer> {
     indexer_config: IndexerRpcConfig,
 }
 
-impl<R, I> AsyncZolanaClient<R, I> {
+impl<R, I> AsyncSprClient<R, I> {
     /// A client over `rpc`, `indexer` and the prover server `prover`.
     pub fn new(rpc: R, indexer: I, prover: AsyncProverClient) -> Self {
         Self::build(rpc, indexer, ProverBackend::Server(Box::new(prover)))
@@ -237,7 +237,7 @@ impl<R, I> AsyncZolanaClient<R, I> {
 }
 
 #[cfg(feature = "reqwest")]
-impl<R> AsyncZolanaClient<R, AsyncZolanaIndexer> {
+impl<R> AsyncSprClient<R, AsyncSprIndexer> {
     /// Build the Photon indexer and the prover client from their URLs. Both
     /// must be https, or http to loopback: the indexer answers with the
     /// wallet's UTXO set and the prover is sent every proof input.
@@ -278,39 +278,35 @@ impl<R> AsyncZolanaClient<R, AsyncZolanaIndexer> {
             Some(policy) => prover.with_tee(policy),
             None => prover,
         };
-        Self::new(rpc, AsyncZolanaIndexer::new(indexer_url.as_ref()), prover)
+        Self::new(rpc, AsyncSprIndexer::new(indexer_url.as_ref()), prover)
     }
 }
 
-/// The blocking client: an [`AsyncZolanaClient`] run on a Tokio runtime it
-/// owns, over a blocking Solana RPC `R` and indexer `I`, [`ZolanaIndexer`]
+/// The blocking client: an [`AsyncSprClient`] run on a Tokio runtime it
+/// owns, over a blocking Solana RPC `R` and indexer `I`, [`SprIndexer`]
 /// by default, each lifted by [`Blocking`].
 ///
-/// [`ZolanaIndexer`]: crate::indexer::ZolanaIndexer
-pub struct ZolanaClient<R, I = crate::indexer::ZolanaIndexer> {
-    client: AsyncZolanaClient<Blocking<R>, Blocking<I>>,
+/// [`SprIndexer`]: crate::indexer::SprIndexer
+pub struct SprClient<R, I = crate::indexer::SprIndexer> {
+    client: AsyncSprClient<Blocking<R>, Blocking<I>>,
     runtime: Arc<BlockingRuntime>,
 }
 
-impl<R, I> ZolanaClient<R, I> {
+impl<R, I> SprClient<R, I> {
     /// A client over `rpc`, `indexer` and the prover server `prover`, run on
     /// the prover client's runtime.
     pub fn new(rpc: R, indexer: I, prover: ProverClient) -> Self {
         let (prover, runtime) = prover.into_parts();
         Self {
-            client: AsyncZolanaClient::new(Blocking::new(rpc), Blocking::new(indexer), prover),
+            client: AsyncSprClient::new(Blocking::new(rpc), Blocking::new(indexer), prover),
             runtime,
         }
     }
 
-    /// See [`AsyncZolanaClient::with_prover`].
+    /// See [`AsyncSprClient::with_prover`].
     pub fn with_prover(rpc: R, indexer: I, prover: impl Prover + 'static) -> Self {
         Self {
-            client: AsyncZolanaClient::with_prover(
-                Blocking::new(rpc),
-                Blocking::new(indexer),
-                prover,
-            ),
+            client: AsyncSprClient::with_prover(Blocking::new(rpc), Blocking::new(indexer), prover),
             runtime: Arc::new(BlockingRuntime::new()),
         }
     }
@@ -325,7 +321,7 @@ impl<R, I> ZolanaClient<R, I> {
         self
     }
 
-    /// See [`AsyncZolanaClient::compute_budget`].
+    /// See [`AsyncSprClient::compute_budget`].
     pub fn compute_budget(&self) -> ComputeBudgetConfig {
         self.client.compute_budget()
     }
@@ -340,7 +336,7 @@ impl<R, I> ZolanaClient<R, I> {
         self
     }
 
-    /// See [`AsyncZolanaClient::with_proof_data_source`].
+    /// See [`AsyncSprClient::with_proof_data_source`].
     #[must_use]
     pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
         self.client = self.client.with_proof_data_source(source);
@@ -364,8 +360,8 @@ impl<R, I> ZolanaClient<R, I> {
 }
 
 #[cfg(feature = "reqwest")]
-impl<R> ZolanaClient<R, ZolanaIndexer> {
-    /// The blocking [`AsyncZolanaClient::from_urls`]: the indexer, the prover
+impl<R> SprClient<R, SprIndexer> {
+    /// The blocking [`AsyncSprClient::from_urls`]: the indexer, the prover
     /// client and this client share one runtime.
     /// Supply `Some(policy)` for a remote prover; `None` permits plaintext
     /// only for loopback development.
@@ -387,7 +383,7 @@ impl<R> ZolanaClient<R, ZolanaIndexer> {
         ))
     }
 
-    /// The blocking [`AsyncZolanaClient::from_urls_allowing_insecure_http`],
+    /// The blocking [`AsyncSprClient::from_urls_allowing_insecure_http`],
     /// with its warning.
     pub fn from_urls_allowing_insecure_http(
         rpc: R,
@@ -395,7 +391,7 @@ impl<R> ZolanaClient<R, ZolanaIndexer> {
         prover_url: impl Into<String>,
         prover_tee: Option<TeePolicy>,
     ) -> Self {
-        let indexer = ZolanaIndexer::new(indexer_url.as_ref());
+        let indexer = SprIndexer::new(indexer_url.as_ref());
         let prover = AsyncProverClient::new(prover_url.into());
         let prover = match prover_tee {
             Some(policy) => prover.with_tee(policy),

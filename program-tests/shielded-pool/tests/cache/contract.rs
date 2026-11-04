@@ -15,7 +15,7 @@ use spr_interface::{
     state::{cache::CacheAccount, discriminator::CACHE},
 };
 use spr_program::instruction::{CacheWriteAccounts, CloseCache, CreateCache, MergeTransact};
-use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_program_test::{Rejection, SprProgramTest};
 use spr_test_utils::transact::fe;
 
 fn create(payer: Address, nonce: u64, tree_id: u16, expires_at: i64) -> (Address, u8, Instruction) {
@@ -41,28 +41,28 @@ fn close(cache: Address, rent_recipient: Address) -> Instruction {
     .instruction()
 }
 
-fn state(rpc: &ZolanaProgramTest, cache: &Address) -> CacheAccount {
+fn state(rpc: &SprProgramTest, cache: &Address) -> CacheAccount {
     *bytemuck::from_bytes(&rpc.account_data(cache).expect("cache data"))
 }
 
-fn store(rpc: &mut ZolanaProgramTest, cache: Address, state: CacheAccount) {
+fn store(rpc: &mut SprProgramTest, cache: Address, state: CacheAccount) {
     let mut account = rpc.svm.get_account(&cache).expect("cache account");
     account.data = bytemuck::bytes_of(&state).to_vec();
     rpc.svm.set_account(cache, account).expect("store cache");
 }
 
-fn now(rpc: &ZolanaProgramTest) -> i64 {
+fn now(rpc: &SprProgramTest) -> i64 {
     rpc.svm.get_sysvar::<solana_clock::Clock>().unix_timestamp
 }
 
-fn warp(rpc: &mut ZolanaProgramTest, unix_timestamp: i64) {
+fn warp(rpc: &mut SprProgramTest, unix_timestamp: i64) {
     let mut clock = rpc.svm.get_sysvar::<solana_clock::Clock>();
     clock.unix_timestamp = unix_timestamp;
     rpc.svm.set_sysvar(&clock);
 }
 
 fn reject(
-    rpc: &mut ZolanaProgramTest,
+    rpc: &mut SprProgramTest,
     ix: Instruction,
     error: impl Into<pinocchio::error::ProgramError>,
 ) {

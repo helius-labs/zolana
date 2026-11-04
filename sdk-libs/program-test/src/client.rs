@@ -1,4 +1,4 @@
-//! A [`ZolanaClient`] over the litesvm harness.
+//! A [`SprClient`] over the litesvm harness.
 //!
 //! The harness is both halves of that client: transactions run in litesvm
 //! through its [`Rpc`], and the proofs and transactions the client reads come
@@ -20,11 +20,11 @@ use spr_client::{
         GetShieldedTransactionsBySignatureResponse, IndexedShieldedTransaction, IndexerRpcConfig,
         MerkleContext, MerkleProof, NonInclusionProof,
     },
-    ClientError, ProverClient, Rpc, RpcSendTransactionConfig, WitnessReader, ZolanaClient,
+    ClientError, ProverClient, Rpc, RpcSendTransactionConfig, SprClient, WitnessReader,
 };
 use spr_tree::TreeAccount;
 
-use crate::{indexer::LeafProof, transaction_trace::TransactionOutcome, ZolanaProgramTest};
+use crate::{indexer::LeafProof, transaction_trace::TransactionOutcome, SprProgramTest};
 
 /// `tree_type` of a state-tree proof, as Photon reports it.
 const STATE_TREE_TYPE: u16 = 1;
@@ -34,27 +34,27 @@ const NULLIFIER_TREE_TYPE: u16 = 2;
 /// The harness, shared by a client's RPC and indexer halves. Clones share one
 /// harness; [`Self::lock`] reaches it for anything the client does not do.
 #[derive(Clone)]
-pub struct ProgramTestHandle(Arc<Mutex<ZolanaProgramTest>>);
+pub struct ProgramTestHandle(Arc<Mutex<SprProgramTest>>);
 
-impl ZolanaProgramTest {
+impl SprProgramTest {
     pub fn into_handle(self) -> ProgramTestHandle {
         ProgramTestHandle(Arc::new(Mutex::new(self)))
     }
 
     /// A client whose RPC and indexer are this harness, proving through
-    /// `prover`. [`ZolanaClient::with_prover`] over two clones of
+    /// `prover`. [`SprClient::with_prover`] over two clones of
     /// [`Self::into_handle`] gives one with a custom prover.
     pub fn into_client(
         self,
         prover: ProverClient,
-    ) -> ZolanaClient<ProgramTestHandle, ProgramTestHandle> {
+    ) -> SprClient<ProgramTestHandle, ProgramTestHandle> {
         let handle = self.into_handle();
-        ZolanaClient::new(handle.clone(), handle, prover)
+        SprClient::new(handle.clone(), handle, prover)
     }
 }
 
 impl ProgramTestHandle {
-    pub fn lock(&self) -> MutexGuard<'_, ZolanaProgramTest> {
+    pub fn lock(&self) -> MutexGuard<'_, SprProgramTest> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -263,7 +263,7 @@ impl Rpc for ProgramTestHandle {
     }
 }
 
-fn context(harness: &ZolanaProgramTest) -> Context {
+fn context(harness: &SprProgramTest) -> Context {
     let clock = harness.svm.get_sysvar::<Clock>();
     Context {
         block_time: clock.unix_timestamp,
@@ -274,7 +274,7 @@ fn context(harness: &ZolanaProgramTest) -> Context {
 /// The tree account's bytes, loaded as a tree. A copy: the account is read,
 /// never written through this.
 fn tree_account_of(
-    harness: &ZolanaProgramTest,
+    harness: &SprProgramTest,
     tree: Address,
 ) -> Result<TreeAccount<'static>, ClientError> {
     let data = harness

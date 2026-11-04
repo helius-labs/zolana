@@ -10,7 +10,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use spr_interface::{state::TreeFeeSchedule, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID};
 use spr_program::instruction::Deposit;
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 use spr_protocol_instructions::{ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees};
 use spr_test_utils::mollusk::{
     mollusk_instruction, mollusk_with_program, snapshot_instruction_accounts,
@@ -59,7 +59,7 @@ pub fn system_account(lamports: u64) -> MolluskAccount {
 }
 
 fn snapshot(
-    test: &ZolanaProgramTest,
+    test: &SprProgramTest,
     ix: &Instruction,
     program_id: Pubkey,
 ) -> Vec<(Pubkey, MolluskAccount)> {
@@ -77,7 +77,7 @@ pub fn deposit_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>
     let depositor = Keypair::new();
     test.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("fund depositor");
-    let data = ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32]);
+    let data = SprProgramTest::sol_shield_data(1_000_000, [8u8; 32]);
     let ix = Deposit {
         tree,
         depositor: depositor.pubkey(),

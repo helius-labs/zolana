@@ -1,6 +1,6 @@
 //! SPL mint / token-account / interface setup against the client `Rpc` trait, so
 //! tests on a real validator can build the SPL state a deposit needs. Mirrors the
-//! litesvm helpers on `ZolanaProgramTest`, but sends through `Rpc`.
+//! litesvm helpers on `SprProgramTest`, but sends through `Rpc`.
 
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};

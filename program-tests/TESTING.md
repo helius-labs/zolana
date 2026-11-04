@@ -92,7 +92,7 @@ failed.
 workflow backend used by shielded-pool tests. The backend owns protocol/tree
 setup, signer funding, and exposes the transaction journal.
 
-Every `ZolanaProgramTest` submission, successful or rejected, captures:
+Every `SprProgramTest` submission, successful or rejected, captures:
 
 - every message account before and after execution;
 - instruction program, account layout, discriminator, and data length;

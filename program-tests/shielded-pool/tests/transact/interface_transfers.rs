@@ -18,7 +18,7 @@ use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };
-use spr_program_test::{Rejection, ZolanaProgramTest};
+use spr_program_test::{Rejection, SprProgramTest};
 use spr_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};
 
 /// Two-input/three-output transact data with a zeroed proof carrying the
@@ -50,7 +50,7 @@ fn ix_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
 /// rejection plus a full rollback (a failed transaction only charges the
 /// payer's fee).
 #[track_caller]
-fn expect_rejection(rpc: &mut ZolanaProgramTest, ix: Instruction, expected: Rejection) {
+fn expect_rejection(rpc: &mut SprProgramTest, ix: Instruction, expected: Rejection) {
     let payer = rpc.payer.pubkey();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -179,7 +179,7 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
             spl_interface: vault,
             token_authority: payer,
             user_token_account,
-            token_program: ZolanaProgramTest::token_program_id(),
+            token_program: SprProgramTest::token_program_id(),
         })
     };
     let spl_withdrawal = || {
@@ -187,7 +187,7 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
             mint,
             spl_interface: vault,
             user_token_account,
-            token_program: ZolanaProgramTest::token_program_id(),
+            token_program: SprProgramTest::token_program_id(),
         })
     };
     let spl_interface_bump = pda::spl_interface_with_bump(&mint).1;
@@ -230,7 +230,7 @@ fn token_2022_withdrawal_accounts_reach_proof_verification() {
     pool.rpc
         .ensure_asset_counter(&pool.authority)
         .expect("asset counter");
-    let token_program = ZolanaProgramTest::token_2022_program_id();
+    let token_program = SprProgramTest::token_2022_program_id();
     let mint = pool
         .rpc
         .create_mint_with_program(token_program)
@@ -301,7 +301,7 @@ fn spl_settlement_rejects_noncanonical_vault_bump() {
                 spl_interface: vault,
                 token_authority: payer,
                 user_token_account,
-                token_program: ZolanaProgramTest::token_program_id(),
+                token_program: SprProgramTest::token_program_id(),
             },
         )],
         data: ix_data(vec![InterfaceTransfer::SplDeposit {
@@ -358,7 +358,7 @@ fn spl_deposit_requires_depositor_signature() {
                 spl_interface: vault,
                 token_authority: depositor.pubkey(),
                 user_token_account,
-                token_program: ZolanaProgramTest::token_program_id(),
+                token_program: SprProgramTest::token_program_id(),
             },
         )],
         data,
@@ -404,7 +404,7 @@ fn spl_withdrawal_rejects_a_shifted_token_program_account() {
                 mint,
                 spl_interface: vault,
                 user_token_account,
-                token_program: ZolanaProgramTest::token_program_id(),
+                token_program: SprProgramTest::token_program_id(),
             },
         )],
         data: ix_data(vec![InterfaceTransfer::SplWithdrawal {
@@ -448,7 +448,7 @@ fn four_distinct_public_assets_are_rejected() {
                 spl_interface: vault,
                 token_authority: payer,
                 user_token_account,
-                token_program: ZolanaProgramTest::token_program_id(),
+                token_program: SprProgramTest::token_program_id(),
             },
         ));
         vaults.push(vault);

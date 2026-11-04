@@ -5,10 +5,10 @@
 //!
 //! Usage:
 //! ```ignore
-//! use spr_program_test::ZolanaProgramTest;
+//! use spr_program_test::SprProgramTest;
 //! use solana_keypair::Keypair;
 //!
-//! let mut test = ZolanaProgramTest::new()?;
+//! let mut test = SprProgramTest::new()?;
 //! let authority = Keypair::new();
 //! test.create_protocol_config(&authority)?;
 //! let tree = test.create_tree(&authority)?;
@@ -122,7 +122,7 @@ impl From<litesvm::types::FailedTransactionMetadata> for ProgramTestError {
     }
 }
 
-pub struct ZolanaProgramTest {
+pub struct SprProgramTest {
     pub svm: LiteSVM,
     pub payer: Keypair,
     pub program_id: Pubkey,
@@ -130,7 +130,7 @@ pub struct ZolanaProgramTest {
     transaction_traces: Vec<TransactionTrace>,
 }
 
-impl ZolanaProgramTest {
+impl SprProgramTest {
     /// Boot a litesvm instance, fund a payer, and load the shielded-pool
     /// program from the default workspace `target/deploy/` location (or the
     /// `SHIELDED_POOL_PROGRAM_PATH` env override).

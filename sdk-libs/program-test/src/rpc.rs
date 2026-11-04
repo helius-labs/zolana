@@ -10,8 +10,8 @@ use spr_client::{compile_message, sign_transaction, ClientError, ComputeBudgetCo
 
 use crate::{
     events::{index_events, indexed_events_from_meta, IndexedEvent},
-    AccountSnapshot, AccountTransition, InstructionTrace, ProgramTestError, TransactionOutcome,
-    TransactionTrace, ZolanaProgramTest,
+    AccountSnapshot, AccountTransition, InstructionTrace, ProgramTestError, SprProgramTest,
+    TransactionOutcome, TransactionTrace,
 };
 
 #[derive(Debug)]
@@ -20,7 +20,7 @@ pub struct IndexedTransaction {
     pub events: Vec<IndexedEvent>,
 }
 
-impl ZolanaProgramTest {
+impl SprProgramTest {
     /// Build, sign, send, and index a transaction against the litesvm backend
     /// on the budget a legacy transaction of this length used to receive
     /// implicitly, so callers that never asked for one keep the ceiling they
@@ -155,7 +155,7 @@ impl ZolanaProgramTest {
     }
 }
 
-impl Rpc for ZolanaProgramTest {
+impl Rpc for SprProgramTest {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
         let pubkey = Pubkey::new_from_array(address.to_bytes());
         Ok(self.svm.get_account(&pubkey))

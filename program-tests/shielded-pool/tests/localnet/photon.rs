@@ -27,7 +27,7 @@ use spr_client::{
     prover::field::{be, right_align_slice},
     EncryptedUtxoMatch, MerkleProof as IndexedMerkleProof,
     NonInclusionProof as IndexedNonInclusionProof, ProofInputUtxo, ProverClient, Rpc, SolanaRpc,
-    SpendProof, TransferInput, ZolanaIndexer,
+    SpendProof, SprIndexer, TransferInput,
 };
 use spr_event::OutputDataEncoding;
 use spr_hasher::primitives::solana_owner_identity;
@@ -49,7 +49,7 @@ use spr_keypair::{
 use spr_program::instruction::{
     Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
-use spr_program_test::{rpc_state_root, ZolanaProgramTest};
+use spr_program_test::{rpc_state_root, SprProgramTest};
 use spr_test_utils::smart_account;
 use spr_test_utils::wallet::{KeypairWalletAuthority, Wallet, DEFAULT_TAG_WINDOW};
 use spr_test_utils::{

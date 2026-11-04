@@ -240,7 +240,7 @@ fn prover_proxy(proxy_url: &str) -> Result<reqwest::Proxy, ClientError> {
 /// `solana_rpc_client`'s blocking `RpcClient` drives its nonblocking one.
 pub struct ProverClient {
     client: AsyncProverClient,
-    /// Shared with the indexer of a client built by `ZolanaClient::from_urls`.
+    /// Shared with the indexer of a client built by `SprClient::from_urls`.
     runtime: Arc<BlockingRuntime>,
 }
 
@@ -306,7 +306,7 @@ impl ProverClient {
     }
 
     /// The `async` client this one runs and the runtime it runs it on, for a
-    /// blocking `ZolanaClient` built around them.
+    /// blocking `SprClient` built around them.
     pub fn into_parts(self) -> (AsyncProverClient, Arc<BlockingRuntime>) {
         (self.client, self.runtime)
     }
@@ -702,7 +702,7 @@ impl AsyncProverClient {
     }
 
     /// This client for blocking callers, run on a Tokio runtime of its own.
-    /// As with `ZolanaApi::into_blocking`, give it an HTTP client of its own.
+    /// As with `SprApi::into_blocking`, give it an HTTP client of its own.
     pub fn into_blocking(self) -> ProverClient {
         self.into_blocking_on(Arc::new(BlockingRuntime::new()))
     }

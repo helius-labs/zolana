@@ -126,7 +126,7 @@ struct ForesterEnv {
     rpc_url: String,
     indexer_url: String,
     rpc: SolanaRpc,
-    indexer: ZolanaIndexer,
+    indexer: SprIndexer,
     payer: Keypair,
     forester_key: Keypair,
     accounts: smart_account::StandardAccounts,
@@ -211,7 +211,7 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
     };
 
     for deposit_index in 0..2 {
-        let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, ctx.payer_owner_field);
+        let shield_data = SprProgramTest::sol_shield_data(AMOUNT, ctx.payer_owner_field);
         let shield_view_tag = shield_data.view_tag;
         let shield_ix = Deposit {
             tree: env.tree_pubkey,

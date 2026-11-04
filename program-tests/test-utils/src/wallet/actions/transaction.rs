@@ -25,9 +25,7 @@ use spr_client::user_registry::{
     try_resolve_registered_address, try_resolve_registered_address_async, ResolvedAddress,
 };
 use spr_client::{
-    client::{
-        AsyncIndexer, AsyncZolanaClient, BlockingIndexer, BlockingRpc, Submission, ZolanaClient,
-    },
+    client::{AsyncIndexer, AsyncSprClient, BlockingIndexer, BlockingRpc, SprClient, Submission},
     error::ClientError,
     rpc::{sign_transaction, AsyncRpc, Rpc},
     SignedPrivateTransaction, UnsignedMessage,
@@ -549,7 +547,7 @@ pub async fn build_private_transaction<
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &AsyncZolanaClient<R, I>,
+    client: &AsyncSprClient<R, I>,
     fee_payer: Pubkey,
 ) -> Result<UnsignedMessage, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
@@ -563,7 +561,7 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc, 
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &AsyncZolanaClient<R, I>,
+    client: &AsyncSprClient<R, I>,
     fee_payer: &dyn Signer,
 ) -> Result<VersionedTransaction, ClientError> {
     sign_private_transaction_with_signers(transaction, wallet, authority, client, fee_payer, &[])
@@ -580,7 +578,7 @@ pub async fn sign_private_transaction_with_signers<
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &AsyncZolanaClient<R, I>,
+    client: &AsyncSprClient<R, I>,
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
 ) -> Result<VersionedTransaction, ClientError> {
@@ -605,7 +603,7 @@ pub fn build_private_transaction_sync<
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R, I>,
+    client: &SprClient<R, I>,
     fee_payer: Pubkey,
 ) -> Result<UnsignedMessage, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
@@ -621,7 +619,7 @@ pub fn sign_private_transaction_sync<
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R, I>,
+    client: &SprClient<R, I>,
     fee_payer: &dyn Signer,
 ) -> Result<VersionedTransaction, ClientError> {
     sign_private_transaction_sync_with_signers(
@@ -643,7 +641,7 @@ pub fn sign_private_transaction_sync_with_signers<
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-    client: &ZolanaClient<R, I>,
+    client: &SprClient<R, I>,
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
 ) -> Result<VersionedTransaction, ClientError> {

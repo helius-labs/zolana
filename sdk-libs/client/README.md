@@ -5,19 +5,19 @@ RPC (`R`), the indexer (`I`) and the prover.
 
 ## Blocking and async
 
-`AsyncZolanaClient<R, I>` is the client; `ZolanaClient<R, I>` is the same
+`AsyncSprClient<R, I>` is the client; `SprClient<R, I>` is the same
 client for blocking callers, run on a Tokio runtime it owns, over a blocking
 `R` and `I` lifted onto the blocking pool by `Blocking`. There is one
 implementation of everything; the blocking client runs it to completion.
 
 ```rust
 let policy = TeePolicy::from_file_json(&std::fs::read_to_string(policy_path)?)?;
-let client = ZolanaClient::from_urls(rpc, indexer_url, prover_url, Some(policy))?;
-// AsyncZolanaClient::from_urls takes the same arguments.
+let client = SprClient::from_urls(rpc, indexer_url, prover_url, Some(policy))?;
+// AsyncSprClient::from_urls takes the same arguments.
 ```
 
-or from the services: `ZolanaClient::new(rpc, indexer, prover)` with a
-`ZolanaIndexer` and a `ProverClient`, `AsyncZolanaClient::new` with their
+or from the services: `SprClient::new(rpc, indexer, prover)` with a
+`SprIndexer` and a `ProverClient`, `AsyncSprClient::new` with their
 `async` counterparts. `from_urls` accepts https, or http to loopback only;
 `check_service_url` is that check for a caller building its own services.
 The fourth argument to both URL constructors (including
@@ -36,7 +36,7 @@ and its indexer with `BlockingIndexer`.
 `spr_api::HttpClient` and `BlockingHttpClient` carry one request and answer
 with the server's response, nothing more: routes, retries, polling, timeouts
 and TEE encryption stay with the client, so the transport is not trusted with
-any of them. `ZolanaApi::with_client`, `ProverClient::with_client` and
+any of them. `SprApi::with_client`, `ProverClient::with_client` and
 `AsyncProverClient::with_client` take an implementation; `HttpResponse`
 carries the headers because a TEE prover answers with ciphertext. Give a
 blocking client an HTTP client of its own rather than a clone shared with
@@ -139,7 +139,7 @@ every merged amount; `MergeSubmission::with_prover` keeps it in process.
 
 Any indexer serves a client. A blocking one answers the indexer half of
 `Rpc` and implements `WitnessReader`, which has a default over `Rpc`:
-`impl WitnessReader for MyIndexer {}`. `spr_program_test::ZolanaProgramTest`
+`impl WitnessReader for MyIndexer {}`. `spr_program_test::SprProgramTest`
 is one: `harness.into_client(ProverClient::local())
 .with_proof_data_source(ProofDataSource::Client)` is a client whose RPC and
 indexer are the litesvm harness, so a transfer proves, sends and confirms in
@@ -159,7 +159,7 @@ uses `/prove/<key>/indexed` for prover-fetched data. Prover fetching remains
 the default for every host. The Helius deployment must activate these REST
 routes, pools and TEE header forwarding; the SDK does not infer capabilities
 from the hostname. The setting lives on
-`ProverClient` and `AsyncProverClient`. The `ZolanaClient` method sets it on
+`ProverClient` and `AsyncProverClient`. The `SprClient` method sets it on
 the prover client it holds; a prover given with `with_prover` is handed the
 data by the client. Custom-ring proof environments read it from the prover
 client they are given.
@@ -177,7 +177,7 @@ Prover fetching sends locally prepared inputs to `/prove/<key>/indexed`. The pro
 resolves Merkle paths and root contexts. The SDK binds the returned roots to
 its original public statement and verifies the proof before returning
 transaction data. `IndexerRpcConfig.require_slot` sets the minimum indexer
-context slot for `ZolanaClient` transactions; `UtxoScan::with_indexer_config`
+context slot for `SprClient` transactions; `UtxoScan::with_indexer_config`
 applies it to wallet discovery, so a spend another client just made is read.
 Wallet discovery and chain account reads still use the SDK's configured services.
 

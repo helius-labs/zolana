@@ -2,13 +2,13 @@
 
 use solana_pubkey::Pubkey;
 use spr_interface::state::ProtocolConfig;
-use spr_program_test::ZolanaProgramTest;
+use spr_program_test::SprProgramTest;
 
 /// Verify the protocol config account at `config`: canonical length, every role
 /// authority equals `authority`, and both permissionless flags are off.
 #[track_caller]
 pub fn litesvm_assert_protocol_config(
-    program_test: &ZolanaProgramTest,
+    program_test: &SprProgramTest,
     config: &Pubkey,
     authority: &Pubkey,
 ) {
