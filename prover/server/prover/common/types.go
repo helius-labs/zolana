@@ -31,4 +31,8 @@ const (
 	// CPI-calling ring), which is committed as a public input. Otherwise identical
 	// to the default merge.
 	MergeRingCircuitType CircuitType = "merge-ring"
+
+	// MergeRingV2CircuitType is the policy-ring merge with a proven output
+	// ciphertext and zero-key support, used by merge_ring_v2.
+	MergeRingV2CircuitType CircuitType = "merge-ring-v2"
 )

@@ -33,7 +33,7 @@ func ParseStrict(body []byte) (*Request, error) {
 		schema = reflect.TypeOf(transfer.TransferParametersJSON{})
 	case common.TransferConfidentialEddsaCircuitType:
 		schema = reflect.TypeOf(transfer.ConfidentialEddsaTransferParametersJSON{})
-	case common.MergeCircuitType, common.MergeRingCircuitType:
+	case common.MergeCircuitType, common.MergeRingCircuitType, common.MergeRingV2CircuitType:
 		schema = reflect.TypeOf(merge.MergeParametersJSON{})
 	default:
 		return nil, fmt.Errorf("%w: circuit type %q", ErrUnsupported, envelope.CircuitType)

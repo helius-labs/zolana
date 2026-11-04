@@ -122,7 +122,7 @@ func decodePrepared(request Request) (*Prepared, error) {
 			return nil, err
 		}
 		prepared.value, prepared.inputs, prepared.slots, prepared.hash = &value, inputs, &value.TreeSlots, &value.PublicInputHash
-	case common.MergeCircuitType, common.MergeRingCircuitType:
+	case common.MergeCircuitType, common.MergeRingCircuitType, common.MergeRingV2CircuitType:
 		var value merge.MergeParameters
 		if json.Unmarshal(request.Prepared, &value) != nil {
 			return nil, fmt.Errorf("invalid prepared merge")

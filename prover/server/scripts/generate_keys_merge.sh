@@ -12,7 +12,7 @@ mkdir -p "$keys_dir"
 go build -o light-prover .
 
 # One key per supported merge input count per variant: the default merge
-# (merge_transact) and the policy-ring merge (merge_ring). Merge always produces
+# (merge_transact) and the policy-ring merges (merge_ring, merge_ring_v2). Merge always produces
 # one output, so the shape is the input count alone. Keep in sync with
 # mergeshared.SupportedInputCounts.
 input_counts=(8 24 52)
@@ -22,6 +22,7 @@ input_counts=(8 24 52)
 variants=(
     "merge merge"
     "merge-ring merge_ring"
+    "merge-ring-v2 merge_ring_v2"
 )
 
 for entry in "${variants[@]}"; do

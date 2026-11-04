@@ -385,7 +385,9 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		ps.ProvingKeySha256 = digest
 		// merge_ring_24_1.key is the policy-ring variant; the default merge file is
 		// merge_24_1.key.
-		if strings.Contains(lowerPath, "ring") {
+		if strings.Contains(lowerPath, "ring_v2") {
+			ps.CircuitType = MergeRingV2CircuitType
+		} else if strings.Contains(lowerPath, "ring") {
 			ps.CircuitType = MergeRingCircuitType
 		} else {
 			ps.CircuitType = MergeCircuitType

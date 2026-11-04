@@ -204,9 +204,12 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 	for _, circuitType := range []common.CircuitType{
 		common.MergeCircuitType,
 		common.MergeRingCircuitType,
+		common.MergeRingV2CircuitType,
 	} {
 		t.Run(string(circuitType), func(t *testing.T) {
 			params.CircuitType = circuitType
+			params.MergeSeed = big.NewInt(0)
+			params.PublishedOwner = big.NewInt(0)
 			assignment, err := params.CreateWitness()
 			if err != nil {
 				t.Fatalf("create assignment: %v", err)
@@ -215,6 +218,52 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 				t.Fatalf("create gnark witness: %v", err)
 			}
 		})
+	}
+}
+
+// Ring v2 carries the salt, and a zero nullifier secret needs a nonzero seed.
+func TestMergeRingV2SeedInputs(t *testing.T) {
+	encode := func(secret, seed int64) []byte {
+		t.Helper()
+		params := sampleParams()
+		params.CircuitType = common.MergeRingV2CircuitType
+		params.UserNullifierSecret = big.NewInt(secret)
+		params.MergeSeed = big.NewInt(seed)
+		params.PublishedOwner = big.NewInt(0)
+		data, err := json.Marshal(params)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		return data
+	}
+	var params MergeParameters
+	if err := json.Unmarshal(encode(7, 0), &params); err != nil {
+		t.Fatalf("nonzero secret: %v", err)
+	}
+	if err := json.Unmarshal(encode(0, 7), &params); err != nil {
+		t.Fatalf("zero secret and a seed: %v", err)
+	}
+	if err := json.Unmarshal(encode(0, 0), &params); err == nil {
+		t.Fatal("a zero secret without a seed must be refused")
+	}
+
+	legacy := sampleParams()
+	legacy.CircuitType = common.MergeRingCircuitType
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("unmarshal to map: %v", err)
+	}
+	fields["mergeSeed"] = json.RawMessage(`"0x1"`)
+	data, err = json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("marshal fields: %v", err)
+	}
+	if err := json.Unmarshal(data, &params); err == nil {
+		t.Fatal("a merge-ring request carrying a seed must be refused")
 	}
 }
 

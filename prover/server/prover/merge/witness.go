@@ -17,8 +17,11 @@ import (
 // OutputRingDataHash and RingProgramID; every other rail uses the default merge
 // circuit.
 func (p *MergeParameters) CreateWitness() (frontend.Circuit, error) {
-	if p.CircuitType == common.MergeRingCircuitType {
+	switch p.CircuitType {
+	case common.MergeRingCircuitType:
 		return p.createRingWitness()
+	case common.MergeRingV2CircuitType:
+		return p.createRingV2Witness()
 	}
 	return p.createDefaultWitness()
 }
@@ -68,6 +71,40 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.OutputTreeID = p.OutputTreeID
 	circuit.OutputRingDataHash = p.OutputRingDataHash
 	circuit.RingProgramID = p.RingProgramID
+	circuit.PublicInputHash = p.PublicInputHash
+
+	if err := p.assignTreeSlots(circuit.TreeSlots); err != nil {
+		return nil, err
+	}
+	for i := range p.Inputs {
+		circuit.Inputs[i] = p.inputAt(i)
+		circuit.Nullifiers[i] = p.Inputs[i].Nullifier
+	}
+
+	circuit.Output = mergecircuit.Output{
+		RingDataHash: p.Output.RingDataHash,
+	}
+
+	return circuit, nil
+}
+
+func (p *MergeParameters) createRingV2Witness() (*mergecircuit.RingV2Circuit, error) {
+	circuit := mergecircuit.NewMergeRingV2Circuit(len(p.Inputs))
+
+	circuit.OwnerPkHash = p.OwnerPkHash
+	circuit.UserNullifierPk = p.UserNullifierPk
+	circuit.UserNullifierSecret = p.UserNullifierSecret
+	circuit.MergeSeed = p.MergeSeed
+	circuit.MintChunks = p.mintChunks()
+	circuit.ExternalDataHash = p.ExternalDataHash
+	circuit.PrivateTxHash = p.PrivateTxHash
+	circuit.OutputHash = p.Output.Hash
+	circuit.AllowDummyInputs = p.AllowDummyInputs
+	circuit.OutputTreeID = p.OutputTreeID
+	circuit.OutputRingDataHash = p.OutputRingDataHash
+	circuit.RingProgramID = p.RingProgramID
+	circuit.PublishedOwner = p.PublishedOwner
+	circuit.OutputCiphertextSalt = p.OutputCiphertextSalt
 	circuit.PublicInputHash = p.PublicInputHash
 
 	if err := p.assignTreeSlots(circuit.TreeSlots); err != nil {

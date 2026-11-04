@@ -91,6 +91,10 @@ func decodeRequest(data []byte) (Request, *Prepared, error) {
 		// The prefix without the tree hash and the two-element ring tail; the
 		// ring merge proof binds no ciphertext.
 		expected = 8
+	case common.MergeRingV2CircuitType:
+		// The prefix without the tree hash, ring data hash, ring program, published
+		// owner, ciphertext salt and the three ciphertext elements.
+		expected = 13
 	}
 	if err := request.Check(Limits{Trees: 2, PublicInputs: expected}); err != nil {
 		return request, nil, err

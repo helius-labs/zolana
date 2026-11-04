@@ -19,6 +19,10 @@ func TransferCircuitTypes() []CircuitType {
 
 // IsTransfer selects fixed-shape SPP requests, including merge circuits.
 func (c CircuitType) IsTransfer() bool {
+	// Routes without entering the preload set, which holds lockfile keys alone.
+	if c == MergeRingV2CircuitType {
+		return true
+	}
 	for _, supported := range transferPreloadCircuits {
 		if c == supported {
 			return true

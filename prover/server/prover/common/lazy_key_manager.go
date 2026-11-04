@@ -353,7 +353,7 @@ func (shape ProofShape) Supported() bool {
 		return false
 	}
 	switch shape.Circuit {
-	case MergeCircuitType, MergeRingCircuitType:
+	case MergeCircuitType, MergeRingCircuitType, MergeRingV2CircuitType:
 		for _, inputs := range mergeSupportedInputCounts {
 			if shape.Inputs == inputs && shape.Outputs == 1 {
 				return true
@@ -418,6 +418,8 @@ func TransferKeyFile(circuitType CircuitType, nInputs uint32, nOutputs uint32) s
 		return mergeKeyFile("merge", nInputs, nOutputs)
 	case MergeRingCircuitType:
 		return mergeKeyFile("merge_ring", nInputs, nOutputs)
+	case MergeRingV2CircuitType:
+		return mergeKeyFile("merge_ring_v2", nInputs, nOutputs)
 	default:
 		return ""
 	}

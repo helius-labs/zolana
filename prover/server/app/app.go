@@ -150,7 +150,7 @@ func Run(args []string) error {
 				Name: "setup-merge",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-					&cli.StringFlag{Name: "circuit", Usage: "Merge circuit (\"merge\" default / \"merge-ring\")", Required: false},
+					&cli.StringFlag{Name: "circuit", Usage: "Merge circuit (\"merge\" default / \"merge-ring\" / \"merge-ring-v2\")", Required: false},
 					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 				},
 				Action: func(context *cli.Context) error {
@@ -163,6 +163,8 @@ func Run(args []string) error {
 						ps, err = mergeprover.SetupMerge(nInputs)
 					case "merge-ring":
 						ps, err = mergeprover.SetupMergeRing(nInputs)
+					case "merge-ring-v2":
+						ps, err = mergeprover.SetupMergeRingV2(nInputs)
 					default:
 						return fmt.Errorf("unknown merge circuit %q", context.String("circuit"))
 					}
