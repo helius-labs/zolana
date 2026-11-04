@@ -949,10 +949,10 @@ pub(crate) struct SetTreeFeesOptions {
     pub(crate) tree: Option<String>,
 
     #[arg(
-        long = "fee-per-nullifier",
-        help = "Lamports charged per queued nullifier on transact and merge"
+        long = "fee-per-tree",
+        help = "Lamports charged once per tree a transact or merge writes"
     )]
-    pub(crate) fee_per_nullifier: u64,
+    pub(crate) fee_per_tree: u64,
 
     #[arg(
         long = "append-reimbursement",
@@ -1625,7 +1625,7 @@ mod tests {
             "http://127.0.0.1:8900",
             "--tree",
             "Tree11111111111111111111111111111111111111111",
-            "--fee-per-nullifier",
+            "--fee-per-tree",
             "190",
             "--append-reimbursement",
             "5000",
@@ -1643,7 +1643,7 @@ mod tests {
                 indexer_url: None,
             },
             tree: Some("Tree11111111111111111111111111111111111111111".to_string()),
-            fee_per_nullifier: 190,
+            fee_per_tree: 190,
             append_reimbursement: 5_000,
             close_reimbursement: 170,
         };

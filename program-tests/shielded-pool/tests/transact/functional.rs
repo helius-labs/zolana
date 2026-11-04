@@ -707,12 +707,12 @@ fn transact_sends_valid_proof() {
     // nothing. The journaled snapshots must show the tree and the two new
     // nullifier PDAs as the only accounts whose data changed, the payer
     // debited exactly the transaction fee (one signature at LiteSVM's default
-    // rate) plus the forester fee (2 nullifier insertions at the tree's stored
-    // fee_per_nullifier), which the program collects into the input tree via
+    // rate) plus the tree's stored fee_per_tree, paid once because the tree
+    // is both input and output, which the program collects into the tree via
     // one System-Program CPI (INV-TRANSACT-42) and credits to the tree's fee
     // balance, and the tree funding one nullifier PDA's rent per input.
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
-    let forester_fee = fees.fee_per_nullifier * expected_nullifiers.len() as u64;
+    let forester_fee = fees.fee_per_tree;
     assert_eq!(
         tree_fees(&env.rpc, &tree).expect("tree fees"),
         (fees, fee_balance_before + forester_fee),
@@ -1773,11 +1773,11 @@ fn transact_accepts_the_widest_input_shape() {
         ),
         "two outputs appended and 49 nullifiers queued"
     );
-    let forester_fee = fees.fee_per_nullifier * shape.n_inputs() as u64;
+    let forester_fee = fees.fee_per_tree;
     assert_eq!(
         tree_fees(&env.rpc, &tree).expect("tree fees"),
         (fees, fee_balance_before + forester_fee),
-        "transact credits one insertion fee per input"
+        "transact credits the tree fee once"
     );
     let trace = env
         .rpc
@@ -2295,21 +2295,21 @@ fn transact_spends_real_utxos_from_two_input_trees() {
     assert_two_tree_transact(Some(5_000_000));
 }
 
-const FIRST_TREE_FEE_PER_NULLIFIER: u64 = 123;
-const SECOND_TREE_FEE_PER_NULLIFIER: u64 = 457;
+const FIRST_TREE_FEE: u64 = 123;
+const SECOND_TREE_FEE: u64 = 457;
 
-fn set_fee_per_nullifier(env: &mut Pool, tree: &Pubkey, fee_per_nullifier: u64) {
+fn set_fee_per_tree(env: &mut Pool, tree: &Pubkey, fee_per_tree: u64) {
     let authority = env.authority.insecure_clone();
     env.rpc
         .set_tree_fees(
             &authority,
             tree,
             TreeFeeSchedule {
-                fee_per_nullifier,
+                fee_per_tree,
                 ..TreeFeeSchedule::default()
             },
         )
-        .expect("set nullifier fee");
+        .expect("set tree fee");
 }
 
 fn assert_two_tree_transact(second_input_amount: Option<u64>) {
@@ -2321,8 +2321,8 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
 
     let payer = env.rpc.payer.pubkey();
     let first_tree = env.tree;
-    set_fee_per_nullifier(&mut env, &first_tree, FIRST_TREE_FEE_PER_NULLIFIER);
-    set_fee_per_nullifier(&mut env, &second_tree, SECOND_TREE_FEE_PER_NULLIFIER);
+    set_fee_per_tree(&mut env, &first_tree, FIRST_TREE_FEE);
+    set_fee_per_tree(&mut env, &second_tree, SECOND_TREE_FEE);
     let (transact_ix_data, expected_output_root) =
         build_two_tree_transact_ix(&mut env, second_tree, second_input_amount);
     let expected_output_hashes: Vec<[u8; 32]> = transact_ix_data
@@ -2454,13 +2454,13 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
     let (_, second_fee_after) = tree_fees(&env.rpc, &second_tree).expect("second tree fees after");
     assert_eq!(
         first_fee_after,
-        first_fee_before + 2 * first_fees.fee_per_nullifier,
-        "the first tree collected exactly two nullifier fees"
+        first_fee_before + first_fees.fee_per_tree,
+        "the first tree, input and output, collected its fee once"
     );
     assert_eq!(
         second_fee_after,
-        second_fee_before + second_fees.fee_per_nullifier,
-        "the second tree collected exactly one nullifier fee"
+        second_fee_before + second_fees.fee_per_tree,
+        "the second tree collected its fee once"
     );
 
     // The event reports each input's tree and queue sequence, matching its

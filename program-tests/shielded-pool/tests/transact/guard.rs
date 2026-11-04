@@ -979,6 +979,40 @@ fn transact_rejects_a_tree_context_no_input_references() {
 }
 
 #[test]
+fn transact_with_no_outputs_reaches_verification_without_output_tree_funds() {
+    let mut env = Pool::initialized();
+    let output_tree = env
+        .rpc
+        .create_tree(&env.authority)
+        .expect("create output tree");
+    let mut fees = spr_interface::state::default_tree_fees();
+    fees.fee_per_tree = spr_interface::state::MAX_FEE_PER_TREE;
+    env.rpc
+        .set_tree_fees(&env.authority, &env.tree, fees)
+        .expect("set input fee above payer rent exemption");
+    let payer = env.funded_signer(fees.fee_per_tree);
+    let mut data = transfer_ix_data(2, 4);
+    data.outputs.clear();
+    let ix = Transact {
+        payer: payer.pubkey(),
+        input_trees: vec![env.tree],
+        output_tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data,
+    }
+    .instruction();
+    // The inner payer can fund only the input fee; the placeholder proof must
+    // cause the rejection, rather than a transfer to the untouched output tree.
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[&payer],
+        Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed),
+    );
+}
+
+#[test]
 fn transact_rejects_the_same_input_tree_passed_twice() {
     let mut env = Pool::initialized();
     // Two contexts resolving to one account would queue and credit that tree

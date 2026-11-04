@@ -327,7 +327,8 @@ export interface ProtocolConfigAccount {
 }
 
 export interface TreeFeeSchedule {
-  readonly feePerNullifier: bigint;
+  /** Charged once per tree a transact or merge writes, into the fee balance. */
+  readonly feePerTree: bigint;
   readonly appendReimbursement: bigint;
   readonly closeReimbursement: bigint;
 }

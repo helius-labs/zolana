@@ -84,7 +84,7 @@ pub mod smt;
 use core::mem::{size_of, MaybeUninit};
 
 pub use error::TreeError;
-pub use fees::{TreeFeeSchedule, MAX_FEE_PER_NULLIFIER};
+pub use fees::{TreeFeeSchedule, MAX_FEE_PER_TREE};
 pub use nullifier_tree::init::NullifierTreeInitParams;
 use nullifier_tree::{constants::NULLIFIER_TREE_ZKP_BATCHES, layout::NullifierTreeLayout};
 #[cfg(feature = "account-view")]

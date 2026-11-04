@@ -1,6 +1,7 @@
 use crate::instructions::shared::caused_by;
 use light_program_profiler::profile;
 use pinocchio::{
+    address::address_eq,
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
@@ -31,6 +32,7 @@ use super::{
 };
 use crate::instructions::{
     event::emit_event,
+    nullifier_pda::collect_tree_fee,
     settlement::Settlement,
     shared::{
         check_field_element, check_field_elements, check_nonzero_field_elements, check_not_expired,
@@ -116,7 +118,8 @@ fn process_resolved_transact(
         &transact_accounts.settlements,
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
-    // 10. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
+    // 10. Resolve each input tree's roots, queue its nullifiers, create its
+    //     PDAs and collect its fee.
     let input_tree_sequences = apply_input_trees(
         &mut transact_accounts,
         ix,
@@ -124,8 +127,23 @@ fn process_resolved_transact(
         &mut proof_inputs,
     )?;
     bind_cached_inputs(cache.as_ref(), ix, &mut proof_inputs)?;
-    // 11. Append new utxo hashes.
-    let tree_write = apply_output_tree(transact_accounts.output_tree, ix, clock.slot)?;
+    // 11. Append new utxo hashes and collect the output tree's fee unless it
+    //     is also an input tree.
+    let output_is_input_tree = transact_accounts
+        .input_trees
+        .iter()
+        .any(|tree| address_eq(tree.address(), transact_accounts.output_tree.address()));
+    let (tree_write, output_tree_fee) = apply_output_tree(
+        transact_accounts.output_tree,
+        ix,
+        clock.slot,
+        output_is_input_tree,
+    )?;
+    collect_tree_fee(
+        transact_accounts.payer,
+        transact_accounts.output_tree,
+        output_tree_fee,
+    )?;
     check_cache_output_tree(cache.as_ref(), tree_write.output_tree_id)?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
 

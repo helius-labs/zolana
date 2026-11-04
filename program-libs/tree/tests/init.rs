@@ -11,7 +11,7 @@ const HEIGHT: u8 = 32;
 const DISCRIMINATOR: u8 = 7;
 const TREE_ID: u16 = 11;
 const FEES: TreeFeeSchedule = TreeFeeSchedule {
-    fee_per_nullifier: 190,
+    fee_per_tree: 190,
     append_reimbursement: 5_000,
     close_reimbursement: 46,
 };

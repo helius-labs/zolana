@@ -449,7 +449,7 @@ describe("address and instruction builders", () => {
         0,
         0,
         0,
-        ...encodeTreeFeeSchedule(defaultTreeFees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)),
+        ...encodeTreeFeeSchedule(defaultTreeFees()),
       ),
     );
   });
@@ -466,8 +466,6 @@ describe("address and instruction builders", () => {
       },
     });
     expect(step?.accounts?.[3]?.address).toBe(getTreeAddress(0x0102));
-    // A custom ZKP batch size reaches the fee schedule, which the sponsored
-    // defaults price at zero for every batch size.
     expect(step?.data).toEqual(
       Uint8Array.of(
         InstructionTag.createTree,
@@ -493,7 +491,7 @@ describe("address and instruction builders", () => {
         0,
         0,
         0,
-        ...encodeTreeFeeSchedule(defaultTreeFees(2n)),
+        ...encodeTreeFeeSchedule(defaultTreeFees()),
       ),
     );
   });

@@ -120,7 +120,7 @@ pub fn protocol_config_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskA
 }
 
 pub const SET_TREE_FEES_FIXTURE_SCHEDULE: TreeFeeSchedule = TreeFeeSchedule {
-    fee_per_nullifier: 400,
+    fee_per_tree: 400,
     append_reimbursement: 10_000,
     close_reimbursement: 340,
 };

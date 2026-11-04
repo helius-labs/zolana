@@ -1,6 +1,7 @@
 use crate::instructions::shared::caused_by;
 use arrayvec::ArrayVec;
 use pinocchio::{
+    address::address_eq,
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
@@ -26,7 +27,9 @@ use super::{
 use crate::instructions::{
     cache::write::CacheWrite,
     event::emit_event,
-    nullifier_pda::{create_nullifier_pdas, InputTreeResult},
+    nullifier_pda::{
+        collect_tree_fee, create_nullifier_pdas, credit_output_tree_fee, InputTreeResult,
+    },
     shared::{
         bool_field, check_field_element, check_field_elements, check_nonzero_field_elements,
         check_not_expired, tree_error,
@@ -158,9 +161,7 @@ pub(crate) fn process_merge_core(
             owner_binding,
         };
         let first_input_queue_seq = apply_input_tree(&mut tree, ix, &mut derived)?;
-        let forester_fee = tree
-            .credit_insertion_fee(ix.nullifiers.len() as u64)
-            .map_err(tree_error)?;
+        let tree_fee = tree.credit_tree_fee().map_err(tree_error)?;
         tree.record_nullifier_pdas_created(ix.nullifiers.len() as u64);
         (
             InputTreeResult {
@@ -168,7 +169,7 @@ pub(crate) fn process_merge_core(
                     tree: input_tree,
                     first_input_queue_seq,
                 },
-                forester_fee,
+                tree_fee,
                 fee_balance: tree.fee_balance(),
                 tree_id: tree.tree_id(),
             },
@@ -185,7 +186,11 @@ pub(crate) fn process_merge_core(
             .zip(ix.nullifiers.iter()),
         &input_tree_result,
     )?;
-    let tree_write = {
+    let output_is_input_tree = address_eq(
+        accounts.output_tree.address(),
+        accounts.input_tree.address(),
+    );
+    let (tree_write, output_tree_fee) = {
         let output_tree = accounts.output_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
             &mut *accounts.output_tree,
@@ -197,14 +202,19 @@ pub(crate) fn process_merge_core(
         if let Some((cache, _)) = cache.as_ref() {
             cache.check_output_tree(tree.tree_id())?;
         }
-        apply_output_tree(
+        let tree_write = apply_output_tree(
             &mut tree,
             ix,
             output_tree,
             input_tree_result.input_tree,
             slot,
-        )?
+        )?;
+        (
+            tree_write,
+            credit_output_tree_fee(&mut tree, output_is_input_tree)?,
+        )
     };
+    collect_tree_fee(accounts.payer, accounts.output_tree, output_tree_fee)?;
 
     let event = build_merge_event(tree_write, output_view_tag);
     MergeProof::new(ix, derived).verify()?;

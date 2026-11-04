@@ -169,14 +169,14 @@ function writeNullifierTreeParams(writer: Writer, value: NullifierTreeParams): v
 
 function writeTreeFeeSchedule(writer: Writer, value: TreeFeeSchedule): void {
   writer
-    .u64(value.feePerNullifier, "feePerNullifier")
+    .u64(value.feePerTree, "feePerTree")
     .u64(value.appendReimbursement, "appendReimbursement")
     .u64(value.closeReimbursement, "closeReimbursement");
 }
 
 function readTreeFeeSchedule(reader: Reader): TreeFeeSchedule {
   return {
-    feePerNullifier: reader.u64("feePerNullifier"),
+    feePerTree: reader.u64("feePerTree"),
     appendReimbursement: reader.u64("appendReimbursement"),
     closeReimbursement: reader.u64("closeReimbursement"),
   };

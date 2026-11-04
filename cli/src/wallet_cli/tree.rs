@@ -78,8 +78,7 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
         authority,
         tree_id: protocol_config.next_tree_id,
         nullifier_params: nullifier_tree_params(),
-        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
-            .ok_or_else(|| anyhow!("default tree fees do not fit the zkp batch size"))?,
+        fees: default_tree_fees(),
     };
     let tree = create.tree();
     let instructions = create.instructions();
@@ -105,7 +104,7 @@ pub(crate) fn run_set_tree_fees(opts: SetTreeFeesOptions) -> Result<()> {
     let rpc = SolanaRpc::new(sync.rpc_url);
     let authority = material.funding.pubkey();
     let fees = TreeFeeSchedule {
-        fee_per_nullifier: opts.fee_per_nullifier,
+        fee_per_tree: opts.fee_per_tree,
         append_reimbursement: opts.append_reimbursement,
         close_reimbursement: opts.close_reimbursement,
     };
@@ -124,8 +123,8 @@ pub(crate) fn run_set_tree_fees(opts: SetTreeFeesOptions) -> Result<()> {
     )?;
     println!("ok set_tree_fees signature={signature}");
     println!(
-        "ok fees fee_per_nullifier={} append_reimbursement={} close_reimbursement={}",
-        fees.fee_per_nullifier, fees.append_reimbursement, fees.close_reimbursement
+        "ok fees fee_per_tree={} append_reimbursement={} close_reimbursement={}",
+        fees.fee_per_tree, fees.append_reimbursement, fees.close_reimbursement
     );
     Ok(())
 }

@@ -8,8 +8,9 @@ import {
   updateProtocolConfigInstruction,
 } from "../src/interface/instructions/index.js";
 import {
-  DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS,
-  DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS,
+  AT_COST_APPEND_REIMBURSEMENT_LAMPORTS,
+  AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
+  DEFAULT_FEE_PER_TREE_LAMPORTS,
   InstructionTag,
   PROTOCOL_CONFIG_SIZE,
   SHIELDED_POOL_PROGRAM_ID,
@@ -41,7 +42,7 @@ function filledAddress(byte: number) {
 }
 
 const FEES = Object.freeze({
-  feePerNullifier: 0x0102n,
+  feePerTree: 0x0102n,
   appendReimbursement: 0x0304_0506n,
   closeReimbursement: 0xffff_ffff_ffff_ffffn,
 });
@@ -74,18 +75,15 @@ const FEE_BYTES = Uint8Array.of(
 );
 
 describe("tree fee schedule", () => {
-  it("sponsors the default schedule at every batch size", () => {
-    expect(DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS).toBe(0n);
-    expect(DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS).toBe(0n);
-    const sponsored = {
-      feePerNullifier: 0n,
-      appendReimbursement: 0n,
-      closeReimbursement: 0n,
-    };
-    for (const batchSize of [250n, 10n, 3n, 1n, 0n]) {
-      expect(defaultTreeFees(batchSize)).toEqual(sponsored);
-    }
-    expect(() => defaultTreeFees(-1n)).toThrow();
+  it("charges the flat per-tree fee and reimburses foresters at cost by default", () => {
+    expect(DEFAULT_FEE_PER_TREE_LAMPORTS).toBe(5_000n);
+    expect(AT_COST_APPEND_REIMBURSEMENT_LAMPORTS).toBe(5_000n);
+    expect(AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS).toBe(88n);
+    expect(defaultTreeFees()).toEqual({
+      feePerTree: 5_000n,
+      appendReimbursement: 5_000n,
+      closeReimbursement: 88n,
+    });
   });
 
   it("encodes and decodes the borsh schedule as three u64 LE", () => {
@@ -94,7 +92,7 @@ describe("tree fee schedule", () => {
     expect(() => decodeTreeFeeSchedule(FEE_BYTES.subarray(1))).toThrow(
       expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }),
     );
-    expect(() => encodeTreeFeeSchedule({ ...FEES, feePerNullifier: 1n << 64n })).toThrow();
+    expect(() => encodeTreeFeeSchedule({ ...FEES, feePerTree: 1n << 64n })).toThrow();
   });
 
   it("reads the fee header of a tree account at the Rust offsets", () => {

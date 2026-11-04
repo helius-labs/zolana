@@ -14,7 +14,7 @@ use spr_tree::TreeAccount;
 
 use super::{account::TransactAccounts, event::TreeWrite, verify::TransactProofInputs};
 use crate::instructions::{
-    nullifier_pda::{create_nullifier_pdas, InputTreeResult},
+    nullifier_pda::{create_nullifier_pdas, credit_output_tree_fee, InputTreeResult},
     shared::tree_error,
 };
 
@@ -25,7 +25,7 @@ use crate::instructions::{
 /// Steps 1-5 complete each tree before moving to the next:
 /// 1. Select the inputs that reference the tree, in input order.
 /// 2. Load the tree, combine its dummy-input policy and resolve its roots.
-/// 3. Queue its nullifiers and credit its insertion fee.
+/// 3. Queue its nullifiers and credit its tree fee.
 /// 4. Release the tree-data borrow, collect the fee and create its PDAs.
 /// 5. Retain its first queue sequence for the event.
 /// 6. Assign the tree slots and packed input flags to the proof inputs.
@@ -92,7 +92,7 @@ pub(crate) fn apply_input_trees(
                 .try_push(resolve_input_tree_slot(&input_tree, context)?)
                 .map_err(|_| shape)?;
 
-            // 3. Queue its nullifiers and credit its insertion fee.
+            // 3. Queue its nullifiers and credit its tree fee.
             let first_input_queue_seq = input_tree.nullifier_tree().queue_next_index;
             for input in tree_inputs() {
                 input_tree
@@ -100,16 +100,14 @@ pub(crate) fn apply_input_trees(
                     .insert_nullifier_into_queue(&input.nullifier_hash)
                     .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
             }
-            let forester_fee = input_tree
-                .credit_insertion_fee(tree_input_count as u64)
-                .map_err(tree_error)?;
+            let tree_fee = input_tree.credit_tree_fee().map_err(tree_error)?;
             input_tree.record_nullifier_pdas_created(tree_input_count as u64);
             InputTreeResult {
                 input_tree: InputTreeSequence {
                     tree: input_tree_address,
                     first_input_queue_seq,
                 },
-                forester_fee,
+                tree_fee,
                 fee_balance: input_tree.fee_balance(),
                 tree_id: input_tree.tree_id(),
             }
@@ -156,11 +154,14 @@ pub(crate) fn resolve_input_tree_slot(
 }
 
 #[profile]
+/// Append the outputs and credit the output tree's fee only for nonempty
+/// outputs to a distinct tree; returns the write and the fee the caller collects.
 pub(crate) fn apply_output_tree(
     output_tree_account: &mut AccountView,
     ix: &TransactIxDataRef<'_>,
     slot: u64,
-) -> Result<TreeWrite, ProgramError> {
+    is_input_tree: bool,
+) -> Result<(TreeWrite, u64), ProgramError> {
     let output_tree_address = output_tree_account.address().to_bytes();
     let mut output_tree = TreeAccount::from_account_view_mut(
         output_tree_account,
@@ -174,9 +175,17 @@ pub(crate) fn apply_output_tree(
         .utxo_tree()
         .append_batch(ix.outputs.iter().map(|o| o.utxo_hash), slot)
         .map_err(tree_error)?;
-    Ok(TreeWrite {
-        first_output_leaf_index,
-        output_tree: output_tree_address,
-        output_tree_id: output_tree.tree_id(),
-    })
+    let tree_fee = if ix.outputs.is_empty() {
+        0
+    } else {
+        credit_output_tree_fee(&mut output_tree, is_input_tree)?
+    };
+    Ok((
+        TreeWrite {
+            first_output_leaf_index,
+            output_tree: output_tree_address,
+            output_tree_id: output_tree.tree_id(),
+        },
+        tree_fee,
+    ))
 }

@@ -7,7 +7,7 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use spr_interface::{
     pda,
-    state::{ProtocolConfig, TreeFeeSchedule},
+    state::{ProtocolConfig, TreeFeeSchedule, DEFAULT_FEE_PER_TREE_LAMPORTS},
 };
 use spr_protocol_instructions::SetTreeFees;
 use spr_smart_account_client::execute_sync_ix;
@@ -21,7 +21,7 @@ use crate::{
 
 enum FeeSource {
     Explicit(TreeFeeSchedule),
-    AtCost,
+    AtCost { fee_per_tree: u64 },
 }
 
 pub struct Options {
@@ -42,7 +42,7 @@ impl Options {
         let mut payer = None;
         let mut fee_signer = None;
         let mut tree = pda::tree(0);
-        let mut fee_per_nullifier = None;
+        let mut fee_per_tree = None;
         let mut append_reimbursement = None;
         let mut close_reimbursement = None;
         let mut at_cost = false;
@@ -80,8 +80,8 @@ impl Options {
                 "--tree" => {
                     tree = parse_pubkey(args.next(), "--tree");
                 }
-                "--fee-per-nullifier" => {
-                    fee_per_nullifier = Some(parse_u64(args.next(), "--fee-per-nullifier"));
+                "--fee-per-tree" => {
+                    fee_per_tree = Some(parse_u64(args.next(), "--fee-per-tree"));
                 }
                 "--append-reimbursement" => {
                     append_reimbursement = Some(parse_u64(args.next(), "--append-reimbursement"));
@@ -102,22 +102,28 @@ impl Options {
 
         let payer = payer.unwrap_or_else(|| usage_and_exit("--payer is required"));
         let fee_signer = fee_signer.unwrap_or_else(|| usage_and_exit("--fee-signer is required"));
-        let explicit = [fee_per_nullifier, append_reimbursement, close_reimbursement];
-        let fees = match (at_cost, explicit) {
-            (true, explicit) if explicit.iter().any(Option::is_some) => usage_and_exit(
-                "--at-cost derives the schedule; do not combine it with lamport flags",
-            ),
-            (true, _) => FeeSource::AtCost,
+        let reimbursements = [append_reimbursement, close_reimbursement];
+        let fees = match (at_cost, fee_per_tree, reimbursements) {
+            (true, _, reimbursements) if reimbursements.iter().any(Option::is_some) => {
+                usage_and_exit(
+                    "--at-cost derives the reimbursements; do not combine it with \
+                     --append-reimbursement or --close-reimbursement",
+                )
+            }
+            (true, fee_per_tree, _) => FeeSource::AtCost {
+                fee_per_tree: fee_per_tree.unwrap_or(DEFAULT_FEE_PER_TREE_LAMPORTS),
+            },
             (
                 false,
-                [Some(fee_per_nullifier), Some(append_reimbursement), Some(close_reimbursement)],
+                Some(fee_per_tree),
+                [Some(append_reimbursement), Some(close_reimbursement)],
             ) => FeeSource::Explicit(TreeFeeSchedule {
-                fee_per_nullifier,
+                fee_per_tree,
                 append_reimbursement,
                 close_reimbursement,
             }),
-            (false, _) => usage_and_exit(
-                "pass --at-cost, or all of --fee-per-nullifier, \
+            (false, _, _) => usage_and_exit(
+                "pass --at-cost, or all of --fee-per-tree, \
                  --append-reimbursement and --close-reimbursement",
             ),
         };
@@ -179,11 +185,10 @@ fn resolve_fees(
     options: &Options,
     config: &ProtocolConfig,
     member: Pubkey,
-    zkp_batch_size: u64,
 ) -> Result<TreeFeeSchedule> {
     match options.fees {
         FeeSource::Explicit(fees) => Ok(fees),
-        FeeSource::AtCost => {
+        FeeSource::AtCost { fee_per_tree } => {
             let forester_authority = Pubkey::new_from_array(config.forester_authority.to_bytes());
             let settings = find_vault_settings(rpc, &forester_authority)?;
             let forester_close = ForesterClose {
@@ -192,7 +197,7 @@ fn resolve_fees(
                 tree: options.tree,
             };
             let closes_per_transaction = forester_close.closes_per_transaction()?;
-            let fees = at_cost_for_transaction_size(zkp_batch_size, closes_per_transaction)?;
+            let fees = at_cost_for_transaction_size(fee_per_tree, closes_per_transaction)?;
             print_schedule(closes_per_transaction, &fees);
             Ok(fees)
         }
@@ -203,7 +208,7 @@ fn print_fees(label: &str, state: &OnChainTreeFees) {
     println!("{label}:");
     println!("  lamports={}", state.lamports);
     println!("  zkp_batch_size={}", state.zkp_batch_size);
-    println!("  fee_per_nullifier={}", state.fees.fee_per_nullifier);
+    println!("  fee_per_tree={}", state.fees.fee_per_tree);
     println!("  append_reimbursement={}", state.fees.append_reimbursement);
     println!("  close_reimbursement={}", state.fees.close_reimbursement);
     println!("  fee_balance={}", state.fee_balance);
@@ -222,13 +227,7 @@ pub fn run(options: Options) -> Result<()> {
     let current = read_tree_fees(&rpc, &options.tree)?;
     let config = read_protocol_config(&rpc)?;
     let fee_authority = Pubkey::new_from_array(config.fee_authority.to_bytes());
-    let fees = resolve_fees(
-        &rpc,
-        &options,
-        &config,
-        payer.pubkey(),
-        current.zkp_batch_size,
-    )?;
+    let fees = resolve_fees(&rpc, &options, &config, payer.pubkey())?;
     println!("cluster={}", options.cluster.name());
     println!("rpc_url={url}");
     println!("dry_run={}", options.dry_run);
@@ -238,8 +237,8 @@ pub fn run(options: Options) -> Result<()> {
     println!("tree={}", options.tree);
     print_fees("current fees", &current);
     println!(
-        "requested: fee_per_nullifier={} append_reimbursement={} close_reimbursement={}",
-        fees.fee_per_nullifier, fees.append_reimbursement, fees.close_reimbursement
+        "requested: fee_per_tree={} append_reimbursement={} close_reimbursement={}",
+        fees.fee_per_tree, fees.append_reimbursement, fees.close_reimbursement
     );
 
     let settings = find_vault_settings(&rpc, &fee_authority)?;
@@ -297,7 +296,7 @@ fn usage_and_exit(message: &str) -> ! {
 fn print_help() {
     println!("zolana-protocol set-tree-fees [flags]");
     println!();
-    println!("Set a pool tree's forester fee schedule. The instruction is wrapped in a");
+    println!("Set a pool tree's fee schedule. The instruction is wrapped in a");
     println!("Squads execute_sync signed by one member of the fee authority smart account.");
     println!();
     println!("Flags:");
@@ -306,10 +305,11 @@ fn print_help() {
     println!("  --payer <KEYPAIR_PATH>                outer fee payer (required)");
     println!("  --fee-signer <KEYPAIR_PATH>           a member of the fee authority (required)");
     println!("  --tree <PUBKEY>                       tree account (default: tree 0)");
-    println!("  --at-cost                             derive the schedule from what a close");
-    println!("                                        batch costs: the 4096-byte transaction");
-    println!("                                        limit and the tree's batch size");
-    println!("  --fee-per-nullifier <LAMPORTS>        charged per queued nullifier");
+    println!("  --at-cost                             derive the reimbursements from what an");
+    println!("                                        append and a close batch cost; the fee");
+    println!("                                        per tree defaults to 5000 lamports");
+    println!("  --fee-per-tree <LAMPORTS>             charged once per tree a transact or");
+    println!("                                        merge writes");
     println!("  --append-reimbursement <LAMPORTS>     paid per applied ZKP batch");
     println!("  --close-reimbursement <LAMPORTS>      paid per closed nullifier PDA");
     println!("                                        (all three required without --at-cost)");

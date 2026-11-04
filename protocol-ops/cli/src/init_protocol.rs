@@ -14,7 +14,7 @@ use spr_interface::{
     pda,
     state::{
         nullifier_tree_params, tree_account_size, tree_creation_lamports, ProtocolConfig,
-        SplAssetCounter,
+        SplAssetCounter, DEFAULT_FEE_PER_TREE_LAMPORTS,
     },
     BPF_LOADER_UPGRADEABLE_PUBKEY, NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -1158,10 +1158,7 @@ pub fn run(options: Options) -> Result<()> {
     let fees = if options.zero_tree_fees {
         TreeFeeSchedule::default()
     } else {
-        at_cost_for_transaction_size(
-            nullifier_tree_params().input_queue_zkp_batch_size,
-            closes_per_transaction,
-        )?
+        at_cost_for_transaction_size(DEFAULT_FEE_PER_TREE_LAMPORTS, closes_per_transaction)?
     };
 
     println!("cluster={}", options.cluster.name());
@@ -1341,7 +1338,8 @@ fn print_help() {
     println!("  --resume                              finish an interrupted init: skip the");
     println!("                                        accounts that already exist");
     println!("  --zero-tree-fees                      create the tree with an all-zero fee");
-    println!("                                        schedule instead of the at-cost one");
+    println!("                                        schedule instead of the default fee");
+    println!("                                        per tree and at-cost reimbursements");
     println!("  --accept-existing-threshold           reuse settings whose threshold predates");
     println!("                                        this build's role policy (members still");
     println!("                                        pinned); allows 1..=5 protocol signers");

@@ -70,7 +70,7 @@ fn previous_layout_size_is_rejected() {
                 1,
                 NullifierTreeInitParams::default(),
                 TreeFeeSchedule {
-                    fee_per_nullifier: 0,
+                    fee_per_tree: 0,
                     append_reimbursement: 0,
                     close_reimbursement: 0,
                 },
@@ -90,7 +90,7 @@ fn init_zeroes_reserved_header() {
         layout.live_nullifier_pdas = 0xa5a5;
     }
     let fees = TreeFeeSchedule {
-        fee_per_nullifier: 190,
+        fee_per_tree: 190,
         append_reimbursement: 5_000,
         close_reimbursement: 46,
     };

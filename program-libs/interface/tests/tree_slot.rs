@@ -322,7 +322,7 @@ fn a_resolved_slot_carries_the_tree_id_and_the_roots_at_its_context() {
         [9u8; 32],
         0x0102,
         params,
-        default_tree_fees(params.input_queue_zkp_batch_size).unwrap(),
+        default_tree_fees(),
     )
     .unwrap();
     let context = TreeContext {

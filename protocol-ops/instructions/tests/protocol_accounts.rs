@@ -2,9 +2,7 @@ use borsh::BorshDeserialize;
 use solana_instruction::AccountMeta;
 use solana_pubkey::Pubkey;
 use spr_interface::instruction::{tag, CreateTreeData, SetTreeFeesData};
-use spr_interface::state::{
-    default_tree_fees, nullifier_tree_params, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
-};
+use spr_interface::state::{default_tree_fees, nullifier_tree_params};
 use spr_interface::{pda, PROGRAM_ID_PUBKEY};
 use spr_protocol_instructions::{ClaimTreeLamports, CloseNullifierPdas, CreateTree, SetTreeFees};
 
@@ -47,8 +45,7 @@ fn create_tree_builder_repeats_one_step_per_allocation_chunk() {
         authority,
         tree_id: 3,
         nullifier_params: nullifier_tree_params(),
-        fees: default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
-            .expect("default tree fees"),
+        fees: default_tree_fees(),
     };
     let instructions = builder.instructions();
 
@@ -74,8 +71,7 @@ fn create_tree_builder_repeats_one_step_per_allocation_chunk() {
         CreateTreeData {
             tree_id: 3,
             nullifier_params: nullifier_tree_params(),
-            fees: default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
-                .expect("default tree fees"),
+            fees: default_tree_fees(),
         }
     );
 }
@@ -85,7 +81,7 @@ fn set_tree_fees_builder_has_exact_accounts_and_data() {
     let authority = Pubkey::new_unique();
     let tree = Pubkey::new_unique();
     let fees = SetTreeFeesData {
-        fee_per_nullifier: 190,
+        fee_per_tree: 190,
         append_reimbursement: 5_000,
         close_reimbursement: 170,
     };

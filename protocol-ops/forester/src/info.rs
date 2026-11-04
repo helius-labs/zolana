@@ -143,7 +143,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
                 "root": nullifier_root.map(hex::encode),
             },
             "fees": {
-                "fee_per_nullifier": fees.fee_per_nullifier,
+                "fee_per_tree": fees.fee_per_tree,
                 "append_reimbursement": fees.append_reimbursement,
                 "close_reimbursement": fees.close_reimbursement,
                 "fee_balance": fee_balance,
@@ -189,9 +189,9 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
         None => println!("  nullifier root: <none>"),
     }
     println!(
-        "fees: fee_per_nullifier={}  append_reimbursement={}  close_reimbursement={}  \
+        "fees: fee_per_tree={}  append_reimbursement={}  close_reimbursement={}  \
          fee_balance={}",
-        fees.fee_per_nullifier, fees.append_reimbursement, fees.close_reimbursement, fee_balance
+        fees.fee_per_tree, fees.append_reimbursement, fees.close_reimbursement, fee_balance
     );
     match &forester {
         Some((pubkey, lamports)) => println!(

@@ -97,7 +97,7 @@ pub fn process_instruction(
 fn bench_init(bytes: &mut [u8], pubkey: [u8; 32]) -> ProgramResult {
     let params = NullifierTreeInitParams::default();
     let fees = TreeFeeSchedule {
-        fee_per_nullifier: 190,
+        fee_per_tree: 5_000,
         append_reimbursement: 5_000,
         close_reimbursement: 170,
     };

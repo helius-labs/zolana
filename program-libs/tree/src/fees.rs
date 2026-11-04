@@ -3,18 +3,20 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::{error::TreeError, TreeAccount};
 
-/// The highest `fee_per_nullifier` a tree accepts: 0.001 SOL. Spends pay the
-/// tree's current rate, which the payer does not sign, so the cap bounds what a
-/// fee authority can charge a payer above the rate it reviewed. An at-cost
-/// schedule charges about 108 lamports per nullifier.
-pub const MAX_FEE_PER_NULLIFIER: u64 = 1_000_000;
+/// The highest `fee_per_tree` a tree accepts: 0.001 SOL. Every transaction
+/// pays the rate in effect at execution, which the payer does not sign, so the
+/// cap bounds what a fee authority can charge a payer above the rate it
+/// reviewed.
+pub const MAX_FEE_PER_TREE: u64 = 1_000_000;
 
 #[repr(C)]
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Pod, Zeroable, BorshSerialize, BorshDeserialize,
 )]
 pub struct TreeFeeSchedule {
-    pub fee_per_nullifier: u64,
+    /// Flat fee the payer of a transact or merge pays once to every tree the
+    /// instruction writes, credited to the fee balance.
+    pub fee_per_tree: u64,
     pub append_reimbursement: u64,
     pub close_reimbursement: u64,
 }
@@ -22,28 +24,10 @@ pub struct TreeFeeSchedule {
 impl TreeFeeSchedule {
     /// The one check every stored schedule passes, at creation and on update.
     pub fn validate(&self) -> Result<(), TreeError> {
-        if self.fee_per_nullifier > MAX_FEE_PER_NULLIFIER {
+        if self.fee_per_tree > MAX_FEE_PER_TREE {
             return Err(TreeError::FeeTooHigh);
         }
         Ok(())
-    }
-
-    pub fn at_cost(
-        zkp_batch_size: u64,
-        append_reimbursement: u64,
-        close_reimbursement: u64,
-    ) -> Option<Self> {
-        let per_batch = zkp_batch_size
-            .checked_mul(close_reimbursement)?
-            .checked_add(append_reimbursement)?;
-        let fee_per_nullifier = per_batch
-            .checked_div(zkp_batch_size)?
-            .checked_add(u64::from(!per_batch.is_multiple_of(zkp_batch_size)))?;
-        Some(Self {
-            fee_per_nullifier,
-            append_reimbursement,
-            close_reimbursement,
-        })
     }
 }
 
@@ -62,18 +46,40 @@ impl TreeAccount<'_> {
         Ok(())
     }
 
-    pub fn credit_insertion_fee(&mut self, inserted: u64) -> Result<u64, TreeError> {
+    /// Credit one `fee_per_tree` to the fee balance and return it: the amount
+    /// the caller collects from the payer.
+    pub fn credit_tree_fee(&mut self) -> Result<u64, TreeError> {
         let layout = self.layout_mut();
-        let fee = layout
-            .fees
-            .fee_per_nullifier
-            .checked_mul(inserted)
-            .ok_or(TreeError::FeeOverflow)?;
+        let fee = layout.fees.fee_per_tree;
         layout.fee_balance = layout
             .fee_balance
             .checked_add(fee)
             .ok_or(TreeError::FeeOverflow)?;
         Ok(fee)
+    }
+
+    /// The fee balance the open nullifier PDAs may still draw: one close each,
+    /// and one append per zkp batch they span. Every queued nullifier not yet
+    /// appended still has its PDA open, so the open PDAs bound the appends.
+    pub fn fee_balance_reserve(&self) -> u64 {
+        let layout = self.layout();
+        let live = layout.live_nullifier_pdas;
+        let appends = match layout.nullifier.zkp_batch_size {
+            0 => live,
+            zkp_batch_size => live.div_ceil(zkp_batch_size),
+        };
+        live.saturating_mul(layout.fees.close_reimbursement)
+            .saturating_add(appends.saturating_mul(layout.fees.append_reimbursement))
+    }
+
+    /// Lower the fee balance to [`Self::fee_balance_reserve`] and return what
+    /// it released. A balance at or below the reserve releases nothing.
+    pub fn release_fee_surplus(&mut self) -> u64 {
+        let reserve = self.fee_balance_reserve();
+        let layout = self.layout_mut();
+        let surplus = layout.fee_balance.saturating_sub(reserve);
+        layout.fee_balance -= surplus;
+        surplus
     }
 
     pub fn live_nullifier_pdas(&self) -> u64 {
