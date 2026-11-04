@@ -62,7 +62,7 @@
     "test": "vitest run --exclude \"test/e2e/**\"",
     "test:e2e": "vitest run --no-file-parallelism test/e2e",
     "check": "npm run format:check && npm run lint && npm run changelog:check && npm run typecheck && npm run test && npm run build && npm run check:dist",
-    "loadtest": "npm run build && node bench/loadtest.ts",
+    "loadtest": "npm run build && node --experimental-strip-types bench/loadtest.ts",
     "check:dist": "tsc -p tsconfig.dist.json && tsc -p tsconfig.bench.json"
   },
   "dependencies": {
@@ -93,6 +93,6 @@
     "@solana/kit": "^8.3.0"
   },
   "engines": {
-    "node": ">=24"
+    "node": "^22.12.0 || >=24"
   }
 }

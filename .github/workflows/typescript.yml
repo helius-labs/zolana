@@ -24,18 +24,24 @@ env:
 
 jobs:
   check:
-    name: typescript / check
+    name: typescript / check${{ matrix.node == '22' && ' (node 22)' || '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # The current Node.js and the oldest major that engines.node accepts.
+        node: ["24", "22"]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
       - run: npm run check:ts
-      - run: npm run docs:ts
+      - if: matrix.node == env.NODE_VERSION
+        run: npm run docs:ts
       - name: Verify the published package
         run: |
           tmp="$(mktemp -d)"
