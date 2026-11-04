@@ -1,7 +1,11 @@
 import { transactionItems, outputItems } from "./helpers/pages.js";
 import { compressProof, parseProof } from "../src/client/prover/proof.js";
 import { wireDecoder } from "../src/interface/decode.js";
-import { resolvedTrees } from "../src/client/prover/indexed.js";
+import { decodeIndexedInputs, resolvedTrees } from "../src/client/prover/indexed.js";
+import type { TransferCircuit } from "../src/client/prover/types.js";
+import { encodeTransactInstructionData } from "../src/interface/codecs/index.js";
+import { solanaOwnerIdentity } from "../src/hasher/index.js";
+import { EncryptedScheme, encodeOutputData } from "../src/transaction/serialization/index.js";
 import { NO_UTXO_ROOT } from "../src/interface/tree-slot.js";
 import { prepareTransfer } from "../src/client/prover/assembly.js";
 import { resolveClientEndpoints } from "../src/endpoint.js";
@@ -80,7 +84,13 @@ type ProofFixture = Readonly<{
  * circuit checks it.
  */
 function proofFixture(
-  options: Readonly<{ dummyInputs?: number; outputTreeId?: number; ring?: Address }> = {},
+  options: Readonly<{
+    dummyInputs?: number;
+    outputTreeId?: number;
+    ring?: Address;
+    /** Output 0 leaves the ring under a marked confidential tag. */
+    exit?: boolean;
+  }> = {},
 ): ProofFixture {
   const outputTreeId = options.outputTreeId ?? TREE_ID;
   const keypair = ShieldedKeypair.generate();
@@ -108,7 +118,7 @@ function proofFixture(
     asset: SOL_MINT,
     amount: 7n,
     blinding: slotBlinding(0),
-    ...(options.ring === undefined ? {} : { ringProgramId: options.ring }),
+    ...(options.ring === undefined || options.exit === true ? {} : { ringProgramId: options.ring }),
   });
   // No supported shape has a single output, so the real one always gains a pad.
   const padOutputs = Math.max(dummyInputs.length, 1);
@@ -131,9 +141,12 @@ function proofFixture(
     externalData: createExternalData({
       txViewingPublicKey: keypair.viewingPublicKey(),
       salt: new Uint8Array(16) as Bytes16,
-      outputs: outputs.map((entry) => ({
+      outputs: outputs.map((entry, index) => ({
         utxoHash: entry.hash(outputTreeId),
         ownerTag: { kind: "inline", value: ownerTag },
+        ...(options.exit === true && index === 0
+          ? { data: encodeOutputData(EncryptedScheme.confidential, bytes(9), "encrypted") }
+          : {}),
       })),
       resolvedOwnerTags: outputs.map(() => ownerTag),
       messages: [],
@@ -1190,6 +1203,75 @@ describe("prover indexer fetching", () => {
       }
     },
   );
+
+  describe("ring authority exit rail", () => {
+    const exitCircuit = { kind: "ringAuthorityExit", ring: FOREIGN_TREE } as const;
+
+    it("publishes the exit tag and folds the empty cache selection", () => {
+      const fixture = proofFixture({ dummyInputs: 1, ring: FOREIGN_TREE, exit: true });
+      const exit = assemble(
+        fixture.proofInputs,
+        [fixture.spendProof],
+        fixture.dummyProofs,
+        exitCircuit,
+      );
+      expect(exit.instructionData.circuit).toEqual({
+        kind: "ringAuthorityExit",
+        inputs: 2,
+        outputs: 2,
+        publicAssetSlots: 3,
+      });
+      const wire = Buffer.from(
+        encodeTransactInstructionData(
+          exit.withProof({
+            a: new Uint8Array(32) as Bytes32,
+            b: new Uint8Array(128) as never,
+            c: new Uint8Array(32) as Bytes32,
+          }),
+        ),
+      );
+      const selector = wire.indexOf(Buffer.from(exit.instructionData.privateTxHash)) + 32;
+      expect([...wire.subarray(selector, selector + 5)]).toEqual([9, 0, 2, 2, 3]);
+      expect(exit.proverInputs.circuit).toBe("transferRingAuthorityExit");
+      const payload = exit.proverInputs.payload;
+      expect(payload.signerPublicKeyHashes).toHaveLength(1);
+      expect(payload.publishedOutputOwnerPublicKeyHashes).toEqual([
+        bytesField(solanaOwnerIdentity(bytes(8)), "identity"),
+        0n,
+      ]);
+      const request = prepareTransfer(fixture.proofInputs, exitCircuit).inputs;
+      expect(request.circuit).toBe("transferRingAuthorityExit");
+      expect(decodeIndexedInputs(request).circuit).toBe("transferRingAuthorityExit");
+      fixture.keypair.destroy();
+    });
+
+    it("refuses a default ring output on the strict rail and a foreign ring on the exit rail", () => {
+      const fixture = proofFixture({ dummyInputs: 1, ring: FOREIGN_TREE, exit: true });
+      const assembling = (circuit: TransferCircuit) => () =>
+        assemble(fixture.proofInputs, [fixture.spendProof], fixture.dummyProofs, circuit);
+      const refused = expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" });
+      expect(assembling({ kind: "ringAuthority", ring: FOREIGN_TREE })).toThrow(refused);
+      expect(assembling({ kind: "ringAuthorityExit", ring: SOL_MINT })).toThrow(refused);
+      fixture.keypair.destroy();
+    });
+
+    it("refuses a deposit leg", () => {
+      const fixture = proofFixture({ dummyInputs: 1, ring: FOREIGN_TREE, exit: true });
+      const proofInputs = new SppProofInputs({
+        ...fixture.proofInputs,
+        externalData: fixture.proofInputs.externalData.withInterfaceTransfer({
+          kind: "sol",
+          isDeposit: true,
+          amount: 1n,
+          userSolAccount: SOL_MINT,
+        }),
+      });
+      expect(() =>
+        assemble(proofInputs, [fixture.spendProof], fixture.dummyProofs, exitCircuit),
+      ).toThrow(expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }));
+      fixture.keypair.destroy();
+    });
+  });
 
   for (const ring of [undefined, FOREIGN_TREE]) {
     it(`matches locally resolved transfer data for ${ring === undefined ? "pool" : "ring"}`, async () => {

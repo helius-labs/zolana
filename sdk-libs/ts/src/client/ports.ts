@@ -211,7 +211,7 @@ export type IndexedProofInputs = Readonly<{
 }> &
   (
     | Readonly<{
-        circuit: "transfer" | "transferRing" | "transferRingAuthority";
+        circuit: "transfer" | "transferRing" | "transferRingAuthority" | "transferRingAuthorityExit";
         payload: PreparedTransferInputs;
       }>
     | Readonly<{
@@ -292,6 +292,13 @@ export interface MergeCacheTarget {
 
 export interface Prover {
   proveRingAuthorityTransact(
+    proofInputs: SppProofInputs,
+    ringProgramId: Address,
+    keys: ProofAuthority,
+    context?: RequestContext,
+    outputTree?: TreeContext,
+  ): Promise<ProvenRingTransact>;
+  proveRingAuthorityExitTransact(
     proofInputs: SppProofInputs,
     ringProgramId: Address,
     keys: ProofAuthority,

@@ -291,8 +291,8 @@ type CircuitPlan = Readonly<{
 }> &
   Readonly<
     | {
-        prover: "transfer" | "transferRing" | "transferRingAuthority";
-        data: "confidentialSigner" | "confidentialRingEddsa" | "ringAuthority";
+        prover: "transfer" | "transferRing" | "transferRingAuthority" | "transferRingAuthorityExit";
+        data: "confidentialSigner" | "confidentialRingEddsa" | "ringAuthority" | "ringAuthorityExit";
         authorization?: undefined;
       }
     | {
@@ -347,6 +347,15 @@ function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
         signerSlots: 1,
         owners: "none",
       };
+    case "ringAuthorityExit":
+      return {
+        ring: circuit.ring,
+        authority: true,
+        prover: "transferRingAuthorityExit",
+        data: "ringAuthorityExit",
+        signerSlots: 1,
+        owners: "confidentialMarked",
+      };
     case "anonymousRingEddsa":
       return {
         ring: circuit.ring,
@@ -360,7 +369,7 @@ function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
   }
 }
 
-/** The authority rail forbids default ring inputs and outputs. */
+/** The authority rail forbids default ring inputs and outputs, and its exit rail allows default ring outputs. */
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
@@ -456,7 +465,7 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
   const address = proofInputs.inputUtxos.findIndex((input) => input.isAddress());
   // The ring authority statement has no address slot; the owner-signed rails
   // prove addresses.
-  if (circuit.kind === "ringAuthority" && address >= 0) {
+  if ((circuit.kind === "ringAuthority" || circuit.kind === "ringAuthorityExit") && address >= 0) {
     throw new ClientError("CLIENT_ADDRESS_INPUT_UNSUPPORTED", { details: { index: address } });
   }
   const plan = circuitPlan(circuit, shape);
@@ -471,12 +480,15 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
     plan.authority &&
     (shape.inputs !== shape.outputs ||
       !RING_AUTHORITY_WIDTHS.includes(shape.inputs) ||
-      proofInputs.externalData.interfaceTransfers.length !== 0 ||
+      proofInputs.externalData.interfaceTransfers.some((transfer) => transfer.isDeposit) ||
       proofInputs.inputUtxos.some(
         (input) => !input.isDummy() && input.utxo.ringProgramId !== plan.ring,
       ) ||
       proofInputs.outputs.some(
-        (output) => !output.isDummy() && output.ringProgramId !== plan.ring,
+        (output) =>
+          !output.isDummy() &&
+          output.ringProgramId !== plan.ring &&
+          !(plan.data === "ringAuthorityExit" && output.ringProgramId === undefined),
       ) ||
       proofInputs.cacheAccounts.read !== undefined ||
       proofInputs.cacheAccounts.write !== undefined ||
@@ -957,6 +969,7 @@ function transferCircuit(
         cacheAccess: cache.access,
       });
     case "ringAuthority":
+    case "ringAuthorityExit":
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
 }

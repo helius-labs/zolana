@@ -1285,7 +1285,13 @@ export function prepareRingAuthorityTransfer(
   input: Readonly<{
     owner: ShieldedAddress;
     inputs: readonly ProofInputUtxo[];
-    outputs: readonly Readonly<{ recipient: ShieldedAddress; asset: Address; amount: bigint }>[];
+    outputs: readonly Readonly<{
+      recipient: ShieldedAddress;
+      asset: Address;
+      amount: bigint;
+      /** Pays a default-ring note, proven by the `ringAuthorityExit` rail. */
+      exit?: boolean;
+    }>[];
     payer: Address;
     ringProgramId: Address;
     outputTreeId: TreeId;
@@ -1342,7 +1348,7 @@ export function prepareRingAuthorityTransfer(
       ownerAddress: output.recipient,
       asset: output.asset,
       amount: output.amount,
-      ringProgramId: input.ringProgramId,
+      ...(output.exit === true ? {} : { ringProgramId: input.ringProgramId }),
     })),
   );
   const width = ringAuthorityWidth(Math.max(input.inputs.length, layouts.length));

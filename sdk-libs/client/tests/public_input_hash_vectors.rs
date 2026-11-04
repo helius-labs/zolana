@@ -323,6 +323,13 @@ fn compute_vectors() -> PublicInputHashVectors {
             output_owner_pk_hashes: None,
             signer_pk_hashes: fields(&[41, 0, 0, 0, 0, 0]),
         },
+        TransferCase {
+            name: "ring_authority_exit_2x2",
+            nullifiers: fields(&[11, 12]),
+            output_hashes: fields(&[21, 22]),
+            output_owner_pk_hashes: Some(padded(&[31], 2)),
+            signer_pk_hashes: fields(&[41]),
+        },
     ]
     .into_iter()
     .map(TransferCase::vector)

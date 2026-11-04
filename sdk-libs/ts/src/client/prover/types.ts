@@ -139,7 +139,7 @@ export interface AnonymousRingEddsaTransferInputs extends ConfidentialEddsaTrans
 
 export type ProverInputs =
   | Readonly<{
-      circuit: "transfer" | "transferRing" | "transferRingAuthority";
+      circuit: "transfer" | "transferRing" | "transferRingAuthority" | "transferRingAuthorityExit";
       payload: TransferInputs;
     }>
   | Readonly<{ circuit: "transferConfidentialEddsa"; payload: ConfidentialEddsaTransferInputs }>
@@ -177,6 +177,7 @@ export type TransferCircuit =
   | Readonly<{ kind: "confidentialEddsa"; authorization: EddsaOwnerAuthorization }>
   | Readonly<{ kind: "ring"; ring: Address }>
   | Readonly<{ kind: "ringAuthority"; ring: Address }>
+  | Readonly<{ kind: "ringAuthorityExit"; ring: Address }>
   | Readonly<{ kind: "anonymousRingEddsa"; ring: Address; authorization: EddsaOwnerAuthorization }>;
 
 /**
