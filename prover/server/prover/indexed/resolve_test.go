@@ -448,6 +448,8 @@ func TestMergePublicInputCountFollowsTheRail(t *testing.T) {
 	}{
 		{common.MergeCircuitType, 12, 8},
 		{common.MergeRingCircuitType, 8, 12},
+		{common.TransferRingAuthorityCircuitType, 14, 17},
+		{common.TransferRingAuthorityExitCircuitType, 17, 14},
 	} {
 		if _, _, err := decodeRequest(request(test.circuitType, test.wrong)); err == nil || err.Error() != "invalid public input count" {
 			t.Fatalf("%s with %d public inputs: got %v, want the count refused", test.circuitType, test.wrong, err)
