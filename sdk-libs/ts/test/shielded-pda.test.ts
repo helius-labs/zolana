@@ -67,6 +67,14 @@ describe("ring nullifier keys", () => {
     );
   });
 
+  it("refuse a destroyed PDA, whose wiped root would give a public key", () => {
+    const pda = ShieldedPda.fromViewingKey(PDA, ViewingKey.generate());
+    pda.destroy();
+    expect(() => pda.ringNullifierKey(RING_A)).toThrow(
+      expect.objectContaining({ code: "KEYPAIR_PDA_ROOT_NOT_HELD" }),
+    );
+  });
+
   it("refuse a PDA with supplied roles", () => {
     const pda = ShieldedPda.withViewingKey(
       PDA,

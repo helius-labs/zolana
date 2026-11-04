@@ -1,7 +1,7 @@
 import type { Address } from "@solana/kit";
 
 import { bytes32, type Bytes32, type Bytes64 } from "./bytes.js";
-import { pdaRingNullifierKey, pdaRoleExpansion, pdaRoot } from "./derivation.js";
+import { type PdaExpansion, pdaRingNullifierKey, pdaRoleExpansion, pdaRoot } from "./derivation.js";
 import { KeypairError } from "./error.js";
 import { ownerHash } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
@@ -20,13 +20,13 @@ export class ShieldedPda implements ShieldedKeypairLike, ViewingKeyLike {
   readonly #signing: ShieldedPublicKey;
   readonly #nullifier: NullifierKey;
   readonly #viewing: ViewingKey;
-  readonly #expansion: Readonly<{ root: Uint8Array; pda: Bytes32 }> | undefined;
+  #expansion: PdaExpansion | undefined;
 
   private constructor(
     signing: ShieldedPublicKey,
     nullifier: NullifierKey,
     viewing: ViewingKey,
-    expansion?: Readonly<{ root: Uint8Array; pda: Bytes32 }>,
+    expansion?: PdaExpansion,
   ) {
     this.#signing = signing;
     this.#nullifier = nullifier;
@@ -54,15 +54,15 @@ export class ShieldedPda implements ShieldedKeypairLike, ViewingKeyLike {
     seed.fill(0);
     try {
       const pdaKey = pdaBytes(pda);
+      const expansion = Object.freeze({ root, pda: pdaKey });
       return pdaRoleExpansion(
-        root,
-        pdaKey,
+        expansion,
         (roles) =>
           new ShieldedPda(
             ShieldedPublicKey.fromPda(pdaKey),
             NullifierKey.fromSecret(roles.nullifierSecret),
             ViewingKey.fromBytes(roles.viewingSecret),
-            Object.freeze({ root, pda: pdaKey }),
+            expansion,
           ),
       );
     } catch (cause) {
@@ -123,7 +123,7 @@ export class ShieldedPda implements ShieldedKeypairLike, ViewingKeyLike {
 
   ringNullifierKey(ringProgramId: Address): NullifierKey {
     if (this.#expansion === undefined) throw new KeypairError("KEYPAIR_PDA_ROOT_NOT_HELD");
-    return pdaRingNullifierKey(this.#expansion.root, this.#expansion.pda, ringProgramId);
+    return pdaRingNullifierKey(this.#expansion, ringProgramId);
   }
 
   shieldedAddress(): ShieldedAddress {
@@ -205,5 +205,6 @@ export class ShieldedPda implements ShieldedKeypairLike, ViewingKeyLike {
     this.#nullifier.destroy();
     this.#viewing.destroy();
     this.#expansion?.root.fill(0);
+    this.#expansion = undefined;
   }
 }

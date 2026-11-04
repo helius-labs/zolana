@@ -308,15 +308,19 @@ export function ringNullifierKey(root: NullifierKey, ringProgramId: Address): Nu
   }
 }
 
-/** Mirrors Rust `PdaRoleExpansion`, the caller wipes the returned root. */
+export interface PdaExpansion {
+  readonly root: Uint8Array;
+  readonly pda: Bytes32;
+}
+
+/** The caller wipes the returned root. */
 export function pdaRoot(seed: Uint8Array): Uint8Array {
   return extract(sha256, seed, encoder.encode(DST_X25519_PDA_ROOT));
 }
 
 /** The PDA in each info keeps one holder's PDAs apart. */
 export function pdaRoleExpansion<T>(
-  root: Uint8Array,
-  pda: Bytes32,
+  { root, pda }: PdaExpansion,
   use: (roles: RoleSecrets) => T,
 ): T {
   const nullifierSecret = hkdfExpandPrk(
@@ -344,8 +348,7 @@ export function pdaRoleExpansion<T>(
 
 /** The PDA in the info keeps two PDAs of one holder from sharing a published ring key. */
 export function pdaRingNullifierKey(
-  root: Uint8Array,
-  pda: Bytes32,
+  { root, pda }: PdaExpansion,
   ringProgramId: Address,
 ): NullifierKey {
   return expandRingNullifierKey(root, concatBytes(ringInfo(ringProgramId), pda));
