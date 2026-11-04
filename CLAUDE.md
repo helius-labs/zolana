@@ -35,8 +35,8 @@ prover
 - rust prover client
 
 The generic ZK DSL, prover, gadgets and core derives live in
-`helius-labs/zk-tools` under `zk-dsl/`. The root Cargo manifest pins them to a
-Git revision. ZK programs use the `spr-program` re-exports; standalone
+`helius-labs/zk-tools` under `zk-dsl/`. The root Cargo manifest uses their
+matching crates.io releases. ZK programs use the `spr-program` re-exports; standalone
 circuits use the zk crates directly. `just check-deps` enforces the SDK
 layering and optional circuit dependencies.
 

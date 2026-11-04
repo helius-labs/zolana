@@ -1,6 +1,6 @@
 [package]
 name = "spr-tree"
-version = "0.1.0"
+version = "0.8.0"
 description = "Merkle tree accounts and nullifier trees for the SPR protocol."
 edition.workspace = true
 license.workspace = true
@@ -38,7 +38,7 @@ light-program-profiler = { workspace = true, optional = true }
 rand = { workspace = true }
 serde_json = { workspace = true }
 spr-merkle-tree = { workspace = true }
-spr-client = { workspace = true }
+spr-client = { path = "../../sdk-libs/client" }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 ark-bn254 = { workspace = true }

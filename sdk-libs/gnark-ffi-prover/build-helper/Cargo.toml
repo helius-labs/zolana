@@ -1,6 +1,6 @@
 [package]
 name = "spr-gnark-ffi-prover-build"
-version = "0.1.0"
+version = "0.8.0"
 description = "Build-script helper that compiles a spr-gnark-ffi-prover circuit package into a Go C archive."
 edition.workspace = true
 license.workspace = true

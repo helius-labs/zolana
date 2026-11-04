@@ -1,6 +1,6 @@
 [package]
 name = "spr-gnark-ffi-prover"
-version = "0.1.0"
+version = "0.8.0"
 description = "In-process gnark Groth16 prover for Zolana ZK programs, linked as a Go C archive."
 edition.workspace = true
 license.workspace = true

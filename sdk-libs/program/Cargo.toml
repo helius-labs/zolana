@@ -1,6 +1,6 @@
 [package]
 name = "spr-program"
-version = "0.1.0"
+version = "0.8.0"
 description = "SPP SDK for Solana programs: the spr-instruction builders and derivations, compressed accounts, and ZK programs with their circuits, proofs and transaction client."
 edition.workspace = true
 license.workspace = true
@@ -28,7 +28,7 @@ spr-hasher = { workspace = true }
 spr-instruction = { workspace = true }
 spr-interface = { workspace = true }
 spr-keypair = { workspace = true, optional = true }
-spr-macros = { version = "0.1.0", path = "../macros", optional = true }
+spr-macros = { version = "0.8.0", path = "../macros", optional = true }
 spr-zk-dsl = { workspace = true }
 spr-zk-gadgets = { workspace = true, optional = true }
 spr-transaction = { workspace = true, optional = true }

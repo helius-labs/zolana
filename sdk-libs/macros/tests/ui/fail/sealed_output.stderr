@@ -16,7 +16,10 @@ help: the trait `PublicHashOutput` is implemented for `CheckedTransaction`
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   = note: required for `CustomOutput` to implement `spr_zk_dsl::circuit::output::private::Binding`
 note: required by a bound in `CircuitOutput`
- --> /zk-tools/zk-dsl/dsl/src/circuit/output.rs:9:0
+ --> $CARGO/spr-zk-dsl-$VERSION/src/circuit/output.rs
+  |
+  | pub trait CircuitOutput: private::Binding {}
+  |                          ^^^^^^^^^^^^^^^^ required by this bound in `CircuitOutput`
   = note: `CircuitOutput` is a "sealed trait", because to implement it you also need to implement `spr_zk_dsl::circuit::output::private::Binding`, which is not accessible; this is usually done to force you to use one of the provided types that already implement it
   = help: the following types implement the trait:
             T

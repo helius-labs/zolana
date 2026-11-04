@@ -1,6 +1,6 @@
 [package]
 name = "spr-event-parser"
-version = "0.1.0"
+version = "0.8.0"
 description = "Locate shielded-pool events in a transaction and rebuild the indexer-facing GeneralEvent from the emitting instruction."
 edition.workspace = true
 license.workspace = true

@@ -1419,7 +1419,7 @@ dependencies = [
  "bitflags 2.13.1",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -4197,7 +4197,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core",
 ]
 
 [[package]]
@@ -10228,7 +10228,7 @@ dependencies = [
 
 [[package]]
 name = "spr-account-checks"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "rand 0.8.8",
  "solana-account-view 2.0.0",
@@ -10240,7 +10240,7 @@ dependencies = [
 
 [[package]]
 name = "spr-api"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "http 1.5.0",
  "reqwest",
@@ -10284,7 +10284,7 @@ dependencies = [
 
 [[package]]
 name = "spr-client"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -10345,7 +10345,7 @@ dependencies = [
 
 [[package]]
 name = "spr-event"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "borsh",
  "wincode",
@@ -10353,7 +10353,7 @@ dependencies = [
 
 [[package]]
 name = "spr-event-parser"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "borsh",
  "proptest",
@@ -10386,7 +10386,7 @@ dependencies = [
 
 [[package]]
 name = "spr-gnark-ffi-prover"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "groth16-solana",
  "num-bigint 0.4.8",
@@ -10398,11 +10398,11 @@ dependencies = [
 
 [[package]]
 name = "spr-gnark-ffi-prover-build"
-version = "0.1.0"
+version = "0.8.0"
 
 [[package]]
 name = "spr-hasher"
-version = "0.1.1"
+version = "0.8.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -10421,7 +10421,7 @@ dependencies = [
 
 [[package]]
 name = "spr-indexer-api"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "base64 0.22.1",
  "bs58",
@@ -10435,7 +10435,7 @@ dependencies = [
 
 [[package]]
 name = "spr-instruction"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "borsh",
  "bytemuck",
@@ -10453,7 +10453,7 @@ dependencies = [
 
 [[package]]
 name = "spr-interface"
-version = "0.1.1"
+version = "0.8.0"
 dependencies = [
  "arrayvec",
  "borsh",
@@ -10476,7 +10476,7 @@ dependencies = [
 
 [[package]]
 name = "spr-keypair"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "aes",
  "ark-bn254 0.6.0",
@@ -10511,7 +10511,7 @@ dependencies = [
 
 [[package]]
 name = "spr-macros"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "anchor-syn",
  "borsh",
@@ -10531,7 +10531,7 @@ dependencies = [
 
 [[package]]
 name = "spr-merkle-tree"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "num-bigint 0.4.8",
  "num-traits",
@@ -10542,7 +10542,7 @@ dependencies = [
 
 [[package]]
 name = "spr-program"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-circom",
@@ -10581,7 +10581,7 @@ dependencies = [
 
 [[package]]
 name = "spr-program-test"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "base64 0.22.1",
  "litesvm",
@@ -10662,7 +10662,7 @@ dependencies = [
 
 [[package]]
 name = "spr-protocol-instructions"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "borsh",
  "solana-address 2.6.1",
@@ -10674,7 +10674,7 @@ dependencies = [
 
 [[package]]
 name = "spr-prover-tee"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "aes-gcm",
  "ciborium",
@@ -10710,7 +10710,7 @@ dependencies = [
 
 [[package]]
 name = "spr-smart-account-client"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "borsh",
  "sha2 0.10.9",
@@ -10767,7 +10767,7 @@ dependencies = [
 
 [[package]]
 name = "spr-transaction"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "borsh",
@@ -10794,7 +10794,7 @@ dependencies = [
 
 [[package]]
 name = "spr-tree"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -10831,7 +10831,7 @@ dependencies = [
 
 [[package]]
 name = "spr-user-registry-interface"
-version = "0.1.0"
+version = "0.8.0"
 dependencies = [
  "borsh",
  "solana-instruction",
@@ -10840,8 +10840,9 @@ dependencies = [
 
 [[package]]
 name = "spr-zk-dsl"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c2b7827bc52b59c75dffdbe689b67821dac31817128017858d9e3f816167599"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -10877,8 +10878,9 @@ dependencies = [
 
 [[package]]
 name = "spr-zk-gadgets"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "624cbb21f11de38015dd8e7007bbc0106eb60b47155d3a11963a187946c29645"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -10889,8 +10891,9 @@ dependencies = [
 
 [[package]]
 name = "spr-zk-macros"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ba52803e143aea4efb40c0e15f122680e30290bd5fb84ab7d9fc5b9d7a6f74f"
 dependencies = [
  "proc-macro2",
  "spr-zk-macros-core",
@@ -10899,8 +10902,9 @@ dependencies = [
 
 [[package]]
 name = "spr-zk-macros-core"
-version = "0.1.0"
-source = "git+https://github.com/helius-labs/zk-tools?rev=a4ebd1699ffa04545e3739f16a51e764992d07d6#a4ebd1699ffa04545e3739f16a51e764992d07d6"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8e67a8c45dcf3597a45768ef01f0d3bfa6ef48e6ce66a5431b7c7a9fea6f5bf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -12632,7 +12636,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
 dependencies = [
  "windows-collections",
- "windows-core 0.61.2",
+ "windows-core",
  "windows-future",
  "windows-link 0.1.3",
  "windows-numerics",
@@ -12644,7 +12648,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3beeceb5e5cfd9eb1d76b381630e82c4241ccd0d27f1a39ed41b2760b255c5e8"
 dependencies = [
- "windows-core 0.61.2",
+ "windows-core",
 ]
 
 [[package]]
@@ -12656,21 +12660,8 @@ dependencies = [
  "windows-implement",
  "windows-interface",
  "windows-link 0.1.3",
- "windows-result 0.3.4",
- "windows-strings 0.4.2",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.62.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
-dependencies = [
- "windows-implement",
- "windows-interface",
- "windows-link 0.2.1",
- "windows-result 0.4.1",
- "windows-strings 0.5.1",
+ "windows-result",
+ "windows-strings",
 ]
 
 [[package]]
@@ -12679,7 +12670,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc6a41e98427b19fe4b73c550f060b59fa592d7d686537eebf9385621bfbad8e"
 dependencies = [
- "windows-core 0.61.2",
+ "windows-core",
  "windows-link 0.1.3",
  "windows-threading",
 ]
@@ -12724,7 +12715,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1"
 dependencies = [
- "windows-core 0.61.2",
+ "windows-core",
  "windows-link 0.1.3",
 ]
 
@@ -12738,30 +12729,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-result"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
-dependencies = [
- "windows-link 0.2.1",
-]
-
-[[package]]
 name = "windows-strings"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56e6c93f3a0c3b36176cb1327a4958a0353d5d166c2a35cb268ace15e91d3b57"
 dependencies = [
  "windows-link 0.1.3",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
-dependencies = [
- "windows-link 0.2.1",
 ]
 
 [[package]]

@@ -63,7 +63,10 @@ error[E0599]: no associated function or constant named `new_witness` found for s
    |                 ^^^^^^^^^^^ associated function or constant not found in `CircuitVar`
    |
 note: if you're trying to build a new `CircuitVar`, consider using `spr_program::circuit::builtins::field::primitive::<impl CircuitVar>::from_boolean` which returns `CircuitVar`
-  --> /zk-tools/zk-dsl/dsl/src/circuit/builtins/field/primitive.rs:50:4
+  --> $CARGO/spr-zk-dsl-$VERSION/src/circuit/builtins/field/primitive.rs
+   |
+   |     pub fn from_boolean(bit: Boolean<Fr>) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0599]: no associated function or constant named `Constant` found for struct `CircuitVar` in the current scope
   --> tests/ui/fail/opaque_var.rs:25:21

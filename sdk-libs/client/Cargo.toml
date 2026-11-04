@@ -1,6 +1,6 @@
 [package]
 name = "spr-client"
-version = "0.1.0"
+version = "0.8.0"
 description = "Client SDK for building, proving, and submitting Zolana private transactions."
 edition.workspace = true
 license.workspace = true
