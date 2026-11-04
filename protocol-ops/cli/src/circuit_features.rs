@@ -88,8 +88,8 @@ fn report(binary: &[u8]) -> Result<String> {
                 "disabled"
             }
         )?;
-        for hash in feature.proving_key_sha256s {
-            write!(report, "  proving_key_sha256=")?;
+        for hash in feature.vk_sha256s {
+            write!(report, "  vk_sha256=")?;
             for byte in hash {
                 write!(report, "{byte:02x}")?;
             }
