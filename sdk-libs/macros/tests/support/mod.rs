@@ -1,54 +1,42 @@
 pub fn with_normalized_git_paths(test: impl FnOnce()) -> Result<(), Box<dyn std::error::Error>> {
-    let metadata = std::process::Command::new(env!("CARGO"))
-        .args(["metadata", "--offline", "--locked", "--format-version", "1"])
-        .output()?;
-    assert!(
-        metadata.status.success(),
-        "{}",
-        String::from_utf8_lossy(&metadata.stderr)
-    );
-    let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout)?;
+    let executable = std::env::current_exe()?;
+    let dependencies = executable.parent().expect("test binary directory");
+    let mut sources = std::collections::BTreeSet::new();
+    // Use dependency files from this build. Workspace-wide cargo metadata
+    // would need manifests for unrelated packages on a clean CI runner.
+    for entry in std::fs::read_dir(dependencies)? {
+        let entry = entry?;
+        let filename = entry.file_name();
+        let Some(filename) = filename.to_str() else {
+            continue;
+        };
+        let Some((name, _)) = filename.split_once('-') else {
+            continue;
+        };
+        if !filename.ends_with(".d") || !(name.starts_with("spr_zk_") || name == "groth16_solana") {
+            continue;
+        }
+        for line in std::fs::read_to_string(entry.path())?.lines() {
+            if let Some(source) = line.strip_suffix("/src/lib.rs:") {
+                if source.contains("/git/checkouts/") {
+                    sources.insert((name.replace('_', "-"), source.replace("\\ ", " ")));
+                }
+            }
+        }
+    }
     let previous = std::env::var_os("CARGO_ENCODED_RUSTFLAGS");
     let mut flags = previous
         .as_ref()
         .map(|flags| flags.to_string_lossy().into_owned())
         .unwrap_or_default();
-    // trybuild normalizes registry paths but leaves git checkout paths and
-    // their source line numbers machine-specific. Give git sources the same
-    // diagnostic layout so the existing snapshots work for both sources.
-    for package in metadata
-        .get("packages")
-        .and_then(serde_json::Value::as_array)
-        .expect("Cargo metadata packages")
-    {
-        if !package
-            .get("source")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|source| source.starts_with("git+"))
-        {
-            continue;
-        }
-        let manifest = package
-            .get("manifest_path")
-            .and_then(serde_json::Value::as_str)
-            .expect("package manifest");
-        let source = std::path::Path::new(manifest)
-            .parent()
-            .expect("manifest directory");
-        let name = package
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .expect("package name");
-        let version = package
-            .get("version")
-            .and_then(serde_json::Value::as_str)
-            .expect("package version");
+    // trybuild normalizes registry paths and their source line numbers.
+    // Remap git sources into a synthetic registry layout for the same handling.
+    for (name, source) in sources {
         if !flags.is_empty() {
             flags.push('\u{1f}');
         }
         flags.push_str(&format!(
-            "--remap-path-prefix={}=/registry/src/index.crates.io-0000000000000000/{name}-{version}",
-            source.display()
+            "--remap-path-prefix={source}=/registry/src/index.crates.io-0000000000000000/{name}-0.0.0"
         ));
     }
     flags.push_str("\u{1f}--cfg\u{1f}trybuild\u{1f}--verbose\u{1f}-A\u{1f}dead_code");
