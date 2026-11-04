@@ -47,6 +47,15 @@ fn every_verifying_key_marker_is_in_the_program_binary() {
         .collect();
     expected.sort();
     assert_eq!(found, expected);
+    for (name, digest) in spr_interface::verifying_keys::PROVING_KEY_SHA256S
+        .iter()
+        .chain(spr_tree::nullifier_tree::verify::verifying_keys::PROVING_KEY_SHA256S)
+    {
+        assert!(
+            !binary.windows(digest.len()).any(|bytes| bytes == digest),
+            "{name}: the program must not embed a proving-key file hash"
+        );
+    }
 }
 
 #[test]
