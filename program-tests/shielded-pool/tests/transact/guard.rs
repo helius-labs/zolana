@@ -832,6 +832,92 @@ fn ring_authority_transact_rejects_a_non_square_shape() {
     );
 }
 
+fn ring_authority_exit_instruction(
+    env: &Pool,
+    ring_config: &Keypair,
+    inputs: u8,
+    outputs: u8,
+) -> Instruction {
+    let mut data = transfer_ix_data(inputs.into(), outputs.into());
+    data.circuit = CircuitId::RingAuthorityExit(inputs, outputs, N_PUBLIC_SLOTS as u8);
+    let mut ix = RingAuthorityTransact {
+        payer: env.rpc.payer.pubkey(),
+        input_trees: vec![env.tree],
+        output_tree: env.tree,
+        ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
+        interface_transfer_accounts: Vec::new(),
+        data,
+    }
+    .cpi_instruction();
+    ix.accounts.get_mut(4).expect("ring config meta").pubkey = ring_config.pubkey();
+    ix
+}
+
+#[test]
+fn ring_authority_exit_requires_the_authority_activation() {
+    let mut env = Pool::initialized();
+    let ring_config = write_ring_config(
+        &mut env,
+        pda::shielded_pool_program_id(),
+        RING_CONFIG,
+        false,
+        false,
+    );
+    let ix = ring_authority_exit_instruction(&env, &ring_config, 2, 2);
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[&ring_config],
+        Rejection::pool(ShieldedPoolError::RingAuthorityTransactDisabled),
+    );
+}
+
+#[test]
+fn ring_authority_exit_rejects_a_non_square_shape() {
+    let mut env = Pool::initialized();
+    let ring_config = write_ring_config(
+        &mut env,
+        pda::shielded_pool_program_id(),
+        RING_CONFIG,
+        true,
+        false,
+    );
+    let ix = ring_authority_exit_instruction(&env, &ring_config, 2, 4);
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[&ring_config],
+        Rejection::pool(ShieldedPoolError::InvalidTransactShape),
+    );
+}
+
+#[test]
+fn ring_authority_exit_rejects_an_owner_signer() {
+    let mut env = Pool::initialized();
+    let ring_config = write_ring_config(
+        &mut env,
+        pda::shielded_pool_program_id(),
+        RING_CONFIG,
+        true,
+        false,
+    );
+    let owner_signer = Keypair::new();
+    env.rpc
+        .airdrop(&owner_signer.pubkey(), 1_000_000)
+        .expect("fund unexpected owner signer");
+    let mut ix = ring_authority_exit_instruction(&env, &ring_config, 2, 2);
+    ix.accounts.insert(
+        6 + 2,
+        AccountMeta::new_readonly(owner_signer.pubkey(), true),
+    );
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[&ring_config, &owner_signer],
+        Rejection::pool(ShieldedPoolError::InvalidTransactShape),
+    );
+}
+
 /// [`transfer_ix_data`] with one input per entry of `tree_indexes` and
 /// `context_count` declared input trees, all at root index zero.
 fn multi_tree_ix_data(tree_indexes: &[u8], context_count: usize) -> TransactIxData {
