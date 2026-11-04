@@ -140,6 +140,7 @@ fn request_and_circuit(input_ring: Option<Address>) -> (Value, String) {
     let transaction = proof_inputs(&owner, input_ring);
     let proofs = [spend_proof(&transaction.input_utxos[0])];
     let mut result = AnonymousRingEddsaProver {
+        cache_accounts: Default::default(),
         signer_pk_hashes: anonymous_signer_pk_hashes(&transaction, &owner.signing_pubkey())
             .unwrap(),
         public_transfers: transaction.public_transfers().unwrap(),

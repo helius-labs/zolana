@@ -905,6 +905,7 @@ mod tests {
                 }
                 1 => {
                     let result = crate::RingTransferProver {
+                        cache_accounts: Default::default(),
                         inputs,
                         outputs: transaction.output_utxos.clone(),
                         blinding_seed: transaction.blinding_seed,
@@ -946,6 +947,7 @@ mod tests {
                 3 => {
                     let signers = vec![[0; 32]; shape.signer_width()];
                     let result = crate::prover::transact::AnonymousRingEddsaProver {
+                        cache_accounts: Default::default(),
                         inputs,
                         outputs: transaction.output_utxos.clone(),
                         blinding_seed: transaction.blinding_seed,
