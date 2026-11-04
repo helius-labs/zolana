@@ -233,18 +233,20 @@ pub fn ring_nullifier_key(
     root: &NullifierKey,
     ring_program_id: &Address,
 ) -> Result<NullifierKey, KeypairError> {
-    let root = root.secret();
-    // A zero root has a public ring key.
-    if root.iter().fold(0, |seen, byte| seen | byte) == 0 {
-        return Err(KeypairError::ZeroNullifierSecret);
-    }
     expand_ring_nullifier_key(
-        root.as_slice(),
+        root.secret().as_slice(),
         &[INFO_RING_NF_KEY, ring_program_id.as_ref()],
     )
 }
 
-fn expand_ring_nullifier_key(root: &[u8], info: &[&[u8]]) -> Result<NullifierKey, KeypairError> {
+pub(crate) fn expand_ring_nullifier_key(
+    root: &[u8],
+    info: &[&[u8]],
+) -> Result<NullifierKey, KeypairError> {
+    // A zero root has a public ring key.
+    if root.iter().fold(0, |seen, byte| seen | byte) == 0 {
+        return Err(KeypairError::ZeroNullifierSecret);
+    }
     let mut secret = Zeroizing::new([0u8; BLINDING_LEN]);
     hkdf_expand(Some(DST_RING_NF_ROOT), root, info, secret.as_mut_slice())?;
     Ok(NullifierKey::from_zeroizing_secret(secret))
@@ -355,14 +357,7 @@ impl PdaRoleExpansion {
         Ok(ViewingKey::from_bytes(&okm))
     }
 
-    /// The PDA in the info keeps two PDAs of one holder from sharing a published ring key.
-    pub(crate) fn ring_nullifier_key(
-        &self,
-        ring_program_id: &Address,
-    ) -> Result<NullifierKey, KeypairError> {
-        expand_ring_nullifier_key(
-            self.prk.as_slice(),
-            &[INFO_RING_NF_KEY, ring_program_id.as_ref(), &self.pda],
-        )
+    pub(crate) fn ring_nullifier_key(&self, info: &[&[u8]]) -> Result<NullifierKey, KeypairError> {
+        expand_ring_nullifier_key(self.prk.as_slice(), info)
     }
 }
