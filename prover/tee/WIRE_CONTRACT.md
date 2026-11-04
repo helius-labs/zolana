@@ -89,20 +89,30 @@ An `aws-nitro` policy pins `measurements` (`pcr0`, `pcr1`, `pcr2`) and can also 
 
 ### Signed policy
 
-A network publishes its policy as one JSON file of `payload` and `signatures`, so a new release needs no new client.
-`payload` is the hex of a JSON object with `network`, `version`, `expires_at` in Unix seconds and `policy`, a bare policy.
-Each signature holds a `public_key` and the Ed25519 `signature` of:
+A network publishes its policy as one JSON file of two signed parts, `release` and `freshness`, so a new release needs no new client.
+Each part holds `payload`, lowercase hex of a JSON object, and `signatures`, each a `public_key` and the Ed25519 `signature` of its domain and payload:
 
 ```
-message = "zolana/prover-tee/v1/policy" || payload
+release message   = "zolana/prover-tee/v2/release" || release payload
+freshness message = "zolana/prover-tee/v2/freshness" || freshness payload
 ```
 
-A client pins the network, the signers' keys and how many of them must sign.
-It refuses a malformed file, counts a valid signature of each pinned key once, ignores well-formed signatures of other keys, and refuses a file with fewer, for another network, or at or after `expires_at`.
-`version` and `max_age_secs` start at 1, and they and `expires_at` are integers of at most 2^53 minus 1.
-It refuses a lower `version` than one it accepted, and another payload under the same version.
-It downloads the file again once the policy it holds is `max_age_secs` old, which is also when it attests again, and before it attests again after `tee_decryption_failed`; it keeps that policy while a download fails until it expires, and attests again under a new payload.
+The release payload holds `network`, `version`, `expires_at` in Unix seconds, `freshness` and `policy`, a bare policy; release keys sign it when the measurements or the freshness keys change.
+Its `freshness` names the freshness keys as `public_keys`, how many of them sign each freshness part as `threshold`, and the longest a freshness part may span, from `issued_at` to `expires_at`, as `max_lifetime_secs`.
+The freshness payload holds `network`, `release_version`, `release_sha256`, the lowercase hex SHA-256 of the release payload bytes, `issued_at` and `expires_at` in Unix seconds; an automated freshness key signs it daily, so a leaked freshness key can keep a signed release in force but cannot approve a measurement.
+A client pins the network, the release keys and how many of them must sign.
+It refuses a malformed file, counts a valid signature of each key of the part's role once, the pinned keys for the release and the keys the release names for the freshness part, and ignores well-formed signatures of other keys.
+It refuses, in order, a release with fewer signatures (`signature`), for another network (`network`), or at or after its `expires_at` (`expired`); then a freshness part with fewer signatures or that names another network, `release_version` or `release_sha256` (`freshness`), that runs longer than `max_lifetime_secs` (`lifetime`), whose `issued_at` is more than 86400 seconds past the client's clock (`future`), or at or after its `expires_at` (`stale`).
+That allowance keeps a client whose clock runs behind on a part issued just now, and so lets a client hold one part for up to `max_lifetime_secs` plus 86400 seconds by its own clock.
+`version`, `release_version`, `max_age_secs`, `max_lifetime_secs` and the freshness `threshold` start at 1, the freshness keys are distinct lowercase hex Ed25519 points and at least `threshold`, `issued_at` is before the freshness `expires_at`, and every integer is at most 2^53 minus 1.
+It refuses a lower release `version` than one it accepted, another release payload under the same version, and for the same release payload an earlier `issued_at` (`rollback`).
+The policy stays in force until the earlier of the two expiries, which a later freshness part for the same release extends without a new attestation.
+It downloads the file again once the policy it holds is `max_age_secs` old, which is also when it attests again, and before it attests again after `tee_decryption_failed`; it keeps that policy while a download fails until it expires, and attests again under a new release payload.
 It verifies an attestation under the policy in force when the answer arrives, not when the call began.
+
+A leaked freshness key keeps a signed release usable until that release's `expires_at`, however short its freshness parts.
+Rotating a freshness key is a new release that names the new key; a client then refuses the earlier release only while it remembers the newer version, which it does not keep across restarts.
+No file revokes a signed release: it stays usable until its `expires_at`, unless clients ship pinning other release keys, so the release lifetime bounds how long either a leaked freshness key or a bad release lasts.
 
 ## Encryption
 
