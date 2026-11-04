@@ -36,6 +36,12 @@ pub enum KeypairError {
     #[error("derivation seed is {got} bytes, expected {expected} on this rail")]
     InvalidDerivationSeed { got: usize, expected: usize },
 
+    #[error("a zero nullifier secret has no ring nullifier key")]
+    ZeroNullifierSecret,
+
+    #[error("a PDA with supplied roles holds no root for a ring nullifier key")]
+    PdaRootNotHeld,
+
     #[error("HKDF expansion failed")]
     Hkdf,
 

@@ -14,9 +14,10 @@
 //! `sdk-libs/transaction/tests/merge.rs` asserts it.
 
 use serde::{Deserialize, Serialize};
+use solana_address::Address;
 use spr_keypair::{
-    derivation::{ed25519_derivation_message, is_derivation_input, MERGE_INFO},
-    symmetric_apply, ShieldedKeypair, SigningKey, ViewingKey,
+    derivation::{ed25519_derivation_message, is_derivation_input, ring_nullifier_key, MERGE_INFO},
+    symmetric_apply, NullifierKey, ShieldedKeypair, ShieldedPda, SigningKey, ViewingKey,
 };
 
 const VECTORS_JSON: &str = include_str!("../../../test-vectors/key_derivation.json");
@@ -32,6 +33,34 @@ struct KeyDerivationVectors {
     derivation_input_guard: Vec<GuardCase>,
     counter_view_tags: Vec<CounterViewTagCase>,
     shared_view_tags: Vec<SharedViewTagCase>,
+    ring_nullifier: RingNullifier,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct RingNullifier {
+    wallet: Vec<WalletRingKey>,
+    pda: Vec<PdaRingKey>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct WalletRingKey {
+    root_secret: String,
+    ring_program_id: String,
+    ring_secret: String,
+    ring_nullifier_pubkey: String,
+}
+
+/// With no counterparty the holder's viewing secret is the shared secret.
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+struct PdaRingKey {
+    holder_viewing_secret: String,
+    counterparty_viewing_pubkey: Option<String>,
+    pda: String,
+    nullifier_secret: String,
+    viewing_secret: String,
+    ring_program_id: String,
+    ring_secret: String,
+    ring_nullifier_pubkey: String,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
@@ -326,6 +355,62 @@ fn compute_shared_view_tags() -> Vec<SharedViewTagCase> {
     .collect()
 }
 
+fn compute_ring_nullifier() -> RingNullifier {
+    let wallet_root = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
+        .unwrap()
+        .nullifier_key;
+    let ring_a = Address::new_from_array([0xa1; 32]);
+    let ring_b = Address::new_from_array([0xb2; 32]);
+    let wallet = [
+        (wallet_root.clone(), ring_a),
+        (wallet_root, ring_b),
+        (NullifierKey::from_secret([0x2a; 31]), ring_a),
+    ]
+    .into_iter()
+    .map(|(root, ring)| {
+        let key = ring_nullifier_key(&root, &ring).unwrap();
+        WalletRingKey {
+            root_secret: hex::encode(root.secret().as_slice()),
+            ring_program_id: hex::encode(ring.as_array()),
+            ring_secret: hex::encode(key.secret().as_slice()),
+            ring_nullifier_pubkey: hex::encode(key.pubkey().unwrap()),
+        }
+    })
+    .collect();
+
+    let holder = ViewingKey::from_bytes(&[0x05; 32]);
+    let counterparty = ViewingKey::from_bytes(&[0x06; 32]).pubkey();
+    let pda_c = Address::new_from_array([0xc3; 32]);
+    let pda_d = Address::new_from_array([0xd4; 32]);
+    let pda = [
+        (None, pda_c, ring_a),
+        (None, pda_d, ring_a),
+        (None, pda_c, ring_b),
+        (Some(counterparty), pda_c, ring_a),
+    ]
+    .into_iter()
+    .map(|(counterparty, address, ring)| {
+        let identity = match &counterparty {
+            Some(peer) => ShieldedPda::from_key_exchange(address, &holder, peer),
+            None => ShieldedPda::from_viewing_key(address, &holder),
+        }
+        .unwrap();
+        let key = identity.ring_nullifier_key(&ring).unwrap();
+        PdaRingKey {
+            holder_viewing_secret: hex::encode(holder.secret_bytes().as_slice()),
+            counterparty_viewing_pubkey: counterparty.map(|peer| hex::encode(peer.as_bytes())),
+            pda: hex::encode(address.as_array()),
+            nullifier_secret: hex::encode(identity.as_ref().secret().as_slice()),
+            viewing_secret: hex::encode(identity.viewing_key().secret_bytes().as_slice()),
+            ring_program_id: hex::encode(ring.as_array()),
+            ring_secret: hex::encode(key.secret().as_slice()),
+            ring_nullifier_pubkey: hex::encode(key.pubkey().unwrap()),
+        }
+    })
+    .collect();
+    RingNullifier { wallet, pda }
+}
+
 fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
     KeyDerivationVectors {
         eddsa_rail: compute_eddsa_rail(),
@@ -337,6 +422,7 @@ fn compute(merge_recovery: MergeRecovery) -> KeyDerivationVectors {
         derivation_input_guard: compute_derivation_input_guard(),
         counter_view_tags: compute_counter_view_tags(),
         shared_view_tags: compute_shared_view_tags(),
+        ring_nullifier: compute_ring_nullifier(),
     }
 }
 
