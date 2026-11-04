@@ -112,6 +112,10 @@ fn selector_family_must_match_instruction() {
             InstructionTag::RingAuthorityTransact,
         ),
         (
+            CircuitId::RingAuthorityExit(2, 2, 3),
+            InstructionTag::RingAuthorityTransact,
+        ),
+        (
             CircuitId::ConfidentialEddsa(2, 8, 3, EDDSA_PROOF_DATA),
             InstructionTag::Transact,
         ),
@@ -131,6 +135,13 @@ fn selector_family_must_match_instruction() {
         ),
         Err(ShieldedPoolError::MismatchedCircuitType.into())
     );
+    for instruction in [InstructionTag::Transact, InstructionTag::RingTransact] {
+        assert_eq!(
+            validate(CircuitId::RingAuthorityExit(2, 2, 3), instruction, 2, 2),
+            Err(ShieldedPoolError::MismatchedCircuitType.into()),
+            "{instruction:?}"
+        );
+    }
     for instruction in [
         InstructionTag::RingTransact,
         InstructionTag::RingAuthorityTransact,
@@ -301,16 +312,21 @@ fn selector_dimensions_are_fail_closed() {
         invalid_shape
     );
     for width in [1, 3] {
-        assert_eq!(
-            validate(
-                CircuitId::RingAuthority(width, width, 3),
-                InstructionTag::RingAuthorityTransact,
-                width as usize,
-                width as usize,
-            ),
-            invalid_shape,
-            "ring authority {width}x{width}"
-        );
+        for circuit in [
+            CircuitId::RingAuthority(width, width, 3),
+            CircuitId::RingAuthorityExit(width, width, 3),
+        ] {
+            assert_eq!(
+                validate(
+                    circuit,
+                    InstructionTag::RingAuthorityTransact,
+                    width as usize,
+                    width as usize,
+                ),
+                invalid_shape,
+                "{circuit:?}"
+            );
+        }
     }
     let anonymous = CircuitId::AnonymousRingEddsa(
         2,
