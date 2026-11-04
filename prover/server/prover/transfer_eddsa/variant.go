@@ -26,6 +26,9 @@ const (
 	// owners do not sign. No in-circuit signature and every input owner pk_field
 	// kept private (omitted from the public input hash).
 	RingAuthorityVariant
+	// RingAuthorityExitVariant is the ring authority rail with outputs that may
+	// leave the ring under a published owner tag.
+	RingAuthorityExitVariant
 )
 
 // CircuitType maps the variant to its wire/key CircuitType string.
@@ -35,6 +38,8 @@ func (v Variant) CircuitType() common.CircuitType {
 		return common.TransferConfidentialCircuitType
 	case RingAuthorityVariant:
 		return common.TransferRingAuthorityCircuitType
+	case RingAuthorityExitVariant:
+		return common.TransferRingAuthorityExitCircuitType
 	default:
 		return common.TransferRingCircuitType
 	}
@@ -48,6 +53,8 @@ func variantFromCircuitType(ct common.CircuitType) Variant {
 		return ConfidentialVariant
 	case common.TransferRingAuthorityCircuitType:
 		return RingAuthorityVariant
+	case common.TransferRingAuthorityExitCircuitType:
+		return RingAuthorityExitVariant
 	default:
 		return RingVariant
 	}
@@ -60,6 +67,8 @@ func newVariantCircuit(v Variant, shape txcircuit.Shape) (frontend.Circuit, erro
 		return defaultring.NewDefaultRingConfidentialEddsaCircuit(shape)
 	case RingAuthorityVariant:
 		return customring.NewCustomRingAuthorityCircuit(shape)
+	case RingAuthorityExitVariant:
+		return customring.NewCustomRingAuthorityExitCircuit(shape)
 	default:
 		return customring.NewCustomRingConfidentialEddsaCircuit(shape)
 	}

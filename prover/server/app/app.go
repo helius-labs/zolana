@@ -91,7 +91,7 @@ func Run(args []string) error {
 			{
 				Name: "setup-transfer",
 				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer-confidential\" / \"transfer-ring\" / \"transfer-eddsa-ring\" / \"transfer-ring-authority\" / \"transfer-confidential-eddsa\")", Required: true},
+					&cli.StringFlag{Name: "circuit", Usage: "Transfer circuit (\"transfer-confidential\" / \"transfer-ring\" / \"transfer-eddsa-ring\" / \"transfer-ring-authority\" / \"transfer-ring-authority-exit\" / \"transfer-confidential-eddsa\")", Required: true},
 					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 					&cli.UintFlag{Name: "n-outputs", Usage: "Number of output slots", Required: true},
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
@@ -109,7 +109,8 @@ func Run(args []string) error {
 					switch circuit {
 					case common.TransferConfidentialCircuitType,
 						common.TransferRingCircuitType,
-						common.TransferRingAuthorityCircuitType:
+						common.TransferRingAuthorityCircuitType,
+						common.TransferRingAuthorityExitCircuitType:
 						ps, err = transfereddsa.SetupTransferCircuit(circuit, nInputs, nOutputs)
 					case common.TransferAnonymousRingEddsaCircuitType:
 						ps, err = transfereddsa.SetupAnonymousEddsaTransfer(nInputs, nOutputs)

@@ -18,6 +18,8 @@ func SetupTransferCircuit(circuit common.CircuitType, nInputs uint32, nOutputs u
 		return SetupTransfer(nInputs, nOutputs, RingVariant)
 	case common.TransferRingAuthorityCircuitType:
 		return SetupTransfer(nInputs, nOutputs, RingAuthorityVariant)
+	case common.TransferRingAuthorityExitCircuitType:
+		return SetupTransfer(nInputs, nOutputs, RingAuthorityExitVariant)
 	default:
 		return nil, fmt.Errorf("invalid transfer circuit: %s", circuit)
 	}
