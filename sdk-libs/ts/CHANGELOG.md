@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0-alpha — unreleased
+## 0.9.0-alpha — 2026-11-04
 
 The SDK publishes as `@heliuslabs/spr`, and its client, indexer and API
 names take the `Spr` prefix.
