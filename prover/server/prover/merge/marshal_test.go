@@ -221,7 +221,6 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 	}
 }
 
-// Ring v2 carries the salt, and a zero nullifier secret needs a nonzero seed.
 func TestMergeRingV2SeedInputs(t *testing.T) {
 	encode := func(secret, seed int64) []byte {
 		t.Helper()

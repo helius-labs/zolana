@@ -15,7 +15,7 @@ use spr_interface::{
     },
     state::{discriminator::RING_CONFIG, RingConfig},
 };
-use spr_program::instruction::{MergeRing, MergeTransact};
+use spr_program::instruction::{MergeRing, MergeRingV2, MergeTransact};
 use spr_program_test::{Rejection, ZolanaProgramTest};
 use spr_test_utils::transact::fe;
 use spr_tree::TreeAccount;
@@ -544,6 +544,99 @@ fn write_fake_ring_config(
     );
 }
 
+fn merge_ring_v2_instruction(
+    rpc: &mut ZolanaProgramTest,
+    tree: &Pubkey,
+    ring_config: &Keypair,
+    owner: Option<Pubkey>,
+    data: MergeTransactIxData,
+) -> solana_instruction::Instruction {
+    write_fake_ring_config(rpc, ring_config.pubkey(), RING_CONFIG, true, false);
+    let mut ix = MergeRingV2 {
+        input_tree: *tree,
+        output_tree: *tree,
+        ring_program_id: Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID),
+        payer: rpc.payer.pubkey(),
+        owner,
+        data,
+        output_ring_data_hash: fe(90),
+        cache: None,
+    }
+    .cpi_instruction();
+    ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
+    ix
+}
+
+#[test]
+fn merge_ring_v2_rejects_an_unsigned_owner() {
+    let (mut rpc, tree) = merge_env();
+    let ring_config = Keypair::new();
+    let owner = Pubkey::new_unique();
+    let mut ix =
+        merge_ring_v2_instruction(&mut rpc, &tree, &ring_config, Some(owner), merge_ix_data());
+    ix.accounts.get_mut(6).expect("owner meta").is_signer = false;
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
+        .expect_err("an unsigned owner must be rejected");
+    Rejection::custom(u32::from(spr_account_checks::AccountError::InvalidSigner))
+        .assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
+}
+
+/// Refused at key selection, a settlement stays unproven.
+#[test]
+fn merge_ring_v2_signed_owner_reaches_key_selection() {
+    let (mut rpc, tree) = merge_env();
+    let ring_config = Keypair::new();
+    let owner = Keypair::new();
+    let ix = merge_ring_v2_instruction(
+        &mut rpc,
+        &tree,
+        &ring_config,
+        Some(owner.pubkey()),
+        merge_ix_data(),
+    );
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[&ring_config, &owner])
+        .expect_err("no merge_ring_v2 key is pinned");
+    Rejection::pool(ShieldedPoolError::CircuitFeatureDisabled).assert_litesvm(error);
+}
+
+/// The extra account shifts the layout.
+#[test]
+fn merge_ring_v2_ring_authority_takes_no_owner() {
+    let (mut rpc, tree) = merge_env();
+    let ring_config = Keypair::new();
+    let mut ix = merge_ring_v2_instruction(&mut rpc, &tree, &ring_config, None, merge_ix_data());
+    ix.accounts
+        .push(solana_instruction::AccountMeta::new_readonly(
+            Pubkey::new_unique(),
+            false,
+        ));
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
+        .expect_err("an extra account must be rejected");
+    Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
+}
+
+#[test]
+fn merge_ring_v2_rejects_a_non_canonical_ciphertext() {
+    let (mut rpc, tree) = merge_env();
+    let ring_config = Keypair::new();
+    let mut data = merge_ix_data();
+    data.output_encryption = MergeOutputEncryption::PoseidonCtrV1 {
+        salt: [0x5a; 16],
+        ciphertext: [[0xff; 32], fe(43), fe(44)],
+    };
+    let ix = merge_ring_v2_instruction(&mut rpc, &tree, &ring_config, None, data);
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
+        .expect_err("a non-canonical ciphertext must be rejected");
+    Rejection::pool(ShieldedPoolError::NonCanonicalMergeCiphertext).assert_litesvm(error);
+}
+
 #[test]
 fn merge_ring_rejects_a_ring_config_with_a_wrong_owner() {
     let (mut rpc, tree) = merge_env();
@@ -672,6 +765,37 @@ fn merge_ring_rejects_a_wrong_input_count_shape_exactly() {
             .expect("rejected transaction trace")
             .assert_rolled_back_except(&[rpc.payer.pubkey()]);
     }
+}
+
+/// The real `ring_auth` signs, refused at key selection.
+#[test]
+fn merge_ring_v2_owner_signature_passes_through_the_ring_program() {
+    let Pool {
+        mut rpc,
+        authority,
+        tree,
+        ..
+    } = Pool::initialized();
+    rpc.load_ring_test_program()
+        .expect("load ring test program");
+    rpc.create_activated_ring_config(&authority, &authority.pubkey(), &authority, true)
+        .expect("create ring config");
+    let owner = Keypair::new();
+    let ix = MergeRingV2 {
+        input_tree: tree,
+        output_tree: tree,
+        ring_program_id: Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID),
+        payer: rpc.payer.pubkey(),
+        owner: Some(owner.pubkey()),
+        data: merge_ix_data(),
+        output_ring_data_hash: fe(95),
+        cache: None,
+    }
+    .instruction();
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[&owner])
+        .expect_err("no merge_ring_v2 key is pinned");
+    Rejection::pool(ShieldedPoolError::CircuitFeatureDisabled).assert_litesvm(error);
 }
 
 #[test]

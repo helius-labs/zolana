@@ -16,7 +16,8 @@ use crate::instructions::{
 /// `payer` (signer), System Program, the program account (for the `emit_event`
 /// self-CPI), the owner (signer) under [`MergeRingAuthority::OwnerSigned`], then
 /// one writable nullifier PDA per input and, when the merge writes a cache, the
-/// writable cache followed by its writer (signer). The `ring_config` must sign, be unpaused, and be a valid
+/// writable cache followed by its writer (signer). The
+/// `ring_config` must sign, be unpaused, and be a valid
 /// SPP-owned config: only the ring program can sign for its `ring_auth` PDA, so
 /// the signature plus the owner + discriminator + active-state check is the
 /// ring's authorization.

@@ -43,22 +43,19 @@ impl<'a> MergeRingIxDataRef<'a> {
     }
 }
 
-/// Who authorizes a `merge_ring_v2`, beyond the ring's `ring_config` signature.
-/// A proof under the other authority fails verification: the zero-key circuit
-/// publishes its owner and the nonzero-key circuit publishes zero.
+/// A proof under the other authority fails, only the zero-key circuit publishes an owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u8")]
 pub enum MergeRingAuthority {
     /// A nonzero nullifier key.
     #[wincode(tag = 0)]
     Ring,
-    /// The zero nullifier key: an account signs and its hashed key is published.
+    /// The zero nullifier key, an account signs and its hashed key is published.
     #[wincode(tag = 1)]
     OwnerSigned,
 }
 
-/// `merge_ring_v2` instruction data, a [`MergeRingIxData`] that also names its
-/// authority. The proof binds `merge.output_encryption`.
+/// The proof binds `merge.output_encryption`.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeRingV2IxData {
     pub output_ring_data_hash: [u8; 32],
@@ -76,7 +73,6 @@ impl MergeRingV2IxData {
     }
 }
 
-/// Zero-copy view of [`MergeRingV2IxData`].
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
 pub struct MergeRingV2IxDataRef<'a> {
     pub output_ring_data_hash: &'a [u8; 32],

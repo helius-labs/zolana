@@ -55,14 +55,11 @@ type mergeFixtureOptions struct {
 	inputSlot int
 	// outputNullifierPk publishes the merged output under another nullifier key.
 	outputNullifierPk *big.Int
-	// nullifierSecret overrides the owner's secret, zero selects zero-key mode.
+	// nullifierSecret at zero selects zero-key mode.
 	nullifierSecret *big.Int
-	// mergeSeed keys derived values in place of the nullifier secret.
-	mergeSeed *big.Int
-	// ownerKeyHash overrides the owner's hashed key.
-	ownerKeyHash *big.Int
-	// publishedOwner is the ring v2 tail's owner element.
-	publishedOwner *big.Int
+	mergeSeed       *big.Int
+	ownerKeyHash    *big.Int
+	publishedOwner  *big.Int
 }
 
 // Slot 0's tree id is fixtureInputTreeID; fixtureOutputTreeID differs from

@@ -96,9 +96,7 @@ type MergeParameters struct {
 	// whose circuit has no ciphertext.
 	OutputCiphertextSalt *big.Int
 
-	// MergeSeed and PublishedOwner are merge-ring-v2 inputs. MergeSeed keys the
-	// derived values under a zero nullifier secret, PublishedOwner is the hashed
-	// owner under a zero nullifier secret and zero otherwise.
+	// MergeSeed and PublishedOwner are merge-ring-v2 inputs.
 	MergeSeed      *big.Int
 	PublishedOwner *big.Int
 

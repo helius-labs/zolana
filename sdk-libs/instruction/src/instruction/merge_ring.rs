@@ -86,15 +86,14 @@ impl MergeRing {
     }
 }
 
-/// Builder for `merge_ring_v2`. The layout is [`MergeRing`]'s with the owner
-/// (signer) ahead of the nullifier PDAs when one is set, which also selects
-/// [`MergeRingAuthority::OwnerSigned`].
+/// [`MergeRing`]'s layout with the owner (signer) ahead of the nullifier PDAs, a
+/// set owner selects [`MergeRingAuthority::OwnerSigned`].
 pub struct MergeRingV2 {
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,
     pub ring_program_id: Pubkey,
     pub payer: Pubkey,
-    /// The signing owner of a zero-key merge: a wallet, or a PDA through CPI.
+    /// Signing owner of a zero-key merge, a wallet or a PDA through CPI.
     pub owner: Option<Pubkey>,
     pub data: MergeTransactIxData,
     pub output_ring_data_hash: [u8; 32],
@@ -102,7 +101,7 @@ pub struct MergeRingV2 {
 }
 
 impl MergeRingV2 {
-    /// Instruction sent to the ring program, which CPIs into SPP.
+    /// Sent to the ring program, not SPP.
     pub fn instruction(&self) -> Instruction {
         self.build_instruction(self.ring_program_id, false)
     }
@@ -264,7 +263,6 @@ mod tests {
         );
     }
 
-    /// The owner sits ahead of the nullifier PDAs and names the authority in the data.
     #[test]
     fn v2_lays_out_the_owner_and_names_the_authority() {
         let owner = Pubkey::new_unique();

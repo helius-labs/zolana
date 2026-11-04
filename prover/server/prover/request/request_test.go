@@ -212,6 +212,48 @@ func TestParseNamesMergeKeysFromTheInputCount(t *testing.T) {
 	}
 }
 
+func TestParseStrictNamesTheRingV2KeyUnderZeroSecret(t *testing.T) {
+	zeros := func(n int) []*big.Int {
+		values := make([]*big.Int, n)
+		for i := range values {
+			values[i] = big.NewInt(0)
+		}
+		return values
+	}
+	params := merge.MergeParameters{
+		CircuitType:          common.MergeRingV2CircuitType,
+		OutputTreeID:         big.NewInt(0),
+		UserNullifierSecret:  big.NewInt(0),
+		MergeSeed:            big.NewInt(5),
+		PublishedOwner:       big.NewInt(6),
+		OutputCiphertextSalt: big.NewInt(7),
+	}
+	for i := 0; i < 8; i++ {
+		params.Inputs = append(params.Inputs, merge.InputParams{
+			StatePathElements:        zeros(txcircuit.StateTreeHeight),
+			NullifierLowPathElements: zeros(txcircuit.NullifierTreeHeight),
+			TreeSlot:                 big.NewInt(0),
+		})
+	}
+	for i := 0; i < txcircuit.InputTrees; i++ {
+		params.TreeSlots = append(params.TreeSlots, common.TreeSlotParams{ID: big.NewInt(0), UtxoRoot: big.NewInt(1), NullifierRoot: big.NewInt(1)})
+	}
+	body, err := json.Marshal(&params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.KeyFile != "merge_ring_v2_8_1.key" {
+		t.Fatalf("key file %q", request.KeyFile)
+	}
+	if _, err := ParseStrict(body); err != nil {
+		t.Fatalf("strict: %v", err)
+	}
+}
+
 func TestProveReportsTheKeyAndVerifies(t *testing.T) {
 	if testing.Short() {
 		t.Skip("groth16 setup of the 2x2 transfer circuit")

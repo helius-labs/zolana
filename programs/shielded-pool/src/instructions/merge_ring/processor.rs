@@ -61,10 +61,8 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     )
 }
 
-/// `merge_ring` with a proven output ciphertext and zero-key support. Under
-/// [`MergeRingAuthority::OwnerSigned`] an account signs and the proof publishes
-/// its hashed key, so knowing a note's opening does not admit a merge. The hash
-/// also tags the output, so the owner finds it with no input history.
+/// Under [`MergeRingAuthority::OwnerSigned`] the proof publishes the signer's
+/// hashed key, so an opening alone admits no merge.
 #[inline(never)]
 pub fn process_merge_ring_v2_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = MergeRingV2IxDataRef::from_bytes(data)

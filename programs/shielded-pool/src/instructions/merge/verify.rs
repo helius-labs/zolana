@@ -42,10 +42,8 @@ pub enum MergeOwnerBinding {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
     },
-    /// `merge_ring_v2`: the `Ring` binding plus the published owner and the
-    /// proven output ciphertext. `published_owner` is the hashed key of the
-    /// signing owner, or zero when no owner signs. A proof over any other value
-    /// fails, so an opening alone admits no zero-key merge.
+    /// A proof must publish the signer's hashed key, or zero with no signer, so an
+    /// opening alone admits no zero-key merge.
     RingOwnerSigned {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
@@ -217,5 +215,146 @@ impl<'a> MergeProof<'a> {
             }
         }
         .map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+    use spr_interface::instruction::instruction_data::merge_transact::{
+        MergeProof as MergeProofData, MergeTransactIxData,
+    };
+
+    use super::*;
+
+    fn field(value: &Value) -> [u8; 32] {
+        let hex = value.as_str().expect("hex string");
+        core::array::from_fn(|index| {
+            u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).expect("hex byte")
+        })
+    }
+
+    /// The program's element order against the Go host mirrors of the circuit.
+    #[test]
+    fn ring_v2_public_input_hash_matches_the_shared_vector() {
+        let vector: Value = serde_json::from_str(include_str!(
+            "../../../../../test-vectors/merge_ring_v2.json"
+        ))
+        .expect("vector");
+        let statement = &vector["statement"];
+        let ciphertext = &vector["output_ciphertext"];
+        let salt_hex = vector["output_ciphertext_salt"].as_str().expect("salt");
+        let output_encryption = MergeOutputEncryption::PoseidonCtrV1 {
+            salt: core::array::from_fn(|index| {
+                u8::from_str_radix(&salt_hex[index * 2..index * 2 + 2], 16).expect("hex byte")
+            }),
+            ciphertext: [
+                field(&ciphertext[0]),
+                field(&ciphertext[1]),
+                field(&ciphertext[2]),
+            ],
+        };
+        let data = MergeTransactIxData {
+            cache_slot: None,
+            expiry_unix_ts: 0,
+            proof: MergeProofData::zeroed(),
+            output_utxo_hash: field(&statement["output_hash"]),
+            output_encryption,
+            private_tx_hash: field(&statement["private_tx_hash"]),
+            nullifiers: statement["nullifiers"]
+                .as_array()
+                .expect("nullifiers")
+                .iter()
+                .map(field)
+                .collect(),
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }
+        .serialize()
+        .expect("serialize");
+        let ix = MergeTransactIxDataRef::from_bytes(&data).expect("parse");
+
+        for (published_owner, expected) in [
+            ([0u8; 32], "nonzero_key_public_input_hash"),
+            (
+                field(&vector["owner_pk_hash"]),
+                "zero_key_public_input_hash",
+            ),
+        ] {
+            let mut tree_id = [0u8; 32];
+            tree_id[31] = statement["tree_id"].as_u64().expect("tree id") as u8;
+            let mut output_tree_id = [0u8; 32];
+            output_tree_id[31] = statement["output_tree_id"].as_u64().expect("tree id") as u8;
+            let mut allow_dummy_inputs = [0u8; 32];
+            allow_dummy_inputs[31] = 1;
+            let proof = MergeProof::new(
+                &ix,
+                MergeProofInputs {
+                    tree_slot: TreeSlot {
+                        id: tree_id,
+                        utxo_root: field(&statement["utxo_root"]),
+                        nullifier_root: field(&statement["nullifier_root"]),
+                    },
+                    output_tree_id,
+                    external_data_hash: field(&statement["external_data_hash"]),
+                    allow_dummy_inputs,
+                    owner_binding: MergeOwnerBinding::RingOwnerSigned {
+                        ring_program_id: field(&statement["ring_program_hash"]),
+                        output_ring_data_hash: field(&statement["output_ring_data_hash"]),
+                        published_owner,
+                        output_encryption,
+                    },
+                },
+            );
+            assert_eq!(
+                proof.public_input_hash().expect("hash"),
+                field(&statement[expected]),
+                "{expected}"
+            );
+        }
+    }
+
+    /// Refused ahead of any pairing.
+    #[test]
+    fn ring_v2_is_refused_until_its_keys_are_pinned() {
+        let data = MergeTransactIxData {
+            cache_slot: None,
+            expiry_unix_ts: 0,
+            proof: MergeProofData::zeroed(),
+            output_utxo_hash: [1; 32],
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: [0; 16],
+                ciphertext: [[0; 32]; 3],
+            },
+            private_tx_hash: [2; 32],
+            nullifiers: vec![[3; 32]],
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }
+        .serialize()
+        .expect("serialize");
+        let ix = MergeTransactIxDataRef::from_bytes(&data).expect("parse");
+        let proof = MergeProof::new(
+            &ix,
+            MergeProofInputs {
+                tree_slot: TreeSlot::ZERO,
+                output_tree_id: [0; 32],
+                external_data_hash: [0; 32],
+                allow_dummy_inputs: [0; 32],
+                owner_binding: MergeOwnerBinding::RingOwnerSigned {
+                    ring_program_id: [0; 32],
+                    output_ring_data_hash: [0; 32],
+                    published_owner: [0; 32],
+                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                        salt: [0; 16],
+                        ciphertext: [[0; 32]; 3],
+                    },
+                },
+            },
+        );
+        assert_eq!(
+            proof.verify(),
+            Err(ShieldedPoolError::CircuitFeatureDisabled.into())
+        );
     }
 }

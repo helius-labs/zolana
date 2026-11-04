@@ -24,6 +24,7 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.TransferRingAuthorityCircuitType, "zk_transfer_queue"},
 		{common.MergeCircuitType, "zk_transfer_queue"},
 		{common.MergeRingCircuitType, "zk_transfer_queue"},
+		{common.MergeRingV2CircuitType, "zk_transfer_queue"},
 		{testExtension, extensionQueue},
 		{common.CircuitType("unknown"), ""},
 	}

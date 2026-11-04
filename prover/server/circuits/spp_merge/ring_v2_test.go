@@ -1,7 +1,9 @@
 package merge_test
 
 import (
+	"encoding/json"
 	"math/big"
+	"os"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -43,7 +45,6 @@ func (f *mergeWitnessFixture) rehash(t *testing.T) {
 	f.publicInputHash = hashChain4(t, f.publicInputPreimage)
 }
 
-// Tail positions after the seven prefix elements.
 const (
 	ringV2RingDataIndex = 7
 	ringV2OwnerIndex    = 9
@@ -69,7 +70,6 @@ func TestMergeRingV2ZeroKeyPublishesItsOwner(t *testing.T) {
 	}
 }
 
-// A proof published under another owner never matches SPP's signer hash.
 func TestMergeRingV2RefusesAnyOtherPublishedOwner(t *testing.T) {
 	for name, build := range map[string]func() mergeFixtureOptions{
 		"zero key":    zeroKeyOptions,
@@ -88,8 +88,6 @@ func TestMergeRingV2RefusesAnyOtherPublishedOwner(t *testing.T) {
 	}
 }
 
-// Publishing zero under a zero key would let an outsider who knows the opening
-// merge with no signer.
 func TestMergeRingV2RefusesZeroKeyWithoutPublishedOwner(t *testing.T) {
 	options := zeroKeyOptions()
 	options.publishedOwner = big.NewInt(0)
@@ -132,8 +130,6 @@ func TestMergeRingV2RefusesWrongOutputRingDataHash(t *testing.T) {
 	}
 }
 
-// Under a zero key the derivations come from the seed, so an observer holding
-// public data and secret zero matches none of them.
 func TestMergeRingV2ZeroKeyDerivationsResistTheSecretZeroGuess(t *testing.T) {
 	f := buildMergeFixture(t, zeroKeyOptions())
 	firstNullifier := f.public.Nullifiers[0].(*big.Int)
@@ -192,9 +188,6 @@ func TestMergeRingV2ZeroKeyDerivationsResistTheSecretZeroGuess(t *testing.T) {
 	}
 }
 
-// The seed is the only secret on the zero-key path, and every derived value
-// must follow it: the fixture publishes values for one seed, the witness names
-// another.
 func TestMergeRingV2RefusesAnotherSeedThanTheDerivations(t *testing.T) {
 	f := buildMergeFixture(t, zeroKeyOptions())
 	f.mergeSeed = new(big.Int).Add(f.mergeSeed, big.NewInt(1))
@@ -238,5 +231,69 @@ func TestMergeRingV2SupportsEveryWidth(t *testing.T) {
 		if err := solveRingV2(buildMergeFixture(t, options)); err != nil {
 			t.Fatalf("width %d: %v", width, err)
 		}
+	}
+}
+
+type ringV2Vector struct {
+	FirstNullifier    string   `json:"first_nullifier"`
+	MergeSeed         string   `json:"merge_seed"`
+	OutputBlinding    string   `json:"output_blinding"`
+	OutputKey         string   `json:"output_key"`
+	PrivateTxBlinding string   `json:"private_tx_blinding"`
+	DummySlotIndex    int64    `json:"dummy_slot_index"`
+	DummyNullifier    string   `json:"dummy_nullifier"`
+	Salt              string   `json:"output_ciphertext_salt"`
+	Amount            int64    `json:"output_amount"`
+	Mint              string   `json:"output_mint"`
+	Ciphertext        []string `json:"output_ciphertext"`
+}
+
+func TestMergeRingV2DerivationsMatchTheSharedVector(t *testing.T) {
+	data, err := os.ReadFile("../../../../test-vectors/merge_ring_v2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vector ringV2Vector
+	if err := json.Unmarshal(data, &vector); err != nil {
+		t.Fatal(err)
+	}
+	hexField := func(value string) *big.Int {
+		field, ok := new(big.Int).SetString(value, 16)
+		if !ok {
+			t.Fatalf("invalid vector field %q", value)
+		}
+		return field
+	}
+	seed, firstNullifier := hexField(vector.MergeSeed), hexField(vector.FirstNullifier)
+	assertEqual := func(name string, got *big.Int, err error, want string) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Cmp(hexField(want)) != 0 {
+			t.Fatalf("%s: got %x want %s", name, got, want)
+		}
+	}
+	blinding, err := poseidon.Hash([]*big.Int{big.NewInt(mergeshared.MergeOutputBlindingDomainV1), seed, firstNullifier})
+	assertEqual("output blinding", blinding, err, vector.OutputBlinding)
+	key, err := protocol.MergeOutputKey(seed, firstNullifier)
+	assertEqual("output key", key, err, vector.OutputKey)
+	txBlinding, err := protocol.PrivateTxBlinding(firstNullifier, seed)
+	assertEqual("private tx blinding", txBlinding, err, vector.PrivateTxBlinding)
+	dummy, err := poseidon.Hash([]*big.Int{
+		big.NewInt(mergeshared.MergeDummyNullifierDomain), seed, firstNullifier, big.NewInt(vector.DummySlotIndex),
+	})
+	assertEqual("dummy nullifier", dummy, err, vector.DummyNullifier)
+
+	var mint [32]byte
+	hexField(vector.Mint).FillBytes(mint[:])
+	ciphertext, err := protocol.MergeOutputCiphertext(
+		seed, firstNullifier, hexField(vector.Salt), big.NewInt(vector.Amount), mint,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range vector.Ciphertext {
+		assertEqual("ciphertext", ciphertext[i], nil, want)
 	}
 }

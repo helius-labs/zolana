@@ -130,8 +130,7 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 	return paramsJson
 }
 
-// updateSeedFromJSON holds the rule that a nonzero value keys the blindings: the
-// nullifier secret, or on merge-ring-v2 under a zero secret the merge seed.
+// updateSeedFromJSON refuses a zero value keying the blindings.
 func (p *MergeParameters) updateSeedFromJSON(params MergeParametersJSON) error {
 	if p.CircuitType != common.MergeRingV2CircuitType {
 		if params.MergeSeed != "" || params.PublishedOwner != "" {

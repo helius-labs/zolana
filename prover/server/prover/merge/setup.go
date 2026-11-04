@@ -66,7 +66,6 @@ func SetupMergeRing(nInputs uint32) (*common.TransferProofSystem, error) {
 	return mergeSystem(common.MergeRingCircuitType, nInputs, pk, vk, ccs), nil
 }
 
-// SetupMergeRingV2 runs trusted setup for merge_ring_v2 at nInputs inputs.
 func SetupMergeRingV2(nInputs uint32) (*common.TransferProofSystem, error) {
 	if !IsSupportedNInputs(nInputs) {
 		return nil, fmt.Errorf("merge-ring-v2: unsupported input count %d, want one of %v", nInputs, SupportedNInputs())
