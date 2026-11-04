@@ -46,7 +46,7 @@ jobs:
         run: |
           tmp="$(mktemp -d)"
           trap 'rm -rf "$tmp"' EXIT
-          npm pack --workspace @heliuslabs/zolana --pack-destination "$tmp"
+          npm pack --workspace @heliuslabs/spr --pack-destination "$tmp"
           set -- "$tmp"/*.tgz
           test "$#" -eq 1
           tarball="$1"
@@ -54,13 +54,13 @@ jobs:
           kit_range="$(node -p "require('./sdk-libs/ts/package.json').peerDependencies['@solana/kit']")"
           npm --prefix "$tmp" install "$tarball" "@solana/kit@$kit_range" --ignore-scripts
           cat > "$tmp/smoke.mts" <<'TS'
-          import { createZolanaClient, type ZolanaClientConfig } from "@heliuslabs/zolana";
-          const config: ZolanaClientConfig = {
+          import { createSprClient, type SprClientConfig } from "@heliuslabs/spr";
+          const config: SprClientConfig = {
             solanaRpcUrl: new URL("http://127.0.0.1:8899"),
             indexerUrl: undefined,
             proverUrl: undefined,
           };
-          await createZolanaClient(config);
+          await createSprClient(config);
           TS
           ./node_modules/.bin/tsc \
             --noEmit --strict --exactOptionalPropertyTypes --skipLibCheck \
@@ -69,15 +69,15 @@ jobs:
           (
             cd "$tmp"
             node --input-type=module <<'NODE'
-          const sdk = await import("@heliuslabs/zolana");
-          const instructions = await import("@heliuslabs/zolana/instructions");
+          const sdk = await import("@heliuslabs/spr");
+          const instructions = await import("@heliuslabs/spr/instructions");
           await Promise.all(
             ["addresses", "client", "interface", "internal", "keypair", "transaction", "wallet"].map(
-              (subpath) => import(`@heliuslabs/zolana/${subpath}`),
+              (subpath) => import(`@heliuslabs/spr/${subpath}`),
             ),
           );
           if (!sdk.buildTransferTransaction || !instructions.getDepositInstructionAsync) process.exit(1);
-          await sdk.createZolanaClient({
+          await sdk.createSprClient({
             solanaRpcUrl: "http://127.0.0.1:8899",
           });
           NODE

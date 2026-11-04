@@ -128,7 +128,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
     **Runs:**
 
-    1. `@heliuslabs/zolana`: `npm run check:ts`.
+    1. `@heliuslabs/spr`: `npm run check:ts`.
     2. API documentation: `npm run docs:ts`.
     3. Package smoke test: `npm pack`, `tsc`, `node`.
     4. SDK e2e: `just test-ts-e2e`.

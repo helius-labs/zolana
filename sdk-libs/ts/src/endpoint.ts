@@ -14,12 +14,12 @@ export const LOCALNET_PHOTON_ENDPOINT = "http://127.0.0.1:8784";
 export const LOCALNET_PROVER_ENDPOINT = "http://127.0.0.1:3001";
 
 /** Where a Helius RPC host serves the indexer and the prover. */
-export const ZOLANA_GATEWAY_PATH = "/v1/spr";
+export const SPR_GATEWAY_PATH = "/v1/spr";
 
 const HELIUS_RPC_HOST = /(^|\.)helius-rpc\.com$/u;
 
 /** A Helius RPC root URL as its zolana namespace, query kept; any other URL unchanged. */
-function zolanaServiceUrl(rpc: string | URL): string | URL {
+function sprServiceUrl(rpc: string | URL): string | URL {
   let url: URL;
   try {
     url = new URL(rpc);
@@ -27,11 +27,11 @@ function zolanaServiceUrl(rpc: string | URL): string | URL {
     return rpc;
   }
   if (!HELIUS_RPC_HOST.test(url.hostname) || url.pathname.replace(/\/+$/u, "") !== "") return rpc;
-  url.pathname = ZOLANA_GATEWAY_PATH;
+  url.pathname = SPR_GATEWAY_PATH;
   return url;
 }
 
-/** The routing fields of `ZolanaClientConfig`, which is what resolution reads. */
+/** The routing fields of `SprClientConfig`, which is what resolution reads. */
 export interface ClientEndpointConfig {
   readonly solanaRpcUrl?: string | URL | undefined;
   readonly solanaRpcSubscriptionsUrl?: string | URL | undefined;
@@ -70,7 +70,7 @@ export function resolveClientEndpoints(input: ClientEndpointConfig): ResolvedCli
     }
     // Without an RPC URL to inherit, the local port is the only sensible answer.
     if (input.solanaRpcUrl !== undefined) {
-      return { url: zolanaServiceUrl(input.solanaRpcUrl), field: "solanaRpcUrl" };
+      return { url: sprServiceUrl(input.solanaRpcUrl), field: "solanaRpcUrl" };
     }
     return { url: localDefault, field: namedField };
   };

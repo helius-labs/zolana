@@ -1,20 +1,20 @@
 /// <reference types="node" />
 
-import { SOL_MINT, createZolanaClient } from "@heliuslabs/zolana";
-import { LocalKeys, atSlot } from "@heliuslabs/zolana/client";
+import { SOL_MINT, createSprClient } from "@heliuslabs/spr";
+import { LocalKeys, atSlot } from "@heliuslabs/spr/client";
 import {
   depositInstruction,
   transactInstruction,
   DepositAsset,
   TransactWithdrawal,
-} from "@heliuslabs/zolana/interface";
+} from "@heliuslabs/spr/interface";
 import {
   AssetRegistry,
   ConfidentialTransfer,
   ProofInputUtxo,
   decryptToBalances,
   WithdrawalTarget,
-} from "@heliuslabs/zolana/transaction";
+} from "@heliuslabs/spr/transaction";
 import { describe, expect, it } from "vitest";
 
 import { sendAndConfirmFactory, setup } from "./setup.js";
@@ -29,9 +29,9 @@ describe("example: deposit, transfer, withdraw", () => {
 
     // Connect to localnet; the config is empty (all default ports) unless the
     // test recipe runs the stack on ZOLANA_PORT_OFFSET-shifted URLs.
-    const client = await createZolanaClient(clientConfig);
+    const client = await createSprClient(clientConfig);
     // devnet: one url serves the RPC, the indexer, and the prover.
-    // const client = await createZolanaClient({
+    // const client = await createSprClient({
     //     solanaRpcUrl: `https://devnet.helius-rpc.com?api-key=${process.env.API_KEY!}`,
     // });
 

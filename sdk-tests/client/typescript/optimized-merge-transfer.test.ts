@@ -5,10 +5,10 @@ import {
   MergeEncryptionScheme,
   buildRegistrationTransaction,
   buildSetMergeEncryptionTransaction,
-  createZolanaClient,
-} from "@heliuslabs/zolana";
-import { getCacheAddress } from "@heliuslabs/zolana/addresses";
-import { LocalKeys, MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, atSlot } from "@heliuslabs/zolana/client";
+  createSprClient,
+} from "@heliuslabs/spr";
+import { getCacheAddress } from "@heliuslabs/spr/addresses";
+import { LocalKeys, MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, atSlot } from "@heliuslabs/spr/client";
 import {
   DepositAsset,
   MAX_MERGE_INPUTS,
@@ -18,8 +18,8 @@ import {
   decodeCache,
   depositInstruction,
   transactInstruction,
-} from "@heliuslabs/zolana/interface";
-import { getMergeTransactInstructionAsync } from "@heliuslabs/zolana/instructions";
+} from "@heliuslabs/spr/interface";
+import { getMergeTransactInstructionAsync } from "@heliuslabs/spr/instructions";
 import {
   AssetRegistry,
   ConfidentialTransfer,
@@ -27,7 +27,7 @@ import {
   ProofInputUtxo,
   Utxo,
   decryptToBalances,
-} from "@heliuslabs/zolana/transaction";
+} from "@heliuslabs/spr/transaction";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -60,7 +60,7 @@ function log(started: number, event: string): void {
 describe("example: optimized merge and transfer", () => {
   it("spends a merged balance from a cache slot while the merge is still being proven", async () => {
     const { recipient: recipientKeypair, clientConfig } = await setup();
-    const client = await createZolanaClient(clientConfig);
+    const client = await createSprClient(clientConfig);
     const senderKeypair = await fundedKeypair(clientConfig, SENDER_LAMPORTS);
     const senderSigner = senderKeypair.toSolanaSigner();
     const senderAddress = senderKeypair.shieldedAddress();

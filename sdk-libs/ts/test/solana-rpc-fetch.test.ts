@@ -7,7 +7,7 @@ import {
 } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ClientError, ZolanaClient } from "../src/client/index.js";
+import { ClientError, SprClient } from "../src/client/index.js";
 import { compileUnsignedTransaction } from "../src/flows/compile.js";
 
 const RPC_URL = "https://rpc.example.com/zolana";
@@ -70,8 +70,8 @@ function solanaRpcFetch(rateLimited = 0) {
   return { fetch, seen };
 }
 
-function rpcClient(fetch?: typeof globalThis.fetch): ZolanaClient {
-  return new ZolanaClient({
+function rpcClient(fetch?: typeof globalThis.fetch): SprClient {
+  return new SprClient({
     solanaRpcUrl: RPC_URL,
     proofDataSource: "client",
     ...(fetch === undefined ? {} : { fetch }),

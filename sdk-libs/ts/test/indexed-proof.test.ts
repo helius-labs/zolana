@@ -1,5 +1,5 @@
 import { proofFor } from "./helpers/proofs.js";
-import { LocalKeys, ZolanaClient, type IndexedProofInputs } from "../src/client/index.js";
+import { LocalKeys, SprClient, type IndexedProofInputs } from "../src/client/index.js";
 import { prepareMerge } from "../src/client/prover/merge.js";
 import { compressProof, parseProof } from "../src/client/prover/proof.js";
 import { ShieldedKeypair, randomBlinding } from "../src/keypair/index.js";
@@ -177,7 +177,7 @@ it("binds merge resolution and keeps preparation free of indexer calls", async (
         { headers: { "content-type": "application/json" } },
       ),
   );
-  const client = new ZolanaClient({ proofDataSource: "prover", fetch });
+  const client = new SprClient({ proofDataSource: "prover", fetch });
   const keys = LocalKeys.fromKeypair(owner, client.proofService);
   try {
     const result = await client.proveMerge({ prepared, keys });
@@ -302,7 +302,7 @@ it("refuses a key holder's merge root at the field modulus as unparsable", async
         },
       }),
     };
-    const client = new ZolanaClient({ proofDataSource: "prover", fetch: vi.fn() });
+    const client = new SprClient({ proofDataSource: "prover", fetch: vi.fn() });
     await expect(client.proveMerge({ prepared, keys })).rejects.toMatchObject({
       code: "CLIENT_PROOF_PARSE",
     });

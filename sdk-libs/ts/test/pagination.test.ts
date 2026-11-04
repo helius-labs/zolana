@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { ZolanaIndexer } from "../src/client/indexer.js";
+import { SprIndexer } from "../src/client/indexer.js";
 import { atSlot, createIndexerPollConfig } from "../src/client/retry.js";
-import { ZolanaApi } from "../src/api/index.js";
+import { SprApi } from "../src/api/index.js";
 import { hash, limit } from "../src/indexer/scalars.js";
 import {
   checkedPaginationToken,
@@ -30,7 +30,7 @@ function apiFor(result: unknown) {
   const fetch = vi.fn<typeof globalThis.fetch>(async () =>
     Response.json({ jsonrpc: "2.0", id: "test-account", result }),
   );
-  return { api: new ZolanaApi({ url: "https://indexer.example", fetch }), fetch };
+  return { api: new SprApi({ url: "https://indexer.example", fetch }), fetch };
 }
 
 describe("transaction pagination", () => {
@@ -174,7 +174,7 @@ describe("transaction pagination", () => {
             : { result: { context, data: [], paginationToken: null } }),
         });
       });
-      const indexer = new ZolanaIndexer(new ZolanaApi({ url: "https://indexer.example", fetch }));
+      const indexer = new SprIndexer(new SprApi({ url: "https://indexer.example", fetch }));
       const read = indexer.getShieldedTransactionsByTags(
         { tags: [copyBytes(new Uint8Array(32), 32, "tag") as Bytes32], minContextSlot: 100n },
         wait ? atSlot(100n, createIndexerPollConfig(1, 0n, 0n)) : undefined,
@@ -193,7 +193,7 @@ describe("transaction pagination", () => {
 
   it("rejects malformed client filters before sending a request", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>();
-    const indexer = new ZolanaIndexer(new ZolanaApi({ url: "https://indexer.example", fetch }));
+    const indexer = new SprIndexer(new SprApi({ url: "https://indexer.example", fetch }));
     const tags = [copyBytes(new Uint8Array(32), 32, "tag") as Bytes32];
     for (const filters of [
       { slot: { eq: 1n } },

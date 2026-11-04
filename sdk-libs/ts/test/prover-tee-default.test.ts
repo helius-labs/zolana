@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { describe, expect, it, vi } from "vitest";
 
-import { ZolanaClient } from "../src/client/client.js";
+import { SprClient } from "../src/client/client.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import { wireDecoder } from "../src/interface/decode.js";
 import { readTeePolicy } from "./helpers/tee-policy.js";
@@ -26,7 +26,7 @@ describe("caller-supplied prover policy", () => {
           details: { field: "tee" },
         });
       }
-      const client = new ZolanaClient({ solanaRpcUrl: url, fetch });
+      const client = new SprClient({ solanaRpcUrl: url, fetch });
       await expect(client.attestProver()).rejects.toMatchObject({
         code: "CLIENT_INVALID_CONFIG",
         details: { field: "tee" },
@@ -74,7 +74,7 @@ describe("caller-supplied prover policy", () => {
         const policy = readTeePolicy(
           new URL("../../../prover/tee/deployments/mainnet-v0.6.0-alpha.json", import.meta.url),
         );
-        const client = new ZolanaClient({ solanaRpcUrl: endpoint, proverTee: policy, fetch });
+        const client = new SprClient({ solanaRpcUrl: endpoint, proverTee: policy, fetch });
         await expect(client.attestProver()).resolves.toMatchObject({ platform: "aws-nitro" });
         const prover = new ProverClient({ url: endpoint, tee: policy, fetch });
         await expect(prover.checkProvingKeys()).rejects.toThrow();

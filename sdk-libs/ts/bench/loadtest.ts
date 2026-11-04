@@ -45,11 +45,11 @@ import {
   SigningKey,
   Wallet,
   buildTransferTransaction,
-  createZolanaClient,
+  createSprClient,
   syncWallet,
   type Bytes32,
 } from "../dist/index.js";
-import type { ZolanaClient } from "../dist/client/client.js";
+import type { SprClient } from "../dist/client/client.js";
 
 interface Options {
   readonly rpcUrl: string;
@@ -139,7 +139,7 @@ function parseOptions(argv: readonly string[]): Options {
  * Solana CLI keypair files: a JSON array of 64 bytes, secret then public. The
  * first 32 are the seed both the signer and the shielded keypair derive from.
  */
-async function loadActors(dir: string, proofs: ZolanaClient["proofService"]): Promise<Actor[]> {
+async function loadActors(dir: string, proofs: SprClient["proofService"]): Promise<Actor[]> {
   const files = (await readdir(dir)).filter((name) => name.endsWith(".json")).sort();
   if (files.length < 2) usage(`--keypairs ${dir} needs at least two keypair files`);
 
@@ -210,7 +210,7 @@ function reportPhase(label: string, values: readonly number[]): void {
 }
 
 async function transferOnce(
-  client: ZolanaClient,
+  client: SprClient,
   from: Actor,
   to: Actor,
   amount: bigint,
@@ -256,7 +256,7 @@ async function transferOnce(
   };
 }
 
-async function confirm(client: ZolanaClient, signature: Signature): Promise<void> {
+async function confirm(client: SprClient, signature: Signature): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     const { value } = await client.solanaRpc
@@ -277,8 +277,8 @@ async function confirm(client: ZolanaClient, signature: Signature): Promise<void
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
   // Before the wallets: deriving a shielded address hashes, and the Poseidon
-  // WASM module is loaded by `createZolanaClient`.
-  const client = await createZolanaClient({
+  // WASM module is loaded by `createSprClient`.
+  const client = await createSprClient({
     solanaRpcUrl: options.rpcUrl,
     indexerUrl: options.indexerUrl,
     proverUrl: options.proverUrl,

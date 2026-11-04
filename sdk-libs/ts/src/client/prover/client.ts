@@ -161,7 +161,7 @@ export class ProverClient {
       url: URL | string;
       fetch?: typeof globalThis.fetch;
       asyncPoll?: AsyncPollConfig;
-      /** See `ZolanaClientConfig.allowInsecureHttp`. */
+      /** See `SprClientConfig.allowInsecureHttp`. */
       allowInsecureHttp?: boolean;
       /**
        * Encrypts every call, health and key checks included, to a prover that

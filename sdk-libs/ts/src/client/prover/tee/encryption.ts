@@ -2,7 +2,7 @@ import { Aes256Gcm, CipherSuite, DhkemX25519HkdfSha256, HkdfSha256 } from "@hpke
 import { gcm } from "@noble/ciphers/aes.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
-import { ZOLANA_GATEWAY_PATH } from "../../../endpoint.js";
+import { SPR_GATEWAY_PATH } from "../../../endpoint.js";
 import { ClientError } from "../../error.js";
 
 export const HEADER_VERSION = "Spr-Tee";
@@ -67,8 +67,8 @@ export function requestAad(method: string, requestUri: string): string {
   const received = separator === -1 ? requestUri : requestUri.slice(0, separator);
   const trimmed = received.replace(/\/+$/, "");
   const path =
-    (trimmed.startsWith(`${ZOLANA_GATEWAY_PATH}/`)
-      ? trimmed.slice(ZOLANA_GATEWAY_PATH.length)
+    (trimmed.startsWith(`${SPR_GATEWAY_PATH}/`)
+      ? trimmed.slice(SPR_GATEWAY_PATH.length)
       : trimmed) || "/";
   const query = separator === -1 ? "" : requestUri.slice(separator + 1);
   const kept = query

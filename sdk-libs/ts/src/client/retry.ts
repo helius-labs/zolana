@@ -293,7 +293,7 @@ function retryableDetail(error: ClientError): boolean {
   );
 }
 
-// Both adapters raise the shared transport codes, but only `ZolanaIndexer`
+// Both adapters raise the shared transport codes, but only `SprIndexer`
 // attaches an indexer transport cause, and Rust folds those failures
 // into `ClientError::Indexer` rather than `ClientError::Rpc`.
 function transportCause(error: ClientError): RetryErrorCause {

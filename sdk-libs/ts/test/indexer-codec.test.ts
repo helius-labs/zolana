@@ -14,8 +14,8 @@ import {
 import { MAX_USER_RECORD_OWNERS } from "../src/interface/indexer-limits.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { hash } from "../src/indexer/scalars.js";
-import { ZolanaApi } from "../src/api/index.js";
-import { ZolanaIndexer } from "../src/client/indexer.js";
+import { SprApi } from "../src/api/index.js";
+import { SprIndexer } from "../src/client/indexer.js";
 import { X25519Keypair } from "../src/keypair/x25519.js";
 
 // base58 of 32 zero bytes.
@@ -82,8 +82,8 @@ describe("user records wire", () => {
   it("keeps request order through the client and correlates every record with its owner", async () => {
     const requests: unknown[] = [];
     const indexerFor = (result: unknown) =>
-      new ZolanaIndexer(
-        new ZolanaApi({
+      new SprIndexer(
+        new SprApi({
           url: "https://indexer.example",
           fetch: async (_url, init) => {
             requests.push(JSON.parse(String(init?.body)).params);

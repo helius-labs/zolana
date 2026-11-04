@@ -1,11 +1,11 @@
-export { bindProgramTransaction } from "@heliuslabs/zolana/transaction";
-export type { ProgramTransaction } from "@heliuslabs/zolana/transaction";
+export { bindProgramTransaction } from "@heliuslabs/spr/transaction";
+export type { ProgramTransaction } from "@heliuslabs/spr/transaction";
 export {
   ed25519DerivationMessage,
   X25519PublicKey,
   X25519Keypair,
   ShieldedPda,
-} from "@heliuslabs/zolana/keypair";
+} from "@heliuslabs/spr/keypair";
 /** Named exports the changelog promises, resolved through the package exports map. */
 export {
   MAX_INPUT_TREES,
@@ -13,7 +13,7 @@ export {
   UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
   UTXO_ROOT_HISTORY_LEN_OFFSET,
   decodeShieldedPoolError,
-} from "@heliuslabs/zolana/interface";
+} from "@heliuslabs/spr/interface";
 export type {
   ProvingKeyArtifact,
   ProvingKeyCheck,
@@ -45,30 +45,26 @@ export type {
   TransactionAssembler,
   TreeContext,
   WalletKeys,
-} from "@heliuslabs/zolana/client";
-export {
-  LocalKeys,
-  NullifierKeyProofAuthority,
-  teePolicyFromJson,
-} from "@heliuslabs/zolana/client";
+} from "@heliuslabs/spr/client";
+export { LocalKeys, NullifierKeyProofAuthority, teePolicyFromJson } from "@heliuslabs/spr/client";
 export type {
   DecryptRequest,
   DeriveRequest,
   MergeOutputCiphertext,
   ShieldedKeys,
   TransactionKeyRequest,
-} from "@heliuslabs/zolana/transaction";
+} from "@heliuslabs/spr/transaction";
 export {
   LocalShieldedKeys,
   approveUnattended,
   encryptConfidentialTransfer,
-} from "@heliuslabs/zolana/transaction";
+} from "@heliuslabs/spr/transaction";
 export {
   LocalKeys as RootLocalKeys,
   LocalShieldedKeys as RootLocalShieldedKeys,
   type ShieldedKeys as RootShieldedKeys,
   type WalletKeys as RootWalletKeys,
-} from "@heliuslabs/zolana";
+} from "@heliuslabs/spr";
 export type {
   DepositClient,
   MergeClient,
@@ -77,18 +73,18 @@ export type {
   SyncPersistedWalletResult,
   SyncWalletInput,
   WalletStateStore,
-} from "@heliuslabs/zolana/wallet";
-export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
+} from "@heliuslabs/spr/wallet";
+export { syncPersistedWallet, syncWallet } from "@heliuslabs/spr/wallet";
 export type {
   SerializedSyncCheckpoint,
   SerializedNoteReservation,
   SerializedSyncCheckpoints,
-} from "@heliuslabs/zolana/transaction";
-export type { SettlementTransfer } from "@heliuslabs/zolana/transaction";
-export { encodeTransactInstructionData, transactCpiAccounts } from "@heliuslabs/zolana/interface";
-export type { TransactAccountsInput, TransactInstructionData } from "@heliuslabs/zolana/interface";
-export type { TransactAccountsInput as InstructionsTransactAccountsInput } from "@heliuslabs/zolana/instructions";
-export { bytes16, bytes31, bytes32, bytes33, bytes34, bytes64 } from "@heliuslabs/zolana/keypair";
+} from "@heliuslabs/spr/transaction";
+export type { SettlementTransfer } from "@heliuslabs/spr/transaction";
+export { encodeTransactInstructionData, transactCpiAccounts } from "@heliuslabs/spr/interface";
+export type { TransactAccountsInput, TransactInstructionData } from "@heliuslabs/spr/interface";
+export type { TransactAccountsInput as InstructionsTransactAccountsInput } from "@heliuslabs/spr/instructions";
+export { bytes16, bytes31, bytes32, bytes33, bytes34, bytes64 } from "@heliuslabs/spr/keypair";
 export type {
   DecodedProgramTransaction,
   ProgramData,
@@ -105,13 +101,13 @@ export type {
   ProgramTransactionKeys,
   ProgramUtxo,
   ProgramWalletUtxo,
-} from "@heliuslabs/zolana/transaction";
+} from "@heliuslabs/spr/transaction";
 export {
   Mint,
   ProgramOwner,
   decodeProgramTransaction,
   toProgramWalletUtxo,
-} from "@heliuslabs/zolana/transaction";
+} from "@heliuslabs/spr/transaction";
 export type {
   SerializedSyncCheckpoint as RootSerializedSyncCheckpoint,
   SerializedNoteReservation as RootSerializedNoteReservation,
@@ -119,5 +115,5 @@ export type {
   SyncPersistedWalletResult as RootSyncPersistedWalletResult,
   SyncWalletInput as RootSyncWalletInput,
   WalletStateStore as RootWalletStateStore,
-} from "@heliuslabs/zolana";
-export { ProverClient, indexerCodec } from "@heliuslabs/zolana/internal";
+} from "@heliuslabs/spr";
+export { ProverClient, indexerCodec } from "@heliuslabs/spr/internal";

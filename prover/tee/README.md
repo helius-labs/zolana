@@ -34,7 +34,7 @@ path never selects or changes the policy.
 
 In Rust, pass a `TeePolicy` to `ProverClient::with_tee` or
 `AsyncProverClient::with_tee`. In TypeScript, pass `tee` to `ProverClient` or
-`proverTee` to `ZolanaClient`. A missing policy fails before any remote HTTP
+`proverTee` to `SprClient`. A missing policy fails before any remote HTTP
 request. Only a loopback prover permits plaintext development; a Rust client
 using a proxy requires a policy even for loopback. The forester's explicit
 `for_tree_batches` mode permits plaintext nullifier-tree batch proofs, which
@@ -155,10 +155,10 @@ prover.attest()?;
 In TypeScript:
 
 ```ts
-import { ZolanaClient, teePolicyFromJson } from "@heliuslabs/zolana/client";
+import { SprClient, teePolicyFromJson } from "@heliuslabs/spr/client";
 import policyFile from "./prover-policy.json" with { type: "json" };
 
-const client = new ZolanaClient({
+const client = new SprClient({
   solanaRpcUrl: "https://api.devnet.solana.com",
   indexerUrl: "https://d34xe1hqb2ibg2.cloudfront.net",
   proverUrl: "https://dd73hh473h6ha.cloudfront.net",

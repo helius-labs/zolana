@@ -1,7 +1,7 @@
 import { address, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
-import { ZolanaClient } from "../src/client/client.js";
+import { SprClient } from "../src/client/client.js";
 import { ClientError } from "../src/client/error.js";
 import { LocalKeys } from "../src/client/keys.js";
 import {
@@ -138,7 +138,7 @@ function offlineClient() {
   const fetch = vi.fn<typeof globalThis.fetch>(async () => {
     throw new Error("network reached");
   });
-  return { client: new ZolanaClient({ tree: TREE, fetch, proofDataSource: "client" }), fetch };
+  return { client: new SprClient({ tree: TREE, fetch, proofDataSource: "client" }), fetch };
 }
 
 describe("authorized transaction binding", () => {

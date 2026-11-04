@@ -1,20 +1,20 @@
 /// <reference types="node" />
 
-import { createZolanaClient, initializePoseidon } from "@heliuslabs/zolana";
-import { DepositAsset, depositInstruction } from "@heliuslabs/zolana/interface";
+import { createSprClient, initializePoseidon } from "@heliuslabs/spr";
+import { DepositAsset, depositInstruction } from "@heliuslabs/spr/interface";
 import {
   SOLANA_OWNER_TAG,
   ShieldedPda,
   bytes32,
   randomBlinding,
   solanaOwnerIdentity,
-} from "@heliuslabs/zolana/keypair";
+} from "@heliuslabs/spr/keypair";
 import {
   AssetRegistry,
   ProgramOwner,
   bindProgramTransaction,
   type ProgramWalletUtxo,
-} from "@heliuslabs/zolana/transaction";
+} from "@heliuslabs/spr/transaction";
 import { getAddressEncoder } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
@@ -49,7 +49,7 @@ describe("timelock escrow", () => {
   it("locks shielded SOL in an escrow and withdraws it after unlock, with wasm proofs", async () => {
     await initializePoseidon();
     const config = clientConfig();
-    const client = await createZolanaClient(config);
+    const client = await createSprClient(config);
     const programId = escrowProgramId();
     const creator = randomKeypair();
     const signer = creator.toSolanaSigner();
