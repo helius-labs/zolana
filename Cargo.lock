@@ -10517,6 +10517,7 @@ dependencies = [
  "borsh",
  "proc-macro2",
  "quote",
+ "serde_json",
  "solana-address 2.6.1",
  "solana-signature",
  "spr-hasher",

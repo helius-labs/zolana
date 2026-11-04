@@ -18,6 +18,7 @@ syn = { workspace = true }
 spr-zk-macros-core = { workspace = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 anchor-syn = "1.1"
 borsh = { workspace = true }
 solana-address = { workspace = true }

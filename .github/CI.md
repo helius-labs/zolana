@@ -10,6 +10,8 @@ The interface and tree test suites include `vk_proving_key_lock` (proving-key
 file hashes) and `vk_hash_lock` (canonical VK hashes and the lockfile mapping).
 The ZK crates and groth16-solana are pinned by git revision for the V2 marker
 migration, so Cargo jobs require access to those repositories.
+The macro UI harness remaps git dependency source paths to the registry layout
+that trybuild normalizes, keeping compile-error snapshots portable.
 
 1. [Protocol operations](workflows/protocol-ops.yml)
 
