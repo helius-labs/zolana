@@ -32,7 +32,6 @@ pub enum IndexedTransferRail<'a> {
     Confidential,
     Ring(solana_address::Address),
     RingAuthority(solana_address::Address),
-    /// The ring authority rail with outputs that may leave to the default ring.
     RingAuthorityExit(solana_address::Address),
     /// Keeps the owner off chain while signing the exact root-independent statement.
     AnonymousRingEddsa {
@@ -718,7 +717,6 @@ mod tests {
             .collect()
     }
 
-    /// Output 0 leaves the ring under a marked confidential tag.
     fn exit_fixture(owner: &ShieldedKeypair, ring: Address) -> (SppProofInputs, [u8; 32]) {
         let mut transaction = fixture(owner, Some(ring), 2);
         let tag = owner.signing_pubkey().confidential_view_tag().unwrap();

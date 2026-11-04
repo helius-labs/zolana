@@ -88,7 +88,6 @@ function proofFixture(
     dummyInputs?: number;
     outputTreeId?: number;
     ring?: Address;
-    /** Output 0 leaves the ring under a marked confidential tag. */
     exit?: boolean;
   }> = {},
 ): ProofFixture {

@@ -1289,7 +1289,7 @@ export function prepareRingAuthorityTransfer(
       recipient: ShieldedAddress;
       asset: Address;
       amount: bigint;
-      /** Pays a default-ring note, proven by the `ringAuthorityExit` rail. */
+      /** Pays a default-ring note. */
       exit?: boolean;
     }>[];
     payer: Address;

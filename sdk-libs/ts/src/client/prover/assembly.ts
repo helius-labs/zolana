@@ -369,7 +369,7 @@ function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
   }
 }
 
-/** The authority rail forbids default ring inputs and outputs, and its exit rail allows default ring outputs. */
+/** The authority rail forbids default ring inputs and outputs, except outputs on its exit rail. */
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
