@@ -1,6 +1,10 @@
 {
-  "latest": "v0.8.0-alpha",
+  "latest": "v0.9.0-alpha",
   "versions": [
+    {
+      "version": "v0.9.0-alpha",
+      "url": "https://helius-labs.github.io/zolana/ts-sdk/v0.9.0-alpha/"
+    },
     {
       "version": "v0.8.0-alpha",
       "url": "https://helius-labs.github.io/zolana/ts-sdk/v0.8.0-alpha/"
