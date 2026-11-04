@@ -20,7 +20,7 @@ npm install @heliuslabs/zolana@alpha @solana/kit
 
 Requirements:
 
-- Node.js 24 or newer;
+- Node.js 22.12 or a newer 22.x, or Node.js 24 or newer;
 - Solana RPC, indexer, and prover endpoints.
 
 ## Quick start
