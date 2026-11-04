@@ -15,9 +15,11 @@ Breaking
 - `serializeWallet` writes snapshot version 5 with slot checkpoints, and `SerializedCursor` and `SerializedSyncCursors` become `SerializedSyncCheckpoint` and `SerializedSyncCheckpoints` → restore earlier snapshots with `deserializeWallet`, which keeps the wallet state and rescans history once.
 - `Prover` requires `proveAnonymousRingTransact` → implement the method on custom provers.
 - `ProverInputs`, `IndexedProofInputs` and `CircuitId` add anonymous ring variants → forward them in custom `ProofService` and `ProofAuthority` implementations.
+- `Prover` requires `proveRingAuthorityExitTransact` and `ProverInputs`, `IndexedProofInputs`, `CircuitId` and `ProvingKeyCircuit` add a ring authority exit variant → implement the method on custom provers and forward the variant in custom `ProofService` and `ProofAuthority` implementations.
 
 Added
 
+- `ZolanaClient.proveRingAuthorityExitTransact(proofInputs, ringProgramId, keys)` proves a ring authority transfer whose outputs may leave the ring, and an output of `prepareRingAuthorityTransfer` with `exit: true` pays a default-ring note.
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `ZolanaClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `ZolanaClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.

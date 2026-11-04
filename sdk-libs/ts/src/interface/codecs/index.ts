@@ -260,6 +260,8 @@ function circuitTag(value: CircuitId): number {
       return 7;
     case "confidentialEddsaCached":
       return 8;
+    case "ringAuthorityExit":
+      return 9;
     default:
       return fail("INTERFACE_CODEC", { name: "circuit.kind" });
   }

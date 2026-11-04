@@ -760,6 +760,7 @@ function transferCircuit(
   inputs: TransferRequest,
 ):
   | "transfer-ring-authority"
+  | "transfer-ring-authority-exit"
   | "transfer-ring"
   | "transfer-confidential-eddsa"
   | "transfer-eddsa-ring"
@@ -767,6 +768,8 @@ function transferCircuit(
   switch (inputs.circuit) {
     case "transferRingAuthority":
       return "transfer-ring-authority";
+    case "transferRingAuthorityExit":
+      return "transfer-ring-authority-exit";
     case "transferRing":
       return "transfer-ring";
     case "transferConfidentialEddsa":

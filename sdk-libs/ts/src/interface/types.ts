@@ -205,6 +205,12 @@ export type CircuitId =
       publicAssetSlots: number;
     }>
   | Readonly<{
+      kind: "ringAuthorityExit";
+      inputs: number;
+      outputs: number;
+      publicAssetSlots: number;
+    }>
+  | Readonly<{
       kind: "confidentialSignerCached";
       inputs: number;
       outputs: number;

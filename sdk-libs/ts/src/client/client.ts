@@ -939,6 +939,24 @@ export class ZolanaClient
     );
   }
 
+  async proveRingAuthorityExitTransact(
+    proofInputs: SppProofInputs,
+    ringProgramId: Address,
+    keys: ProofAuthority,
+    context?: RequestContext,
+    outputTree?: TreeContext,
+  ): Promise<ProvenRingTransact> {
+    checkedAddress(ringProgramId, "ringProgramId");
+    return this.#proveTransfer(
+      proofInputs,
+      { kind: "ringAuthorityExit", ring: ringProgramId },
+      keys,
+      undefined,
+      context,
+      outputTree,
+    );
+  }
+
   proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof> {
     return this.#proving(async () => {
       const proof = await this.#prover.prove(checkedProverInputs(inputs), context);

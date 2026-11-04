@@ -38,6 +38,7 @@ describe("public input hash known-answer vectors", () => {
       "full_36x2",
       "compact_36x2",
       "compact_5x4_without_owner_chain",
+      "ring_authority_exit_2x2",
     ]);
     expect(vectors.merges.map((vector) => vector.name)).toEqual([
       "full_8",

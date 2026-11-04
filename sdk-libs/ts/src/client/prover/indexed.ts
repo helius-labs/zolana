@@ -80,6 +80,7 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
     circuit !== "transfer" &&
     circuit !== "transferRing" &&
     circuit !== "transferRingAuthority" &&
+    circuit !== "transferRingAuthorityExit" &&
     circuit !== "transferConfidentialEddsa" &&
     circuit !== "transferAnonymousRingEddsa" &&
     circuit !== "merge"
@@ -416,7 +417,10 @@ function checkStatement(inputs: IndexedProofInputs): void {
     const cached = inputs.circuit === "merge" ? 0n : (inputs.payload.cacheIsCached[index] ?? 0n);
     if (
       (cached !== 0n && cached !== 1n) ||
-      (cached === 1n && (input?.isDummy !== 0n || inputs.circuit === "transferRingAuthority"))
+      (cached === 1n &&
+        (input?.isDummy !== 0n ||
+          inputs.circuit === "transferRingAuthority" ||
+          inputs.circuit === "transferRingAuthorityExit"))
     )
       throw invalid();
     // An address slot is a real, uncached slot of an owner-signed transfer

@@ -75,6 +75,7 @@ describe("expectedProvingKey", () => {
       { circuit: "transfer-confidential", nInputs: 1, nOutputs: 1 },
       { circuit: "transfer-ring", nInputs: 36, nOutputs: 2 },
       { circuit: "transfer-ring-authority", nInputs: 3, nOutputs: 3 },
+      { circuit: "transfer-ring-authority-exit", nInputs: 3, nOutputs: 3 },
       { circuit: "merge", nInputs: 23 },
       { circuit: "merge-ring", nInputs: 36 },
     ] as const) {
