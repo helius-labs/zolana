@@ -71,7 +71,8 @@ signers the SDK pins have signed and whose freshness part the freshness keys
 that release names have signed, reads it again every `max_age_secs` and after a
 prover loses its key, keeps it through failed downloads until either part
 expires, and never uses it after that; see the wire contract's signed policy
-section.
+section. `prover/tee/policy` builds, signs and verifies that file and runs the
+Lambda that keeps it fresh.
 A deployment policy can be used by an older SDK when its policy schema,
 attestation protocol, wire format and circuit set remain compatible; an image
 rebuild or key rotation alone does not require an SDK release.

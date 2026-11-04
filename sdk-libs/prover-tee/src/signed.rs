@@ -40,9 +40,9 @@ impl Keys {
         }
         let keys = keys
             .iter()
-            .map(VerifyingKey::from_bytes)
-            .collect::<Result<_, _>>()
-            .map_err(|_| "hold a key that is not an Ed25519 point")?;
+            .map(canonical_point)
+            .collect::<Option<_>>()
+            .ok_or("hold a key that is not a canonical Ed25519 point")?;
         Ok(Self { keys, threshold })
     }
 
@@ -229,22 +229,8 @@ impl SignedPolicyFile {
         now: u64,
     ) -> Result<VerifiedPolicy, TeeError> {
         let file: Self = serde_json::from_slice(file).map_err(|_| refused("malformed"))?;
-        let (release_payload, release_signatures) = file.release.decode()?;
         let (freshness_payload, freshness_signatures) = file.freshness.decode()?;
-
-        let message = [RELEASE_DOMAIN, &release_payload].concat();
-        if !signers.release.signed(&message, &release_signatures) {
-            return Err(refused("signature"));
-        }
-        let release: ReleasePayload =
-            serde_json::from_slice(&release_payload).map_err(|_| refused("malformed"))?;
-        let freshness_keys = release.check()?;
-        if release.network != signers.network {
-            return Err(refused("network"));
-        }
-        if now >= release.expires_at {
-            return Err(refused("expired"));
-        }
+        let (release, release_payload, freshness_keys) = file.release.release(signers, now)?;
 
         let message = [FRESHNESS_DOMAIN, &freshness_payload].concat();
         if !freshness_keys.signed(&message, &freshness_signatures) {
@@ -294,6 +280,42 @@ impl SignedPart {
             })
             .collect::<Result<_, TeeError>>()?;
         Ok((lower_hex(&self.payload)?, signatures))
+    }
+}
+
+impl SignedPart {
+    /// Verifies this release part against `signers` at `now`, in Unix seconds,
+    /// as [`SignedPolicyFile::verify`] does before it reads the freshness part.
+    /// Returns the release and its payload bytes.
+    pub fn verify_release(
+        &self,
+        signers: &PolicySigners,
+        now: u64,
+    ) -> Result<(ReleasePayload, Vec<u8>), TeeError> {
+        self.release(signers, now)
+            .map(|(release, payload, _)| (release, payload))
+    }
+
+    fn release(
+        &self,
+        signers: &PolicySigners,
+        now: u64,
+    ) -> Result<(ReleasePayload, Vec<u8>, Keys), TeeError> {
+        let (payload, signatures) = self.decode()?;
+        let message = [RELEASE_DOMAIN, &payload].concat();
+        if !signers.release.signed(&message, &signatures) {
+            return Err(refused("signature"));
+        }
+        let release: ReleasePayload =
+            serde_json::from_slice(&payload).map_err(|_| refused("malformed"))?;
+        let freshness_keys = release.check()?;
+        if release.network != signers.network {
+            return Err(refused("network"));
+        }
+        if now >= release.expires_at {
+            return Err(refused("expired"));
+        }
+        Ok((release, payload, freshness_keys))
     }
 }
 
@@ -356,6 +378,14 @@ impl SignedPolicyFile {
             freshness: SignedPart::sign(FRESHNESS_DOMAIN, &freshness, freshness_keys),
         })
     }
+}
+
+/// A key both SDKs read: an Ed25519 point in its one canonical encoding. The
+/// TypeScript SDK refuses a y at or above the field prime and a negative zero x,
+/// which `VerifyingKey::from_bytes` alone accepts.
+fn canonical_point(key: &[u8; 32]) -> Option<VerifyingKey> {
+    let point = VerifyingKey::from_bytes(key).ok()?;
+    (point.to_edwards().compress().as_bytes() == key).then_some(point)
 }
 
 fn refused(check: &'static str) -> TeeError {
