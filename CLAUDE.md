@@ -35,8 +35,8 @@ prover
 - rust prover client
 
 The generic ZK DSL, prover, gadgets and core derives live in
-`helius-labs/zk-tools` under `zk-dsl/`. The root Cargo manifest uses their
-matching crates.io releases. ZK programs use the `spr-program` re-exports; standalone
+`helius-labs/zk-tools` under `zk-dsl/`. The root Cargo manifest pins their
+matching git revision for the VK-hash codegen migration. ZK programs use the `spr-program` re-exports; standalone
 circuits use the zk crates directly. `just check-deps` enforces the SDK
 layering and optional circuit dependencies.
 
@@ -466,8 +466,11 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 and their binary metadata format. `shielded-pool-program/confidential-eddsa`
 forwards to `feature-gate/confidential-eddsa` and enables the new in-circuit
 Ed25519 default-ring family, including cached selectors. It is off by default.
-The same descriptor checks allowed proving-key hashes and supplies the exported
+The same descriptor checks allowed canonical verifying-key hashes and supplies the exported
 ELF marker. Existing VK setup markers describe linked keys, not active features.
+Circuit-feature records use V2 delimiters and `vk_sha256` fields, so neither
+feature metadata nor proof admission depends on proving-key file encoding.
+Inspection of a binary with only V1 feature records reports unknown metadata.
 
 `just build-programs` leaves the feature off. Test recipes use
 `just build-test-programs`, which explicitly sets
@@ -522,7 +525,7 @@ cd prover/server && go build -o light-prover .
 The gitignored proving keys (transfer, merge, and the forester's batch
 address-append) are distributed from a private S3 bucket fronted by CloudFront;
 reads are credential-free (the keys are PUBLIC setup parameters, not secrets).
-Which keys, their `sha256`, and the version-hashed prefix
+Which keys, their file `sha256` and `size`, canonical `vk_sha256`, and the version-hashed prefix
 (`proving-keys/<hash>/<name>.key`) are pinned by the committed lockfile
 `prover/server/prover/provingkeys/proving-keys.lock`, embedded into the prover by
 the `provingkeys` package -- it IS the proving-key version and changes in the same
@@ -565,10 +568,14 @@ regenerated. The codegen lives in the `xtask` crate, which depends on the
 `spr-interface` depends on the same fork only to compile the committed
 `verifying_keys/*.rs` constants.
 
-Next to each `VERIFYINGKEY` the generator writes `VERIFYINGKEY_PROVING_KEY_SHA256`
-(sha256 of the `.key` file, the value `proving-keys.lock` pins),
+Next to each `VERIFYINGKEY`, groth16-solana writes `VERIFYINGKEY_VK_SHA256`
+(the canonical verifying-key hash, independent of the proving-key file format),
 `VERIFYINGKEY_INSECURE_TEST_SETUP`, and an exported `VERIFYINGKEY_SETUP_TXT`
-marker that stays in the program `.so`. Protocol vks (interface, tree,
+V2 marker that stays in the program `.so`. Zolana's codegen appends
+`VERIFYINGKEY_PROVING_KEY_SHA256` (SHA-256 of the proving-key file) for the
+unchanged client and prover checks. The lockfile holds both hashes and the file
+size; `generate_lockfile.py` reads the VK hash from the regenerated module and
+checks its proving-key hash before writing the mapping. Protocol vks (interface, tree,
 custom-rings) are `SetupKind::Production`. The sdk-tests example vks come from
 the shared setup CLI (`sdk-libs/gnark-ffi-prover`, `just regen-*-keys`) run with
 `--insecure-test-keys`, which emits `SetupKind::InsecureTest`: a `compile_error!`
@@ -577,6 +584,7 @@ those example programs only). Without that flag the CLI sets up from system
 randomness and emits `SetupKind::Production`, the setup an example deployment
 uses. Each crate exposes `PROVING_KEY_SHA256S` (key file name -> sha256), and
 `vk_proving_key_lock` tests pin every entry to `proving-keys.lock`.
+`vk_hash_lock` also recomputes each canonical VK hash and pins it to the lock.
 
 A vk regen that does not rotate keys exports from the keys the lockfile pins.
 Use the pinned keys, not whatever sits in `prover/server/proving-keys`: diff
@@ -586,8 +594,9 @@ metadata; `vk_fingerprint` must pass without a re-pin.
 
 ### Proving key checks (deployed program <-> clients <-> prover)
 
-The same sha256 is checked at every hop, so a prover or a deployment on another
-key set fails before a transaction is built instead of on-chain:
+Deployments pin canonical VK hashes, while clients and provers keep pinning
+proving-key file hashes. `proving-keys.lock` maps the two, so a prover or a
+deployment on another key set fails before a transaction is built:
 
 - Every proof the prover returns carries `provingKeySha256`, the digest of the
   bytes it loaded. The Rust `ProverClient` (`ExpectedProvingKey`) and the TS
@@ -604,15 +613,23 @@ key set fails before a transaction is built instead of on-chain:
   reads the markers from a local build or any deployed program (upgradeable
   loader, loader-v4, or the legacy BPF loaders). `check` fails on a binary
   without markers or with an insecure test setup. `--expect` takes a
-  sha256sum-style manifest (an example's `*-keys.CHECKSUM`) and also fails when
-  a listed proving key (`*pk.bin` / `*.key`) is not embedded; `list` uses it to
+  sha256sum-style manifest (an example's `*-keys.CHECKSUM`) with a
+  `# vk_sha256 <canonical-hash> <proving-key-file>` comment per proving key.
+  The comments retain checksum-tool compatibility and let inspection work
+  without local key binaries. `check` fails when a listed VK hash is not
+  embedded; `list` uses it to
   name keys. `--shielded-pool`, implied when reading the shielded-pool program
   id without `--expect` and required by `--prover-url`, instead validates the
-  exact shielded-pool key set: it fails on an unknown digest or a missing key. Every program that links
+  exact shielded-pool key set by VK hash, mapped through the lockfile to the
+  unchanged prover file hashes: it fails on an unknown digest or a missing key. Every program that links
   `spr-interface` with default features embeds all interface markers (the
   markers are exported statics), used or not.
   `tools/deploy-devnet.sh` runs it on the local build before deploying
   shielded-pool and on the deployed program after.
+- The pinned groth16-solana revision reads only V2 setup markers. Against a V1
+  deployment, `vks list` reports zero keys and `vks check` fails with no markers.
+  PR #40 needs V1 inspection support while continuing to write only V2; do not
+  duplicate its parser in zolana.
 - The TS SDK keeps its own table (`sdk-libs/ts/src/interface/proving-keys.ts`),
   pinned to the lockfile by `test/proving-keys.test.ts`; a key rotation updates
   it in the same PR.

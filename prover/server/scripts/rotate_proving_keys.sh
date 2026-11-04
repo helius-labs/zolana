@@ -10,7 +10,9 @@ set -euo pipefail
 # versioned, already-published CLIs keep fetching their own (unchanged) folder and
 # nothing needs a CloudFront invalidation.
 #
-# The lockfile pins every key's sha256 and the version-hashed prefix; commit the
+# The lockfile pins every key's file sha256, size, canonical vk_sha256 and the
+# version-hashed prefix; generate_lockfile.py reads both hashes from the freshly
+# generated modules and refuses a proving-key file hash mismatch. Commit the
 # regenerated proving-keys.lock together with the regenerated verifying keys in
 # ONE PR so the on-chain vkeys and the pinned proving-key hashes can never drift.
 # The CI cache key is derived from the lockfile hash, so it invalidates

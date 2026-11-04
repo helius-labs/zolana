@@ -6,6 +6,11 @@ Changes under `programs/` run every validation workflow.
 
 Most validation jobs skip draft PRs. TypeScript and deployment-script checks also run on drafts.
 
+The interface and tree test suites include `vk_proving_key_lock` (proving-key
+file hashes) and `vk_hash_lock` (canonical VK hashes and the lockfile mapping).
+The ZK crates and groth16-solana are pinned by git revision for the V2 marker
+migration, so Cargo jobs require access to those repositories.
+
 1. [Protocol operations](workflows/protocol-ops.yml)
 
     **Triggered by:** PR/main changes to:

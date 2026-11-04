@@ -11,6 +11,7 @@ use std::{collections::BTreeMap, fs, path::Path, str::FromStr};
 
 use anyhow::{anyhow, bail, Context, Result};
 use groth16_solana::vk::setup::{find_setup_txts, SetupTxt};
+use serde::Deserialize;
 use solana_address::Address;
 use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_loader_v4_interface::state::LoaderV4State;
@@ -29,7 +30,7 @@ use crate::{
 /// Loader-v3 `UpgradeableLoaderState::ProgramData` discriminant, little endian.
 const PROGRAM_DATA_TAG: [u8; 4] = [3, 0, 0, 0];
 
-/// Proving key file names by sha256.
+/// Key file names by canonical verifying-key SHA-256.
 type KeyNames = BTreeMap<[u8; 32], String>;
 
 /// The verifying keys a checked program must embed beyond the setup checks.
@@ -58,7 +59,7 @@ pub(crate) fn run_vks(command: VksCommand) -> Result<()> {
         VksCommand::List(opts) => {
             let expected = read_expected_keys(opts.expect.as_deref())?;
             let markers = read_markers(&opts.source)?;
-            let names = key_names(expected.as_ref());
+            let names = key_names(expected.as_ref())?;
             for marker in &markers {
                 println!("{}", list_line(marker, &names));
             }
@@ -92,15 +93,20 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
             None
         }
     };
-    let names = key_names(expected.as_ref());
-    let pool_keys = shielded_pool_keys();
+    let names = key_names(expected.as_ref())?;
+    let pool_keys = shielded_pool_keys()?;
     let required = match (&expected, shielded_pool) {
-        (Some(keys), _) => Required::Listed(keys),
-        (None, true) => Required::ShieldedPool(&pool_keys),
+        (_, true) => Required::ShieldedPool(&pool_keys),
+        (Some(keys), false) => Required::Listed(keys),
         (None, false) => Required::Nothing,
     };
     if let Some(markers) = &markers {
         problems.extend(check_markers(markers, &names, &required));
+        if shielded_pool {
+            if let Some(expected) = &expected {
+                problems.extend(check_markers(markers, &names, &Required::Listed(expected)));
+            }
+        }
     }
     let mut prover_report = Vec::new();
     if problems.is_empty() {
@@ -170,11 +176,11 @@ fn check_report(
                     lines.push(format!("Test setup: detected in {} key(s)", insecure.len()));
                     for marker in insecure {
                         lines.push(format!(
-                            "  {}: proving_key_sha256={}",
+                            "  {}: vk_sha256={}",
                             names
-                                .get(&marker.proving_key_sha256)
+                                .get(&marker.vk_sha256)
                                 .map_or(marker.name.as_str(), String::as_str),
-                            hex::encode(marker.proving_key_sha256)
+                            hex::encode(marker.vk_sha256)
                         ));
                     }
                 }
@@ -205,17 +211,45 @@ fn check_report(
     format!("{}\n", lines.join("\n"))
 }
 
-/// This build's shielded-pool proving keys by sha256, named by key file.
-fn shielded_pool_keys() -> KeyNames {
-    known_proving_keys()
-        .map(|(name, sha256)| (sha256, name.to_string()))
-        .collect()
+#[derive(Deserialize)]
+struct KeyLock {
+    keys: BTreeMap<String, LockedKey>,
+}
+
+#[derive(Deserialize)]
+struct LockedKey {
+    sha256: String,
+    vk_sha256: String,
+}
+
+/// Map the on-chain VK hashes through the lockfile to the unchanged file
+/// hashes checked by `ProverClient::check_proving_keys`.
+fn shielded_pool_keys() -> Result<KeyNames> {
+    let lock: KeyLock = serde_json::from_str(include_str!(
+        "../../prover/server/prover/provingkeys/proving-keys.lock"
+    ))?;
+    let mut keys = KeyNames::new();
+    for (name, file_sha256) in known_proving_keys() {
+        let entry = lock
+            .keys
+            .get(name)
+            .ok_or_else(|| anyhow!("{name} is missing from proving-keys.lock"))?;
+        if entry.sha256 != hex::encode(file_sha256) {
+            bail!("{name}: compiled proving-key hash differs from proving-keys.lock");
+        }
+        let mut vk_sha256 = [0; 32];
+        hex::decode_to_slice(&entry.vk_sha256, &mut vk_sha256)?;
+        if keys.insert(vk_sha256, name.to_string()).is_some() {
+            bail!("{name}: duplicate verifying-key hash in proving-keys.lock");
+        }
+    }
+    Ok(keys)
 }
 
 /// Names for every key this build or the `--expect` manifest knows; a
 /// manifest name wins.
-fn key_names(expected: Option<&KeyNames>) -> KeyNames {
-    let mut names = shielded_pool_keys();
+fn key_names(expected: Option<&KeyNames>) -> Result<KeyNames> {
+    let mut names = shielded_pool_keys()?;
     if let Some(expected) = expected {
         names.extend(
             expected
@@ -223,7 +257,7 @@ fn key_names(expected: Option<&KeyNames>) -> KeyNames {
                 .map(|(sha256, name)| (*sha256, name.clone())),
         );
     }
-    names
+    Ok(names)
 }
 
 fn read_expected_keys(path: Option<&Path>) -> Result<Option<KeyNames>> {
@@ -236,18 +270,25 @@ fn read_expected_keys(path: Option<&Path>) -> Result<Option<KeyNames>> {
     .transpose()
 }
 
-/// The proving keys a sha256sum-style manifest lists: one `<sha256>  <file>`
-/// per line, keeping the files that are proving keys (`*pk.bin`, `*.pk` or `*.key`).
-/// A verifying key marker pins its proving key's sha256, so the manifest's
-/// other files (such as `vk.bin`) have nothing to match.
+/// Each proving-key checksum has a `# vk_sha256 <hash> <file>` companion.
+/// Comments keep the manifest usable by sha256sum while binding its files to
+/// canonical verifying-key hashes, without requiring local key binaries.
 fn parse_key_manifest(manifest: &str) -> Result<KeyNames> {
-    let mut keys = KeyNames::new();
+    let mut proving_keys = BTreeMap::new();
+    let mut verifying_keys = BTreeMap::new();
     for (index, line) in manifest.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
         let line_number = index + 1;
+        let (line, is_vk) = if let Some(line) = line.strip_prefix("# vk_sha256 ") {
+            (line, true)
+        } else if line.starts_with('#') {
+            continue;
+        } else {
+            (line, false)
+        };
         let (digest, file) = line
             .split_once(char::is_whitespace)
             .ok_or_else(|| anyhow!("line {line_number}: expected `<sha256>  <file>`"))?;
@@ -259,10 +300,29 @@ fn parse_key_manifest(manifest: &str) -> Result<KeyNames> {
         let mut sha256 = [0u8; 32];
         hex::decode_to_slice(digest, &mut sha256)
             .map_err(|e| anyhow!("line {line_number}: invalid sha256 {digest}: {e}"))?;
-        keys.insert(sha256, file.to_string());
+        let table = if is_vk {
+            &mut verifying_keys
+        } else {
+            &mut proving_keys
+        };
+        if table.insert(file.to_string(), sha256).is_some() {
+            bail!("line {line_number}: duplicate key {file}");
+        }
     }
-    if keys.is_empty() {
+    if proving_keys.is_empty() {
         bail!("it names no proving key (a *pk.bin, *.pk or *.key file)");
+    }
+    let mut keys = KeyNames::new();
+    for file in proving_keys.keys() {
+        let vk_sha256 = verifying_keys
+            .remove(file)
+            .ok_or_else(|| anyhow!("{file} has no # vk_sha256 entry"))?;
+        if keys.insert(vk_sha256, file.clone()).is_some() {
+            bail!("{file}: duplicate verifying-key hash");
+        }
+    }
+    if !verifying_keys.is_empty() {
+        bail!("vk_sha256 entry has no proving-key checksum");
     }
     Ok(keys)
 }
@@ -364,12 +424,12 @@ fn read_program_data_elf(rpc: &SolanaRpc, program_id: &Address) -> Result<Vec<u8
 
 fn list_line(marker: &SetupTxt, names: &KeyNames) -> String {
     let label = names
-        .get(&marker.proving_key_sha256)
+        .get(&marker.vk_sha256)
         .map_or("unknown", String::as_str);
     format!(
-        "{label:<34} insecure_test_setup={} proving_key_sha256={}",
+        "{label:<34} insecure_test_setup={} vk_sha256={}",
         marker.insecure_test_setup,
-        hex::encode(marker.proving_key_sha256)
+        hex::encode(marker.vk_sha256)
     )
 }
 
@@ -385,20 +445,18 @@ fn check_markers(markers: &[SetupTxt], names: &KeyNames, required: &Required) ->
         );
     }
     for marker in markers {
-        let sha256 = hex::encode(marker.proving_key_sha256);
+        let sha256 = hex::encode(marker.vk_sha256);
         if marker.insecure_test_setup {
             problems.push(format!(
-                "{} (proving key {sha256}) is an insecure test setup",
+                "{} (verifying key {sha256}) is an insecure test setup",
                 names
-                    .get(&marker.proving_key_sha256)
+                    .get(&marker.vk_sha256)
                     .map_or("verifying key", String::as_str)
             ));
         }
         if let Required::ShieldedPool(keys) = required {
-            if !keys.contains_key(&marker.proving_key_sha256) {
-                problems.push(format!(
-                    "verifying key for proving key {sha256} is not one of this build's"
-                ));
+            if !keys.contains_key(&marker.vk_sha256) {
+                problems.push(format!("verifying key {sha256} is not one of this build's"));
             }
         }
     }
@@ -407,10 +465,7 @@ fn check_markers(markers: &[SetupTxt], names: &KeyNames, required: &Required) ->
         Required::ShieldedPool(keys) | Required::Listed(keys) => keys,
     };
     for (sha256, name) in required_keys.iter() {
-        if !markers
-            .iter()
-            .any(|marker| marker.proving_key_sha256 == *sha256)
-        {
+        if !markers.iter().any(|marker| marker.vk_sha256 == *sha256) {
             problems.push(format!("{name} is missing from the program"));
         }
     }
@@ -426,7 +481,7 @@ mod tests {
         SetupTxt {
             name: "VERIFYINGKEY".to_string(),
             insecure_test_setup,
-            proving_key_sha256: sha256,
+            vk_sha256: sha256,
         }
     }
 
@@ -491,13 +546,10 @@ mod tests {
                 report.contains("Verifying keys: 2 found"),
                 report.contains("Test setup: detected in 2 key(s)"),
                 report.contains(&format!(
-                    "merge_24_1.key: proving_key_sha256={}",
+                    "merge_24_1.key: vk_sha256={}",
                     hex::encode([1; 32])
                 )),
-                report.contains(&format!(
-                    "VERIFYINGKEY: proving_key_sha256={}",
-                    hex::encode([9; 32])
-                )),
+                report.contains(&format!("VERIFYINGKEY: vk_sha256={}", hex::encode([9; 32]))),
                 report.contains("FAIL: verifying key checks failed"),
                 problems.iter().all(|problem| report.contains(problem))
             ),
@@ -546,7 +598,11 @@ mod tests {
 
     #[test]
     fn manifest_accepts_dsl_proving_key_files() {
-        let manifest = format!("{}  increment.pk\n", hex::encode([3; 32]));
+        let manifest = format!(
+            "{}  increment.pk\n# vk_sha256 {}  increment.pk\n",
+            hex::encode([4; 32]),
+            hex::encode([3; 32])
+        );
         assert_eq!(
             parse_key_manifest(&manifest).unwrap(),
             keys(&[([3; 32], "increment.pk")])
@@ -572,8 +628,8 @@ mod tests {
         assert_eq!(
             check_markers(&markers, &known, &Required::ShieldedPool(&known)),
             vec![
-                format!("merge_24_1.key (proving key {ones}) is an insecure test setup"),
-                format!("verifying key for proving key {nines} is not one of this build's"),
+                format!("merge_24_1.key (verifying key {ones}) is an insecure test setup"),
+                format!("verifying key {nines} is not one of this build's"),
                 "transfer_ring_2_2.key is missing from the program".to_string(),
             ]
         );
@@ -603,7 +659,7 @@ mod tests {
         assert_eq!(
             check_markers(&markers, &known(), &Required::Nothing),
             vec![format!(
-                "verifying key (proving key {}) is an insecure test setup",
+                "verifying key (verifying key {}) is an insecure test setup",
                 hex::encode([9u8; 32])
             )]
         );
@@ -628,7 +684,7 @@ mod tests {
             check_markers(&markers, &names, &Required::Listed(&listed)),
             vec![
                 format!(
-                    "make_pk.bin (proving key {}) is an insecure test setup",
+                    "make_pk.bin (verifying key {}) is an insecure test setup",
                     hex::encode([7u8; 32])
                 ),
                 "take_pk.bin is missing from the program".to_string(),
@@ -643,7 +699,7 @@ mod tests {
         let take = hex::encode([8u8; 32]);
         let merge = hex::encode([1u8; 32]);
         let manifest = format!(
-            "{make}  make_pk.bin\n{make_vk}  make_vk.bin\n\n{take} *build/gnark/take/pk.bin\n{merge}  merge_24_1.key\n"
+            "{make}  make_pk.bin\n{make_vk}  make_vk.bin\n\n{take} *build/gnark/take/pk.bin\n{merge}  merge_24_1.key\n# vk_sha256 {make}  make_pk.bin\n# vk_sha256 {take}  build/gnark/take/pk.bin\n# vk_sha256 {merge}  merge_24_1.key\n"
         );
         assert_eq!(
             parse_key_manifest(&manifest).expect("manifest"),
@@ -652,6 +708,33 @@ mod tests {
                 ([8; 32], "build/gnark/take/pk.bin"),
                 ([1; 32], "merge_24_1.key"),
             ])
+        );
+    }
+
+    #[test]
+    fn manifests_require_vk_hashes_and_reject_ambiguous_mappings() {
+        let file_hash = hex::encode([3; 32]);
+        let vk_hash = hex::encode([4; 32]);
+        for manifest in [
+            format!("{file_hash}  make_pk.bin\n"),
+            format!("{file_hash}  make_pk.bin\n# vk_sha256 {vk_hash}  other_pk.bin\n"),
+            format!("{file_hash}  make_pk.bin\n# vk_sha256 {vk_hash}  make_pk.bin\n# vk_sha256 {vk_hash}  make_pk.bin\n"),
+            format!("{file_hash}  make_pk.bin\n{file_hash}  take_pk.bin\n# vk_sha256 {vk_hash}  make_pk.bin\n# vk_sha256 {vk_hash}  take_pk.bin\n"),
+        ] {
+            assert!(parse_key_manifest(&manifest).is_err(), "{manifest}");
+        }
+    }
+
+    #[test]
+    fn legacy_v1_markers_are_not_recognized_by_the_pinned_dependency() {
+        let binary = b"=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00proving_key_sha256\x000000000000000000000000000000000000000000000000000000000000000000\x00=======END GROTH16 VK SETUP V1=======\x00";
+        let markers = find_setup_txts(binary).expect("V1 is ignored");
+        assert_eq!(
+            (
+                markers.len(),
+                check_markers(&markers, &known(), &Required::Nothing).len()
+            ),
+            (0, 1)
         );
     }
 
@@ -779,12 +862,12 @@ mod tests {
             ],
             [
                 format!(
-                    "{:<34} insecure_test_setup=false proving_key_sha256={}",
+                    "{:<34} insecure_test_setup=false vk_sha256={}",
                     "merge_24_1.key",
                     hex::encode([1u8; 32])
                 ),
                 format!(
-                    "{:<34} insecure_test_setup=true proving_key_sha256={}",
+                    "{:<34} insecure_test_setup=true vk_sha256={}",
                     "unknown",
                     hex::encode([9u8; 32])
                 ),
@@ -804,7 +887,7 @@ mod tests {
             return;
         };
         let markers = find_setup_txts(&binary).expect("markers parse");
-        let keys = shielded_pool_keys();
+        let keys = shielded_pool_keys().expect("locked VK hashes");
         assert_eq!(
             check_markers(&markers, &keys, &Required::ShieldedPool(&keys)),
             Vec::<String>::new()

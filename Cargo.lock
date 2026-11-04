@@ -1419,7 +1419,7 @@ dependencies = [
  "bitflags 2.13.1",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -3331,7 +3331,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3751,8 +3751,7 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 [[package]]
 name = "groth16-solana"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3445d72a7fe1f2d06aa93ae5ade8ad8900bce0559fd098ae3433e04173bc8d20"
+source = "git+https://github.com/Lightprotocol/groth16-solana?rev=c13130ad0c82dd31239ecccdf16ec18e55fb0d01#c13130ad0c82dd31239ecccdf16ec18e55fb0d01"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -4406,7 +4405,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5257,7 +5256,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6141,7 +6140,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "log",
  "multimap",
  "petgraph",
@@ -6162,7 +6161,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -6390,7 +6389,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.5",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6976,7 +6975,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -10391,6 +10390,7 @@ dependencies = [
  "groth16-solana",
  "num-bigint 0.4.8",
  "serde_json",
+ "sha2 0.10.9",
  "solana-bn254",
  "spr-client",
  "thiserror 2.0.20",
@@ -10842,8 +10842,7 @@ dependencies = [
 [[package]]
 name = "spr-zk-dsl"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c2b7827bc52b59c75dffdbe689b67821dac31817128017858d9e3f816167599"
+source = "git+https://github.com/helius-labs/zk-tools?rev=69bbec205ac3fc2934dac4303f9c0b3fda8ca263#69bbec205ac3fc2934dac4303f9c0b3fda8ca263"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -10880,8 +10879,7 @@ dependencies = [
 [[package]]
 name = "spr-zk-gadgets"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "624cbb21f11de38015dd8e7007bbc0106eb60b47155d3a11963a187946c29645"
+source = "git+https://github.com/helius-labs/zk-tools?rev=69bbec205ac3fc2934dac4303f9c0b3fda8ca263#69bbec205ac3fc2934dac4303f9c0b3fda8ca263"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -10893,8 +10891,7 @@ dependencies = [
 [[package]]
 name = "spr-zk-macros"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ba52803e143aea4efb40c0e15f122680e30290bd5fb84ab7d9fc5b9d7a6f74f"
+source = "git+https://github.com/helius-labs/zk-tools?rev=69bbec205ac3fc2934dac4303f9c0b3fda8ca263#69bbec205ac3fc2934dac4303f9c0b3fda8ca263"
 dependencies = [
  "proc-macro2",
  "spr-zk-macros-core",
@@ -10904,8 +10901,7 @@ dependencies = [
 [[package]]
 name = "spr-zk-macros-core"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8e67a8c45dcf3597a45768ef01f0d3bfa6ef48e6ce66a5431b7c7a9fea6f5bf"
+source = "git+https://github.com/helius-labs/zk-tools?rev=69bbec205ac3fc2934dac4303f9c0b3fda8ca263#69bbec205ac3fc2934dac4303f9c0b3fda8ca263"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -11353,7 +11349,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -12595,7 +12591,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

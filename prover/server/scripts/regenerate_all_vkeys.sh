@@ -65,6 +65,16 @@ done
         fi
     done
     echo '];'
+    echo
+    echo '/// Key file names and canonical verifying-key hashes used by on-chain gates.'
+    echo '#[cfg(feature = "verifying-keys")]'
+    echo 'pub const VK_SHA256S: &[(&str, [u8; 32])] = &['
+    echo "$modules" | sort -u | while read -r module stem; do
+        if [ -n "$module" ]; then
+            echo "    (\"${stem}.key\", ${module}::VERIFYINGKEY_VK_SHA256),"
+        fi
+    done
+    echo '];'
 } >"$vkey_dir/mod.rs"
 
 rustfmt "$vkey_dir"/*.rs

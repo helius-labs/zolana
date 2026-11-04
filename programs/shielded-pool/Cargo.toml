@@ -42,6 +42,7 @@ spr-tree = { workspace = true, features = ["account-view", "verify"] }
 spr-user-registry-interface = { workspace = true }
 
 [dev-dependencies]
+groth16-solana = { workspace = true, features = ["gnark-vk"] }
 serde_json = { workspace = true }
 spr-account-checks = { workspace = true, features = ["test-only"] }
 

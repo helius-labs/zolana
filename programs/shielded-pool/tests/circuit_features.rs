@@ -99,6 +99,17 @@ fn every_confidential_eddsa_key_follows_the_compile_feature_including_cached_sel
             ),
             "{shape:?}"
         );
+        let vk = circuit.verifying_key().expect("supported key");
+        let actual = groth16_solana::vk::setup::vk_sha256(vk);
+        assert_eq!(
+            (
+                circuit.vk_sha256(),
+                cached.vk_sha256(),
+                CONFIDENTIAL_EDDSA.vk_sha256s.contains(&actual)
+            ),
+            (Some(&actual), Some(&actual), true),
+            "{shape:?}"
+        );
     }
     assert!(!CONFIDENTIAL_EDDSA.allows(&[0; 32]));
     assert!(!circuit_enabled(CircuitId::ConfidentialEddsa(

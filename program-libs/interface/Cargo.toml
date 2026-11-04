@@ -29,6 +29,7 @@ spr-event = { workspace = true }
 spr-tree = { workspace = true, optional = true }
 
 [dev-dependencies]
+groth16-solana = { workspace = true, features = ["gnark-vk"] }
 bytemuck = { workspace = true }
 proptest = { workspace = true }
 serde = { workspace = true }

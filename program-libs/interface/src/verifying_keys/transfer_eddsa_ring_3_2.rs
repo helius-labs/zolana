@@ -101,10 +101,11 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
     }),
 };
 
-/// SHA-256 of the proving key file this verifying key was generated with.
+/// SHA-256 of `VERIFYINGKEY`, as encoded by
+/// `groth16_solana::vk::setup::vk_sha256`.
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [207u8, 237u8, 157u8, 224u8, 82u8, 237u8, 179u8, 182u8, 166u8, 87u8, 209u8, 154u8, 126u8, 149u8, 181u8, 231u8, 189u8, 1u8, 168u8, 87u8, 23u8, 223u8, 111u8, 170u8, 145u8, 187u8, 76u8, 216u8, 4u8, 42u8, 242u8, 213u8];
+pub const VERIFYINGKEY_VK_SHA256: [u8; 32] = [208u8, 162u8, 8u8, 10u8, 253u8, 159u8, 178u8, 165u8, 102u8, 156u8, 52u8, 232u8, 182u8, 128u8, 178u8, 157u8, 87u8, 95u8, 156u8, 6u8, 187u8, 180u8, 13u8, 33u8, 208u8, 34u8, 92u8, 128u8, 58u8, 207u8, 188u8, 250u8];
 
 /// `true` for a test setup whose secret randomness is public or untrusted:
 /// whoever knows it can make this key accept a proof for any public
@@ -116,6 +117,10 @@ pub const VERIFYINGKEY_INSECURE_TEST_SETUP: bool = false;
 /// The two consts above as a delimited string, exported so it stays in
 /// the program binary; read it back with
 /// `groth16_solana::vk::setup::find_setup_txts`.
-#[unsafe(export_name = "groth16_solana_vk_setup_9b6e89a72b245799")]
+#[unsafe(export_name = "groth16_solana_vk_setup_995b1391b3721447")]
 #[rustfmt::skip]
-pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00proving_key_sha256\x00cfed9de052edb3b6a657d19a7e95b5e7bd01a85717df6faa91bb4cd8042af2d5\x00=======END GROTH16 VK SETUP V1=======\x00";
+pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V2=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00vk_sha256\x00d0a2080afd9fb2a5669c34e8b680b29d575f9c06bbb40d21d0225c803acfbcfa\x00=======END GROTH16 VK SETUP V2=======\x00";
+
+/// SHA-256 of the proving key file, pinned by zolana's clients.
+#[rustfmt::skip]
+pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [207u8, 237u8, 157u8, 224u8, 82u8, 237u8, 179u8, 182u8, 166u8, 87u8, 209u8, 154u8, 126u8, 149u8, 181u8, 231u8, 189u8, 1u8, 168u8, 87u8, 23u8, 223u8, 111u8, 170u8, 145u8, 187u8, 76u8, 216u8, 4u8, 42u8, 242u8, 213u8];

@@ -101,10 +101,11 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
     }),
 };
 
-/// SHA-256 of the proving key file this verifying key was generated with.
+/// SHA-256 of `VERIFYINGKEY`, as encoded by
+/// `groth16_solana::vk::setup::vk_sha256`.
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [0u8, 10u8, 0u8, 140u8, 227u8, 72u8, 96u8, 122u8, 154u8, 199u8, 12u8, 4u8, 22u8, 254u8, 46u8, 217u8, 64u8, 174u8, 223u8, 52u8, 30u8, 49u8, 52u8, 89u8, 106u8, 74u8, 233u8, 118u8, 156u8, 184u8, 84u8, 202u8];
+pub const VERIFYINGKEY_VK_SHA256: [u8; 32] = [182u8, 84u8, 80u8, 82u8, 138u8, 30u8, 61u8, 163u8, 1u8, 10u8, 245u8, 152u8, 119u8, 50u8, 105u8, 176u8, 86u8, 89u8, 37u8, 161u8, 116u8, 32u8, 201u8, 146u8, 194u8, 170u8, 67u8, 139u8, 189u8, 93u8, 9u8, 248u8];
 
 /// `true` for a test setup whose secret randomness is public or untrusted:
 /// whoever knows it can make this key accept a proof for any public
@@ -116,6 +117,10 @@ pub const VERIFYINGKEY_INSECURE_TEST_SETUP: bool = false;
 /// The two consts above as a delimited string, exported so it stays in
 /// the program binary; read it back with
 /// `groth16_solana::vk::setup::find_setup_txts`.
-#[unsafe(export_name = "groth16_solana_vk_setup_ccebff2aaf859c96")]
+#[unsafe(export_name = "groth16_solana_vk_setup_3bc8fe33bed0b725")]
 #[rustfmt::skip]
-pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00proving_key_sha256\x00000a008ce348607a9ac70c0416fe2ed940aedf341e3134596a4ae9769cb854ca\x00=======END GROTH16 VK SETUP V1=======\x00";
+pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V2=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00vk_sha256\x00b65450528a1e3da3010af598773269b0565925a17420c992c2aa438bbd5d09f8\x00=======END GROTH16 VK SETUP V2=======\x00";
+
+/// SHA-256 of the proving key file, pinned by zolana's clients.
+#[rustfmt::skip]
+pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [0u8, 10u8, 0u8, 140u8, 227u8, 72u8, 96u8, 122u8, 154u8, 199u8, 12u8, 4u8, 22u8, 254u8, 46u8, 217u8, 64u8, 174u8, 223u8, 52u8, 30u8, 49u8, 52u8, 89u8, 106u8, 74u8, 233u8, 118u8, 156u8, 184u8, 84u8, 202u8];
