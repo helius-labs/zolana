@@ -59,7 +59,7 @@ pub(crate) fn run_vks(command: VksCommand) -> Result<()> {
         VksCommand::List(opts) => {
             let expected = read_expected_keys(opts.expect.as_deref())?;
             let markers = read_markers(&opts.source)?;
-            let names = key_names(expected.as_ref())?;
+            let names = key_names(&shielded_pool_keys()?, expected.as_ref());
             for marker in &markers {
                 println!("{}", list_line(marker, &names));
             }
@@ -93,20 +93,15 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
             None
         }
     };
-    let names = key_names(expected.as_ref())?;
     let pool_keys = shielded_pool_keys()?;
+    let names = key_names(&pool_keys, expected.as_ref());
     let required = match (&expected, shielded_pool) {
-        (_, true) => Required::ShieldedPool(&pool_keys),
-        (Some(keys), false) => Required::Listed(keys),
+        (Some(keys), _) => Required::Listed(keys),
+        (None, true) => Required::ShieldedPool(&pool_keys),
         (None, false) => Required::Nothing,
     };
     if let Some(markers) = &markers {
         problems.extend(check_markers(markers, &names, &required));
-        if shielded_pool {
-            if let Some(expected) = &expected {
-                problems.extend(check_markers(markers, &names, &Required::Listed(expected)));
-            }
-        }
     }
     let mut prover_report = Vec::new();
     if problems.is_empty() {
@@ -248,16 +243,12 @@ fn shielded_pool_keys() -> Result<KeyNames> {
 
 /// Names for every key this build or the `--expect` manifest knows; a
 /// manifest name wins.
-fn key_names(expected: Option<&KeyNames>) -> Result<KeyNames> {
-    let mut names = shielded_pool_keys()?;
+fn key_names(pool_keys: &KeyNames, expected: Option<&KeyNames>) -> KeyNames {
+    let mut names = pool_keys.clone();
     if let Some(expected) = expected {
-        names.extend(
-            expected
-                .iter()
-                .map(|(sha256, name)| (*sha256, name.clone())),
-        );
+        names.extend(expected.clone());
     }
-    Ok(names)
+    names
 }
 
 fn read_expected_keys(path: Option<&Path>) -> Result<Option<KeyNames>> {
@@ -321,8 +312,8 @@ fn parse_key_manifest(manifest: &str) -> Result<KeyNames> {
             bail!("{file}: duplicate verifying-key hash");
         }
     }
-    if !verifying_keys.is_empty() {
-        bail!("vk_sha256 entry has no proving-key checksum");
+    if let Some(file) = verifying_keys.keys().next() {
+        bail!("{file}: vk_sha256 entry has no proving-key checksum");
     }
     Ok(keys)
 }
@@ -715,14 +706,29 @@ mod tests {
     fn manifests_require_vk_hashes_and_reject_ambiguous_mappings() {
         let file_hash = hex::encode([3; 32]);
         let vk_hash = hex::encode([4; 32]);
-        for manifest in [
+        let other_vk_hash = hex::encode([5; 32]);
+        let errors = [
             format!("{file_hash}  make_pk.bin\n"),
-            format!("{file_hash}  make_pk.bin\n# vk_sha256 {vk_hash}  other_pk.bin\n"),
+            format!(
+                "{file_hash}  make_pk.bin\n# vk_sha256 {vk_hash}  make_pk.bin\n# vk_sha256 {other_vk_hash}  other_pk.bin\n"
+            ),
             format!("{file_hash}  make_pk.bin\n# vk_sha256 {vk_hash}  make_pk.bin\n# vk_sha256 {vk_hash}  make_pk.bin\n"),
             format!("{file_hash}  make_pk.bin\n{file_hash}  take_pk.bin\n# vk_sha256 {vk_hash}  make_pk.bin\n# vk_sha256 {vk_hash}  take_pk.bin\n"),
-        ] {
-            assert!(parse_key_manifest(&manifest).is_err(), "{manifest}");
-        }
+        ]
+        .map(|manifest| {
+            parse_key_manifest(&manifest)
+                .expect_err(&manifest)
+                .to_string()
+        });
+        assert_eq!(
+            errors,
+            [
+                "make_pk.bin has no # vk_sha256 entry".to_string(),
+                "other_pk.bin: vk_sha256 entry has no proving-key checksum".to_string(),
+                "line 3: duplicate key make_pk.bin".to_string(),
+                "take_pk.bin: duplicate verifying-key hash".to_string(),
+            ]
+        );
     }
 
     #[test]

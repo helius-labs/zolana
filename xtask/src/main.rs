@@ -7,6 +7,7 @@ use std::{
 
 use groth16_solana::vk::setup::SetupKind;
 use sha2::{Digest, Sha256};
+use spr_gnark_ffi_prover::setup_cli::append_proving_key_sha256;
 use xtask::create_release;
 
 mod check_deps;
@@ -55,7 +56,8 @@ fn main() {
             append_proving_key_sha256(
                 &Path::new(&out_dir).join(&filename),
                 Path::new(&proving_key),
-            );
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
             println!("wrote {out_dir}/{filename}");
         }
         Some("tee-check") => {
@@ -94,7 +96,8 @@ fn main() {
                 SetupKind::Production,
             )
             .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
-            append_proving_key_sha256(&Path::new(&out_dir).join(&filename), Path::new(&zkey));
+            append_proving_key_sha256(&Path::new(&out_dir).join(&filename), Path::new(&zkey))
+                .unwrap_or_else(|error| panic!("{error}"));
             println!("wrote {out_dir}/{filename}");
         }
         Some("loadtest") => {
@@ -361,22 +364,6 @@ fn export_verifying_key(prover_server_dir: &Path, key_path: &Path, output_path: 
     if !status.success() {
         panic!("go export-vk failed with status {status}");
     }
-}
-
-fn append_proving_key_sha256(output: &Path, proving_key: &Path) {
-    use std::io::Write;
-
-    let digest = sha256_file(proving_key);
-    let bytes = hex::decode(digest).expect("SHA-256 is hex");
-    let mut file = fs::OpenOptions::new()
-        .append(true)
-        .open(output)
-        .expect("generated verifying key exists");
-    writeln!(
-        file,
-        "\n/// SHA-256 of the proving key file, pinned by zolana's clients.\n#[rustfmt::skip]\npub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = {bytes:?};"
-    )
-    .expect("append proving key digest");
 }
 
 fn sha256_file(path: &Path) -> String {

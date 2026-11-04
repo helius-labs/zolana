@@ -13003,6 +13003,7 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "solana-signer",
  "spr-client",
+ "spr-gnark-ffi-prover",
  "spr-interface",
  "spr-keypair",
  "spr-program",

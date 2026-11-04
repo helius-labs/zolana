@@ -6,8 +6,8 @@
 //! seed ([`Prover::setup_insecure_test_keys`]) and emits an insecure test setup.
 
 use std::{
-    io::{Read, Write},
-    path::PathBuf,
+    io::Write,
+    path::{Path, PathBuf},
     process::ExitCode,
 };
 
@@ -140,31 +140,7 @@ fn run<C: Circuit>(prover: &Prover<C>, command: Command<C>) -> Result<(), String
         setup_kind,
     )
     .map_err(|e| format!("failed to emit Rust verifying key source: {e:?}"))?;
-    let mut proving_key = std::fs::File::open(build_dir.join("pk.bin"))
-        .map_err(|e| format!("failed to open proving key: {e}"))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let count = proving_key
-            .read(&mut buffer)
-            .map_err(|e| format!("failed to read proving key: {e}"))?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(
-            buffer
-                .get(..count)
-                .ok_or("invalid proving key read length")?,
-        );
-    }
-    let digest: [u8; 32] = hasher.finalize().into();
-    let mut source = std::fs::OpenOptions::new()
-        .append(true)
-        .open(&rust_vk)
-        .map_err(|e| format!("failed to open {}: {e}", rust_vk.display()))?;
-    writeln!(source,
-        "\n/// SHA-256 of the proving key file, pinned by zolana's clients.\n#[rustfmt::skip]\npub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = {digest:?};"
-    ).map_err(|e| format!("failed to append proving key digest: {e}"))?;
+    append_proving_key_sha256(&rust_vk, &build_dir.join("pk.bin"))?;
     if insecure_test_keys {
         let source = std::fs::read_to_string(&rust_vk)
             .map_err(|e| format!("failed to read {}: {e}", rust_vk.display()))?;
@@ -181,4 +157,31 @@ fn run<C: Circuit>(prover: &Prover<C>, command: Command<C>) -> Result<(), String
     }
     println!("done");
     Ok(())
+}
+
+/// Appends `VERIFYINGKEY_PROVING_KEY_SHA256`, the SHA-256 of the proving-key
+/// file that clients and provers pin, to a generated verifying-key module.
+/// The byte list uses the `u8`-suffixed form groth16-solana emits, so a
+/// regeneration reproduces committed modules byte for byte.
+pub fn append_proving_key_sha256(rust_vk: &Path, proving_key: &Path) -> Result<(), String> {
+    let mut file = std::fs::File::open(proving_key)
+        .map_err(|e| format!("failed to open {}: {e}", proving_key.display()))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)
+        .map_err(|e| format!("failed to read {}: {e}", proving_key.display()))?;
+    let digest: [u8; 32] = hasher.finalize().into();
+    let bytes = digest
+        .iter()
+        .map(|byte| format!("{byte}u8"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut source = std::fs::OpenOptions::new()
+        .append(true)
+        .open(rust_vk)
+        .map_err(|e| format!("failed to open {}: {e}", rust_vk.display()))?;
+    writeln!(
+        source,
+        "\n/// SHA-256 of the proving key file, pinned by zolana's clients.\n#[rustfmt::skip]\npub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [{bytes}];"
+    )
+    .map_err(|e| format!("failed to append proving key digest: {e}"))
 }

@@ -500,7 +500,10 @@ of `circuit_key_item!`, TS `CONFIDENTIAL_EDDSA_SHAPES` (`shape.ts`), Go
 `generate_keys_transfer.sh`. The
 merge widths (8, 24 and 52) live in `MERGE_SUPPORTED_INPUT_COUNTS`
 (`merge_transact.rs`), Go `spp_merge/shared` `SupportedInputCounts` and
-`lazy_key_manager.go` `mergeSupportedInputCounts`.
+`lazy_key_manager.go` `mergeSupportedInputCounts`. Every transfer and merge
+key module is also listed by name in
+`program-libs/interface/tests/vk_hash_lock.rs`; its length check against
+`VK_SHA256S` fails when a shape is added without it.
 
 ### Generate proving keys (`.key`)
 
