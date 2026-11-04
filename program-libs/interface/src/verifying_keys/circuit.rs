@@ -288,7 +288,7 @@ pub enum OutputOwnerMode {
 /// appended last so no existing tag encoding moves, and a transact that uses no
 /// cache is byte-identical to one built before caches existed.
 ///
-/// [`CircuitId::RingAuthorityExit`] hashes the empty cache selection and has no twin.
+/// [`CircuitId::RingAuthorityExit`] hashes the empty cache selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u16")]
 pub enum CircuitId {

@@ -56,7 +56,6 @@ func newExitCircuit(t testing.TB, shape protocol.Shape) frontend.Circuit {
 	return circuit
 }
 
-// Slot 0 exits to outsideRecipient, every later output stays in the ring.
 func buildExitAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
 	t.Helper()
 	ring := ringAuthorityRing()
@@ -85,7 +84,6 @@ func retagExitOutput(t testing.TB, assignment *testAssignment, slot int, pkField
 	assignment.Outputs[slot].OwnerPkHash = pkField
 }
 
-// Slot 1 becomes a dummy publishing tag, and slot 0 takes the whole amount.
 func padExitOutput(t testing.TB, assignment *testAssignment, tag frontend.Variable) {
 	t.Helper()
 	total := int64(0)
@@ -158,7 +156,6 @@ func assertExitSolves(t *testing.T, shape protocol.Shape, assignment *testAssign
 	test.NewAssert(t).SolvingSucceeded(newExitCircuit(t, shape), asCustomRingAuthorityExit(assignment), test.WithCurves(ecc.BN254))
 }
 
-// A nil published keeps the masked vector the assignment derives.
 func assertExitFails(t *testing.T, shape protocol.Shape, assignment *testAssignment, published []frontend.Variable) {
 	t.Helper()
 	witness := asCustomRingAuthorityExit(assignment)
@@ -262,7 +259,7 @@ func TestRingAuthorityExitRejectsTagThatDoesNotOpenTheOwner(t *testing.T) {
 	assertExitFails(t, exitShape, assignment, nil)
 }
 
-// The zero tag opens the owner and matches the mask, so only the named exit owner rule refuses it.
+// Only AssertExitOwnersNamed refuses a zero exit tag.
 func TestRingAuthorityExitRejectsZeroExitTag(t *testing.T) {
 	assignment := buildExitAssignment(t, exitShape)
 	retagExitOutput(t, assignment, 0, big.NewInt(0))
@@ -308,7 +305,6 @@ func TestRingAuthorityExitDummyOutputTags(t *testing.T) {
 	}
 }
 
-// A hidden ring recipient copied into a dummy tag would publish a private identity.
 func TestRingAuthorityExitRejectsDummyOutputNamingARingRecipient(t *testing.T) {
 	assignment := buildExitAssignment(t, exitShape)
 	assignment.Outputs[0].Utxo.RingProgramID = assignment.RingProgramID
@@ -347,7 +343,7 @@ func TestRingAuthorityExitDataOutputMustBelongToASpentOwner(t *testing.T) {
 	assertExitFails(t, exitShape, stranger, nil)
 }
 
-// With no cached selector the program publishes the empty selection, which opens no cached input.
+// The empty selection the program publishes without a cached selector opens no cached input.
 func TestRingAuthorityExitRejectsCachedInputUnderEmptySelection(t *testing.T) {
 	assignment := buildExitAssignment(t, exitShape)
 	assignment.CachedInputs.IsCached[0] = 1

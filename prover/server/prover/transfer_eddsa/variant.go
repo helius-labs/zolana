@@ -26,8 +26,6 @@ const (
 	// owners do not sign. No in-circuit signature and every input owner pk_field
 	// kept private (omitted from the public input hash).
 	RingAuthorityVariant
-	// RingAuthorityExitVariant is the ring authority rail with outputs that may
-	// leave the ring under a published owner tag.
 	RingAuthorityExitVariant
 )
 

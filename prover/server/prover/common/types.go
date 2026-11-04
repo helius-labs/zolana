@@ -24,8 +24,6 @@ const (
 	// pk_fields kept private.
 	TransferRingAuthorityCircuitType CircuitType = "transfer-ring-authority"
 
-	// TransferRingAuthorityExitCircuitType is the ring authority rail with outputs
-	// that may leave the ring under a published owner tag.
 	TransferRingAuthorityExitCircuitType CircuitType = "transfer-ring-authority-exit"
 
 	MergeCircuitType CircuitType = "merge"

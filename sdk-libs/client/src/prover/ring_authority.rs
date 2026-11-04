@@ -4,8 +4,7 @@
 //! transfer input/output assembly verbatim ([`assemble_inputs`]/[`assemble_outputs`])
 //! in the pubkey-agnostic [`OwnerMode::RingAuthority`] mode; only the public-input
 //! element set differs (input owner pk_fields stay private, no confidential
-//! appendix). [`RingAuthorityProver::build_exit`] proves the rail whose outputs
-//! may leave the ring.
+//! appendix).
 
 use num_bigint::BigUint;
 use solana_address::Address;
@@ -82,7 +81,6 @@ impl RingAuthorityProver {
         self.build_rail(RingAuthorityRail::Strict)
     }
 
-    /// The witness for [`CircuitId::RingAuthorityExit`](spr_interface::verifying_keys::CircuitId).
     pub fn build_exit(self) -> Result<RingAuthorityProofResult, ClientError> {
         self.build_rail(RingAuthorityRail::Exit)
     }

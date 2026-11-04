@@ -2,7 +2,7 @@ package shared
 
 import "github.com/consensys/gnark/frontend"
 
-// Real inputs stay in the signing ring, and only a real output may leave to the default ring.
+// A real output leaves only to the default ring.
 func AssertRingInputsFreeOutputs(
 	api frontend.API,
 	inputs []Input,
@@ -17,7 +17,7 @@ func AssertRingInputsFreeOutputs(
 	}
 }
 
-// A zero tag on a real default-ring output would hide the exit among ring outputs.
+// Real default-ring outputs carry a nonzero owner tag.
 func AssertExitOwnersNamed(
 	api frontend.API,
 	outputs []UtxoCircuitFields,

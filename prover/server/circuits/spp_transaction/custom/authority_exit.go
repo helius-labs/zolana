@@ -33,7 +33,6 @@ type CustomRingAuthorityExitPrivate struct {
 	BlindingSeed        frontend.Variable
 }
 
-// The ring authority rail with outputs that may leave the ring under a published owner tag.
 type CustomRingAuthorityExitCircuit struct {
 	CachedInputs shared.CachedInputs
 
