@@ -59,7 +59,7 @@ on:
         required: true
         default: photon
         type: choice
-        options: [photon, prover, forester]
+        options: [photon, prover, forester, tee-policy-freshness]
       channel:
         description: >-
           release enforces the commit-naming tag and requires the commit to be

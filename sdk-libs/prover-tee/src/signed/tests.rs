@@ -19,6 +19,11 @@ const FRESHNESS_SEEDS: [u8; 2] = [5, 6];
 /// Not pinned in either role.
 const UNPINNED: u8 = 4;
 
+/// The identity point with y = p + 1, past the field prime.
+const NON_CANONICAL_Y: &str = "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f";
+/// The identity point with its x sign bit set.
+const NEGATIVE_ZERO: &str = "0100000000000000000000000000000000000000000000000000000000000080";
+
 fn key(seed: u8) -> SigningKey {
     SigningKey::from_bytes(&[seed; 32])
 }
@@ -292,6 +297,22 @@ fn cases() -> Vec<Value> {
             "malformed",
         ),
         refused_case(
+            "a non-canonical freshness key beside a valid one",
+            with_signers(
+                |signers| signers["public_keys"] = json!([public(5), NON_CANONICAL_Y]),
+                &[5],
+            ),
+            "malformed",
+        ),
+        refused_case(
+            "a negative zero freshness key beside a valid one",
+            with_signers(
+                |signers| signers["public_keys"] = json!([public(5), NEGATIVE_ZERO]),
+                &[5],
+            ),
+            "malformed",
+        ),
+        refused_case(
             "a zero freshness lifetime",
             with_signers(|signers| signers["max_lifetime_secs"] = 0.into(), &[5]),
             "malformed",
@@ -521,6 +542,14 @@ fn signers_refuse_a_threshold_they_cannot_meet_or_a_repeated_key() {
     assert!(PolicySigners::new("n", vec![a], 0).is_err());
     assert!(PolicySigners::new("n", vec![a, a], 1).is_err());
     assert!(PolicySigners::new("", vec![a], 1).is_err());
+    for encoding in [NON_CANONICAL_Y, NEGATIVE_ZERO] {
+        let key = fixed(encoding).unwrap();
+        assert!(
+            VerifyingKey::from_bytes(&key).is_ok(),
+            "dalek alone reads {encoding}"
+        );
+        assert!(PolicySigners::new("n", vec![key], 1).is_err(), "{encoding}");
+    }
     assert!(PolicySigners::new("n", vec![a], 1).is_ok());
 }
 

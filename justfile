@@ -194,6 +194,9 @@ test-sdk-libs:
     cargo nextest run -p spr-event-parser
     cargo nextest run -p spr-transaction
     cargo nextest run -p spr-client --features client
+    # The TEE wire contract, its signed-policy vectors, and the policy tool
+    # that signs and serves them.
+    cargo nextest run -p spr-prover-tee -p spr-tee-policy
     # The test harness wallet: its scan, indexer sync and transaction actions.
     cargo nextest run -p spr-test-utils
     # `parallel` is off by default, so the default run compiles neither

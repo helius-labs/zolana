@@ -24,6 +24,14 @@
       "title": "Zolana Forester",
       "description": "Zolana queue and tree maintenance service",
       "smoke": "docker run --rm \"$image\" --version"
+    },
+    "tee-policy-freshness": {
+      "repository": "zolana-tee-policy-freshness",
+      "context": ".",
+      "file": "prover/tee/policy/Dockerfile",
+      "title": "Zolana TEE policy freshness",
+      "description": "Keeps the signed TEE prover policy in force (AWS Lambda)",
+      "smoke": "docker run --rm --entrypoint /usr/local/bin/tee-policy \"$image\" --help >/dev/null"
     }
   }
 }
