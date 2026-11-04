@@ -13,7 +13,7 @@ use crate::{
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
         json::{
             to_json, to_json_batch_address_append, to_json_merge, to_json_merge_ring, to_json_ring,
-            to_json_ring_authority,
+            to_json_ring_authority, to_json_ring_authority_exit,
         },
         proving_key::ExpectedProvingKey,
         transact::confidential_eddsa::ConfidentialEddsaTransferInputs,
@@ -75,6 +75,14 @@ pub(crate) fn ring_authority(inputs: &TransferInputs) -> Result<CircuitRequest, 
     let key =
         ExpectedProvingKey::transfer_ring_authority(inputs.inputs.len(), inputs.outputs.len())?;
     Ok(in_response(to_json_ring_authority(inputs)?, key))
+}
+
+pub(crate) fn ring_authority_exit(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
+    let key = ExpectedProvingKey::transfer_ring_authority_exit(
+        inputs.inputs.len(),
+        inputs.outputs.len(),
+    )?;
+    Ok(in_response(to_json_ring_authority_exit(inputs)?, key))
 }
 
 pub(crate) fn merge(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {

@@ -4,7 +4,8 @@
 //! transfer input/output assembly verbatim ([`assemble_inputs`]/[`assemble_outputs`])
 //! in the pubkey-agnostic [`OwnerMode::RingAuthority`] mode; only the public-input
 //! element set differs (input owner pk_fields stay private, no confidential
-//! appendix).
+//! appendix). [`RingAuthorityProver::build_exit`] proves the rail whose outputs
+//! may leave the ring.
 
 use num_bigint::BigUint;
 use solana_address::Address;
@@ -21,8 +22,8 @@ use crate::{
         cache::CacheSelection,
         field::be,
         transact::assembly::{
-            assemble_transaction, validate_shape, AssembledTransaction, OwnerMode, PublicInputs,
-            TransferInputUtxo,
+            assemble_transaction, confidential_marked_output_owner_pk_hashes, validate_shape,
+            AssembledTransaction, OwnerMode, PublicInputs, TransferInputUtxo,
         },
         Shape, TransferInputs, TreeSlotFields,
     },
@@ -70,10 +71,31 @@ pub struct RingAuthorityProofResult {
     pub input_tree_indexes: Vec<u8>,
 }
 
+#[derive(Clone, Copy)]
+enum RingAuthorityRail {
+    Strict,
+    Exit,
+}
+
 impl RingAuthorityProver {
     pub fn build(self) -> Result<RingAuthorityProofResult, ClientError> {
+        self.build_rail(RingAuthorityRail::Strict)
+    }
+
+    /// The witness for [`CircuitId::RingAuthorityExit`](spr_interface::verifying_keys::CircuitId).
+    pub fn build_exit(self) -> Result<RingAuthorityProofResult, ClientError> {
+        self.build_rail(RingAuthorityRail::Exit)
+    }
+
+    fn build_rail(self, rail: RingAuthorityRail) -> Result<RingAuthorityProofResult, ClientError> {
         validate_shape(self.shape, self.inputs.len(), self.outputs.len())?;
 
+        let cache = CacheSelection::derive(
+            &self.inputs,
+            &self.outputs,
+            Default::default(),
+            &self.external_data,
+        )?;
         let AssembledTransaction {
             inputs: assembled_inputs,
             outputs: assembled_outputs,
@@ -85,13 +107,7 @@ impl RingAuthorityProver {
             &self.outputs,
             &self.blinding_seed,
             self.output_tree_id,
-            &CacheSelection::derive(
-                &self.inputs,
-                &self.outputs,
-                Default::default(),
-                &self.external_data,
-            )?
-            .external_data_hash,
+            &cache.external_data_hash,
             &OwnerMode::RingAuthority,
             self.allow_dummy_inputs,
         )?;
@@ -107,6 +123,17 @@ impl RingAuthorityProver {
         // signer vector holds only the payer, and a one-element right fold is
         // the element itself.
         let signer_pk_hashes = [payer_pk_hash];
+        let (published_output_owners, cache_inputs) = match rail {
+            // Ring authority binds no owner tags and no cache selection.
+            RingAuthorityRail::Strict => (None, Default::default()),
+            RingAuthorityRail::Exit => (
+                Some(confidential_marked_output_owner_pk_hashes(
+                    &self.external_data,
+                    self.outputs.len(),
+                )?),
+                cache.proof_inputs,
+            ),
+        };
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,
@@ -118,9 +145,8 @@ impl RingAuthorityProver {
             ring_program_id: &ring_program_id,
             input_flags: &input_flags,
             signer_pk_hashes: &signer_pk_hashes,
-            output_owner_pk_hashes: None,
-            // Ring authority binds no owner tags and no cache selection.
-            cached_inputs: [[0u8; 32]; 2],
+            output_owner_pk_hashes: published_output_owners.as_deref(),
+            cached_inputs: cache.public_fields,
         }
         .hash()?;
 
@@ -137,10 +163,12 @@ impl RingAuthorityProver {
             ring_program_id: be(&ring_program_id),
             signer_pk_hashes: vec![be(&payer_pk_hash)],
             input_flags: be(&input_flags),
-            published_output_owner_pk_hashes: Vec::new(),
-            // The ring authority circuit carries no cache selection; the prover
-            // ignores these for this rail.
-            cache: Default::default(),
+            published_output_owner_pk_hashes: published_output_owners
+                .iter()
+                .flatten()
+                .map(be)
+                .collect(),
+            cache: cache_inputs,
             public_input_hash: be(&public_input),
         };
 

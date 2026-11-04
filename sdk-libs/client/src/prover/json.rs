@@ -522,6 +522,10 @@ pub(crate) fn to_json_ring_authority(inputs: &TransferInputs) -> Result<String, 
     transfer_inputs_json(inputs, "transfer-ring-authority")
 }
 
+pub(crate) fn to_json_ring_authority_exit(inputs: &TransferInputs) -> Result<String, ClientError> {
+    transfer_inputs_json(inputs, "transfer-ring-authority-exit")
+}
+
 /// Serialize the eddsa confidential policy-ring transfer witness.
 pub(crate) fn to_json_ring(inputs: &TransferInputs) -> Result<String, ClientError> {
     transfer_inputs_json(inputs, "transfer-ring")

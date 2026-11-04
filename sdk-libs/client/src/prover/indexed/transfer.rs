@@ -32,6 +32,8 @@ pub enum IndexedTransferRail<'a> {
     Confidential,
     Ring(solana_address::Address),
     RingAuthority(solana_address::Address),
+    /// The ring authority rail with outputs that may leave to the default ring.
+    RingAuthorityExit(solana_address::Address),
     /// Keeps the owner off chain while signing the exact root-independent statement.
     AnonymousRingEddsa {
         ring: solana_address::Address,
@@ -84,7 +86,11 @@ impl IndexedTransferPreparation<'_> {
                 return Err(ClientError::NonSpendInputNotAllowed { index });
             }
         }
-        if matches!(rail, IndexedTransferRail::RingAuthority(_)) {
+        let authority_rail = matches!(
+            rail,
+            IndexedTransferRail::RingAuthority(_) | IndexedTransferRail::RingAuthorityExit(_)
+        );
+        if authority_rail {
             if let Some(index) = transaction
                 .input_utxos
                 .iter()
@@ -115,7 +121,6 @@ impl IndexedTransferPreparation<'_> {
             transaction.cache_accounts,
             &transaction.external_data,
         )?;
-        let authority_rail = matches!(rail, IndexedTransferRail::RingAuthority(_));
         let hidden_owner = match &rail {
             IndexedTransferRail::AnonymousRingEddsa { owner, .. } => Some(owner.public_key()),
             _ => None,
@@ -126,20 +131,27 @@ impl IndexedTransferPreparation<'_> {
             }
             IndexedTransferRail::Ring(ring)
             | IndexedTransferRail::RingAuthority(ring)
+            | IndexedTransferRail::RingAuthorityExit(ring)
             | IndexedTransferRail::AnonymousRingEddsa { ring, .. } => Some(*ring),
         };
+        let output_may_leave = matches!(rail, IndexedTransferRail::RingAuthorityExit(_));
         if authority_rail
             && (shape.n_inputs() != shape.n_outputs()
                 || cache.access.is_some()
-                || !transaction.external_data.interface_transfers.is_empty()
+                || transaction
+                    .external_data
+                    .interface_transfers
+                    .iter()
+                    .any(|transfer| transfer.is_deposit())
                 || transaction
                     .input_utxos
                     .iter()
                     .any(|input| !input.is_dummy() && input.utxo.ring_program_id != ring)
-                || transaction
-                    .output_utxos
-                    .iter()
-                    .any(|output| !output.is_dummy() && output.ring_program_id != ring))
+                || transaction.output_utxos.iter().any(|output| {
+                    !output.is_dummy()
+                        && output.ring_program_id != ring
+                        && !(output_may_leave && output.ring_program_id.is_none())
+                }))
         {
             return Err(super::invalid());
         }
@@ -263,7 +275,9 @@ impl IndexedTransferPreparation<'_> {
             IndexedTransferRail::Confidential | IndexedTransferRail::ConfidentialEddsa { .. } => {
                 Some(outputs.output_owner_pk_hashes.clone())
             }
-            IndexedTransferRail::Ring(_) | IndexedTransferRail::AnonymousRingEddsa { .. } => Some(
+            IndexedTransferRail::Ring(_)
+            | IndexedTransferRail::RingAuthorityExit(_)
+            | IndexedTransferRail::AnonymousRingEddsa { .. } => Some(
                 crate::prover::transact::assembly::confidential_marked_output_owner_pk_hashes(
                     &transaction.external_data,
                     transaction.output_utxos.len(),
@@ -321,6 +335,9 @@ impl IndexedTransferPreparation<'_> {
                 IndexedTransferRail::Confidential => IndexedCircuit::TransferConfidential,
                 IndexedTransferRail::Ring(_) => IndexedCircuit::TransferRing,
                 IndexedTransferRail::RingAuthority(_) => IndexedCircuit::TransferRingAuthority,
+                IndexedTransferRail::RingAuthorityExit(_) => {
+                    IndexedCircuit::TransferRingAuthorityExit
+                }
                 IndexedTransferRail::AnonymousRingEddsa { .. } => {
                     IndexedCircuit::TransferAnonymousRingEddsa
                 }
@@ -384,6 +401,9 @@ impl IndexedTransferPreparation<'_> {
                     },
                     IndexedTransferRail::RingAuthority(_) => {
                         CircuitId::RingAuthority(n_in, n_out, slots)
+                    }
+                    IndexedTransferRail::RingAuthorityExit(_) => {
+                        CircuitId::RingAuthorityExit(n_in, n_out, slots)
                     }
                     IndexedTransferRail::AnonymousRingEddsa { .. } => {
                         let prepared = anonymous.as_ref().ok_or_else(super::invalid)?;
@@ -696,6 +716,164 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    /// Output 0 leaves the ring under a marked confidential tag.
+    fn exit_fixture(owner: &ShieldedKeypair, ring: Address) -> (SppProofInputs, [u8; 32]) {
+        let mut transaction = fixture(owner, Some(ring), 2);
+        let tag = owner.signing_pubkey().confidential_view_tag().unwrap();
+        transaction.output_utxos[0].ring_program_id = None;
+        let utxo_hash = transaction.output_utxos[0].hash(4).unwrap();
+        transaction.external_data.outputs[0] = TransactOutput {
+            utxo_hash,
+            owner_tag: OwnerTag::Inline(tag),
+            data: Some(
+                borsh::to_vec(&spr_event::OutputDataEncoding::Encrypted(vec![
+                    spr_event::CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+                    9,
+                ]))
+                .unwrap(),
+            ),
+        };
+        transaction.external_data.resolved_owner_tags = vec![tag];
+        (transaction, tag)
+    }
+
+    fn ring_authority_prover(
+        transaction: &SppProofInputs,
+        ring: Address,
+    ) -> crate::RingAuthorityProver {
+        crate::RingAuthorityProver {
+            inputs: complete_inputs(transaction),
+            outputs: transaction.output_utxos.clone(),
+            blinding_seed: transaction.blinding_seed,
+            output_tree_id: transaction.output_tree_id,
+            external_data: transaction.external_data.clone(),
+            public_transfers: transaction.public_transfers().unwrap(),
+            payer: transaction.payer,
+            allow_dummy_inputs: true,
+            ring_program_id: Some(ring),
+            shape: transaction.check_shape().unwrap(),
+        }
+    }
+
+    #[test]
+    fn exit_rail_publishes_the_exit_tag_and_binds_the_empty_cache_selection() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let ring = Address::new_from_array([9; 32]);
+        let (transaction, tag) = exit_fixture(&owner, ring);
+        let exit = ring_authority_prover(&transaction, ring)
+            .build_exit()
+            .unwrap();
+        let identity = spr_hasher::primitives::solana_owner_identity(&tag).unwrap();
+        assert_eq!(
+            exit.inputs.published_output_owner_pk_hashes,
+            vec![be(&identity), 0u8.into()]
+        );
+        assert_eq!(exit.inputs.outputs[0].owner_pk_hash, be(&identity));
+        assert_eq!(exit.inputs.signer_pk_hashes.len(), 1);
+
+        let strict = ring_authority_prover(&transaction, ring).build().unwrap();
+        assert!(strict.inputs.published_output_owner_pk_hashes.is_empty());
+        assert_ne!(exit.public_input_hash, strict.public_input_hash);
+
+        let mut inputs = exit.inputs;
+        owner.complete_inputs(&mut inputs.inputs).unwrap();
+        let body: serde_json::Value = serde_json::from_str(
+            &crate::prover::json::to_json_ring_authority_exit(&inputs).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["circuitType"], "transfer-ring-authority-exit");
+    }
+
+    #[test]
+    fn authority_rails_refuse_what_their_circuits_refuse() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let ring = Address::new_from_array([9; 32]);
+        let foreign = Address::new_from_array([8; 32]);
+        let (default_output, _) = exit_fixture(&owner, ring);
+        let prepare =
+            |transaction, rail| IndexedTransferPreparation { transaction, rail }.prepare(&owner);
+        assert!(matches!(
+            prepare(
+                default_output.clone(),
+                IndexedTransferRail::RingAuthority(ring)
+            ),
+            Err(ClientError::InvalidIndexedRequest)
+        ));
+
+        let mut foreign_output = default_output.clone();
+        foreign_output.output_utxos[0].ring_program_id = Some(foreign);
+        assert!(matches!(
+            prepare(foreign_output, IndexedTransferRail::RingAuthorityExit(ring)),
+            Err(ClientError::InvalidIndexedRequest)
+        ));
+
+        assert!(matches!(
+            prepare(
+                default_output.clone(),
+                IndexedTransferRail::RingAuthorityExit(foreign)
+            ),
+            Err(ClientError::InvalidIndexedRequest)
+        ));
+
+        let mut deposit = default_output;
+        deposit.external_data.interface_transfers = vec![
+            spr_transaction::instructions::transact::SettlementTransfer::Sol {
+                is_deposit: true,
+                amount: 1,
+                user_sol_account: Address::new_from_array([6; 32]),
+            },
+        ];
+        for rail in [
+            IndexedTransferRail::RingAuthority(ring),
+            IndexedTransferRail::RingAuthorityExit(ring),
+        ] {
+            assert!(matches!(
+                prepare(deposit.clone(), rail),
+                Err(ClientError::InvalidIndexedRequest)
+            ));
+        }
+    }
+
+    #[test]
+    #[ignore = "missing artifact: transfer_ring_authority_exit keys"]
+    fn indexed_exit_statement_matches_the_complete_rail() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let ring = Address::new_from_array([9; 32]);
+        let (transaction, _) = exit_fixture(&owner, ring);
+        let expected = ring_authority_prover(&transaction, ring)
+            .build_exit()
+            .unwrap();
+        let prepared = IndexedTransferPreparation {
+            transaction,
+            rail: IndexedTransferRail::RingAuthorityExit(ring),
+        }
+        .prepare(&owner)
+        .unwrap();
+        assert!(matches!(
+            prepared.data.circuit,
+            CircuitId::RingAuthorityExit(2, 2, _)
+        ));
+        let resolution = super::super::ProofResolution {
+            public_input_hash: [0; 32],
+            trees: vec![super::super::ResolvedProofTree {
+                tree: spr_interface::pda::tree(3),
+                id: 3,
+                utxo_root: super::super::scalar_one(),
+                nullifier_root: super::super::scalar_one(),
+                context: TreeContext {
+                    utxo_tree_root_index: 0,
+                    nullifier_tree_root_index: 0,
+                },
+            }],
+        };
+        assert_eq!(
+            resolution
+                .hash(&prepared.request.data.public_inputs)
+                .unwrap(),
+            expected.public_input_hash,
+        );
     }
 
     #[test]

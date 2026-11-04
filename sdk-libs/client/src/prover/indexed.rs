@@ -59,6 +59,7 @@ pub enum IndexedCircuit {
     TransferConfidential,
     TransferRing,
     TransferRingAuthority,
+    TransferRingAuthorityExit,
     // Preserve the prover protocol identifier while naming the privacy mode.
     #[serde(rename = "transfer-eddsa-ring")]
     TransferAnonymousRingEddsa,
@@ -151,7 +152,8 @@ impl IndexedProofRequest {
                 }
                 let shape = Shape::new(metadata.inputs.len(), metadata.outputs.len());
                 let supported = match metadata.circuit_type {
-                    IndexedCircuit::TransferRingAuthority => shape.is_ring_authority(),
+                    IndexedCircuit::TransferRingAuthority
+                    | IndexedCircuit::TransferRingAuthorityExit => shape.is_ring_authority(),
                     IndexedCircuit::TransferConfidentialEddsa => shape.is_confidential_eddsa(),
                     _ => shape.is_supported(),
                 };
@@ -213,6 +215,7 @@ impl IndexedProofRequest {
                     || matches!(
                         metadata.circuit_type,
                         IndexedCircuit::TransferRingAuthority
+                            | IndexedCircuit::TransferRingAuthorityExit
                             | IndexedCircuit::Merge
                             | IndexedCircuit::MergeRing
                     ))
@@ -272,6 +275,9 @@ impl IndexedProofRequest {
             IndexedCircuit::TransferRing => ExpectedProvingKey::transfer_ring(n_inputs, n_outputs)?,
             IndexedCircuit::TransferRingAuthority => {
                 ExpectedProvingKey::transfer_ring_authority(n_inputs, n_outputs)?
+            }
+            IndexedCircuit::TransferRingAuthorityExit => {
+                ExpectedProvingKey::transfer_ring_authority_exit(n_inputs, n_outputs)?
             }
             IndexedCircuit::TransferAnonymousRingEddsa => {
                 ExpectedProvingKey::transfer_anonymous_ring_eddsa(n_inputs, n_outputs)?
@@ -425,7 +431,7 @@ impl ProofResolution {
 impl IndexedCircuit {
     fn public_input_count(self) -> usize {
         match self {
-            Self::TransferConfidential | Self::TransferRing => 17,
+            Self::TransferConfidential | Self::TransferRing | Self::TransferRingAuthorityExit => 17,
             Self::TransferRingAuthority => 14,
             // The confidential layout plus the message hash and one owner
             // field: the hidden default owner, or the in-circuit owner identity.
