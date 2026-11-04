@@ -131,7 +131,10 @@ fn build_merge(real_inputs: usize, ring: Option<Address>) -> BuiltMerge {
     let payer = Pubkey::new_unique();
     let (instruction, sent_nullifiers) = match ring {
         Some(ring) => {
-            let data = result.ring_instruction_data(MergeProof::zeroed());
+            let data = spr_interface::instruction::instruction_data::merge_ring::MergeRingIxData {
+                output_ring_data_hash: result.output_ring_data_hash,
+                merge: result.instruction_data(MergeProof::zeroed()),
+            };
             let sent_nullifiers = data.merge.nullifiers.len();
             let instruction = MergeRing {
                 input_tree: tree,

@@ -1,6 +1,6 @@
 //! Byte-literal regression fixtures for the transact witness assembly.
 //!
-//! Witness assembly is pure computation: `assemble` and [`TransferProver::build`]
+//! Witness assembly is pure computation: `build_transfer` and [`TransferProver::build`]
 //! derive every hash and public input from the values they are handed, and only
 //! `ProverClient::prove_transfer` needs the prover server. So this target is
 //! hermetic and carries no `proofs` feature gate.
@@ -13,7 +13,7 @@
 //!
 //! What is pinned, and where each value comes from:
 //!
-//! - `AssembledTransfer::public_input_hash`, the single field element the proof
+//! - `TransferProofResult::public_input_hash`, the single field element the proof
 //!   commits to.
 //! - `TransactIxData::private_tx_hash`, the value the `Transact` instruction
 //!   publishes on chain.
@@ -51,8 +51,8 @@ use crate::{
 use num_bigint::BigUint;
 use solana_address::Address;
 use spr_client::{
-    assemble, prover::field::be, MerkleContext, MerkleProof, NonInclusionProof, ProofAuthority,
-    SpendProof, TransferProofResult, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    build_transfer, prover::field::be, MerkleContext, MerkleProof, NonInclusionProof,
+    ProofAuthority, SpendProof, TransferProofResult, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use spr_interface::instruction::instruction_data::transact::{TransactIxData, TransactProof};
 use spr_keypair::{hash::sha256, ShieldedKeypair, SigningKey};
@@ -341,7 +341,7 @@ fn spend_proof() -> SpendProof {
     }
 }
 
-/// Everything one assembly pass exposes publicly. `assemble` and `into_prover`
+/// Everything one assembly pass exposes publicly. `build_transfer` and `into_prover`
 /// run the same builder, so both views describe one transaction.
 struct Assembled {
     public_input_hash: [u8; 32],
@@ -354,7 +354,8 @@ fn assemble_fixture(proof_inputs: &SppProofInputs) -> Assembled {
     let mut dummy = proofs[0].nullifier.clone();
     dummy.leaf = NULLIFIERS[1];
     let sender = keypair(SENDER_SEED);
-    let assembled = assemble(proof_inputs.clone(), &proofs, &[dummy.clone()]).expect("assemble");
+    let assembled =
+        build_transfer(proof_inputs.clone(), &proofs, &[dummy.clone()]).expect("build transfer");
     let public_input_hash = assembled.public_input_hash;
     let ix = assembled.with_proof(TransactProof::zeroed());
     let mut witness = transfer_prover(proof_inputs.clone(), &proofs, &[dummy])

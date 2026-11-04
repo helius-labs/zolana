@@ -1,233 +1,205 @@
-use std::{future::Future, sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use solana_address::Address;
 use solana_hash::Hash;
+use solana_instruction::Instruction;
 use solana_keypair::Signer;
 use solana_message::VersionedMessage;
-use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use spr_instruction::instruction::{Transact, TransactInterfaceTransferAccounts};
-use spr_interface::{
-    instruction::{instruction_data::transact::TransactProof, TransactIxData},
-    pda,
+use spl_token_2022_interface::{extension::StateWithExtensions, state::Account as TokenAccount};
+use spr_instruction::instruction::{
+    Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };
-use spr_transaction::instructions::transact::SppProofInputs;
-use tokio::time::Instant;
+use spr_interface::{
+    instruction::TransactIxData, pda, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+};
+use spr_transaction::instructions::transact::{SettlementTransfer, SppProofInputs};
 
+use super::{
+    prove_on_blocking_pool, AsyncIndexer, AsyncSprClient, BlockingIndexer, BlockingRpc, SprClient,
+};
 use crate::{
-    authority::ProofAuthority,
+    authority::{complete_with_authorities, ProofAuthority},
     error::ClientError,
     prover::{
-        transact::witness::{assemble, assemble_confidential_eddsa, AssembledTransfer},
-        verify_confidential_transfer_proof, OwnerAuthorization, ProofCompressed, Prover,
-        TransferProofResult,
+        indexed::PreparedIndexedTransfer,
+        indexed::{IndexedTransferPreparation, IndexedTransferRail},
+        transact::witness::{build_confidential_eddsa_transfer, build_transfer},
+        witness::InputWitnesses,
+        OwnerAuthorization, Proof, Prover, TransferProofResult,
     },
     rpc::{
-        compile_message, sign_transaction, AsyncRpc, ComputeBudgetConfig, IndexerRpcConfig,
+        compile_message, sign_transaction, AsyncRpc, ComputeBudgetConfig,
         SettlementAccountValidation,
     },
 };
 
-use super::{
-    prove_on_blocking_pool, validation::validate_fee_payer_pubkey, AsyncIndexer, AsyncSprClient,
-    BlockingIndexer, BlockingRpc, SprClient, TransferPreparation,
-};
-use crate::prover::indexed::{IndexedTransferPreparation, IndexedTransferRail};
-
-/// A signed shielded transaction ready for proof assembly and submission.
-///
-/// Produced by signing a `ConfidentialTransaction`; consumed by
-/// [`SprClient`]'s submission helpers.
-pub struct SignedPrivateTransaction {
-    pub transaction: SppProofInputs,
-    pub settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
-}
-
-impl<R: AsyncRpc, I: AsyncIndexer> AsyncSprClient<R, I> {
-    /// Ask the configured prover for a default-ring EdDSA transfer proof and
-    /// verify it locally before returning its transaction wire encoding.
-    pub async fn prove_confidential_transfer_result(
-        &self,
-        result: &TransferProofResult,
-    ) -> Result<ProofCompressed, ClientError> {
-        let proof = self.prove_transfer(&result.inputs).await?;
-        match self.key_set() {
-            Some(keys) => keys.verify(
-                &crate::prover::ExpectedProvingKey::transfer_confidential(
-                    result.inputs.inputs.len(),
-                    result.inputs.outputs.len(),
-                )?
-                .name,
-                result.public_input_hash,
-                &proof,
-            )?,
-            None => verify_confidential_transfer_proof(result, &proof)?,
-        }
-        ProofCompressed::try_from(proof)
-    }
-
-    /// Fetch the input merkle proofs from the indexer and prove the transaction
-    /// with the client's prover, returning the assembled `transact` instruction
-    /// data ready for the [`Transact`] builder.
-    ///
-    /// `authority` completes the witness: the assembled inputs carry no
-    /// nullifier secret, and it fills in the ones its owner holds.
-    pub async fn prove_transact(
-        &self,
-        proof_inputs: SppProofInputs,
-        config: Option<IndexerRpcConfig>,
-        authority: &dyn ProofAuthority,
-    ) -> Result<TransactIxData, ClientError> {
-        if let Some(server) = self.indexed_prover() {
-            return Ok(server
-                .prove_indexed(
-                    &TransferPreparation {
-                        transaction: proof_inputs,
-                        config: config.unwrap_or(self.indexer_config),
-                    }
-                    .prepare(authority)?,
-                )
-                .await?
-                .data);
-        }
-        let witnesses = self
-            .indexer
-            .transaction_proofs(&proof_inputs.input_utxos, config)
-            .await?;
-        let mut assembled = assemble(
-            proof_inputs,
-            &witnesses.spend_proofs,
-            &witnesses.dummy_nullifier_proofs,
-        )?;
-        let proof = self.prove_assembled(&mut assembled, authority).await?;
-        Ok(assembled.with_proof(proof))
-    }
-
-    /// [`Self::prove_transact`] on the `ConfidentialEddsa` rail: `owner` signs
-    /// the transaction message digest inside the proof instead of signing the
-    /// transaction, so another account can pay for it. `authority` still
-    /// completes the owner's inputs.
-    pub async fn prove_transact_confidential_eddsa<'a>(
-        &self,
-        proof_inputs: SppProofInputs,
-        config: Option<IndexerRpcConfig>,
-        authority: &dyn ProofAuthority,
-        owner: impl Into<OwnerAuthorization<'a>>,
-    ) -> Result<TransactIxData, ClientError> {
-        let owner = owner.into();
-        if let Some(server) = self.indexed_prover() {
-            let prepared = IndexedTransferPreparation {
-                transaction: proof_inputs,
-                rail: IndexedTransferRail::ConfidentialEddsa { owner },
-            }
-            .prepare(authority)?;
-            let prepared = match config.unwrap_or(self.indexer_config).require_slot {
-                Some(slot) => prepared.with_min_context_slot(slot),
-                None => prepared,
-            };
-            return Ok(server.prove_indexed(&prepared).await?.data);
-        }
-        let witnesses = self
-            .indexer
-            .transaction_proofs(&proof_inputs.input_utxos, config)
-            .await?;
-        let mut assembled = assemble_confidential_eddsa(
-            proof_inputs,
-            &witnesses.spend_proofs,
-            &witnesses.dummy_nullifier_proofs,
-            owner,
-        )?;
-        let proof = self.prove_assembled(&mut assembled, authority).await?;
-        Ok(assembled.with_proof(proof))
-    }
-
-    /// Complete the inputs, prove them and verify the proof; one call rather
-    /// than "complete, then prove", since nothing between assembly and the
-    /// prover has any use for a witness carrying key material.
-    async fn prove_assembled(
-        &self,
-        assembled: &mut AssembledTransfer,
-        authority: &dyn ProofAuthority,
-    ) -> Result<TransactProof, ClientError> {
-        assembled.check_key_set(self.key_set())?;
-        authority.complete_inputs(&mut assembled.prover_inputs.inputs)?;
-        let proof = {
-            let _t = crate::prover::timing::Phase::start("prove_transfer", 0);
-            self.prove_request(assembled.request()?).await?
-        };
-        assembled.accept_proof_with_keys(proof, self.key_set())
-    }
-}
-
-impl<R: BlockingRpc, I: BlockingIndexer> SprClient<R, I> {
-    /// See [`AsyncSprClient::prove_transact`].
-    pub fn prove_transact(
-        &self,
-        proof_inputs: SppProofInputs,
-        config: Option<IndexerRpcConfig>,
-        authority: &dyn ProofAuthority,
-    ) -> Result<TransactIxData, ClientError> {
-        self.block_on(self.client.prove_transact(proof_inputs, config, authority))
-    }
-
-    /// See [`AsyncSprClient::prove_transact_confidential_eddsa`].
-    pub fn prove_transact_confidential_eddsa<'a>(
-        &self,
-        proof_inputs: SppProofInputs,
-        config: Option<IndexerRpcConfig>,
-        authority: &dyn ProofAuthority,
-        owner: impl Into<OwnerAuthorization<'a>>,
-    ) -> Result<TransactIxData, ClientError> {
-        self.block_on(self.client.prove_transact_confidential_eddsa(
-            proof_inputs,
-            config,
-            authority,
-            owner,
-        ))
-    }
-}
-
-/// A message awaiting its signatures, and the last block height at which its
-/// blockhash lets it land.
+/// A message awaiting signatures and its corresponding blockhash expiry.
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnsignedMessage {
     pub message: VersionedMessage,
     pub last_valid_block_height: u64,
 }
 
-/// A signed private transaction on its way to the chain: who pays, who
-/// completes the proof inputs, and what proves it. [`Self::finish_unsigned`]
-/// builds the message its signers sign, for signers outside this client;
-/// [`Self::send`] signs, sends and confirms it.
-pub struct Submission<'a> {
-    pub signed: &'a SignedPrivateTransaction,
-    pub fee_payer: Address,
-    /// Completes the proof inputs: the assembled inputs carry no nullifier
-    /// secret, and it fills in the ones its owner holds.
-    pub authority: &'a dyn ProofAuthority,
-    /// Proves this submission in place of the client's prover, for a caller
-    /// that chooses where each transaction is proved. As with
-    /// [`AsyncSprClient::with_prover`], the client then fetches the proof
-    /// data itself, so the submission never takes the prover server's indexed
-    /// route.
-    pub prover: Option<Arc<dyn Prover>>,
-    /// The owner that authorizes inside the proof instead of signing the transaction.
-    pub confidential_eddsa_owner: Option<OwnerAuthorization<'a>>,
+/// Encrypted inputs and explicit proof authorities. Settlement accounts stay
+/// paired with the public transfers from which they are derived.
+pub struct TransactionProofRequest<'a> {
+    transaction: SppProofInputs,
+    authorities: Vec<&'a dyn ProofAuthority>,
+    settlement_transfers: Vec<Option<TransactInterfaceTransferAccounts>>,
+    prover: Option<Arc<dyn Prover>>,
+    confidential_eddsa_owner: Option<OwnerAuthorization<'a>>,
 }
 
-impl<'a> Submission<'a> {
+/// A transaction with an attached proof, reusable with a fresh Solana blockhash.
+/// Proof verification is performed on chain.
+#[derive(Clone, Debug)]
+pub struct ProvedTransaction {
+    payer: Address,
+    input_tree_ids: Vec<u16>,
+    output_tree_id: u16,
+    read_cache: Option<Address>,
+    write_cache: Option<Address>,
+    owner_signers: Vec<Address>,
+    settlement_transfers: Vec<SettlementTransfer>,
+    instruction_data: TransactIxData,
+}
+
+impl ProvedTransaction {
+    pub fn instruction_data(&self) -> &TransactIxData {
+        &self.instruction_data
+    }
+
+    /// Build `transact` after checking the supplied accounts against its transfers.
+    pub fn instruction(
+        &self,
+        settlement_accounts: &[TransactInterfaceTransferAccounts],
+    ) -> Result<Instruction, ClientError> {
+        if self.write_cache.is_some() {
+            return Err(ClientError::CacheWriteNeedsWriter);
+        }
+        SettlementAccountValidation {
+            transfers: &self.instruction_data.interface_transfers,
+            accounts: settlement_accounts,
+        }
+        .validate()?;
+        for (index, (transfer, accounts)) in self
+            .settlement_transfers
+            .iter()
+            .zip(settlement_accounts)
+            .enumerate()
+        {
+            let matches = match (transfer, accounts) {
+                (
+                    SettlementTransfer::Sol {
+                        user_sol_account, ..
+                    },
+                    TransactInterfaceTransferAccounts::Sol(accounts),
+                ) => accounts.recipient == *user_sol_account,
+                (
+                    SettlementTransfer::Spl {
+                        mint,
+                        user_spl_token,
+                        ..
+                    },
+                    TransactInterfaceTransferAccounts::SplDeposit(accounts),
+                ) => {
+                    accounts.mint == *mint
+                        && accounts.user_token_account == *user_spl_token
+                        && accounts.spl_interface == pda::spl_interface(mint)
+                        && matches!(
+                            accounts.token_program.to_bytes(),
+                            SPL_TOKEN_PROGRAM_ID | SPL_TOKEN_2022_PROGRAM_ID
+                        )
+                }
+                (
+                    SettlementTransfer::Spl {
+                        mint,
+                        user_spl_token,
+                        ..
+                    },
+                    TransactInterfaceTransferAccounts::SplWithdrawal(accounts),
+                ) => {
+                    accounts.mint == *mint
+                        && accounts.user_token_account == *user_spl_token
+                        && accounts.spl_interface == pda::spl_interface(mint)
+                        && matches!(
+                            accounts.token_program.to_bytes(),
+                            SPL_TOKEN_PROGRAM_ID | SPL_TOKEN_2022_PROGRAM_ID
+                        )
+                }
+                _ => false,
+            };
+            if !matches {
+                return Err(ClientError::SettlementTransferAccountMismatch { index });
+            }
+        }
+        let transact = Transact {
+            payer: self.payer,
+            input_trees: self.input_tree_ids.iter().copied().map(pda::tree).collect(),
+            output_tree: pda::tree(self.output_tree_id),
+            owner_signers: self.owner_signers.clone(),
+            interface_transfer_accounts: settlement_accounts.to_vec(),
+            data: self.instruction_data.clone(),
+        };
+        Ok(match self.read_cache {
+            Some(cache) => transact.instruction_with_cache_read(cache),
+            None => transact.instruction(),
+        })
+    }
+
+    /// Pure message construction. The blockhash and height must come from
+    /// the same RPC response.
+    pub fn build_solana_message(
+        &self,
+        settlement_accounts: &[TransactInterfaceTransferAccounts],
+        blockhash: Hash,
+        last_valid_block_height: u64,
+        compute_budget: ComputeBudgetConfig,
+    ) -> Result<UnsignedMessage, ClientError> {
+        Ok(UnsignedMessage {
+            message: compile_message(
+                &self.payer,
+                &[self.instruction(settlement_accounts)?],
+                blockhash,
+                compute_budget,
+            )?,
+            last_valid_block_height,
+        })
+    }
+}
+
+impl<'a> TransactionProofRequest<'a> {
     pub fn new(
-        signed: &'a SignedPrivateTransaction,
-        fee_payer: Address,
-        authority: &'a dyn ProofAuthority,
-    ) -> Self {
-        Self {
-            signed,
-            fee_payer,
-            authority,
+        transaction: SppProofInputs,
+        authorities: &[&'a dyn ProofAuthority],
+    ) -> Result<Self, ClientError> {
+        transaction.check_shape()?;
+        transaction.public_transfers()?;
+        transaction.owner_signer_pubkeys()?;
+        let settlement_transfers = transaction
+            .external_data
+            .interface_transfers
+            .iter()
+            .map(|transfer| match transfer {
+                SettlementTransfer::Sol {
+                    user_sol_account, ..
+                } => Some(TransactInterfaceTransferAccounts::Sol(
+                    TransactSolTransferAccounts {
+                        recipient: *user_sol_account,
+                    },
+                )),
+                SettlementTransfer::Spl { .. } => None,
+            })
+            .collect();
+        Ok(Self {
+            transaction,
+            authorities: authorities.to_vec(),
+            settlement_transfers,
             prover: None,
             confidential_eddsa_owner: None,
-        }
+        })
     }
 
     #[must_use]
@@ -237,8 +209,7 @@ impl<'a> Submission<'a> {
     }
 
     /// Authorize this owner inside the proof and omit its owner-signer account.
-    /// Prepare the transaction with `with_transaction_signers` so it selects a
-    /// shape supported by this rail. Every other owner still signs normally.
+    /// Select the EdDSA shape with `with_transaction_signers` before encryption.
     #[must_use]
     pub fn with_confidential_eddsa_owner(
         mut self,
@@ -248,458 +219,330 @@ impl<'a> Submission<'a> {
         self
     }
 
-    /// The unsigned v1 message of this submission, proved through `client`,
-    /// and the last block height it can land at.
-    ///
-    /// Fetches the blockhash beside the proof and retries after proving if
-    /// that request is still pending, failed, or began more than ten seconds
-    /// ago, including RPC latency. Proof errors return without waiting for
-    /// the blockhash request.
-    /// Callers used to fetch one and hand it in,
-    /// which put a multi-second proof between the blockhash and the send.
-    /// Under load that window exceeded the blockhash lifetime and the
-    /// transaction was rejected at submission, having already paid for the
-    /// sync and the proof: an 80-worker run lost 297 of 337 transfers to
-    /// "Blockhash not found".
-    pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
+    /// Build completed prover inputs and matching instruction data without I/O.
+    pub fn build(&self, proofs: InputWitnesses) -> Result<TransferProofResult, ClientError> {
+        let mut transfer = match self.confidential_eddsa_owner {
+            Some(owner) => build_confidential_eddsa_transfer(
+                self.transaction.clone(),
+                &proofs.spend_proofs,
+                &proofs.dummy_nullifier_proofs,
+                owner,
+            )?,
+            None => build_transfer(
+                self.transaction.clone(),
+                &proofs.spend_proofs,
+                &proofs.dummy_nullifier_proofs,
+            )?,
+        };
+        complete_with_authorities(
+            &mut transfer.inputs.inputs,
+            &self.transaction.input_utxos,
+            &self.authorities,
+        )?;
+        Ok(transfer)
+    }
+
+    /// Build an indexed request synchronously; the server fetches the chain proofs.
+    pub fn build_indexed(&self) -> Result<PreparedIndexedTransfer, ClientError> {
+        IndexedTransferPreparation {
+            transaction: self.transaction.clone(),
+            rail: match self.confidential_eddsa_owner {
+                Some(owner) => IndexedTransferRail::ConfidentialEddsa { owner },
+                None => IndexedTransferRail::Confidential,
+            },
+        }
+        .prepare_with_authorities(&self.authorities, true)
+    }
+
+    /// Invoke the selected prover with already completed inputs. No chain reads.
+    pub async fn prove<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncSprClient<R, I>,
-    ) -> Result<UnsignedMessage, ClientError> {
-        let mut owner_signers = submission_owner_signers(self.signed, self.fee_payer)?;
+        transfer: &TransferProofResult,
+    ) -> Result<Proof, ClientError> {
+        let keys = match &self.prover {
+            Some(prover) => prover.key_set(),
+            None => client.key_set(),
+        };
+        transfer.check_key_set(keys)?;
+        match &self.prover {
+            Some(prover) => match prover.server_client() {
+                Some(server) => server.prove(&transfer.request()?).await,
+                None => prove_on_blocking_pool(Arc::clone(prover), transfer.request()?).await,
+            },
+            None => client.prove(transfer).await,
+        }
+    }
+
+    pub fn prove_sync<R: BlockingRpc, I: BlockingIndexer>(
+        &self,
+        client: &SprClient<R, I>,
+        transfer: &TransferProofResult,
+    ) -> Result<Proof, ClientError> {
+        client.block_on(self.prove(&client.client, transfer))
+    }
+
+    /// Attach a returned proof without performing local Groth16 verification.
+    pub fn with_proof(
+        &self,
+        mut transfer: TransferProofResult,
+        proof: Proof,
+    ) -> Result<ProvedTransaction, ClientError> {
+        let proof = transfer.accept_proof(proof)?;
+        let tree_ids = transfer.tree_ids.clone();
+        self.proved_transaction(tree_ids, transfer.with_proof(proof))
+    }
+
+    fn proved_transaction(
+        &self,
+        input_tree_ids: Vec<u16>,
+        instruction_data: TransactIxData,
+    ) -> Result<ProvedTransaction, ClientError> {
+        let external = &self.transaction.external_data;
+        if instruction_data.private_tx_hash
+            != self.transaction.padding_independent_private_tx_hash()?
+            || instruction_data.expiry_unix_ts != external.expiry_unix_ts
+            || instruction_data.data_hash != external.data_hash
+            || instruction_data.ring_data_hash != external.ring_data_hash
+            || instruction_data.tx_viewing_pk != external.tx_viewing_pk
+            || instruction_data.salt != external.salt
+            || instruction_data.outputs != external.outputs
+            || instruction_data.messages != external.messages
+            || instruction_data
+                .interface_transfers
+                .iter()
+                .copied()
+                .ne(external
+                    .interface_transfers
+                    .iter()
+                    .copied()
+                    .map(SettlementTransfer::interface_transfer))
+        {
+            return Err(ClientError::TransactionProofRequestMismatch);
+        }
+        let mut owner_signers = self.transaction.owner_signer_pubkeys()?;
         if let Some(owner) = self.confidential_eddsa_owner {
             let owner = Address::new_from_array(owner.public_key().as_ed25519()?);
             owner_signers.retain(|signer| *signer != owner);
         }
-        let proving = async {
-            Ok::<_, ClientError>(match (&self.prover, client.indexed_prover()) {
-                (None, Some(server)) => {
-                    let prepared = match self.confidential_eddsa_owner {
-                        Some(owner) => {
-                            let prepared = IndexedTransferPreparation {
-                                transaction: self.signed.transaction.clone(),
-                                rail: IndexedTransferRail::ConfidentialEddsa { owner },
-                            }
-                            .prepare(self.authority)?;
-                            match client.indexer_config.require_slot {
-                                Some(slot) => prepared.with_min_context_slot(slot),
-                                None => prepared,
-                            }
-                        }
-                        None => client
-                            .transfer_preparation(self.signed)
-                            .prepare(self.authority)?,
-                    };
-                    let proved = server.prove_indexed(&prepared).await?;
-                    (
-                        indexed_trees(proved.input_tree_ids, &self.signed.transaction),
-                        proved.data,
-                    )
-                }
-                (prover, _) => {
-                    let witnesses = client
-                        .indexer
-                        .transaction_proofs(&self.signed.transaction.input_utxos, None)
-                        .await?;
-                    let mut assembled = match self.confidential_eddsa_owner {
-                        Some(owner) => assemble_confidential_eddsa(
-                            self.signed.transaction.clone(),
-                            &witnesses.spend_proofs,
-                            &witnesses.dummy_nullifier_proofs,
-                            owner,
-                        )?,
-                        None => assemble(
-                            self.signed.transaction.clone(),
-                            &witnesses.spend_proofs,
-                            &witnesses.dummy_nullifier_proofs,
-                        )?,
-                    };
-                    let proof = match prover {
-                        Some(prover) => {
-                            assembled.check_key_set(prover.key_set())?;
-                            self.authority
-                                .complete_inputs(&mut assembled.prover_inputs.inputs)?;
-                            let proof =
-                                prove_on_blocking_pool(Arc::clone(prover), assembled.request()?)
-                                    .await?;
-                            assembled.accept_proof_with_keys(proof, prover.key_set())?
-                        }
-                        None => {
-                            client
-                                .prove_assembled(&mut assembled, self.authority)
-                                .await?
-                        }
-                    };
-                    (
-                        transact_trees(&assembled, &self.signed.transaction),
-                        assembled.with_proof(proof),
-                    )
-                }
-            })
-        };
-        let ((trees, data), (recent_blockhash, last_valid_block_height)) =
-            prove_with_blockhash(client.rpc(), proving).await?;
-        Ok(UnsignedMessage {
-            message: build_unsigned_message(
-                client.compute_budget(),
-                self.fee_payer,
-                trees,
-                owner_signers,
-                self.signed.settlement_transfers.clone(),
-                data,
-                recent_blockhash,
-            )?,
-            last_valid_block_height,
+        Ok(ProvedTransaction {
+            payer: self.transaction.payer,
+            input_tree_ids,
+            output_tree_id: self.transaction.output_tree_id,
+            read_cache: self.transaction.cache_accounts.read,
+            write_cache: self.transaction.cache_accounts.write,
+            owner_signers,
+            settlement_transfers: self.transaction.external_data.interface_transfers.clone(),
+            instruction_data,
         })
     }
 
-    /// Prove, sign with `signers`, send through `client` and wait until the
-    /// transaction is confirmed and indexed. `signers` are the fee payer and
-    /// the native owners the transaction's inputs name, except the owner whose
-    /// key was supplied with [`Self::with_confidential_eddsa_owner`]. One keypair
-    /// playing both roles signs once.
-    pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
+    /// Fetch proof data, prove, and fetch settlement accounts and a blockhash in
+    /// parallel, then return the unsigned Solana message. Does not sign or send.
+    pub async fn fetch_and_prove<R: AsyncRpc, I: AsyncIndexer>(
+        &self,
+        client: &AsyncSprClient<R, I>,
+    ) -> Result<UnsignedMessage, ClientError> {
+        if self.transaction.cache_accounts.write.is_some() {
+            return Err(ClientError::CacheWriteNeedsWriter);
+        }
+        let proving = async {
+            if self.prover.is_none() && client.indexed_prover().is_some() {
+                let mut prepared = self.build_indexed()?;
+                if let Some(slot) = client.indexer_config.require_slot {
+                    prepared = prepared.with_min_context_slot(slot);
+                }
+                let proved = client.prove_indexed(&prepared).await?;
+                self.proved_transaction(proved.input_tree_ids, proved.data)
+            } else {
+                let input_proofs = client.fetch_input_proofs(self).await?;
+                let transfer = self.build(input_proofs)?;
+                let proof = self.prove(client, &transfer).await?;
+                self.with_proof(transfer, proof)
+            }
+        };
+        let (proved, accounts, (blockhash, height)) = tokio::try_join!(
+            proving,
+            client.fetch_settlement_accounts(self),
+            client.get_latest_blockhash(),
+        )?;
+        proved.build_solana_message(&accounts, blockhash, height, client.compute_budget())
+    }
+
+    pub fn fetch_and_prove_sync<R: BlockingRpc, I: BlockingIndexer>(
+        &self,
+        client: &SprClient<R, I>,
+    ) -> Result<UnsignedMessage, ClientError> {
+        client.block_on(self.fetch_and_prove(&client.client))
+    }
+
+    /// Fetch and prove, sign, submit, and wait for confirmation and indexing.
+    pub async fn prove_and_send<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncSprClient<R, I>,
         signers: &[&dyn Signer],
     ) -> Result<Signature, ClientError> {
-        let unsigned = self.finish_unsigned(client).await?;
-        let transaction = sign_transaction(unsigned.message, signers)?;
-        let signature = client.process_transaction(transaction).await?;
+        let unsigned = self.fetch_and_prove(client).await?;
+        let signature = client
+            .process_transaction(sign_transaction(unsigned.message, signers)?)
+            .await?;
         client.confirm_private_transaction(signature).await?;
         Ok(signature)
     }
 
-    /// See [`Self::finish_unsigned`].
-    pub fn finish_unsigned_sync<R: BlockingRpc, I: BlockingIndexer>(
-        &self,
-        client: &SprClient<R, I>,
-    ) -> Result<UnsignedMessage, ClientError> {
-        client.block_on(self.finish_unsigned(&client.client))
-    }
-
-    /// See [`Self::send`].
-    pub fn send_sync<R: BlockingRpc, I: BlockingIndexer>(
+    pub fn prove_and_send_sync<R: BlockingRpc, I: BlockingIndexer>(
         &self,
         client: &SprClient<R, I>,
         signers: &[&dyn Signer],
     ) -> Result<Signature, ClientError> {
-        client.block_on(self.send(&client.client, signers))
+        client.block_on(self.prove_and_send(&client.client, signers))
     }
-}
 
-/// Conservative reuse window for a blockhash prefetched while proving,
-/// measured from the RPC request's start. This is a client refresh policy;
-/// expiration follows chain state and the returned `last_valid_block_height`.
-const MAX_PREFETCHED_BLOCKHASH_AGE: Duration = Duration::from_secs(10);
-
-/// Prove and fetch the latest blockhash concurrently. Reuse the blockhash
-/// only if its request began at most [`MAX_PREFETCHED_BLOCKHASH_AGE`] ago;
-/// otherwise retry after proving. If proving finishes first, drop the pending
-/// prefetch before retrying. Proof errors return without waiting for the fetch,
-/// while a failed fetch is retried only after a successful proof.
-pub(super) async fn prove_with_blockhash<R: AsyncRpc, T>(
-    rpc: &R,
-    proving: impl Future<Output = Result<T, ClientError>>,
-) -> Result<(T, (Hash, u64)), ClientError> {
-    let requested_at = Instant::now();
-    let (proved, prefetched) = {
-        let prefetch = rpc.get_latest_blockhash();
-        tokio::pin!(proving, prefetch);
-        tokio::select! {
-            // Prefer a ready prefetch when both futures are ready.
-            biased;
-            blockhash = &mut prefetch => (proving.await?, Some(blockhash)),
-            proved = &mut proving => (proved?, None),
-        }
-    };
-    let blockhash = match prefetched {
-        Some(Ok(blockhash)) if requested_at.elapsed() <= MAX_PREFETCHED_BLOCKHASH_AGE => blockhash,
-        _ => rpc.get_latest_blockhash().await?,
-    };
-    Ok((proved, blockhash))
-}
-
-/// The owners who sign `signed`, once it is known that `fee_payer` is the
-/// payer its proof binds and that it writes no cache, which these submission
-/// paths cannot do.
-fn submission_owner_signers(
-    signed: &SignedPrivateTransaction,
-    fee_payer: Address,
-) -> Result<Vec<Address>, ClientError> {
-    validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
-    if signed.transaction.cache_accounts.write.is_some() {
-        return Err(ClientError::CacheWriteNeedsWriter);
-    }
-    Ok(signed.transaction.owner_signer_pubkeys()?)
-}
-
-/// The trees a `Transact` names, as the raw ids everything upstream carries.
-/// The accounts are derived here, at the one point the instruction needs them.
-struct TransactTrees {
-    /// The trees the inputs are nullified in, one per `tree_contexts` entry and
-    /// in that order, which is the order the builder pairs them up in.
-    input_tree_ids: Vec<u16>,
-    output_tree_id: u16,
-    read_cache: Option<Pubkey>,
-}
-
-/// The trees of a transfer the prover server proved on its indexed route,
-/// which reports the input trees it resolved.
-fn indexed_trees(input_tree_ids: Vec<u16>, transaction: &SppProofInputs) -> TransactTrees {
-    TransactTrees {
-        input_tree_ids,
-        output_tree_id: transaction.output_tree_id,
-        read_cache: transaction.cache_accounts.read,
-    }
-}
-
-/// Read both from the transaction itself: assembly declared the input trees in
-/// the order it emitted their contexts, and the output tree is the id every
-/// output commitment was hashed under. Nothing the client holds on the side can
-/// disagree with either.
-fn transact_trees(assembled: &AssembledTransfer, transaction: &SppProofInputs) -> TransactTrees {
-    TransactTrees {
-        input_tree_ids: assembled.input_tree_ids.clone(),
-        output_tree_id: transaction.output_tree_id,
-        read_cache: assembled.cache_accounts.read,
-    }
-}
-
-fn build_unsigned_message(
-    compute_budget: ComputeBudgetConfig,
-    fee_payer: Pubkey,
-    trees: TransactTrees,
-    owner_signers: Vec<Pubkey>,
-    settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
-    transact_data: spr_interface::instruction::instruction_data::transact::TransactIxData,
-    recent_blockhash: Hash,
-) -> Result<VersionedMessage, ClientError> {
-    SettlementAccountValidation {
-        transfers: &transact_data.interface_transfers,
-        accounts: &settlement_transfers,
-    }
-    .validate()?;
-    let transact = Transact {
-        payer: fee_payer,
-        input_trees: trees
-            .input_tree_ids
+    async fn resolve_settlement_accounts<R: AsyncRpc>(
+        &self,
+        rpc: &R,
+    ) -> Result<Vec<TransactInterfaceTransferAccounts>, ClientError> {
+        let mut accounts = Vec::with_capacity(self.settlement_transfers.len());
+        for (transfer, sol_accounts) in self
+            .transaction
+            .external_data
+            .interface_transfers
             .iter()
-            .copied()
-            .map(pda::tree)
-            .collect(),
-        output_tree: pda::tree(trees.output_tree_id),
-        owner_signers,
-        interface_transfer_accounts: settlement_transfers,
-        data: transact_data,
-    };
-    let transact_ix = match trees.read_cache {
-        Some(cache) => transact.instruction_with_cache_read(cache),
-        None => transact.instruction(),
-    };
-    // The transact is the only instruction: a v1 message states its compute
-    // ceiling and its priority fee in the header, so nothing rides along to
-    // set them.
-    compile_message(
-        &fee_payer,
-        core::slice::from_ref(&transact_ix),
-        recent_blockhash,
-        compute_budget,
-    )
+            .zip(&self.settlement_transfers)
+        {
+            if let Some(sol_accounts) = sol_accounts {
+                accounts.push(*sol_accounts);
+                continue;
+            }
+            let SettlementTransfer::Spl {
+                mint,
+                is_deposit,
+                user_spl_token,
+                ..
+            } = transfer
+            else {
+                return Err(ClientError::SettlementTransferTypeMismatch {
+                    index: accounts.len(),
+                });
+            };
+            let mint_account =
+                rpc.get_account(*mint)
+                    .await?
+                    .ok_or(ClientError::AccountNotFound {
+                        address: mint.to_bytes(),
+                    })?;
+            let token_program = mint_account.owner;
+            if token_program.to_bytes() != SPL_TOKEN_PROGRAM_ID
+                && token_program.to_bytes() != SPL_TOKEN_2022_PROGRAM_ID
+            {
+                return Err(ClientError::UnsupportedSplTokenProgram {
+                    mint: *mint,
+                    owner: token_program,
+                });
+            }
+            let token_account = rpc
+                .get_account(*user_spl_token)
+                .await?
+                .ok_or(ClientError::MissingSplTokenAccount { mint: *mint })?;
+            let invalid = || ClientError::InvalidSplTokenAccount {
+                address: *user_spl_token,
+                mint: *mint,
+            };
+            if token_account.owner != token_program {
+                return Err(invalid());
+            }
+            let token = StateWithExtensions::<TokenAccount>::unpack(&token_account.data)
+                .map_err(|_| invalid())?;
+            if token.base.mint != *mint {
+                return Err(invalid());
+            }
+            accounts.push(if *is_deposit {
+                TransactInterfaceTransferAccounts::SplDeposit(TransactSplDepositAccounts {
+                    mint: *mint,
+                    spl_interface: pda::spl_interface(mint),
+                    token_authority: token.base.owner,
+                    user_token_account: *user_spl_token,
+                    token_program,
+                })
+            } else {
+                TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+                    mint: *mint,
+                    spl_interface: pda::spl_interface(mint),
+                    user_token_account: *user_spl_token,
+                    token_program,
+                })
+            });
+        }
+        Ok(accounts)
+    }
+}
+
+#[cfg(test)]
+#[path = "transaction_test.rs"]
+mod tests;
+
+impl<R: AsyncRpc, I: AsyncIndexer> AsyncSprClient<R, I> {
+    pub async fn fetch_input_proofs(
+        &self,
+        request: &TransactionProofRequest<'_>,
+    ) -> Result<InputWitnesses, ClientError> {
+        self.indexer
+            .transaction_proofs(&request.transaction.input_utxos, Some(self.indexer_config))
+            .await
+    }
+
+    pub async fn fetch_settlement_accounts(
+        &self,
+        request: &TransactionProofRequest<'_>,
+    ) -> Result<Vec<TransactInterfaceTransferAccounts>, ClientError> {
+        request.resolve_settlement_accounts(self.rpc()).await
+    }
+
+    /// Invoke the configured backend without fetching proof data or verifying the proof locally.
+    pub async fn prove(&self, transfer: &TransferProofResult) -> Result<Proof, ClientError> {
+        transfer.check_key_set(self.key_set())?;
+        self.prove_request(transfer.request()?).await
+    }
+
+    /// Invoke the indexed backend. Resolution and response validation stay with that backend.
+    pub async fn prove_indexed(
+        &self,
+        prepared: &PreparedIndexedTransfer,
+    ) -> Result<crate::prover::indexed::ProvenIndexedTransfer, ClientError> {
+        self.server_prover()
+            .ok_or(ClientError::IndexedProverUnavailable)?
+            .prove_indexed(prepared)
+            .await
+    }
+}
+
+impl<R: BlockingRpc, I: BlockingIndexer> SprClient<R, I> {
+    pub fn fetch_input_proofs(
+        &self,
+        request: &TransactionProofRequest<'_>,
+    ) -> Result<InputWitnesses, ClientError> {
+        self.block_on(self.client.fetch_input_proofs(request))
+    }
+
+    pub fn fetch_settlement_accounts(
+        &self,
+        request: &TransactionProofRequest<'_>,
+    ) -> Result<Vec<TransactInterfaceTransferAccounts>, ClientError> {
+        self.block_on(self.client.fetch_settlement_accounts(request))
+    }
+
+    pub fn prove(&self, transfer: &TransferProofResult) -> Result<Proof, ClientError> {
+        self.block_on(self.client.prove(transfer))
+    }
+
+    pub fn prove_indexed(
+        &self,
+        prepared: &PreparedIndexedTransfer,
+    ) -> Result<crate::prover::indexed::ProvenIndexedTransfer, ClientError> {
+        self.block_on(self.client.prove_indexed(prepared))
+    }
 }
 
 #[cfg(all(test, feature = "reqwest"))]
 #[path = "transaction_runtime_keys_test.rs"]
 mod runtime_keys_tests;
-
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-
-    use super::*;
-
-    /// Each fetch returns its count as the hash and height. The first fetch
-    /// can fail, arrive late, or never finish; retries can also be delayed.
-    struct Blockhashes {
-        fetched: AtomicU32,
-        first_dropped: AtomicBool,
-        first: FirstFetch,
-        retry_delay: Duration,
-    }
-
-    enum FirstFetch {
-        Ready,
-        Failed,
-        Delayed(Duration),
-        Pending,
-    }
-
-    impl Blockhashes {
-        fn new(first: FirstFetch) -> Self {
-            Self {
-                fetched: AtomicU32::new(0),
-                first_dropped: AtomicBool::new(false),
-                first,
-                retry_delay: Duration::ZERO,
-            }
-        }
-
-        fn fetched(&self) -> u32 {
-            self.fetched.load(Ordering::SeqCst)
-        }
-    }
-
-    struct FetchDropped<'a>(&'a AtomicBool);
-
-    impl Drop for FetchDropped<'_> {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::SeqCst);
-        }
-    }
-
-    #[async_trait::async_trait]
-    impl AsyncRpc for Blockhashes {
-        async fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
-            let count = self.fetched.fetch_add(1, Ordering::SeqCst) + 1;
-            if count == 1 {
-                let _dropped = FetchDropped(&self.first_dropped);
-                match self.first {
-                    FirstFetch::Ready => {}
-                    FirstFetch::Failed => return Err(ClientError::Rpc("blockhash".into())),
-                    FirstFetch::Delayed(delay) => tokio::time::sleep(delay).await,
-                    FirstFetch::Pending => std::future::pending::<()>().await,
-                }
-            } else {
-                assert!(
-                    self.first_dropped.load(Ordering::SeqCst),
-                    "drop the prefetch before starting its replacement"
-                );
-                if !self.retry_delay.is_zero() {
-                    tokio::time::sleep(self.retry_delay).await;
-                }
-            }
-            Ok((Hash::new_from_array([count as u8; 32]), count.into()))
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_short_proof_uses_the_blockhash_fetched_beside_it() {
-        let rpc = Blockhashes::new(FirstFetch::Delayed(Duration::from_secs(2)));
-        let started = Instant::now();
-        let proving = async {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            Ok(7)
-        };
-        let (proved, (hash, height)) = prove_with_blockhash(&rpc, proving).await.unwrap();
-        assert_eq!(
-            (proved, hash, height),
-            (7, Hash::new_from_array([1; 32]), 1)
-        );
-        assert_eq!(rpc.fetched(), 1);
-        assert_eq!(started.elapsed(), Duration::from_secs(5));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_long_proof_fetches_the_blockhash_again() {
-        let rpc = Blockhashes::new(FirstFetch::Ready);
-        let proving = async {
-            tokio::time::sleep(MAX_PREFETCHED_BLOCKHASH_AGE + Duration::from_secs(1)).await;
-            Ok(7)
-        };
-        let (_, (_, height)) = prove_with_blockhash(&rpc, proving).await.unwrap();
-        assert_eq!((height, rpc.fetched()), (2, 2));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_fetch_that_failed_beside_the_proof_is_made_again_after_it() {
-        let rpc = Blockhashes::new(FirstFetch::Failed);
-        let proving = async {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            assert_eq!(rpc.fetched(), 1, "retry only after proving succeeds");
-            Ok(7)
-        };
-        let (_, (_, height)) = prove_with_blockhash(&rpc, proving).await.unwrap();
-        assert_eq!((height, rpc.fetched()), (2, 2));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_failed_proof_fails_without_another_fetch() {
-        let rpc = Blockhashes::new(FirstFetch::Failed);
-        let failed = prove_with_blockhash::<_, u32>(&rpc, async {
-            tokio::task::yield_now().await;
-            Err(ClientError::Rpc("proof".into()))
-        })
-        .await;
-        assert!(matches!(failed, Err(ClientError::Rpc(message)) if message == "proof"));
-        assert_eq!(rpc.fetched(), 1);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn rpc_latency_counts_toward_the_blockhash_age() {
-        // The response is slow whether proving finishes before or after it.
-        // In both cases the request started too long ago to reuse its hash.
-        for proof_seconds in [5, 30] {
-            let rpc = Blockhashes::new(FirstFetch::Delayed(Duration::from_secs(25)));
-            let proving = async {
-                tokio::time::sleep(Duration::from_secs(proof_seconds)).await;
-                Ok(7)
-            };
-            let (proved, (hash, height)) = prove_with_blockhash(&rpc, proving).await.unwrap();
-            assert_eq!(
-                (proved, hash, height, rpc.fetched()),
-                (7, Hash::new_from_array([2; 32]), 2, 2)
-            );
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_successful_proof_cancels_a_pending_prefetch_before_retrying() {
-        for proof_seconds in [5, 30] {
-            let rpc = Blockhashes::new(FirstFetch::Pending);
-            let started = Instant::now();
-            let proving = async {
-                tokio::time::sleep(Duration::from_secs(proof_seconds)).await;
-                Ok(7)
-            };
-            let result = tokio::time::timeout(
-                Duration::from_secs(proof_seconds + 1),
-                prove_with_blockhash(&rpc, proving),
-            )
-            .await
-            .expect("a successful proof must not wait for a pending prefetch")
-            .unwrap();
-            assert_eq!(result, (7, (Hash::new_from_array([2; 32]), 2)));
-            assert_eq!(rpc.fetched(), 2);
-            assert_eq!(started.elapsed(), Duration::from_secs(proof_seconds));
-        }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_slow_prefetch_does_not_add_latency_after_proving() {
-        let mut rpc = Blockhashes::new(FirstFetch::Delayed(Duration::from_secs(25)));
-        rpc.retry_delay = Duration::from_secs(25);
-        let started = Instant::now();
-        let proving = async {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            Ok(7)
-        };
-        let result = prove_with_blockhash(&rpc, proving).await.unwrap();
-        assert_eq!(result, (7, (Hash::new_from_array([2; 32]), 2)));
-        assert_eq!(rpc.fetched(), 2);
-        assert_eq!(started.elapsed(), Duration::from_secs(30));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_failed_proof_does_not_wait_for_a_pending_blockhash() {
-        let rpc = Blockhashes::new(FirstFetch::Pending);
-        let proving = async {
-            tokio::task::yield_now().await;
-            Err::<u32, _>(ClientError::Rpc("proof".into()))
-        };
-        let failed =
-            tokio::time::timeout(Duration::from_secs(1), prove_with_blockhash(&rpc, proving))
-                .await
-                .expect("a proof error must not wait for the pending blockhash request");
-        assert!(matches!(failed, Err(ClientError::Rpc(message)) if message == "proof"));
-        assert_eq!(rpc.fetched(), 1);
-    }
-}

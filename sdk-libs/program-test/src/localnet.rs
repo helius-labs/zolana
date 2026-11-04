@@ -337,7 +337,7 @@ fn connect(
         .and_then(|account| read_tree_id(&account.data))
         .ok_or_else(|| ProgramTestError::Localnet(format!("default tree {tree} is missing")))?;
     // The shared prover resolves against the checkout's Photon, not this one.
-    let client = SprClient::new(
+    let client = SprClient::from_parts(
         rpc,
         SprIndexer::new(ports.photon_url()),
         ProverClient::default(),

@@ -257,7 +257,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
         .into_iter()
         .map(|nf| indexer.dummy_nullifier_proof(nf))
         .collect();
-    let assembled = spr_client::assemble(tx.clone(), &proofs, &dummy).unwrap();
+    let assembled = spr_client::build_transfer(tx.clone(), &proofs, &dummy).unwrap();
     let ix = assembled.with_proof(TransactProof::zeroed());
     assert_eq!(ix.outputs, tx.external_data.outputs);
     assert_eq!(ix.salt, tx.external_data.salt);
@@ -500,7 +500,7 @@ fn async_authority_invokes_approval() {
             .unwrap();
 
     assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
-    prover_of(signed.transaction).build().unwrap();
+    prover_of(signed).build().unwrap();
 }
 
 #[tokio::test]

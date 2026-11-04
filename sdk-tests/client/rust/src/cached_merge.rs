@@ -5,7 +5,8 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use spr_client::{
-    assemble, transaction_size, AssembledTransfer, BlockingRpc, ComputeBudgetConfig, Rpc, SprClient,
+    build_transfer, transaction_size, BlockingRpc, ComputeBudgetConfig, Rpc, SprClient,
+    TransferProofResult,
 };
 use spr_interface::state::cache::CacheAccount;
 use spr_program::instruction::MergeTransact;
@@ -15,11 +16,11 @@ pub fn assemble_cached_transfer<R: BlockingRpc>(
     client: &SprClient<R>,
     tree: Address,
     proof_inputs: SppProofInputs,
-) -> Result<AssembledTransfer> {
+) -> Result<TransferProofResult> {
     let nullifier_proofs = client
         .get_non_inclusion_proofs(tree, proof_inputs.dummy_nullifiers(), None)?
         .proofs;
-    Ok(assemble(proof_inputs, &[], &nullifier_proofs)?)
+    Ok(build_transfer(proof_inputs, &[], &nullifier_proofs)?)
 }
 
 /// Polls the cache account until `slot` holds `commitment`. A production client

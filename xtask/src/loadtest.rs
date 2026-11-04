@@ -36,7 +36,7 @@ use solana_signer::Signer;
 // trait method rather than an inherent one on SolanaRpc.
 use spr_client::{
     prover::{tee::TeePolicy, AsyncProverClient},
-    Rpc, RpcSendTransactionConfig, SolanaRpc, SprClient,
+    Rpc, RpcSendTransactionConfig, SprClient,
 };
 use spr_keypair::ShieldedKeypair;
 use spr_test_utils::wallet::{
@@ -477,7 +477,7 @@ fn worker(
     // Retains support for private HTTP indexers. Prover attestation and
     // encryption still apply whenever a policy is supplied.
     let client = SprClient::from_urls_allowing_insecure_http(
-        SolanaRpc::new(options.rpc_url.clone()),
+        options.rpc_url.clone(),
         options.indexer_url.clone(),
         options.prover_url.clone(),
         options.prover_tee.clone(),

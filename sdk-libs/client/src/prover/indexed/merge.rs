@@ -4,8 +4,7 @@ use spr_interface::instruction::{
     instruction_data::{
         merge_ring::MergeRingIxData,
         merge_transact::{
-            merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof,
-            MergeTransactIxData,
+            MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeTransactIxData,
         },
     },
     tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
@@ -30,7 +29,6 @@ use crate::{
         json::MergeOutputParamsJson,
         merge::{check_output_ciphertext, MergePublicInputBinding, MergePublicInputs},
         transact::assembly::{assemble_outputs, without_compact_padding},
-        verify::MergeProofStatement,
         ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo,
     },
     ClientError,
@@ -302,16 +300,6 @@ impl Request for PreparedIndexedMerge {
         resolution: serde_json::Value,
     ) -> Result<ProvenIndexedMerge, ClientError> {
         let IndexedProof { proof, resolution } = self.request.finish(proof, resolution)?;
-        let statement = MergeProofStatement {
-            n_inputs: merge_circuit_width(self.data.nullifiers.len())
-                .ok_or_else(invalid_resolution)?,
-            public_input_hash: resolution.public_input_hash,
-        };
-        if self.ring_data_hash.is_some() {
-            statement.verify_ring(&proof)?;
-        } else {
-            statement.verify(&proof)?;
-        }
         let context = resolution
             .trees
             .first()

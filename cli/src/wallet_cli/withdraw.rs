@@ -35,8 +35,8 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
     let inputs = select_spend(ctx.spendable.utxos(), asset, opts.amount)?;
     let payer = Address::new_from_array(ctx.material.funding.pubkey().to_bytes());
     let mut transaction = ConfidentialTransaction::new(inputs, payer)?;
-    let settlement = transaction.withdraw_to(asset, opts.amount, recipient, spl_token_program)?;
-    let signature = send_private(&ctx, &client, transaction, vec![settlement], Send::Checked)?;
+    transaction.withdraw_to(asset, opts.amount, recipient, spl_token_program)?;
+    let signature = send_private(&ctx, &client, transaction, Send::Checked)?;
     println!(
         "ok withdraw amount={} mint={} to={} signature={}",
         opts.amount,

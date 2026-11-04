@@ -10,7 +10,7 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use spr_client::{assemble, ComputeBudgetConfig, ProverClient, SpendProof};
+use spr_client::{build_transfer, ComputeBudgetConfig, ProverClient, SpendProof};
 use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
@@ -124,7 +124,7 @@ impl LifecycleHarness {
             .collect();
 
         let owner_signers = proof_inputs.owner_signer_pubkeys()?;
-        let mut assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
+        let mut assembled = build_transfer(proof_inputs, &spend_proofs, &dummy_proofs)?;
         let proof = assembled.prove(&ProverClient::local(), &from_keypair.nullifier_key)?;
         let ix_data = assembled.with_proof(proof);
 

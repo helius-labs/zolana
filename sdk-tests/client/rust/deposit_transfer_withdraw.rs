@@ -42,7 +42,7 @@ fn main() -> Result<()> {
     } = setup()?;
 
     // Load the funded fee payer and localnet settings, then connect.
-    let client = SprClient::from_urls(SolanaRpc::new(rpc_url), &indexer_url, prover_url, None)?;
+    let client = SprClient::from_urls(rpc_url, &indexer_url, prover_url, None)?;
 
     // Mints that are registered with Solana Rings for privacy.
     let assets = AssetRegistry::default();
@@ -147,7 +147,14 @@ fn main() -> Result<()> {
 
         // 5. Prove. The witnesses are fetched inside this call, each under the
         // tree id its input carries, so no tree is named here.
-        let transfer_data = client.prove_transact(proof_inputs, None, &sender)?;
+        let request = spr_client::TransactionProofRequest::new(proof_inputs, &[&sender])?;
+        let input_proofs = client.fetch_input_proofs(&request)?;
+        let transfer_proof = request.build(input_proofs)?;
+        let proof = request.prove_sync(&client, &transfer_proof)?;
+        let transfer_data = request
+            .with_proof(transfer_proof, proof)?
+            .instruction_data()
+            .clone();
 
         // 6. Build the instruction. The accounts come from the ids: one input
         // tree per spent note, and the tree the outputs were hashed under.
@@ -219,7 +226,14 @@ fn main() -> Result<()> {
         let proof_inputs = withdrawal.encrypt(&sender)?;
 
         // 5. Prove.
-        let withdrawal_data = client.prove_transact(proof_inputs, None, &sender)?;
+        let request = spr_client::TransactionProofRequest::new(proof_inputs, &[&sender])?;
+        let input_proofs = client.fetch_input_proofs(&request)?;
+        let transfer_proof = request.build(input_proofs)?;
+        let proof = request.prove_sync(&client, &transfer_proof)?;
+        let withdrawal_data = request
+            .with_proof(transfer_proof, proof)?
+            .instruction_data()
+            .clone();
 
         // 6. Build the instruction, proof and settlement accounts together.
         let withdraw_ix = Transact {

@@ -11,7 +11,7 @@ mod key_set;
 pub mod merge;
 mod proof;
 pub mod proving_key;
-pub(crate) mod requests;
+pub mod requests;
 pub mod ring_authority;
 pub mod tee;
 pub mod timing;

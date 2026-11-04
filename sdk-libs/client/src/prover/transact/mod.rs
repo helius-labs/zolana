@@ -20,6 +20,7 @@ pub use owner_authorization::OwnerAuthorization;
 pub use ring_eddsa::{RingTransferProofResult, RingTransferProver};
 pub use spr_transaction::instructions::transact::PublicTransfers;
 pub use witness::{
-    assemble, assemble_confidential_eddsa, assemble_confidential_eddsa_with_dummy_policy,
-    assemble_with_dummy_policy, attach_input_proofs, AssembledTransfer, SpendProof,
+    attach_input_proofs, build_confidential_eddsa_transfer,
+    build_confidential_eddsa_transfer_with_dummy_policy, build_transfer,
+    build_transfer_with_dummy_policy, SpendProof,
 };

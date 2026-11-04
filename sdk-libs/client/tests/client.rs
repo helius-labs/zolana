@@ -18,14 +18,14 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use spr_client::{
-    client::{AsyncSprClient, SignedPrivateTransaction, SprClient, Submission},
+    client::{AsyncSprClient, SprClient, TransactionProofRequest},
     indexer::{AsyncSprIndexer, SprIndexer},
     prover::{
         tee::{TeeError, TeePolicy},
-        transact::assemble,
+        transact::build_transfer,
         witness::WitnessReader,
         AsyncProverClient, Proof, ProofCompressed, ProveRequest, Prover, ProverClient,
-        TransferInput, TransferInputs,
+        TransferInputs,
     },
     rpc::{
         compile_message, sign_transaction, AsyncRpc, IndexerPollConfig, IndexerRpcConfig, Rpc,
@@ -44,6 +44,302 @@ use spr_transaction::{
     instructions::transact::ConfidentialTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
     WalletUtxo,
 };
+
+#[test]
+fn requests_select_authorities_by_nullifier_public_key_for_each_input() {
+    let first_owner = ShieldedKeypair::new_ed25519().unwrap();
+    let second_owner = ShieldedKeypair::new_ed25519().unwrap();
+    let inputs = [
+        funded_utxo(&first_owner, 10),
+        funded_utxo(&second_owner, 20),
+    ];
+    let responses = |state: bool| {
+        let proofs: Vec<Value> = inputs
+            .iter()
+            .map(|input| {
+                let response = if state {
+                    merkle_response(pda::tree(input.tree_id), input.utxo_hash)
+                } else {
+                    nullifier_response(pda::tree(input.tree_id), input.nullifier)
+                };
+                response.pointer("/result/proofs/0").unwrap().clone()
+            })
+            .collect();
+        rpc_result(json!({ "context": { "blockTime": 10, "slot": 1 }, "proofs": proofs }))
+    };
+    let server = MockIndexerServer::respond_by_path(vec![
+        ("/getMerkleProofs", responses(true)),
+        ("/getNonInclusionProofs", responses(false)),
+    ]);
+    let prover = RecordingProver::default();
+    let client = SprClient::from_parts(
+        MockSubmitRpc::new(Signature::default()),
+        SprIndexer::new(server.url()),
+        prover.clone(),
+    );
+    let transaction = ConfidentialTransaction::new(inputs.to_vec(), Address::new_unique())
+        .unwrap()
+        .encrypt(&first_owner)
+        .unwrap();
+    let proved = TransactionProofRequest::new(transaction, &[&second_owner, &first_owner])
+        .unwrap()
+        .fetch_and_prove_sync(&client);
+    assert!(matches!(proved, Err(ClientError::Prover(message)) if message == "recording prover"));
+    let requests = prover.requests.lock().unwrap();
+    let (body, _) = requests.first().unwrap();
+    let encoded: Value = serde_json::from_str(body).unwrap();
+    let secrets: Vec<_> = encoded
+        .get("inputs")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .take(2)
+        .map(|input| input.get("nullifierSecret").unwrap().as_str().unwrap())
+        .collect();
+    let expected: Vec<_> = [&first_owner, &second_owner]
+        .into_iter()
+        .map(|owner| {
+            format!(
+                "0x{}",
+                num_bigint::BigUint::from_bytes_be(&*owner.nullifier_key.secret()).to_str_radix(16)
+            )
+        })
+        .collect();
+    assert_eq!(secrets, expected);
+}
+
+#[test]
+fn requests_reject_missing_and_ambiguous_authorities_before_proving() {
+    for ambiguous in [false, true] {
+        let (owner, signed, server) = with_prover_fixture();
+        let prover = RecordingProver::default();
+        let client = SprClient::from_parts(
+            MockSubmitRpc::new(Signature::default()),
+            SprIndexer::new(server.url()),
+            prover.clone(),
+        );
+        let authorities: Vec<&dyn ProofAuthority> = if ambiguous {
+            vec![&owner, &owner]
+        } else {
+            vec![]
+        };
+        let proved = TransactionProofRequest::new(signed.transaction, &authorities)
+            .unwrap()
+            .fetch_and_prove_sync(&client);
+        assert!(matches!(
+            (ambiguous, proved),
+            (false, Err(ClientError::MissingProofAuthority { index: 0 }))
+                | (true, Err(ClientError::AmbiguousProofAuthority { index: 0 }))
+        ));
+        assert!(prover.requests.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn authority_provider_failures_are_returned_without_trying_another_authority() {
+    struct Unavailable;
+    impl ProofAuthority for Unavailable {
+        fn owns_nullifier_pubkey(&self, _: &[u8; 32]) -> Result<bool, ClientError> {
+            Err(ClientError::Rpc("authority unavailable".into()))
+        }
+        fn complete_inputs(&self, _: &mut [spr_client::TransferInput]) -> Result<(), ClientError> {
+            panic!("selection failed before completion")
+        }
+    }
+    let (owner, signed, server) = with_prover_fixture();
+    let prover = RecordingProver::default();
+    let client = SprClient::from_parts(
+        MockSubmitRpc::new(Signature::default()),
+        SprIndexer::new(server.url()),
+        prover.clone(),
+    );
+    let proved = TransactionProofRequest::new(signed.transaction, &[&Unavailable, &owner])
+        .unwrap()
+        .fetch_and_prove_sync(&client);
+    assert!(matches!(proved, Err(ClientError::Rpc(message)) if message == "authority unavailable"));
+    assert!(prover.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn an_incomplete_authority_is_rejected_before_proving() {
+    struct Incomplete;
+    impl ProofAuthority for Incomplete {
+        fn owns_nullifier_pubkey(&self, _: &[u8; 32]) -> Result<bool, ClientError> {
+            Ok(true)
+        }
+        fn complete_inputs(&self, _: &mut [spr_client::TransferInput]) -> Result<(), ClientError> {
+            Ok(())
+        }
+    }
+    let (_, signed, server) = with_prover_fixture();
+    let prover = RecordingProver::default();
+    let client = SprClient::from_parts(
+        MockSubmitRpc::new(Signature::default()),
+        SprIndexer::new(server.url()),
+        prover.clone(),
+    );
+    let proved = TransactionProofRequest::new(signed.transaction, &[&Incomplete])
+        .unwrap()
+        .fetch_and_prove_sync(&client);
+    assert!(matches!(
+        proved,
+        Err(ClientError::MissingNullifierSecret { index: 0 })
+    ));
+    assert!(prover.requests.lock().unwrap().is_empty());
+}
+
+#[test]
+fn fetch_and_prove_attaches_the_proof_without_local_verification_or_submission() {
+    struct InvalidProof;
+    impl Prover for InvalidProof {
+        fn prove(&self, _: &dyn ProveRequest) -> Result<Proof, ClientError> {
+            Ok(Proof {
+                a: [0; 64],
+                b: [0; 128],
+                c: [0; 64],
+                commitment: None,
+            })
+        }
+    }
+    let (owner, signed, server) = with_prover_fixture();
+    let rpc = MockSubmitRpc::new(Signature::default());
+    let blockhash_reads = Arc::clone(&rpc.blockhash_reads);
+    let sent = Arc::clone(&rpc.sent);
+    let client = SprClient::from_parts(rpc, SprIndexer::new(server.url()), InvalidProof);
+    let proved = TransactionProofRequest::new(signed.transaction, &[&owner])
+        .unwrap()
+        .fetch_and_prove_sync(&client)
+        .expect("proof verification is left to the program");
+    assert_eq!(proved.message.header().num_required_signatures, 1);
+    assert_eq!(blockhash_reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(sent.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn fetch_and_prove_starts_the_blockhash_while_input_proofs_are_pending() {
+    struct WaitingIndexer {
+        blockhash_reads: Arc<std::sync::atomic::AtomicUsize>,
+    }
+    #[async_trait]
+    impl AsyncRpc for WaitingIndexer {}
+    impl spr_client::AsyncWitnessReader for WaitingIndexer {
+        async fn transaction_proofs(
+            &self,
+            _: &[SppProofInputUtxo],
+            _: Option<IndexerRpcConfig>,
+        ) -> Result<spr_client::InputWitnesses, ClientError> {
+            while self
+                .blockhash_reads
+                .load(std::sync::atomic::Ordering::SeqCst)
+                == 0
+            {
+                tokio::task::yield_now().await;
+            }
+            Err(ClientError::Rpc("input proofs unavailable".into()))
+        }
+        async fn input_witnesses(
+            &self,
+            _: &[&SppProofInputUtxo],
+            _: &[[u8; 32]],
+            _: Option<IndexerRpcConfig>,
+        ) -> Result<spr_client::InputWitnesses, ClientError> {
+            Err(ClientError::Rpc("unused proof operation".into()))
+        }
+    }
+    let payer = Keypair::new();
+    let owner = ShieldedKeypair::from_keypair(&payer).unwrap();
+    let transaction = ConfidentialTransaction::new(vec![funded_utxo(&owner, 10)], payer.pubkey())
+        .unwrap()
+        .encrypt(&owner)
+        .unwrap();
+    let rpc = MockSubmitRpc::new(Signature::default());
+    let blockhash_reads = Arc::clone(&rpc.blockhash_reads);
+    let sent = Arc::clone(&rpc.sent);
+    let prover = RecordingProver::default();
+    let client = AsyncSprClient::with_prover(
+        rpc,
+        WaitingIndexer {
+            blockhash_reads: Arc::clone(&blockhash_reads),
+        },
+        prover.clone(),
+    );
+    let request = TransactionProofRequest::new(transaction, &[&owner]).unwrap();
+    let unsigned = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        request.fetch_and_prove(&client),
+    )
+    .await
+    .expect("input-proof fetching must overlap blockhash fetching");
+    assert!(
+        matches!(unsigned, Err(ClientError::Rpc(message)) if message == "input proofs unavailable")
+    );
+    assert_eq!(blockhash_reads.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(prover.requests.lock().unwrap().is_empty());
+    assert!(sent.lock().unwrap().is_empty());
+}
+
+#[cfg(feature = "solana-rpc")]
+#[test]
+fn blocking_url_constructors_build_all_services_and_check_rpc_transport() {
+    drop(SprClient::new("https://gateway.example.com", None).unwrap());
+    assert!(matches!(
+        SprClient::from_urls(
+            "http://rpc.example.com",
+            "https://indexer.example.com",
+            "https://prover.example.com",
+            None,
+        ),
+        Err(ClientError::InsecureServiceUrl {
+            field: "rpc_url",
+            ..
+        })
+    ));
+    drop(SprClient::from_urls_allowing_insecure_http(
+        "http://rpc.internal",
+        "http://indexer.internal",
+        "http://prover.internal",
+        None,
+    ));
+}
+
+#[test]
+fn local_merge_keys_validate_the_address_nullifier_key() {
+    let owner = ShieldedKeypair::new_ed25519().unwrap();
+    let other = ShieldedKeypair::new_ed25519().unwrap();
+    assert!(matches!(
+        spr_client::LocalMergeKeys::new(owner.shielded_address().unwrap(), other.nullifier_key),
+        Err(ClientError::MergeNullifierKeyMismatch)
+    ));
+    let keys = spr_client::LocalMergeKeys::new(
+        owner.shielded_address().unwrap(),
+        owner.nullifier_key.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        spr_client::MergeKeys::address(&keys).unwrap(),
+        owner.shielded_address().unwrap()
+    );
+}
+
+struct TestTransaction {
+    transaction: spr_transaction::instructions::transact::SppProofInputs,
+    settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
+}
+
+fn test_client_from_urls<R>(
+    rpc: R,
+    indexer: impl AsRef<str>,
+    prover: impl AsRef<str>,
+) -> Result<SprClient<R>, ClientError> {
+    spr_client::check_service_url(indexer.as_ref(), "indexer_url")?;
+    spr_client::check_service_url(prover.as_ref(), "prover_url")?;
+    Ok(SprClient::from_parts(
+        rpc,
+        SprIndexer::new(indexer.as_ref()),
+        ProverClient::new(prover.as_ref().to_owned()),
+    ))
+}
 
 #[test]
 fn from_urls_requires_https_off_loopback() {
@@ -69,18 +365,17 @@ fn from_urls_requires_https_off_loopback() {
     ] {
         assert!(
             matches!(
-                SprClient::<(), SprIndexer>::from_urls((), indexer, prover, None),
+                test_client_from_urls((), indexer, prover),
                 Err(ClientError::InsecureServiceUrl { field: rejected, .. }) if rejected == field
             ),
             "expected {indexer} / {prover} to be rejected for {field}"
         );
     }
 
-    assert!(SprClient::<(), SprIndexer>::from_urls(
+    assert!(test_client_from_urls(
         (),
         "https://indexer.example.com",
         "https://prover.example.com",
-        None,
     )
     .is_ok());
 }
@@ -96,7 +391,7 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
         "http://svc.localhost:8784",
     ] {
         assert!(
-            SprClient::<(), SprIndexer>::from_urls((), url, url, None).is_ok(),
+            test_client_from_urls((), url, url).is_ok(),
             "expected {url} to be allowed"
         );
     }
@@ -106,7 +401,7 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
         "http://notlocalhost:8784",
     ] {
         assert!(
-            SprClient::<(), SprIndexer>::from_urls((), url, url, None).is_err(),
+            test_client_from_urls((), url, url).is_err(),
             "expected {url} to be rejected"
         );
     }
@@ -119,12 +414,15 @@ fn the_insecure_escape_hatch_is_explicit() {
     let indexer = "http://indexer.internal:8784";
     let prover = "http://prover.internal:3001";
     assert!(matches!(
-        SprClient::<(), SprIndexer>::from_urls((), indexer, prover, None),
+        test_client_from_urls((), indexer, prover),
         Err(ClientError::InsecureServiceUrl { .. })
     ));
 
-    let client =
-        SprClient::<(), SprIndexer>::from_urls_allowing_insecure_http((), indexer, prover, None);
+    let client = SprClient::from_parts(
+        (),
+        SprIndexer::new(indexer),
+        ProverClient::new(prover.to_owned()),
+    );
     assert_eq!(client.indexer().api().base_path(), indexer);
 }
 
@@ -134,10 +432,11 @@ fn the_insecure_escape_hatch_is_explicit() {
 async fn clients_of_either_mode_are_built_inside_an_async_runtime() {
     let (indexer, prover) = ("http://127.0.0.1:8784", "http://127.0.0.1:3001");
     drop(AsyncSprClient::from_urls((), indexer, prover, None).expect("loopback http is allowed"));
-    drop(SprClient::<(), SprIndexer>::from_urls((), indexer, prover, None).expect("loopback"));
+    drop(test_client_from_urls((), indexer, prover).expect("loopback"));
 }
 
 #[test]
+#[cfg(feature = "solana-rpc")]
 fn url_constructors_apply_the_supplied_policy_before_proving() {
     for insecure_http in [false, true] {
         let payer = Keypair::new();
@@ -153,14 +452,20 @@ fn url_constructors_apply_the_supplied_policy_before_proving() {
         .unwrap();
         let server = MockIndexerServer::respond_with(vec![json!({})]);
         let prover_url = format!("{}/v1/spr?api-key=fixture", server.url());
-        let rpc = MockSubmitRpc::new(Signature::default());
         let client = if insecure_http {
-            SprClient::from_urls_allowing_insecure_http(rpc, server.url(), prover_url, Some(policy))
+            SprClient::from_urls_allowing_insecure_http(
+                server.url(),
+                server.url(),
+                prover_url,
+                Some(policy),
+            )
         } else {
-            SprClient::from_urls(rpc, server.url(), prover_url, Some(policy)).unwrap()
+            SprClient::from_urls(server.url(), server.url(), prover_url, Some(policy)).unwrap()
         };
         assert!(matches!(
-            Rpc::prove(&client, transaction, &owner),
+            TransactionProofRequest::new(transaction, &[&owner])
+                .unwrap()
+                .fetch_and_prove_sync(&client),
             Err(ClientError::Tee(TeeError::MalformedAttestation(_)))
         ));
         assert_constructor_attested_only(server);
@@ -195,7 +500,10 @@ async fn async_url_constructors_apply_the_supplied_policy_before_proving() {
             AsyncSprClient::from_urls(rpc, server.url(), prover_url, Some(policy)).unwrap()
         };
         assert!(matches!(
-            AsyncRpc::prove(&client, transaction, &owner).await,
+            TransactionProofRequest::new(transaction, &[&owner])
+                .unwrap()
+                .fetch_and_prove(&client)
+                .await,
             Err(ClientError::Tee(TeeError::MalformedAttestation(_)))
         ));
         assert_constructor_attested_only(server);
@@ -232,7 +540,7 @@ async fn a_blocking_client_is_called_from_inside_a_multi_thread_runtime() {
     let signature = Signature::from([24u8; 64]);
     let server =
         MockIndexerServer::respond_with(vec![indexed_transaction_by_signature_response(signature)]);
-    let client = SprClient::new(
+    let client = SprClient::from_parts(
         MockSubmitRpc::new(signature),
         SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
@@ -320,7 +628,7 @@ fn confirm_private_transaction_sync_waits_for_indexer() {
         .expect("confidential transaction");
     transfer.withdraw_sol(4, recipient).expect("withdraw");
     let proof_inputs = transfer.encrypt(&sender).expect("encrypt");
-    let shielded = SignedPrivateTransaction {
+    let shielded = TestTransaction {
         transaction: proof_inputs,
         settlement_transfers: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
@@ -344,7 +652,7 @@ fn confirm_private_transaction_sync_waits_for_indexer() {
     ]);
     let rpc = MockSubmitRpc::new(signature);
     let sent = rpc.sent.clone();
-    let client = SprClient::new(
+    let client = SprClient::from_parts(
         rpc,
         SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
@@ -353,7 +661,7 @@ fn confirm_private_transaction_sync_waits_for_indexer() {
 
     let blockhash = Hash::default();
     let message = client
-        .finish_submission_unsigned_sync_with(&shielded, payer.pubkey(), &sender, blockhash, |_| {
+        .build_test_message(&shielded, payer.pubkey(), &sender, blockhash, |_| {
             Ok(ProofCompressed {
                 a: [0u8; 32],
                 b: [0u8; 128],
@@ -387,52 +695,6 @@ fn confirm_private_transaction_sync_waits_for_indexer() {
     assert_eq!(rest, ["/getShieldedTransactionsBySignature"]);
 }
 
-#[test]
-fn submit_validation_binds_fee_payer() {
-    struct StopBeforeProving;
-    impl ProofAuthority for StopBeforeProving {
-        fn complete_inputs(&self, _inputs: &mut [TransferInput]) -> Result<(), ClientError> {
-            Err(ClientError::Rpc("test authority reached".into()))
-        }
-    }
-
-    let payer = Keypair::new();
-    let sender = ShieldedKeypair::from_keypair(&payer).expect("sender");
-    let funded = funded_utxo(&sender, 10);
-    let tree = pda::tree(funded.tree_id);
-    let server = MockIndexerServer::respond_by_path(vec![
-        ("/getMerkleProofs", merkle_response(tree, funded.utxo_hash)),
-        (
-            "/getNonInclusionProofs",
-            nullifier_response(tree, funded.nullifier),
-        ),
-    ]);
-    let signed = SignedPrivateTransaction {
-        transaction: ConfidentialTransaction::new(vec![funded], payer.pubkey())
-            .expect("transaction")
-            .encrypt(&sender)
-            .expect("encrypt"),
-        settlement_transfers: Vec::new(),
-    };
-    let client = SprClient::new(
-        MockSubmitRpc::new(Signature::default()),
-        SprIndexer::new(server.url()),
-        ProverClient::new("http://unused.invalid".to_string()),
-    )
-    .with_proof_data_source(spr_client::ProofDataSource::Client);
-
-    assert!(matches!(
-        Submission::new(&signed, Keypair::new().pubkey(), &StopBeforeProving)
-            .finish_unsigned_sync(&client),
-        Err(ClientError::FeePayerMismatch)
-    ));
-    assert!(matches!(
-        Submission::new(&signed, payer.pubkey(), &StopBeforeProving).finish_unsigned_sync(&client),
-        Err(ClientError::Rpc(message)) if message == "test authority reached"
-    ));
-    assert_eq!(server.requests().len(), 2);
-}
-
 /// Records every request's body and proving key and refuses to prove, so a
 /// test can see what a custom backend was handed without a prover server.
 #[derive(Clone, Default)]
@@ -450,7 +712,7 @@ impl Prover for RecordingProver {
 }
 
 /// A signed 1-in transfer and an indexer that answers its two witness fetches.
-fn with_prover_fixture() -> (ShieldedKeypair, SignedPrivateTransaction, MockIndexerServer) {
+fn with_prover_fixture() -> (ShieldedKeypair, TestTransaction, MockIndexerServer) {
     let payer = Keypair::new();
     let sender = ShieldedKeypair::from_keypair(&payer).expect("sender");
     let funded = funded_utxo(&sender, 10);
@@ -462,7 +724,7 @@ fn with_prover_fixture() -> (ShieldedKeypair, SignedPrivateTransaction, MockInde
             nullifier_response(tree, funded.nullifier),
         ),
     ]);
-    let signed = SignedPrivateTransaction {
+    let signed = TestTransaction {
         transaction: ConfidentialTransaction::new(vec![funded], payer.pubkey())
             .expect("transaction")
             .encrypt(&sender)
@@ -488,17 +750,18 @@ fn assert_recorded_one_completed_transfer(prover: &RecordingProver) {
 }
 
 #[test]
-fn with_prover_replaces_the_prover_server_when_blocking() {
+fn from_parts_uses_a_custom_prover_when_blocking() {
     let (sender, signed, server) = with_prover_fixture();
     let prover = RecordingProver::default();
-    let client = SprClient::with_prover(
+    let client = SprClient::from_parts(
         MockSubmitRpc::new(Signature::default()),
         SprIndexer::new(server.url()),
         prover.clone(),
     );
 
-    let result =
-        Submission::new(&signed, signed.transaction.payer, &sender).finish_unsigned_sync(&client);
+    let result = TransactionProofRequest::new((signed).transaction.clone(), &[&sender])
+        .unwrap()
+        .fetch_and_prove_sync(&client);
     assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
     assert_recorded_one_completed_transfer(&prover);
 }
@@ -513,8 +776,9 @@ async fn with_prover_replaces_the_prover_server_when_async() {
         prover.clone(),
     );
 
-    let result = Submission::new(&signed, signed.transaction.payer, &sender)
-        .finish_unsigned(&client)
+    let result = TransactionProofRequest::new((signed).transaction.clone(), &[&sender])
+        .unwrap()
+        .fetch_and_prove(&client)
         .await;
     assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
     assert_recorded_one_completed_transfer(&prover);
@@ -525,7 +789,7 @@ async fn with_prover_replaces_the_prover_server_when_async() {
 /// panic.
 #[tokio::test]
 async fn a_blocking_client_inside_a_current_thread_runtime_is_an_error() {
-    let client = SprClient::new(
+    let client = SprClient::from_parts(
         MockSubmitRpc::new(Signature::default()),
         SprIndexer::new("http://127.0.0.1:1"),
         ProverClient::new("http://127.0.0.1:2".to_string()),
@@ -544,7 +808,7 @@ async fn a_blocking_client_inside_a_current_thread_runtime_is_an_error() {
 fn a_prover_given_for_one_submission_replaces_the_clients() {
     let own = RecordingProver::default();
     let with_own_prover = |server: &MockIndexerServer| {
-        SprClient::with_prover(
+        SprClient::from_parts(
             MockSubmitRpc::new(Signature::default()),
             SprIndexer::new(server.url()),
             own.clone(),
@@ -554,11 +818,10 @@ fn a_prover_given_for_one_submission_replaces_the_clients() {
     // server, not the client, reads the proof data. The mock indexer answers
     // only the two reads, so a request on that route fails the test.
     let on_indexed_route = |server: &MockIndexerServer| {
-        SprClient::from_urls(
+        test_client_from_urls(
             MockSubmitRpc::new(Signature::default()),
             server.url(),
             server.url(),
-            None,
         )
         .expect("loopback urls")
     };
@@ -568,9 +831,10 @@ fn a_prover_given_for_one_submission_replaces_the_clients() {
     ] {
         let (sender, signed, server) = with_prover_fixture();
         let given = RecordingProver::default();
-        let result = Submission::new(&signed, signed.transaction.payer, &sender)
+        let result = TransactionProofRequest::new((signed).transaction.clone(), &[&sender])
+            .unwrap()
             .with_prover(Arc::new(given.clone()))
-            .finish_unsigned_sync(&client(&server));
+            .fetch_and_prove_sync(&client(&server));
         assert!(
             matches!(result, Err(ClientError::Prover(message)) if message == "recording prover")
         );
@@ -596,7 +860,7 @@ fn spend_proofs_are_bound_to_requested_commitments_and_tree() {
                 nullifier_response(tree, input.nullifier),
             ),
         ]);
-        let client = SprClient::new(
+        let client = SprClient::from_parts(
             MockSubmitRpc::new(Signature::default()),
             SprIndexer::new(server.url()),
             ProverClient::new("http://unused.invalid".to_string()),
@@ -631,7 +895,7 @@ fn spend_proofs_are_bound_to_requested_commitments_and_tree() {
 #[test]
 fn a_client_writes_its_configured_ceilings_into_the_header() {
     let client = |price: Option<u64>| {
-        let base = SprClient::new(
+        let base = SprClient::from_parts(
             MockSubmitRpc::new(Signature::from([1u8; 64])),
             SprIndexer::new("http://unused.invalid"),
             ProverClient::new("http://unused.invalid".to_string()),
@@ -666,7 +930,7 @@ fn confirm_private_transaction_sync_times_out_when_indexer_lags() {
         "transactions": [],
     }))]);
     let rpc = MockSubmitRpc::new(signature);
-    let client = SprClient::new(
+    let client = SprClient::from_parts(
         rpc,
         SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
@@ -718,7 +982,7 @@ fn confirm_private_transaction_sync_retries_transient_indexer_error() {
         rpc_error(-32603, "Internal error"),
         indexed_transaction_by_signature_response(signature),
     ]);
-    let client = SprClient::new(
+    let client = SprClient::from_parts(
         MockSubmitRpc::new(signature),
         SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
@@ -748,7 +1012,7 @@ fn confirm_private_transaction_sync_surfaces_the_last_transient_error() {
         rpc_error(-32603, "Internal error"),
         rpc_error(-32603, "Internal error"),
     ]);
-    let client = SprClient::new(
+    let client = SprClient::from_parts(
         MockSubmitRpc::new(signature),
         SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
@@ -792,7 +1056,7 @@ fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
             { "eventIndex": 1, "transaction": indexed_transaction_json(signature) },
         ],
     }))]);
-    let client = SprClient::new(
+    let client = SprClient::from_parts(
         MockSubmitRpc::new(signature),
         SprIndexer::new(server.url()),
         ProverClient::new("http://unused.invalid".to_string()),
@@ -812,7 +1076,7 @@ fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
 fn client_forwards_transact_output_view_tags_to_the_rpc() {
     let signature = Signature::from([21u8; 64]);
     let expected = vec![[7u8; 32], [9u8; 32]];
-    let client = SprClient::new(
+    let client = SprClient::from_parts(
         MockSubmitRpc::new(signature).with_view_tags(expected.clone()),
         SprIndexer::new("http://unused.invalid"),
         ProverClient::new("http://unused.invalid".to_string()),
@@ -859,7 +1123,7 @@ fn a_client_with_its_own_prover_reads_only_its_indexer() {
             indexed_transaction_by_signature_response(signature),
         ),
     ]);
-    let signed = SignedPrivateTransaction {
+    let signed = TestTransaction {
         transaction: ConfidentialTransaction::new(vec![funded], payer.pubkey())
             .expect("transaction")
             .encrypt(&sender)
@@ -867,13 +1131,15 @@ fn a_client_with_its_own_prover_reads_only_its_indexer() {
         settlement_transfers: Vec::new(),
     };
     let prover = RecordingProver::default();
-    let client = SprClient::with_prover(
+    let client = SprClient::from_parts(
         MockSubmitRpc::new(signature),
         SprIndexer::new(server.url()),
         prover.clone(),
     );
 
-    let result = Submission::new(&signed, payer.pubkey(), &sender).finish_unsigned_sync(&client);
+    let result = TransactionProofRequest::new((signed).transaction.clone(), &[&sender])
+        .unwrap()
+        .fetch_and_prove_sync(&client);
     assert!(matches!(result, Err(ClientError::Prover(message)) if message == "recording prover"));
     assert_recorded_one_completed_transfer(&prover);
     client
@@ -927,6 +1193,7 @@ struct MockSubmitRpc {
     signature: Signature,
     view_tags: Vec<[u8; 32]>,
     sent: Arc<Mutex<Vec<VersionedTransaction>>>,
+    blockhash_reads: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl MockSubmitRpc {
@@ -935,6 +1202,7 @@ impl MockSubmitRpc {
             signature,
             view_tags: Vec::new(),
             sent: Arc::new(Mutex::new(Vec::new())),
+            blockhash_reads: Arc::default(),
         }
     }
 
@@ -950,6 +1218,8 @@ impl Rpc for MockSubmitRpc {
     }
 
     fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
+        self.blockhash_reads
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok((Hash::new_from_array([4u8; 32]), 100))
     }
 
@@ -984,6 +1254,10 @@ impl Rpc for MockSubmitRpc {
 
 #[async_trait]
 impl AsyncRpc for MockSubmitRpc {
+    async fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
+        Rpc::get_latest_blockhash(self)
+    }
+
     async fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
         Ok(true)
     }
@@ -1219,10 +1493,10 @@ fn write_json_response(stream: &mut TcpStream, response: &Value) {
     )
     .expect("write response");
 }
-trait TestSubmission {
-    fn finish_submission_unsigned_sync_with(
+trait TestMessageBuilder {
+    fn build_test_message(
         &self,
-        signed: &SignedPrivateTransaction,
+        signed: &TestTransaction,
         fee_payer: Pubkey,
         authority: &dyn ProofAuthority,
         recent_blockhash: Hash,
@@ -1230,10 +1504,10 @@ trait TestSubmission {
     ) -> Result<VersionedMessage, ClientError>;
 }
 
-impl<R: Rpc> TestSubmission for SprClient<R> {
-    fn finish_submission_unsigned_sync_with(
+impl<R: Rpc> TestMessageBuilder for SprClient<R> {
+    fn build_test_message(
         &self,
-        signed: &SignedPrivateTransaction,
+        signed: &TestTransaction,
         fee_payer: Pubkey,
         authority: &dyn ProofAuthority,
         recent_blockhash: Hash,
@@ -1249,20 +1523,15 @@ impl<R: Rpc> TestSubmission for SprClient<R> {
             &signed.transaction.dummy_nullifiers(),
             None,
         )?;
-        let mut assembled = assemble(
+        let mut assembled = build_transfer(
             signed.transaction.clone(),
             &witnesses.spend_proofs,
             &witnesses.dummy_nullifier_proofs,
         )?;
-        let inputs = &mut assembled.prover_inputs;
+        let inputs = &mut assembled.inputs;
         authority.complete_inputs(&mut inputs.inputs)?;
-        let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
-        let input_trees = assembled
-            .input_tree_ids
-            .iter()
-            .copied()
-            .map(pda::tree)
-            .collect();
+        let proof = prove(&assembled.inputs)?.to_transact_proof();
+        let input_trees = assembled.tree_ids.iter().copied().map(pda::tree).collect();
         let data = assembled.with_proof(proof);
         SettlementAccountValidation {
             transfers: &data.interface_transfers,
@@ -1295,37 +1564,21 @@ fn default_transfer_routes_skip_client_indexer_reads() {
         .unwrap()
         .encrypt(&owner)
         .unwrap();
-    let server = MockIndexerServer::respond_with(vec![json!({}), json!({}), json!({})]);
-    let client = SprClient::from_urls(
+    let server = MockIndexerServer::respond_with(vec![json!({})]);
+    let client = test_client_from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
-        None,
     )
     .unwrap();
+    let request = TransactionProofRequest::new(transaction, &[&owner]).unwrap();
     assert!(matches!(
-        Rpc::prove(&client, transaction.clone(), &owner),
-        Err(ClientError::MissingProvingKeySha256 { .. })
-    ));
-    assert!(matches!(
-        client.prove_transact(transaction.clone(), None, &owner),
-        Err(ClientError::MissingProvingKeySha256 { .. })
-    ));
-    assert!(matches!(
-        Submission::new(
-            &SignedPrivateTransaction {
-                transaction,
-                settlement_transfers: Vec::new(),
-            },
-            payer.pubkey(),
-            &owner,
-        )
-        .finish_unsigned_sync(&client),
+        request.fetch_and_prove_sync(&client),
         Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert_eq!(
         server.requests(),
-        ["/prove/transfer_confidential_1_2/indexed"; 3]
+        ["/prove/transfer_confidential_1_2/indexed"]
     );
 }
 
@@ -1337,7 +1590,7 @@ async fn default_async_transfer_routes_skip_client_indexer_reads() {
         .unwrap()
         .encrypt(&owner)
         .unwrap();
-    let server = MockIndexerServer::respond_with(vec![json!({}), json!({})]);
+    let server = MockIndexerServer::respond_with(vec![json!({})]);
     let client = AsyncSprClient::from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
@@ -1345,26 +1598,14 @@ async fn default_async_transfer_routes_skip_client_indexer_reads() {
         None,
     )
     .unwrap();
+    let request = TransactionProofRequest::new(transaction, &[&owner]).unwrap();
     assert!(matches!(
-        AsyncRpc::prove(&client, transaction.clone(), &owner).await,
-        Err(ClientError::MissingProvingKeySha256 { .. })
-    ));
-    assert!(matches!(
-        Submission::new(
-            &SignedPrivateTransaction {
-                transaction,
-                settlement_transfers: Vec::new(),
-            },
-            payer.pubkey(),
-            &owner,
-        )
-        .finish_unsigned(&client)
-        .await,
+        request.fetch_and_prove(&client).await,
         Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert_eq!(
         server.requests(),
-        ["/prove/transfer_confidential_1_2/indexed"; 2]
+        ["/prove/transfer_confidential_1_2/indexed"]
     );
 }
 
@@ -1378,16 +1619,17 @@ fn client_proof_data_opt_in_fetches_paths_before_proving() {
         .unwrap()
         .encrypt(&owner)
         .unwrap();
-    let client = SprClient::from_urls(
+    let client = test_client_from_urls(
         MockSubmitRpc::new(Signature::default()),
         server.url(),
         server.url(),
-        None,
     )
     .unwrap()
     .with_proof_data_source(spr_client::ProofDataSource::Client);
     assert!(matches!(
-        Rpc::prove(&client, transaction, &owner),
+        TransactionProofRequest::new(transaction, &[&owner])
+            .unwrap()
+            .fetch_and_prove_sync(&client),
         Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert_client_proof_data_requests(server.requests());
@@ -1412,7 +1654,10 @@ async fn client_proof_data_opt_in_fetches_paths_before_proving_async() {
     .unwrap()
     .with_proof_data_source(spr_client::ProofDataSource::Client);
     assert!(matches!(
-        AsyncRpc::prove(&client, transaction, &owner).await,
+        TransactionProofRequest::new(transaction, &[&owner])
+            .unwrap()
+            .fetch_and_prove(&client)
+            .await,
         Err(ClientError::MissingProvingKeySha256 { .. })
     ));
     assert_client_proof_data_requests(server.requests());
@@ -1453,7 +1698,7 @@ fn indexed_preparation_rejects_changed_inputs_and_wrong_authority() {
     let other = ShieldedKeypair::new_ed25519().unwrap();
     assert!(matches!(
         PreparedIndexedTransfer::new(transaction.clone(), &other),
-        Err(ClientError::InputNullifierMismatch { index: 0 })
+        Err(ClientError::MissingProofAuthority { index: 0 })
     ));
     let mut changed = transaction.clone();
     changed.input_utxos[0].nullifier[31] ^= 1;

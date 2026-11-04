@@ -1,6 +1,6 @@
 #![cfg(feature = "reqwest")]
 
-//! `MergeSubmission::prove` refuses a witness with a proof from another tree
+//! `MergeProofRequest::prove` refuses a witness with a proof from another tree
 //! than the merge's inputs: a merge proof verifies only against the tree its
 //! witness came from. The refusal comes before anything is proved.
 
@@ -12,7 +12,7 @@ use input_fixture::wallet_utxo;
 use solana_account::Account;
 use solana_address::Address;
 use spr_client::{
-    client::SprClient, rpc::IndexerRpcConfig, ClientError, InputWitnesses, MergeSubmission,
+    client::SprClient, rpc::IndexerRpcConfig, ClientError, InputWitnesses, MergeProofRequest,
     MerkleContext, MerkleProof, NonInclusionProof, ProverClient, Rpc, SpendProof, WitnessReader,
 };
 use spr_interface::pda;
@@ -140,15 +140,17 @@ fn a_witness_proof_from_another_tree_than_the_inputs_is_refused() {
         witnesses(tree, other, tree),
         witnesses(tree, tree, other),
     ] {
-        let client = SprClient::new(
+        let client = SprClient::from_parts(
             Chain {
                 record: record_account(owner, &sender),
             },
             Witnesses(witness),
             ProverClient::new("http://unused.invalid".to_string()),
         );
-        let proved = MergeSubmission::new(&merge, owner, &address, &sender.nullifier_key)
-            .prove_sync(&client);
+        let request = MergeProofRequest::new(merge.clone(), &sender).unwrap();
+        let record = request.fetch_record_sync(&client).unwrap();
+        let input_proofs = request.fetch_input_proofs_sync(&client).unwrap();
+        let proved = request.build(&record, input_proofs);
         assert!(matches!(
             proved,
             Err(ClientError::MergeInputTreeMismatch { proof_tree, input_tree })

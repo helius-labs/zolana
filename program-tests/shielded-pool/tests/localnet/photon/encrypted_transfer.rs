@@ -107,7 +107,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     // The payer owns the inputs, so it signs as their owner as well.
     let owner_signers = proof_inputs.owner_signer_pubkeys()?;
     // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
-    let mut assembled = spr_client::assemble(proof_inputs, &spend_proofs, &[])?;
+    let mut assembled = spr_client::build_transfer(proof_inputs, &spend_proofs, &[])?;
     let proof = assembled.prove(&ProverClient::local(), &sender)?;
     let ix_data = assembled.with_proof(proof);
 

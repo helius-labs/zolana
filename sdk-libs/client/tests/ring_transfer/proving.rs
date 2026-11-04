@@ -3,7 +3,7 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use spr_client::{
-    prover::verify_proof_statement, AnonymousRingEddsaProver, Prover, ProverClient, ProverExt,
+    prover::verify_proof_statement, AnonymousRingEddsaProver, Prover, ProverClient,
     PublicTransfers, RingTransferProver, Rpc, Shape, TransferInputUtxo,
 };
 use spr_interface::{
@@ -202,7 +202,10 @@ fn prove_and_verify_eddsa(
     let mut result = prover.build().expect("build ring-transfer witness");
     complete_inputs(&mut result.inputs.inputs, &keys);
     let proof = ProverClient::local()
-        .prove_transfer_ring(&result.inputs)
+        .prove(
+            &spr_client::prover::requests::transfer_ring(&result.inputs)
+                .expect("encode ring proof request"),
+        )
         .expect("prove ring-transfer");
     let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
     let mut verifier = Groth16Verifier::new(

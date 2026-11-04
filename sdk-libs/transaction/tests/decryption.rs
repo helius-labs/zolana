@@ -10,7 +10,9 @@ use solana_signature::Signature;
 use spr_event::{encode_merge_output_data, MergeOutputDataRef, OutputDataEncoding};
 use spr_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
 use spr_transaction::{
-    decrypt, decrypt_spendable,
+    decrypt,
+    decrypt::{UnresolvedOutput, UnresolvedOutputReason},
+    decrypt_spendable,
     instructions::merge::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
         MERGE_DEFAULT_INPUT_COUNT,
@@ -26,6 +28,25 @@ use spr_transaction::{
     SpendableDecryptionResult, TransactionError, TransactionKeyRequest, Utxo, UtxoSerialization,
     WalletUtxo, TRANSFER_PLAINTEXT,
 };
+
+fn unresolved_output(
+    tx: &ShieldedTransaction,
+    slot_index: u32,
+    reason: UnresolvedOutputReason,
+) -> UnresolvedOutput {
+    UnresolvedOutput {
+        tx_signature: tx.tx_signature,
+        event_index: tx.event_index,
+        slot_index,
+        output_context: tx
+            .output_slots
+            .get(slot_index as usize)
+            .expect("output slot")
+            .output_context
+            .clone(),
+        reason,
+    }
+}
 
 fn owner_cx<'a>(owner: &ShieldedKeypair, assets: &'a AssetRegistry) -> OwnerCx<'a> {
     OwnerCx {
@@ -159,6 +180,10 @@ fn sparse_encrypted_slots_preserve_metadata_and_separate_candidates_from_verifie
         DecryptionResult {
             utxos: vec![first.clone(), second.clone()],
             spent_nullifiers: HashSet::new(),
+            unresolved_outputs: vec![
+                unresolved_output(&tx, 0, UnresolvedOutputReason::InvalidFraming),
+                unresolved_output(&tx, 2, UnresolvedOutputReason::InvalidFraming),
+            ],
             ..Default::default()
         }
     );
@@ -677,9 +702,17 @@ fn reserved_encryption_schemes_do_not_request_decryption() {
         );
         tx.tx_viewing_pk = Some(tx_key.pubkey());
         tx.salt = Some([7; 16]);
+        let expected = DecryptionResult {
+            unresolved_outputs: vec![unresolved_output(
+                &tx,
+                0,
+                UnresolvedOutputReason::UnsupportedEncoding,
+            )],
+            ..Default::default()
+        };
         assert_eq!(
             decrypt(&keys, &[tx], &AssetRegistry::default()).unwrap(),
-            DecryptionResult::default(),
+            expected,
             "reserved scheme {scheme:?}"
         );
     }

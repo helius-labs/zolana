@@ -33,7 +33,7 @@ use crate::{
 };
 use solana_address::Address;
 use spr_client::{
-    assemble, prover::field::be, MerkleContext, MerkleProof, NonInclusionProof, SpendProof,
+    build_transfer, prover::field::be, MerkleContext, MerkleProof, NonInclusionProof, SpendProof,
     TransferProofResult, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use spr_interface::{
@@ -171,8 +171,9 @@ fn witness() -> TransferProofResult {
 }
 
 fn instruction_data() -> (Vec<u16>, TransactIxData) {
-    let assembled = assemble(two_tree_fixture(), &spend_proofs(), &[]).expect("assemble");
-    let tree_ids = assembled.input_tree_ids.clone();
+    let assembled =
+        build_transfer(two_tree_fixture(), &spend_proofs(), &[]).expect("build transfer");
+    let tree_ids = assembled.tree_ids.clone();
     (tree_ids, assembled.with_proof(TransactProof::zeroed()))
 }
 

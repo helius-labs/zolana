@@ -1,13 +1,14 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use spr_event::ProoflessOutput;
+use spr_keypair::PublicKey;
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
     utxo::Utxo,
-    EncryptedScheme,
+    EncryptedScheme, Mint,
 };
 
 pub struct ProoflessEncode {
@@ -33,24 +34,8 @@ impl UtxoSerialization for Proofless {
     }
 
     fn into_utxos(output: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
-        let mut records = Vec::new();
-        if let Some(ring_data) = output.ring_data {
-            records.push(DataRecord::RingData(ring_data));
-        }
-        if let Some(utxo_data) = output.utxo_data {
-            records.push(DataRecord::UtxoData(utxo_data));
-        }
-        if let Some(memo) = output.memo {
-            records.push(DataRecord::Memo(memo));
-        }
-        Ok(vec![Utxo {
-            owner: cx.owner,
-            asset: cx.assets.mint(&Address::new_from_array(output.asset))?,
-            amount: output.amount,
-            blinding: output.blinding,
-            ring_program_id: output.ring_program_id.map(Address::new_from_array),
-            data: Data::new(records),
-        }])
+        let mint = cx.assets.mint(&Address::new_from_array(output.asset))?;
+        Ok(vec![Self::into_utxo(output, cx.owner, mint)])
     }
 
     fn from_utxos(
@@ -79,5 +64,28 @@ impl UtxoSerialization for Proofless {
 
     fn encrypt(bytes: &[u8], _cx: &Self::EncodeCx) -> Result<Vec<u8>, TransactionError> {
         Ok(bytes.to_vec())
+    }
+}
+
+impl Proofless {
+    pub(crate) fn into_utxo(output: ProoflessOutput, owner: PublicKey, mint: Mint) -> Utxo {
+        let mut records = Vec::new();
+        if let Some(ring_data) = output.ring_data {
+            records.push(DataRecord::RingData(ring_data));
+        }
+        if let Some(utxo_data) = output.utxo_data {
+            records.push(DataRecord::UtxoData(utxo_data));
+        }
+        if let Some(memo) = output.memo {
+            records.push(DataRecord::Memo(memo));
+        }
+        Utxo {
+            owner,
+            asset: mint,
+            amount: output.amount,
+            blinding: output.blinding,
+            ring_program_id: output.ring_program_id.map(Address::new_from_array),
+            data: Data::new(records),
+        }
     }
 }

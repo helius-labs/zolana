@@ -11,7 +11,7 @@ use crate::{
         requests,
         transact::{
             confidential_eddsa::ConfidentialEddsaTransferInputs,
-            witness::{assemble_with_dummy_policy, SpendProof},
+            witness::{build_transfer_with_dummy_policy, SpendProof},
         },
     },
     rpc::NonInclusionProof,
@@ -22,12 +22,18 @@ use crate::{
 /// [`ProverClient`](crate::ProverClient) sends each request to a prover server.
 /// Implement [`Self::prove`] to prove somewhere else instead, such as in
 /// process or on a mobile device, and pass the implementation to
-/// [`SprClient::with_prover`](crate::SprClient::with_prover) or any
+/// [`SprClient::from_parts`](crate::SprClient::from_parts) or any
 /// `&dyn Prover` parameter. The typed proofs are [`ProverExt`] methods.
 ///
 /// A body carries nullifier secrets. An implementation must not log it or
 /// persist it.
 pub trait Prover: Send + Sync {
+    /// A server transport, when available, so clients can use its async and
+    /// indexed routes without driving a second blocking runtime.
+    fn server_client(&self) -> Option<&crate::AsyncProverClient> {
+        None
+    }
+
     /// Prove one request, returning the uncompressed negated proof.
     ///
     /// The proof must come from the key [`ProveRequest::proving_key`] names,
@@ -45,8 +51,8 @@ pub trait Prover: Send + Sync {
     fn prove(&self, request: &dyn ProveRequest) -> Result<Proof, ClientError>;
 
     /// The runtime key set this prover proves with, fixed for its lifetime.
-    /// `None`, the default, keeps the compiled keys. Clients verify this
-    /// prover's proofs against the same set.
+    /// `None`, the default, keeps the compiled keys. Use the returned set
+    /// when explicitly verifying this prover's proofs locally.
     fn key_set(&self) -> Option<&super::ProvingKeySet> {
         None
     }
@@ -55,9 +61,8 @@ pub trait Prover: Send + Sync {
 /// The typed proofs, built on [`Prover::prove`] with the same encoder the
 /// server path uses, so every backend receives the same body.
 ///
-/// Implemented for every [`Prover`], and only through that blanket impl, so a
-/// backend cannot override a typed method: every client path, including the
-/// async ones that call [`Prover::prove`] directly, proves through `prove`.
+/// The blanket implementation uses shared request encoders, so a backend
+/// receives the same proof inputs through the typed and high-level APIs.
 pub trait ProverExt: Prover {
     /// Prove a Solana-only (Ed25519) transfer. Call
     /// [`ProofCompressed::try_from`](crate::ProofCompressed) for the wire format.
@@ -77,22 +82,6 @@ pub trait ProverExt: Prover {
     /// Prove an 8-in/1-out merge.
     fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
         self.prove(&requests::merge(inputs)?)
-    }
-
-    /// Prove a ring-authority transfer (anonymous, no signature). Reuses the
-    /// Solana-only [`TransferInputs`] witness.
-    fn prove_ring_authority(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::ring_authority(inputs)?)
-    }
-
-    /// Prove a policy-ring merge (`merge-ring`).
-    fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::merge_ring(inputs)?)
-    }
-
-    /// Prove an EdDSA confidential policy-ring transfer (`transfer-ring`).
-    fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::transfer_ring(inputs)?)
     }
 
     /// Prove a nullifier-tree batch address-append update. Call
@@ -132,7 +121,7 @@ pub trait ProverExt: Prover {
         allow_dummy_inputs: bool,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
-        let mut assembled = assemble_with_dummy_policy(
+        let mut assembled = build_transfer_with_dummy_policy(
             proof_inputs,
             input_proofs,
             dummy_nullifier_proofs,

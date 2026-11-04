@@ -241,8 +241,8 @@ fn unique_counter_create_prove_and_verify() {
         })
         .collect();
     let assembled =
-        spr_client::assemble(spp.clone(), &[], &non_inclusion).expect("address witness");
-    let witness = assembled.prover_inputs.inputs.first().unwrap();
+        spr_client::build_transfer(spp.clone(), &[], &non_inclusion).expect("address witness");
+    let witness = assembled.inputs.inputs.first().unwrap();
     assert_eq!(
         witness.utxo.domain,
         spr_hasher::primitives::right_align(&spr_interface::ADDRESS_DOMAIN.to_be_bytes())
@@ -262,7 +262,7 @@ fn unique_counter_create_prove_and_verify() {
 
     let mut bad = spp;
     bad.input_utxos.first_mut().unwrap().utxo.amount = 1;
-    assert!(spr_client::assemble(bad, &[], &non_inclusion).is_err());
+    assert!(spr_client::build_transfer(bad, &[], &non_inclusion).is_err());
     let native_owner = owner.instantiate(&Allocator::native()).unwrap();
     let other = spr_program::circuit::UniqueDataUtxo::<circuit::Counter>::new_init(
         &native_owner,
