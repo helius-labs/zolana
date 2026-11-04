@@ -44,7 +44,7 @@ cpi = ["spr-instruction/cpi"]
 # the tree and nullifier PDA checks of a read, and their transact CPI.
 compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:spr-tree", "dep:thiserror"]
 # Experimental: `ShieldedPda`, a shielded identity owned by a program-derived
-# address. Host-only, it links `spr-keypair`.
+# address. Needs `std`, since it links `spr-keypair`.
 shielded-pda = ["dep:spr-keypair", "dep:zeroize"]
 circuit = [
     "dep:ark-bn254",

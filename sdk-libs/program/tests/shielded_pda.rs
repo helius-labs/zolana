@@ -3,8 +3,8 @@
 
 use solana_address::Address;
 use spr_keypair::{
-    random_salt, Curve, KeypairError, NullifierKey, ShieldedKeypairTrait, ViewingKey,
-    ViewingKeyTrait,
+    derivation::PdaRoleExpansion, random_salt, Curve, KeypairError, NullifierKey,
+    ShieldedKeypairTrait, ViewingKey, ViewingKeyTrait,
 };
 use spr_program::ShieldedPda;
 
@@ -18,6 +18,24 @@ fn alice() -> ViewingKey {
 
 fn bob() -> ViewingKey {
     ViewingKey::from_bytes(&[2; 32])
+}
+
+/// spr-keypair's related-peer ECDH test asserts that no forged seed reaches the
+/// roles `PdaRoleExpansion` derives from the canonical viewing secret. This pins
+/// `from_viewing_key` to exactly those roles, so that test covers `ShieldedPda`.
+#[test]
+fn from_viewing_key_uses_the_canonical_viewing_secret() {
+    let alice = alice();
+    let identity = ShieldedPda::from_viewing_key(pda(7), &alice).unwrap();
+    let expansion = PdaRoleExpansion::new(&alice.secret_bytes(), pda(7).to_bytes());
+    assert_eq!(
+        identity.nullifier_pubkey().unwrap(),
+        expansion.nullifier_key().unwrap().pubkey().unwrap()
+    );
+    assert_eq!(
+        identity.viewing_pubkey(),
+        expansion.viewing_key().unwrap().pubkey()
+    );
 }
 
 #[test]
