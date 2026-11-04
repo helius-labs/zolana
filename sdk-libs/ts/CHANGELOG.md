@@ -15,12 +15,15 @@ Breaking
 - `serializeWallet` writes snapshot version 5 with slot checkpoints, and `SerializedCursor` and `SerializedSyncCursors` become `SerializedSyncCheckpoint` and `SerializedSyncCheckpoints` → restore earlier snapshots with `deserializeWallet`, which keeps the wallet state and rescans history once.
 - `Prover` requires `proveAnonymousRingTransact` → implement the method on custom provers.
 - `ProverInputs`, `IndexedProofInputs` and `CircuitId` add anonymous ring variants → forward them in custom `ProofService` and `ProofAuthority` implementations.
+- `ShieldedKeypairLike` requires `ringNullifierKey(ringProgramId)` → return `ringNullifierKey(await this.nullifierKey(), ringProgramId)` in custom keypairs.
 
 Added
 
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `ZolanaClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `ZolanaClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
+- `ringNullifierKey(root, ringProgramId)` and `ShieldedKeypair.ringNullifierKey` give a wallet a separate nullifier key per ring program without a new signature, and refuse a zero secret with `KEYPAIR_ZERO_NULLIFIER_SECRET`.
+- `ShieldedPda.fromKeyExchange` and `ShieldedPda.fromViewingKey` derive a PDA identity as the Rust SDK does, and `ShieldedPda.ringNullifierKey` gives it one key per ring and PDA, refusing a PDA with supplied roles with `KEYPAIR_PDA_ROOT_NOT_HELD`.
 - `ZolanaClientConfig.provingKeys`, with `proofDataSource: "client"`, makes every proof use the set's keys and `checkProverProvingKeys()` check only those keys; a circuit outside the set and the indexed route fail with `CLIENT_PROVING_KEY_SET`, whose `details.check` names the reason.
 
 Changed

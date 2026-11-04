@@ -19,6 +19,8 @@ export type KeypairErrorCode =
   | "KEYPAIR_PDA_CANNOT_SIGN"
   | "KEYPAIR_DERIVATION_INPUT"
   | "KEYPAIR_INVALID_DERIVATION_SEED"
+  | "KEYPAIR_ZERO_NULLIFIER_SECRET"
+  | "KEYPAIR_PDA_ROOT_NOT_HELD"
   // TypeScript-only: Rust rejects these at the type level.
   | "KEYPAIR_INVALID_LENGTH"
   | "KEYPAIR_HASH";
@@ -36,6 +38,8 @@ export const KEYPAIR_ERROR_RUST_VARIANT: Readonly<Record<KeypairErrorCode, strin
     KEYPAIR_PDA_CANNOT_SIGN: "PdaCannotSign",
     KEYPAIR_DERIVATION_INPUT: "DerivationInput",
     KEYPAIR_INVALID_DERIVATION_SEED: "InvalidDerivationSeed",
+    KEYPAIR_ZERO_NULLIFIER_SECRET: "ZeroNullifierSecret",
+    KEYPAIR_PDA_ROOT_NOT_HELD: "PdaRootNotHeld",
     KEYPAIR_INVALID_LENGTH: null,
     KEYPAIR_HASH: null,
   });
