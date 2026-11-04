@@ -1,7 +1,9 @@
 package shared_test
 
 import (
+	"encoding/json"
 	"math/big"
+	"os"
 	"testing"
 
 	customring "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/custom"
@@ -362,5 +364,94 @@ func TestRingAuthorityExitBindsTheCacheSelection(t *testing.T) {
 			change(&assignment.CachedInputs)
 			assertExitFails(t, exitShape, assignment, nil)
 		})
+	}
+}
+
+// Rust and TypeScript pin the same entry of the shared vector.
+func TestRingAuthorityExitPublicInputHashMatchesTheSharedVector(t *testing.T) {
+	raw, err := os.ReadFile("../../../../../test-vectors/public_input_hash.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors struct {
+		Transfers []struct {
+			Name             string   `json:"name"`
+			Nullifiers       []string `json:"nullifiers"`
+			OutputHashes     []string `json:"output_hashes"`
+			OutputTreeID     int64    `json:"output_tree_id"`
+			PrivateTxHash    string   `json:"private_tx_hash"`
+			ExternalDataHash string   `json:"external_data_hash"`
+			PublicAssets     []string `json:"public_assets"`
+			PublicAmounts    []string `json:"public_amounts"`
+			RingProgramID    string   `json:"ring_program_id"`
+			InputFlags       string   `json:"input_flags"`
+			SignerPkHashes   []string `json:"signer_pk_hashes"`
+			OutputOwners     []string `json:"output_owner_pk_hashes"`
+			CachedInputs     []string `json:"cached_inputs"`
+			TreeSlots        []struct {
+				ID            int64  `json:"id"`
+				UtxoRoot      string `json:"utxo_root"`
+				NullifierRoot string `json:"nullifier_root"`
+			} `json:"tree_slots"`
+			PublicInputHash string `json:"public_input_hash"`
+		} `json:"transfers"`
+	}
+	if err := json.Unmarshal(raw, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	field := func(value string) *big.Int {
+		parsed, ok := new(big.Int).SetString(value, 16)
+		if !ok {
+			t.Fatalf("invalid field %q", value)
+		}
+		return parsed
+	}
+	fields := func(values []string) []*big.Int {
+		out := make([]*big.Int, len(values))
+		for i, value := range values {
+			out[i] = field(value)
+		}
+		return out
+	}
+	checked := false
+	for _, vector := range vectors.Transfers {
+		if vector.Name != "ring_authority_exit_2x2" {
+			continue
+		}
+		checked = true
+		inputs := protocol.PublicInputs{
+			Nullifiers:          fields(vector.Nullifiers),
+			OutputUtxoHashes:    fields(vector.OutputHashes),
+			OutputTreeID:        big.NewInt(vector.OutputTreeID),
+			PrivateTxHash:       field(vector.PrivateTxHash),
+			ExternalDataHash:    field(vector.ExternalDataHash),
+			RingProgramID:       field(vector.RingProgramID),
+			InputFlags:          field(vector.InputFlags),
+			SignerPkHashes:      fields(vector.SignerPkHashes),
+			BindOutputOwnerTags: true,
+			OutputOwnerPkHashes: fields(vector.OutputOwners),
+			PreimageTail:        fields(vector.CachedInputs),
+		}
+		for i := 0; i < NPublicSlots; i++ {
+			inputs.PublicAssets[i] = field(vector.PublicAssets[i])
+			inputs.PublicAmounts[i] = field(vector.PublicAmounts[i])
+		}
+		for _, slot := range vector.TreeSlots {
+			inputs.TreeSlots = append(inputs.TreeSlots, protocol.TreeSlot{
+				ID:            big.NewInt(slot.ID),
+				UtxoRoot:      field(slot.UtxoRoot),
+				NullifierRoot: field(slot.NullifierRoot),
+			})
+		}
+		hash, err := protocol.PublicInputHash(inputs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hash.Cmp(field(vector.PublicInputHash)) != 0 {
+			t.Fatalf("public input hash %x, want %s", hash, vector.PublicInputHash)
+		}
+	}
+	if !checked {
+		t.Fatal("missing vector")
 	}
 }
