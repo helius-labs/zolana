@@ -10,8 +10,9 @@ use num_bigint::BigUint;
 use solana_address::Address;
 use spr_interface::instruction::instruction_data::transact::TreeContext;
 use spr_transaction::{
-    instructions::transact::PublicTransfers, utxo::program_id_proof_input_hash, ExternalData,
-    SppProofOutputUtxo,
+    instructions::transact::{CacheAccounts, PublicTransfers},
+    utxo::program_id_proof_input_hash,
+    ExternalData, SppProofOutputUtxo,
 };
 
 use crate::{
@@ -44,6 +45,7 @@ pub struct RingTransferProver {
     /// non-dummy UTXO's ring field by the circuit.
     pub ring_program_id: Option<Address>,
     pub shape: Shape,
+    pub cache_accounts: CacheAccounts,
 }
 
 #[derive(Debug, Clone)]
@@ -74,7 +76,7 @@ impl RingTransferProver {
         let cache = CacheSelection::derive(
             &self.inputs,
             &self.outputs,
-            Default::default(),
+            self.cache_accounts,
             &self.external_data,
         )?;
         let AssembledTransaction {

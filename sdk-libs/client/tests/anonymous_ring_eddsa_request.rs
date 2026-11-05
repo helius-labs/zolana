@@ -11,10 +11,12 @@ use spr_client::{
     prover::{
         attach_input_proofs,
         indexed::{IndexedTransferPreparation, IndexedTransferRail, Request},
-        transact::anonymous_ring_eddsa::anonymous_signer_pk_hashes,
+        transact::anonymous_ring_eddsa::{
+            anonymous_signer_pk_hashes, AnonymousRingEddsaProofResult,
+        },
         AnonymousRingEddsaProver, ProveRequest, Shape,
     },
-    MerkleContext, MerkleProof, NonInclusionProof, ProofAuthority, SpendProof,
+    ClientError, MerkleContext, MerkleProof, NonInclusionProof, ProofAuthority, SpendProof,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use spr_interface::{
@@ -26,8 +28,9 @@ use spr_interface::{
 };
 use spr_keypair::{ShieldedKeypair, SigningKey};
 use spr_transaction::{
-    instructions::transact::SppProofInputs, utxo::SppProofInputUtxo, Data, ExternalData, Mint,
-    SppProofOutputUtxo, Utxo,
+    instructions::transact::{CacheAccounts, SppProofInputs},
+    utxo::SppProofInputUtxo,
+    Data, ExternalData, Mint, SppProofOutputUtxo, Utxo,
 };
 
 use crate::{input_fixture::wallet_utxo, output_blindings::assign_output_blindings};
@@ -133,13 +136,16 @@ fn spend_proof(input: &SppProofInputUtxo) -> SpendProof {
     }
 }
 
-/// The plain request body and the wincode selector the transfer carries before its proof.
-fn request_and_circuit(input_ring: Option<Address>) -> (Value, String) {
+fn anonymous_proof(
+    input_ring: Option<Address>,
+    cache_accounts: CacheAccounts,
+) -> Result<(ShieldedKeypair, AnonymousRingEddsaProofResult), ClientError> {
     let owner = keypair(OWNER_SEED);
     let key = signing_key(OWNER_SEED);
     let transaction = proof_inputs(&owner, input_ring);
     let proofs = [spend_proof(&transaction.input_utxos[0])];
-    let mut result = AnonymousRingEddsaProver {
+    let result = AnonymousRingEddsaProver {
+        cache_accounts,
         signer_pk_hashes: anonymous_signer_pk_hashes(&transaction, &owner.signing_pubkey())
             .unwrap(),
         public_transfers: transaction.public_transfers().unwrap(),
@@ -153,8 +159,27 @@ fn request_and_circuit(input_ring: Option<Address>) -> (Value, String) {
         ring_program_id: Some(Address::new_from_array(RING)),
         shape: Shape::IN1_OUT2,
     }
-    .build()
-    .unwrap();
+    .build()?;
+    Ok((owner, result))
+}
+
+#[test]
+fn the_prover_binds_its_cache_accounts() {
+    let write = CacheAccounts {
+        write: Some(Address::new_from_array([0x31; 32])),
+        ..Default::default()
+    };
+    assert!(matches!(
+        anonymous_proof(Some(Address::new_from_array(RING)), write),
+        Err(ClientError::Transaction(
+            spr_transaction::TransactionError::UnusedWriteCache
+        ))
+    ));
+}
+
+/// The plain request body and the wincode selector the transfer carries before its proof.
+fn request_and_circuit(input_ring: Option<Address>) -> (Value, String) {
+    let (owner, mut result) = anonymous_proof(input_ring, Default::default()).unwrap();
     owner
         .complete_inputs(&mut result.inputs.transfer.inputs)
         .unwrap();

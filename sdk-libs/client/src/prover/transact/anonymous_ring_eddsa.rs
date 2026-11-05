@@ -8,7 +8,7 @@ use spr_hasher::primitives::{hash_bytes, solana_owner_identity};
 use spr_interface::instruction::instruction_data::transact::TreeContext;
 use spr_keypair::PublicKey;
 use spr_transaction::{
-    instructions::transact::{PublicTransfers, SppProofInputs},
+    instructions::transact::{CacheAccounts, PublicTransfers, SppProofInputs},
     utxo::program_id_proof_input_hash,
     ExternalData, SppProofOutputUtxo,
 };
@@ -48,6 +48,7 @@ pub struct AnonymousRingEddsaProver<'a> {
     pub owner: OwnerAuthorization<'a>,
     pub ring_program_id: Option<Address>,
     pub shape: Shape,
+    pub cache_accounts: CacheAccounts,
 }
 
 #[derive(Debug, Clone)]
@@ -98,7 +99,7 @@ impl AnonymousRingEddsaProver<'_> {
         let cache = CacheSelection::derive(
             &self.inputs,
             &self.outputs,
-            Default::default(),
+            self.cache_accounts,
             &self.external_data,
         )?;
         let AssembledTransaction {

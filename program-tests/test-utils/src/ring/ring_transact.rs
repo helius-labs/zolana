@@ -644,6 +644,7 @@ impl RingHarness {
         match rail {
             RingRail::Eddsa => {
                 let prover = RingTransferProver {
+                    cache_accounts: Default::default(),
                     blinding_seed: proof_inputs.blinding_seed,
                     output_tree_id: proof_inputs.output_tree_id,
                     inputs: input_utxos,
@@ -698,6 +699,7 @@ impl RingHarness {
             }
             RingRail::AnonymousEddsa => {
                 let prover = AnonymousRingEddsaProver {
+                    cache_accounts: Default::default(),
                     blinding_seed: proof_inputs.blinding_seed,
                     output_tree_id: proof_inputs.output_tree_id,
                     inputs: input_utxos,
@@ -948,6 +950,7 @@ impl RingHarness {
         let ring = Address::new_from_array(self.ring_program_id.to_bytes());
         let tx_shape = proof_inputs.check_shape()?;
         let prover = RingTransferProver {
+            cache_accounts: Default::default(),
             blinding_seed: proof_inputs.blinding_seed,
             output_tree_id: proof_inputs.output_tree_id,
             inputs: self.ring_input_utxos(&proof_inputs.input_utxos)?,

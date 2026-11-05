@@ -143,6 +143,8 @@ impl IndexedTransferPreparation<'_> {
         {
             return Err(super::invalid());
         }
+        // A frame of only dummies lets any dummy open a tree.
+        let deposit = transaction.input_utxos.iter().all(|input| input.is_dummy());
         let mut trees: Vec<IndexedTree> = Vec::new();
         let mut lookups = Vec::new();
         let mut local_inputs = Vec::new();
@@ -161,7 +163,7 @@ impl IndexedTransferPreparation<'_> {
             let position = match trees.iter().position(|tree| tree.id == input.tree_id) {
                 Some(position) => position,
                 None => {
-                    if input.is_dummy() {
+                    if input.is_dummy() && !deposit {
                         return Err(ClientError::NoInputs);
                     }
                     if trees.len() == MAX_INPUT_TREES {
@@ -729,6 +731,7 @@ mod tests {
                 }
                 1 => {
                     let result = crate::RingTransferProver {
+                        cache_accounts: Default::default(),
                         inputs,
                         outputs: transaction.output_utxos.clone(),
                         blinding_seed: transaction.blinding_seed,
@@ -770,6 +773,7 @@ mod tests {
                 3 => {
                     let signers = vec![[0; 32]; shape.signer_width()];
                     let result = crate::prover::transact::AnonymousRingEddsaProver {
+                        cache_accounts: Default::default(),
                         inputs,
                         outputs: transaction.output_utxos.clone(),
                         blinding_seed: transaction.blinding_seed,
@@ -1037,6 +1041,32 @@ mod tests {
             .unwrap()
             .encrypt_with_keys(&keys)
             .unwrap()
+    }
+
+    #[test]
+    fn a_deposit_opens_the_tree_of_its_dummies() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let sender = owner.shielded_address().unwrap();
+        let payer = sender.solana_address().unwrap();
+        let mut transaction =
+            spr_transaction::instructions::transact::ConfidentialTransaction::new_deposit(4, payer)
+                .unwrap();
+        transaction.deposit_sol(5, payer).unwrap();
+        transaction.transfer_sol(&sender, 5).unwrap();
+        let transaction = transaction
+            .encrypt_with_viewing_key(&sender, &spr_keypair::ViewingKey::new())
+            .unwrap();
+        let prepared = IndexedTransferPreparation {
+            transaction,
+            rail: IndexedTransferRail::Confidential,
+        }
+        .prepare(&owner)
+        .unwrap();
+        assert!(prepared
+            .data
+            .inputs
+            .iter()
+            .all(|input| input.tree_index == 0));
     }
 
     /// The ring authority rail has no address slot; the owner-signed ring rail
