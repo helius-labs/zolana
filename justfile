@@ -561,7 +561,7 @@ test-zk-standalone:
 test-spr-program:
     cargo check --tests --all-features -p spr-program -p spr-macros
     just test-zk-standalone
-    cargo check --tests -p timelock-escrow-program --features localnet,wasm,bpf-entrypoint,cpi,test-sbf,profile-program
+    cargo check --tests -p timelock-escrow-program --features localnet,wasm,bpf-entrypoint,profile-program
     cargo check --lib -p timelock-escrow-program --features circuits,r1cs-export
     just test-spr-program-unit
     just test-spr-program-external

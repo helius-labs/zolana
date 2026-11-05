@@ -1,3 +1,5 @@
+pub mod client;
+
 use anyhow::{anyhow, Result};
 use solana_instruction::Instruction;
 use solana_signer::Signer;

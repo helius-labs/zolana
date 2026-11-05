@@ -39,10 +39,11 @@ use spr_transaction::{
     instructions::transact::PrivateTxHash, Data, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
+use spr_program_test::initial_nullifier_tree;
 use spr_test_utils::transact::{
     build_spl_withdrawal, build_transfer_prover_inputs, change_and_dummy_outputs,
     derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output, external_data_hash,
-    fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+    fe, inline_outputs, input_utxo, new_transact_ix_data, output_owner_pk_hashes,
     prove_and_verify_transfer, public_sol_field, real_output, set_output_owner_tags,
     single_tree_slots, sol_leg, sol_public_slots, spl_leg, spl_public_slots,
     test_private_tx_blinding, transfer_input, transfer_output, TransferInputArgs,
@@ -181,7 +182,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
 
     // Nullifier non-inclusion proof (height 40). The reference tree is seeded
     // with the BN254 p-1 sentinel, matching the on-chain NULLIFIER_TREE_INIT_ROOT.
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
     let nullifier = nullifier_key
         .nullifier(&utxo_hash, &blinding)
@@ -409,7 +410,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
 
     // Two circuit-dummy inputs with derived nullifiers and non-inclusion
     // witnesses (PR164 constrains dummies), owner identity pinned to zero.
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     let (deposit_dummy_0, nullifier_0) =
         dummy_input(&[31u8; 31], &nf_tree, tree_id).expect("dummy input 0");
     let (deposit_dummy_1, nullifier_1) =
@@ -620,7 +621,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     let owner = PublicKey::from_ed25519(&payer_bytes);
 
     // Two circuit-dummy inputs (construction as above at :395).
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     let (deposit_dummy_0, nullifier_0) =
         dummy_input(&[41u8; 31], &nf_tree, tree_id).expect("dummy input 0");
     let (deposit_dummy_1, nullifier_1) =
@@ -857,7 +858,7 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
         current_tree_roots(&env.rpc, &tree);
     assert_eq!(state_tree.root(), shield_utxo_root, "shield root gate");
 
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
 
     let payer_nullifier = payer_nullifier_key

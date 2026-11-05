@@ -26,9 +26,10 @@ use shielded_pool_tests::support::localnet::{
     print_signature, send_indexed, LocalnetPool, SolTransferWitness, SolTransferWitnessArgs,
 };
 
+use spr_program_test::initial_nullifier_tree;
 use spr_test_utils::transact::{
-    change_and_dummy_outputs, dummy_input, nullifier_tree, public_sol_field, real_output,
-    single_tree_slots, sol_leg, transfer_input, transfer_output, TransferInputArgs,
+    change_and_dummy_outputs, dummy_input, public_sol_field, real_output, single_tree_slots,
+    sol_leg, transfer_input, transfer_output, TransferInputArgs,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -125,7 +126,7 @@ fn phase_setup() -> TestResult<SolCycle> {
 
     let tree_pubkey = tree;
     let state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
-    let nf_tree = nullifier_tree()?;
+    let nf_tree = initial_nullifier_tree();
     Ok(SolCycle {
         rpc_url,
         program_id,

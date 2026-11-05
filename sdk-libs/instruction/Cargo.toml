@@ -13,8 +13,9 @@ name = "spr_instruction"
 
 [features]
 # The shielded pool's transact instruction as a signed CPI from a pinocchio
-# program.
-cpi = ["dep:pinocchio"]
+# program. `curve25519` derives PDAs off chain too; the Solana target uses the
+# syscall either way.
+cpi = ["dep:pinocchio", "solana-address/curve25519"]
 
 [dependencies]
 pinocchio = { workspace = true, features = ["cpi"], optional = true }

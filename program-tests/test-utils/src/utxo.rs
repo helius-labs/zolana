@@ -290,7 +290,7 @@ impl spr_client::ProofAuthority for ProofKeys<'_> {
 
 /// Non-inclusion witnesses for benchmark padding in a fresh fixture tree.
 pub fn dummy_proofs(transaction: &SppProofInputs) -> Vec<spr_client::NonInclusionProof> {
-    let tree = crate::transact::nullifier_tree().expect("fixture nullifier tree");
+    let tree = spr_program_test::initial_nullifier_tree();
     transaction
         .input_utxos
         .iter()

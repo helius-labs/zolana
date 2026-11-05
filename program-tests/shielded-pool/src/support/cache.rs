@@ -28,13 +28,14 @@ use spr_interface::{
 };
 use spr_keypair::{pubkey::PublicKey, NullifierKey};
 use spr_program::instruction::{CreateCache, Transact};
+use spr_program_test::initial_nullifier_tree;
 use spr_program_test::SprProgramTest;
 use spr_test_utils::{
     prover::spawn_workspace_prover,
     transact::{
         build_transfer_prover_inputs, cache_read_selection, cached_spend_input, compact_input,
         derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output,
-        external_data_hash, fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree,
+        external_data_hash, fe, inline_outputs, input_utxo, new_transact_ix_data,
         output_owner_pk_hashes, pack_transact_proof, real_output, set_output_owner_tags,
         single_tree_slots, sol_public_slots, test_private_tx_blinding, transfer_output,
         TransferProverInputsArgs, TEST_BLINDING_SEED,
@@ -105,7 +106,7 @@ impl CachedSpendFixture {
         let (_, nullifier_root) = tree_roots(rpc, &tree, 0);
         let tree_slots = single_tree_slots(tree_id, zero, nullifier_root);
 
-        let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+        let nf_tree = initial_nullifier_tree();
         assert_eq!(
             nf_tree.root(),
             nullifier_root,

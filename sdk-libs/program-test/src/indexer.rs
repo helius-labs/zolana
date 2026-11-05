@@ -376,7 +376,7 @@ impl TestIndexer {
 
 /// The nullifier tree as `create_tree` initializes it on chain: one sentinel
 /// leaf whose range runs to the field modulus.
-fn initial_nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
+pub fn initial_nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
     let upper_bound =
         BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).expect("the BN254 modulus") - 1u32;
     IndexedMerkleTree::new_with_next_value(NULLIFIER_TREE_HEIGHT, 0, upper_bound)

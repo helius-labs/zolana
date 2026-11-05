@@ -1,9 +1,8 @@
 use anyhow::Result;
 use solana_address::Address;
-use spr_hasher::primitives::hash_bytes;
+use spr_hasher::primitives::{hash_bytes, right_align};
 use spr_keypair::{derivation::MERGE_INFO, hash::poseidon, symmetric_apply};
 use spr_transaction::utxo::Blinding;
-use swap_program::instructions::shared::u64_right_align;
 use swap_prover::TAKE_ENC_KDF_DOMAIN;
 
 use crate::{err, shared::right_align_blinding};
@@ -11,7 +10,7 @@ use crate::{err, shared::right_align_blinding};
 pub const DESTINATION_CIPHERTEXT_LEN: usize = 8 + 32 + 32;
 
 fn take_shared_secret(order_utxo_blinding: &Blinding) -> Result<[u8; 32]> {
-    let domain = u64_right_align(TAKE_ENC_KDF_DOMAIN);
+    let domain = right_align(&TAKE_ENC_KDF_DOMAIN.to_be_bytes());
     poseidon(&[&right_align_blinding(order_utxo_blinding), &domain]).map_err(err)
 }
 

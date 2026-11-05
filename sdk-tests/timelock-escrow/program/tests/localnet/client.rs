@@ -3,12 +3,12 @@ use solana_instruction::{AccountMeta, Instruction};
 use spr_interface::instruction::instruction_data::transact::TransactIxData;
 use spr_program::{instruction::Transact, CompressedProof};
 
-use crate::{
+use timelock_escrow_program::{
     circuits::escrow_authority,
     instructions::{escrow::EscrowArgs, withdraw::WithdrawArgs},
     tag, ID,
 };
-// TODO: move to tests as utils file
+
 pub struct EscrowInstruction {
     pub creator: Address,
     pub tree: Address,

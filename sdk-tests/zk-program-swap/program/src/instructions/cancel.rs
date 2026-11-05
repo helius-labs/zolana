@@ -5,15 +5,17 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use spr_account_checks::AccountIterator;
-use spr_hasher::primitives::solana_owner_identity;
-use spr_hasher::{Hasher, Poseidon};
+use spr_hasher::{
+    primitives::{right_align, solana_owner_identity},
+    Hasher, Poseidon,
+};
 use spr_interface::instruction::instruction_data::transact::TransactIxData;
 use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{
     error::SwapError,
     instructions::{
-        shared::{check_after_window, cpi_spp_transact_signed, u64_right_align},
+        shared::{check_after_window, cpi_spp_transact_signed},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
 };
@@ -48,7 +50,7 @@ impl CancelPublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
         Poseidon::hashv(&[
             self.private_tx_hash.as_slice(),
-            u64_right_align(self.expiry).as_slice(),
+            right_align(&self.expiry.to_be_bytes()).as_slice(),
             self.maker_owner_pk_field.as_slice(),
         ])
         .map_err(|_| SwapError::HashingFailed.into())

@@ -3330,6 +3330,7 @@ dependencies = [
  "solana-pubkey 4.2.1",
  "solana-system-interface 3.2.0",
  "spr-client",
+ "spr-hasher",
  "spr-interface",
  "spr-keypair",
  "spr-program",
@@ -3343,14 +3344,12 @@ name = "dynamic-swap-test"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bincode 1.3.3",
  "bytemuck",
  "dynamic-swap-program",
  "dynamic-swap-prover",
  "dynamic-swap-sdk",
  "light-program-profiler",
  "mollusk-svm",
- "num-bigint 0.4.8",
  "solana-account 4.3.2",
  "solana-address 2.6.1",
  "solana-instruction",
@@ -3360,15 +3359,12 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "spr-client",
- "spr-hasher",
  "spr-interface",
  "spr-keypair",
- "spr-merkle-tree",
  "spr-program",
  "spr-program-test",
  "spr-test-utils",
  "spr-transaction",
- "spr-tree",
  "spr-user-registry-interface",
 ]
 
@@ -7138,11 +7134,8 @@ name = "rfq-test"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bincode 1.3.3",
  "light-program-profiler",
  "mollusk-svm",
- "num-bigint 0.4.8",
- "solana-account 4.3.2",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
@@ -7150,15 +7143,12 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "spr-client",
- "spr-hasher",
  "spr-interface",
  "spr-keypair",
- "spr-merkle-tree",
  "spr-program",
  "spr-program-test",
  "spr-test-utils",
  "spr-transaction",
- "spr-tree",
 ]
 
 [[package]]
@@ -11151,6 +11141,7 @@ dependencies = [
  "bytemuck",
  "futures",
  "groth16-solana",
+ "light-program-profiler",
  "mollusk-svm",
  "num-bigint 0.4.8",
  "rand 0.8.8",
@@ -11607,6 +11598,7 @@ dependencies = [
  "spr-client",
  "spr-gnark-ffi-prover",
  "spr-gnark-ffi-prover-build",
+ "spr-hasher",
  "swap-program",
 ]
 
@@ -11639,13 +11631,8 @@ name = "swap-test-validator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bincode 1.3.3",
- "borsh",
- "groth16-solana",
  "light-program-profiler",
  "mollusk-svm",
- "num-bigint 0.4.8",
- "solana-account 4.3.2",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
@@ -11653,15 +11640,11 @@ dependencies = [
  "solana-signature",
  "solana-signer",
  "spr-client",
- "spr-hasher",
  "spr-interface",
  "spr-keypair",
- "spr-merkle-tree",
- "spr-program",
  "spr-program-test",
  "spr-test-utils",
  "spr-transaction",
- "spr-tree",
  "spr-user-registry-interface",
  "swap-program",
  "swap-prover",

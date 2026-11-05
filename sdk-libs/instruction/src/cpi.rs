@@ -1,11 +1,12 @@
-//! The shielded pool's transact instruction as a CPI from a pinocchio program.
+//! The shielded pool's transact instruction as a CPI from a pinocchio program,
+//! and the PDA signer a program signs it with.
 
 use alloc::vec::Vec;
 use core::fmt;
 
 use pinocchio::{
     address::address_eq,
-    cpi::{invoke_signed_with_bounds, Signer},
+    cpi::{invoke_signed_with_bounds, Seed, Signer},
     error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
@@ -87,6 +88,107 @@ impl<'a> SppTransactAccounts<'a> {
             data: &instruction_data,
         };
         invoke_signed_with_bounds::<MAX_ACCOUNTS, _>(&instruction, self.accounts, signers)
+    }
+}
+
+/// The seeds of a program-derived address without its bump: an array of one
+/// to fifteen seeds, the most a PDA takes besides the bump.
+pub trait PdaSeeds {
+    /// The seeds with the bump appended, as a CPI signs with them.
+    type WithBump<'s>: AsRef<[Seed<'s>]>
+    where
+        Self: 's;
+
+    /// The seeds, as `Address::find_program_address` takes them.
+    fn seeds(&self) -> &[&[u8]];
+
+    /// The signer seeds: these seeds, then `bump`.
+    fn signer_seeds<'s>(&'s self, bump: &'s [u8; 1]) -> Self::WithBump<'s>;
+}
+
+macro_rules! pda_seeds {
+    ($($len:literal => [$($index:literal),+]),+ $(,)?) => {$(
+        impl PdaSeeds for [&[u8]; $len] {
+            type WithBump<'s> = [Seed<'s>; $len + 1] where Self: 's;
+
+            #[inline(always)]
+            fn seeds(&self) -> &[&[u8]] {
+                self
+            }
+
+            #[inline(always)]
+            fn signer_seeds<'s>(&'s self, bump: &'s [u8; 1]) -> Self::WithBump<'s> {
+                [$(Seed::from(self[$index]),)+ Seed::from(bump)]
+            }
+        }
+    )+};
+}
+
+pda_seeds! {
+    1 => [0],
+    2 => [0, 1],
+    3 => [0, 1, 2],
+    4 => [0, 1, 2, 3],
+    5 => [0, 1, 2, 3, 4],
+    6 => [0, 1, 2, 3, 4, 5],
+    7 => [0, 1, 2, 3, 4, 5, 6],
+    8 => [0, 1, 2, 3, 4, 5, 6, 7],
+    9 => [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    10 => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    11 => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    12 => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    13 => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    14 => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+    15 => [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+}
+
+/// A PDA of the calling program at its canonical bump, which the program signs
+/// for in a CPI. `seeds` exclude the bump; [`Self::find`] derives it.
+pub struct PdaSigner<S> {
+    address: Address,
+    seeds: S,
+    bump: [u8; 1],
+}
+
+impl<S: PdaSeeds> PdaSigner<S> {
+    /// Derives the PDA of `seeds` under `program_id`.
+    #[inline(always)]
+    pub fn find(seeds: S, program_id: &Address) -> Self {
+        let (address, bump) = Address::find_program_address(seeds.seeds(), program_id);
+        Self {
+            address,
+            seeds,
+            bump: [bump],
+        }
+    }
+
+    pub fn address(&self) -> &Address {
+        &self.address
+    }
+
+    pub fn bump(&self) -> u8 {
+        self.bump[0]
+    }
+
+    /// The seeds and the bump, for a [`Signer`] of any CPI.
+    #[inline(always)]
+    pub fn signer_seeds(&self) -> S::WithBump<'_> {
+        self.seeds.signer_seeds(&self.bump)
+    }
+
+    /// Invokes transact with the serialized instruction data
+    /// `transact_bytes` through `accounts`, signing for this PDA, which must
+    /// be one of them. `MAX_ACCOUNTS` is as in [`SppTransactAccounts::invoke`].
+    #[inline(always)]
+    pub fn invoke_transact<const MAX_ACCOUNTS: usize>(
+        &self,
+        accounts: &[AccountView],
+        transact_bytes: &[u8],
+    ) -> ProgramResult {
+        let signer_pdas = [&self.address];
+        let spp = SppTransactAccounts::new(accounts, &signer_pdas)?;
+        let seeds = self.signer_seeds();
+        spp.invoke::<MAX_ACCOUNTS>(transact_bytes, &[Signer::from(seeds.as_ref())])
     }
 }
 

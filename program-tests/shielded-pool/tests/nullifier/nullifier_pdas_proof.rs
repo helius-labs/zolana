@@ -14,6 +14,7 @@ use spr_interface::{
 use spr_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use spr_merkle_tree::MerkleTree;
 use spr_program::instruction::Transact;
+use spr_program_test::initial_nullifier_tree;
 use spr_program_test::{Rejection, Rpc, TransactionTrace};
 use spr_test_utils::{
     nullifier_pda::{
@@ -24,10 +25,9 @@ use spr_test_utils::{
     transact::{
         build_transfer_prover_inputs, change_and_dummy_outputs,
         derive_test_transfer_output_blindings, dummy_input, external_data_hash, fe, inline_outputs,
-        input_utxo, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-        prove_and_verify_transfer, set_output_owner_tags, single_tree_slots, sol_public_slots,
-        test_private_tx_blinding, transfer_input, TransferInputArgs, TransferProverInputsArgs,
-        TEST_BLINDING_SEED,
+        input_utxo, new_transact_ix_data, output_owner_pk_hashes, prove_and_verify_transfer,
+        set_output_owner_tags, single_tree_slots, sol_public_slots, test_private_tx_blinding,
+        transfer_input, TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
     },
 };
 use spr_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
@@ -86,7 +86,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         .get_proof_of_leaf(0, true)
         .expect("state proof")
         .to_vec();
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
     let nullifier = nullifier_key
         .nullifier(&utxo_hash, &blinding)

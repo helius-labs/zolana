@@ -17,12 +17,9 @@ default = ["insecure-test-setup"]
 insecure-test-setup = []
 bpf-entrypoint = []
 no-entrypoint = []
-cpi = ["no-entrypoint"]
-test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
 circuits = [
     "dep:borsh",
-    "dep:solana-instruction",
     "dep:spr-keypair",
     "dep:spr-transaction",
     "spr-program/client",
@@ -42,7 +39,6 @@ r1cs-export = ["spr-program/r1cs-export"]
 borsh = { workspace = true, optional = true }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi", "sha2"] }
-solana-instruction = { workspace = true, optional = true }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }

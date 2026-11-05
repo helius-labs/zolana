@@ -27,6 +27,7 @@ use spr_merkle_tree::indexed::IndexedMerkleTree;
 use spr_program::instruction::{
     CreateCache, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
+use spr_program_test::initial_nullifier_tree;
 use spr_program_test::{Rejection, SprProgramTest};
 use spr_test_utils::transact::*;
 use spr_transaction::{instructions::transact::PrivateTxHash, Mint, Utxo};
@@ -462,7 +463,7 @@ fn ten_proofs_in_parallel_then_sequential_splits_and_delayed_spends() {
     let initial_cache = cache_state(&pool.rpc, cache);
     let initial_progress = tree_progress(&pool.rpc, &pool.tree);
     let tree = Tree::read(&pool.rpc, pool.tree);
-    let nf_tree = nullifier_tree().expect("nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     assert_eq!(nf_tree.root(), tree.nullifier_root);
 
     let steps: [Step; 11] = [
@@ -792,7 +793,7 @@ fn a_read_cache_and_a_write_cache_may_differ_in_tree_and_writer() {
     let owner = Owner::of(payer);
     let cache_a = create_cache(&mut pool.rpc, &writer_a, 801, tree_x.id);
     let cache_b = create_cache(&mut pool.rpc, &writer_b, 802, tree_y.id);
-    let nf_tree = nullifier_tree().expect("nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     let mut notes_a: Vec<Option<Note>> = vec![None; 36];
     let mut notes_b: Vec<Option<Note>> = vec![None; 36];
     let mut expected_a = cache_state(&pool.rpc, cache_a);
@@ -939,7 +940,7 @@ fn a_distinct_output_tree_pays_its_own_tree_fee() {
         .airdrop(&writer.pubkey(), 1_000_000)
         .expect("fund writer");
     let cache = create_cache(&mut pool.rpc, &writer, 901, tree_y.id);
-    let nf_tree = nullifier_tree().expect("nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     let mut notes: Vec<Option<Note>> = vec![None; 36];
     let step = prepare(
         payer,

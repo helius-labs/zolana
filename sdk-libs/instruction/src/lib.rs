@@ -15,7 +15,8 @@
 //! `spr-transaction` delegates to this crate so the math has one
 //! implementation for clients and programs alike.
 //!
-//! The `cpi` feature adds `cpi`, the transact CPI for pinocchio programs.
+//! The `cpi` feature adds `cpi`, the transact CPI for pinocchio programs and
+//! the PDA signer that signs it.
 //!
 //! Protocol authority and maintenance builders live in `spr-protocol-instructions`.
 //!

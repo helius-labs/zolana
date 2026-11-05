@@ -10,14 +10,9 @@ use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{
     error::TimelockEscrowError,
-    instructions::shared::{check_after_window, EscrowAuthority, IxData},
+    instructions::shared::{check_after_window, escrow_authority, IxData},
     verifier::withdraw,
 };
-
-pub mod slot {
-    pub const ESCROW: usize = 0;
-    pub const SOURCE_OUTPUT: usize = 0;
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct WithdrawArgs {
@@ -59,5 +54,5 @@ pub fn process_withdraw_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     .map_err(TimelockEscrowError::from)?;
 
     let spp_accounts = iter.remaining()?;
-    EscrowAuthority::find(&creator).invoke_transact(spp_accounts, transact)
+    escrow_authority(&creator).invoke_transact::<16>(spp_accounts, transact)
 }

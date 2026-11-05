@@ -2,6 +2,7 @@ mod localnet;
 
 use anyhow::{anyhow, Result};
 use localnet::{
+    client::{EscrowInstruction, WithdrawInstruction},
     creator_transactions, send, setup, TestEnv, DEPOSITS, LOCK_AMOUNT, UNLOCK_TIMESTAMP,
 };
 use solana_signer::Signer;
@@ -13,7 +14,6 @@ use timelock_escrow_program::{
         escrow_authority, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw,
         WithdrawPrivateInputs, WithdrawPublicInputs,
     },
-    client::{EscrowInstruction, WithdrawInstruction},
     instructions::escrow::slot,
 };
 

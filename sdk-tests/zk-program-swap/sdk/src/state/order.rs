@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use solana_address::Address;
-use spr_hasher::primitives::{hash_bytes, solana_owner_identity};
+use spr_hasher::primitives::{hash_bytes, right_align, solana_owner_identity};
 use spr_keypair::{
     constants::BLINDING_LEN, hash::poseidon, CompressedShieldedAddress, NullifierKey, PublicKey,
     ShieldedAddress, X25519Pubkey,
@@ -10,7 +10,6 @@ use spr_transaction::{
     utxo::{Blinding, SppProofInputUtxo, Utxo},
     Data, Mint,
 };
-use swap_program::instructions::shared::u64_right_align;
 use swap_prover::OrderTermsProofInput;
 use wincode::{SchemaRead, SchemaWrite};
 
@@ -100,11 +99,11 @@ impl DataHash for OrderTermsProofInput {
         .map_err(err)?;
         poseidon(&[
             &self.destination_asset,
-            &u64_right_align(self.destination_amount),
+            &right_align(&self.destination_amount.to_be_bytes()),
             &maker_address,
-            &u64_right_align(self.expiry),
+            &right_align(&self.expiry.to_be_bytes()),
             &self.taker_pk_fe,
-            &u64_right_align(self.take_mode),
+            &right_align(&self.take_mode.to_be_bytes()),
         ])
         .map_err(err)
     }

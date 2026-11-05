@@ -5,7 +5,7 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use spr_account_checks::AccountIterator;
-use spr_hasher::{Hasher, Poseidon};
+use spr_hasher::{primitives::right_align, Hasher, Poseidon};
 use spr_interface::instruction::instruction_data::transact::TransactIxData;
 use wincode::{SchemaRead, SchemaWrite};
 
@@ -13,7 +13,7 @@ use crate::{
     error::DynamicSwapError,
     instructions::{
         shared::{
-            cpi_spp_transact_signed, escrow_authority_owner_hash, u64_right_align, verify_pda,
+            cpi_spp_transact_signed, escrow_authority, escrow_authority_owner_hash, verify_pda,
             CreatePdaAccount,
         },
         verifier::{verify_groth16, CompressedGroth16Proof},
@@ -69,7 +69,7 @@ impl EscrowOpenPublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
         Poseidon::hashv(&[
             self.private_tx_hash.as_slice(),
-            u64_right_align(self.created_at).as_slice(),
+            right_align(&self.created_at.to_be_bytes()).as_slice(),
             self.escrow_authority_owner_hash.as_slice(),
             self.source_asset.as_slice(),
             self.destination_asset.as_slice(),
@@ -139,8 +139,11 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // the created order/reservation UTXOs to the program-controlled
     // escrow_authority so only settle can spend them; the nullifier pubkey is
     // the maker-published value from the Pair account.
-    let escrow_authority_owner_hash =
-        escrow_authority_owner_hash(&pair_address, &escrow_authority_nullifier_pubkey)?;
+    let escrow_authority = escrow_authority(&pair_address);
+    let escrow_authority_owner_hash = escrow_authority_owner_hash(
+        escrow_authority.address(),
+        &escrow_authority_nullifier_pubkey,
+    )?;
 
     // Bound the client-supplied `created_at` to the real current slot; see
     // `CREATED_AT_SLOT_TOLERANCE` for why it is client-supplied, not read here.
@@ -193,18 +196,13 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // derive its address from the taker's pubkey alone -- one open escrow per
     // taker at a time.
     let owner_key = *owner.address().as_array();
-    let escrow_bump = verify_pda(
-        escrow_account.address(),
-        &[Escrow::SEED_PREFIX, &owner_key],
-        &crate::ID,
-    )?;
-    CreatePdaAccount::<2> {
+    let escrow_pda = verify_pda(escrow_account.address(), [Escrow::SEED_PREFIX, &owner_key])?;
+    CreatePdaAccount {
         fee_payer: authority,
         new_account: escrow_account,
         space: Escrow::SIZE,
         owner: &crate::ID,
-        signer_seeds: [Escrow::SEED_PREFIX, &owner_key],
-        bump: escrow_bump,
+        pda: &escrow_pda,
     }
     .execute()?;
 
@@ -214,7 +212,7 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
             .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
         let state: &mut Escrow = bytemuck::from_bytes_mut(&mut bytes[..]);
         state.discriminator = ESCROW;
-        state.bump = escrow_bump;
+        state.bump = escrow_pda.bump();
         state.pair = pair_address;
         state.escrow_utxo_hash = order_out_hash;
         state.reservation_utxo_hash = reservation_out_hash;
@@ -230,10 +228,5 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // reservation-funding input is owned by the per-pair escrow-authority PDA,
     // which also authorizes the data-bearing order and reservation outputs.
     let spp_accounts = iter.remaining()?;
-    cpi_spp_transact_signed(
-        &pair_address,
-        crate::ESCROW_AUTHORITY_PDA_SEED,
-        spp_accounts,
-        &transact_bytes,
-    )
+    cpi_spp_transact_signed(&escrow_authority, spp_accounts, &transact_bytes)
 }

@@ -9,6 +9,8 @@
 //! that called the helper, not the helper body.
 
 pub mod backend;
+#[cfg(feature = "bench")]
+pub mod bench;
 pub mod harness;
 pub mod lifecycle;
 pub mod litesvm_asserts;
