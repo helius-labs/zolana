@@ -21,8 +21,7 @@ use spr_interface::{
 use spr_keypair::{viewing_key::Salt, NullifierKey};
 use spr_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
-        MergeOutputCiphertext, MergeOutputPlaintext, MergeProofInputs,
+        MergeOutputCiphertext, MergeOutputPlaintext, MergeProofInputs, MergeSeed,
         MERGE_SUPPORTED_INPUT_COUNTS,
     },
     utxo::program_id_proof_input_hash,
@@ -81,6 +80,7 @@ pub struct MergeProofResult {
     pub output_ring_data_hash: [u8; 32],
     pub output_ciphertext_salt: Salt,
     pub output_ciphertext: MergeOutputCiphertext,
+    pub authority: MergeRingAuthority,
 }
 
 impl MergeProofResult {
@@ -112,7 +112,7 @@ impl MergeProofResult {
     pub fn ring_instruction_data(&self, proof: MergeProof) -> MergeRingIxData {
         MergeRingIxData {
             output_ring_data_hash: self.output_ring_data_hash,
-            authority: MergeRingAuthority::Ring,
+            authority: self.authority,
             merge: self.instruction_data(proof),
         }
     }
@@ -124,7 +124,7 @@ impl MergeProofResult {
 /// before the prover round trip.
 pub(crate) fn check_output_ciphertext(
     merge: &MergeProofInputs,
-    nullifier_key: &NullifierKey,
+    seed: &MergeSeed,
     first_nullifier: &[u8; 32],
 ) -> Result<(), ClientError> {
     let expected = MergeOutputPlaintext {
@@ -132,7 +132,7 @@ pub(crate) fn check_output_ciphertext(
         mint: merge.output_utxo.asset.asset,
     }
     .encrypt(
-        &merge_output_key(nullifier_key, first_nullifier)?,
+        &seed.output_key(first_nullifier)?,
         &merge.output_ciphertext_salt,
     )?;
     if merge.output_ciphertext != expected {
@@ -159,6 +159,7 @@ impl MergeProver {
             .ok_or(ClientError::NoInputs)?;
         let first_nullifier = first.nullifier;
         let nullifier_pubkey = self.nullifier_key.pubkey()?;
+        let seed = tx.seed(&self.nullifier_key)?;
         let mut total = 0u64;
         tx.input_utxo_hashes()?;
         for (index, input) in tx.input_utxos.iter().enumerate() {
@@ -167,9 +168,7 @@ impl MergeProver {
                     got: n_inputs,
                     max: usize::from(u8::MAX),
                 })?;
-                if input.nullifier
-                    != merge_dummy_nullifier(&self.nullifier_key, &first_nullifier, slot)?
-                {
+                if input.nullifier != seed.dummy_nullifier(&first_nullifier, slot)? {
                     return Err(ClientError::InputNullifierMismatch { index });
                 }
                 continue;
@@ -211,10 +210,10 @@ impl MergeProver {
         {
             return Err(ClientError::MergeOutputMismatch);
         }
-        if output.blinding != merge_output_blinding(&self.nullifier_key, &first_nullifier)? {
+        if output.blinding != seed.output_blinding(&first_nullifier)? {
             return Err(ClientError::OutputBlindingMismatch { index: 0 });
         }
-        check_output_ciphertext(tx, &self.nullifier_key, &first_nullifier)?;
+        check_output_ciphertext(tx, &seed, &first_nullifier)?;
         let MergeProofInputs {
             input_utxos,
             output_utxo,
@@ -224,6 +223,7 @@ impl MergeProver {
             ring_program_id,
             output_ciphertext_salt,
             output_ciphertext,
+            merge_seed,
         } = self.transaction;
         let [mint_chunk_0, mint_chunk_1] = pack_be::<32, 2>(output_utxo.asset.asset.as_array());
         let inputs = attach_input_proofs(input_utxos, &self.proofs, &self.dummy_nullifier_proofs)?;
@@ -255,12 +255,16 @@ impl MergeProver {
                 .zip(cache_slot),
         }
         .hash()?;
-        let private_tx_blinding = merge_private_tx_blinding(&self.nullifier_key, &first_nullifier)?;
+        let private_tx_blinding = seed.private_tx_blinding(&first_nullifier)?;
         let private_tx =
             private_tx_hash(&assembled_inputs, &assembled_outputs, &private_tx_blinding)?;
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
+        let (authority, published_owner) = match merge_seed {
+            Some(_) => (MergeRingAuthority::OwnerSigned, user_signing_pk_hash),
+            None => (MergeRingAuthority::Ring, [0; 32]),
+        };
         let output_encryption = MergeOutputEncryption::PoseidonCtrV1 {
             salt: output_ciphertext_salt,
             ciphertext: output_ciphertext,
@@ -276,7 +280,7 @@ impl MergeProver {
                 MergePublicInputBinding::Ring {
                     output_data_hash: output_ring_data_hash,
                     program_id_hash: ring_hash,
-                    published_owner: [0; 32],
+                    published_owner,
                     output_encryption,
                 }
             } else {
@@ -310,8 +314,8 @@ impl MergeProver {
             public_input_hash: be(&public_input_hash),
             output_ring_data_hash: be(&output_ring_data_hash),
             ring_program_id: be(&ring_hash),
-            merge_seed: BigUint::ZERO,
-            published_owner: BigUint::ZERO,
+            merge_seed: merge_seed.map_or(BigUint::ZERO, |seed| be(seed.as_bytes())),
+            published_owner: be(&published_owner),
         };
         Ok(MergeProofResult {
             inputs,
@@ -328,6 +332,7 @@ impl MergeProver {
             output_ring_data_hash,
             output_ciphertext_salt,
             output_ciphertext,
+            authority,
         })
     }
 }

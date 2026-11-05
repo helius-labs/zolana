@@ -112,6 +112,10 @@ name = "spend_input_ceiling"
 [[test]]
 name = "merge_transaction_size"
 
+# Hermetic: a zero-key ring merge witness under its seed and published owner.
+[[test]]
+name = "merge_zero_key"
+
 [[test]]
 name = "indexer"
 required-features = ["reqwest"]

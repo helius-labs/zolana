@@ -164,6 +164,9 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
               : { userNullifierSecret: field("userNullifierSecret") }),
             allowDummyInputs: field("allowDummyInputs"),
             outputRingDataHash: field("outputRingDataHash"),
+            ...(payload["mergeSeed"] === undefined
+              ? {}
+              : { mergeSeed: field("mergeSeed"), publishedOwner: field("publishedOwner") }),
           },
         }
       : circuit === "transferConfidentialEddsa"
