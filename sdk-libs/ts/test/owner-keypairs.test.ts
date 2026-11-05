@@ -19,6 +19,10 @@ import {
 } from "../src/transaction/index.js";
 import { proofFor } from "./helpers/proofs.js";
 
+// The fake provers here answer with a zero proof, which proves nothing; the
+// check itself runs against real proofs in proof-verification.test.ts.
+vi.mock("../src/client/prover/verify.js", () => ({ verifyProofStatement: vi.fn() }));
+
 type Owner = ShieldedKeypair | ShieldedPda;
 const bytes = (byte: number) => bytes32(new Uint8Array(32).fill(byte));
 const TREE = treeAddress(0);

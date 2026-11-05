@@ -213,3 +213,58 @@ pub fn verify_proof_statement(
     }
     .verify(proof)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+    use spr_interface::verifying_keys::{
+        merge_8_1, merge_ring_8_1, transfer_confidential_eddsa_2_8, transfer_eddsa_ring_2_2,
+        transfer_eddsa_ring_2_4,
+    };
+
+    use super::*;
+
+    /// The proofs a real prover made that the TypeScript SDK verifies too.
+    #[test]
+    fn the_shared_proofs_verify_against_the_compiled_keys() {
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../../test-vectors/proof_verification.json"
+        ))
+        .unwrap();
+        for vector in vectors["proofs"].as_array().unwrap() {
+            let name = vector["key"].as_str().unwrap();
+            let (key, other) = match name {
+                "transfer_confidential_eddsa_2_8.key" => (
+                    &transfer_confidential_eddsa_2_8::VERIFYINGKEY,
+                    &transfer_eddsa_ring_2_2::VERIFYINGKEY,
+                ),
+                "transfer_eddsa_ring_2_2.key" => (
+                    &transfer_eddsa_ring_2_2::VERIFYINGKEY,
+                    &transfer_eddsa_ring_2_4::VERIFYINGKEY,
+                ),
+                "merge_8_1.key" => (&merge_8_1::VERIFYINGKEY, &merge_ring_8_1::VERIFYINGKEY),
+                _ => panic!("unexpected vector {name}"),
+            };
+            let proof = Proof::from_gnark_json(&vector["proof"].to_string()).unwrap();
+            let digits = vector["publicInputHash"]
+                .as_str()
+                .unwrap()
+                .trim_start_matches("0x");
+            let public_input: [u8; 32] = hex::decode(format!("{digits:0>64}"))
+                .unwrap()
+                .try_into()
+                .unwrap();
+            verify_proof_statement(&proof, public_input, key).unwrap();
+
+            let mut other_statement = public_input;
+            other_statement[31] ^= 1;
+            assert!(verify_proof_statement(&proof, other_statement, key).is_err());
+            assert!(verify_proof_statement(&proof, public_input, other).is_err());
+            let mut swapped = proof;
+            if let Some(commitment) = swapped.commitment.as_mut() {
+                commitment.commitment = commitment.commitment_pok;
+                assert!(verify_proof_statement(&swapped, public_input, key).is_err());
+            }
+        }
+    }
+}

@@ -15,6 +15,7 @@ import {
   type Signature,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
+import { verifyProofStatement } from "../src/client/prover/verify.js";
 
 import {
   ClientError,
@@ -45,6 +46,10 @@ import {
   outputBlindingSeed,
   transactOutputBlinding,
 } from "../src/transaction/index.js";
+
+// The fake provers here answer with a zero proof, which proves nothing; the
+// check itself runs against real proofs in proof-verification.test.ts.
+vi.mock("../src/client/prover/verify.js", () => ({ verifyProofStatement: vi.fn() }));
 
 /** The client defaults to tree id 0; its address must be the PDA of that id. */
 const TREE_ID = 0;
@@ -1167,6 +1172,12 @@ describe("prover indexer fetching", () => {
           keys,
         );
         expect(result.data.circuit.kind).toBe("ringAuthority");
+        expect(verifyProofStatement).toHaveBeenLastCalledWith(
+          parseProof(proofFor({ circuitType: "transfer-ring-authority", nInputs: 2, nOutputs: 2 })),
+          assembled.proverInputs.payload.publicInputHash,
+          expect.objectContaining({ name: "transfer_ring_authority_2_2.key" }),
+          undefined,
+        );
         expect(state).toHaveBeenCalledTimes(proofDataSource === "client" ? 1 : 0);
         expect(nullifier).toHaveBeenCalledTimes(proofDataSource === "client" ? 1 : 0);
         expect(indexed).toHaveBeenCalledTimes(proofDataSource === "prover" ? 1 : 0);
@@ -1257,6 +1268,14 @@ describe("prover indexer fetching", () => {
             : (await instance.proveRingTransact(fixture.proofInputs, ring, keys)).data;
         expect(result).toEqual(
           expected.withProof(compressProof(parseProof(proof)).toTransactProof()),
+        );
+        expect(verifyProofStatement).toHaveBeenLastCalledWith(
+          parseProof(proof),
+          expected.proverInputs.payload.publicInputHash,
+          expect.objectContaining({
+            name: ring === undefined ? "transfer_confidential_2_2.key" : "transfer_ring_2_2.key",
+          }),
+          undefined,
         );
         expect(fetch).toHaveBeenCalledTimes(fallback ? 3 : 1);
         if (fallback) {

@@ -35,6 +35,10 @@ import {
 import { proofFor } from "./helpers/proofs.js";
 import { bytesToBigInt } from "../src/interface/bytes.js";
 
+// The fake provers here answer with a zero proof, which proves nothing; the
+// check itself runs against real proofs in proof-verification.test.ts.
+vi.mock("../src/client/prover/verify.js", () => ({ verifyProofStatement: vi.fn() }));
+
 describe("reserved address inputs", () => {
   afterEach(() => {
     for (const keypair of allocatedKeypairs.splice(0)) keypair.destroy();

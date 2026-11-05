@@ -1,5 +1,6 @@
 import { address, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
+import { verifyProofStatement } from "../src/client/prover/verify.js";
 
 import { ClientError, LocalKeys, SprClient } from "../src/client/index.js";
 import { bigintToBytes, bytesField } from "../src/client/internal.js";
@@ -39,6 +40,10 @@ import {
   type ProofOutputUtxo,
 } from "../src/transaction/index.js";
 import { bytesToBigInt, concatBytes } from "../src/interface/bytes.js";
+
+// The fake provers here answer with a zero proof, which proves nothing; the
+// check itself runs against real proofs in proof-verification.test.ts.
+vi.mock("../src/client/prover/verify.js", () => ({ verifyProofStatement: vi.fn() }));
 
 const TREE_ID = 0;
 const TREE = treeAddress(TREE_ID);
@@ -1003,6 +1008,12 @@ describe("a merge writing its output to a cache slot", () => {
       );
       expect(proved.data.cacheSlot).toBe(2);
       expect(proved.outputHash).toEqual(prepared.outputHash());
+      expect(verifyProofStatement).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expected.proverInputs.publicInputHash,
+        expect.objectContaining({ name: `merge_${expected.proverInputs.inputs.length}_1.key` }),
+        undefined,
+      );
     },
   );
 });
