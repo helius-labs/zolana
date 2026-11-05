@@ -5,7 +5,14 @@ import {
   getBase64Decoder,
   getBase64Encoder,
 } from "@solana/kit";
-import { HasherFailure, MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
+import {
+  type ChainField,
+  foldHashChain,
+  foldHashChain4,
+  foldRightHashChain,
+  foldRightHashChain4,
+} from "../hasher/chain.js";
+import { BN254_SCALAR_ORDER, poseidonOr } from "../hasher/index.js";
 
 import { bytesToBigInt } from "../interface/bytes.js";
 import type {
@@ -21,6 +28,8 @@ import type {
 } from "../interface/types.js";
 import { INPUT_TREES } from "../interface/tree-slot.js";
 import { hashBytes } from "../hasher/index.js";
+import { bigIntToBytes } from "../keypair/bytes.js";
+import { KeypairError } from "../keypair/error.js";
 import { treeAddress } from "../interface/pda/index.js";
 import type { IndexedProofAuthority, TreeContext } from "./ports.js";
 
@@ -36,8 +45,6 @@ export function inputTreeAddress(client: TreeContext, treeId: number): Address {
   return treeId === client.treeId ? client.tree : treeAddress(treeId);
 }
 
-export const BN254_MODULUS =
-  21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
 const addressEncoder = getAddressEncoder();
 const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
@@ -99,21 +106,18 @@ export function checkedBytes<Length extends 16 | 31 | 32 | 33 | 64 | 128>(
   return new Uint8Array(value) as never;
 }
 
+/** `bigIntToBytes`, rejecting a value that does not fit as `CLIENT_INVALID_INTEGER`. */
 export function bigintToBytes(value: bigint, name: string, length = 32): Uint8Array {
-  if (value < 0n || value >= 1n << BigInt(length * 8)) {
+  try {
+    return bigIntToBytes(value, length);
+  } catch (cause) {
+    if (!(cause instanceof KeypairError)) throw cause;
     throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: name, length } });
   }
-  const result = new Uint8Array(length);
-  let remaining = value;
-  for (let index = length - 1; index >= 0; index--) {
-    result[index] = Number(remaining & 0xffn);
-    remaining >>= 8n;
-  }
-  return result;
 }
 
 export function field(value: bigint, name: string): bigint {
-  if (value < 0n || value >= BN254_MODULUS) {
+  if (value < 0n || value >= BN254_SCALAR_ORDER) {
     throw new ClientError("CLIENT_INVALID_FIELD", { details: { field: name } });
   }
   return value;
@@ -128,48 +132,27 @@ export function bytesField(bytes: Uint8Array, name: string): bigint {
   return field(bytesToBigInt(bytes), name);
 }
 
+/** The hasher's `poseidon` over field elements, rejecting as `CLIENT_INVALID_FIELD` or `CLIENT_HASHER`. */
 export function poseidon(inputs: readonly bigint[]): bigint {
-  if (inputs.length < 1 || inputs.length > MAX_POSEIDON_INPUTS) {
-    throw hasherError("InvalidNumFields");
-  }
-  inputs.forEach((value, index) => field(value, `poseidon[${String(index)}]`));
-  try {
-    return bytesToBigInt(hash(inputs.map((value) => bigintToBytes(value, "poseidon input"))));
-  } catch (cause) {
-    if (!(cause instanceof HasherFailure)) throw cause;
-    throw hasherError(cause.code, cause);
-  }
+  const fields = inputs.map((value, index) =>
+    bigintToBytes(field(value, `poseidon[${String(index)}]`), "poseidon input"),
+  );
+  return bytesToBigInt(poseidonOr(fields, (failure) => hasherError(failure.code, failure)));
 }
+
+const FIELD: ChainField<bigint> = {
+  zero: () => 0n,
+  isZero: (value) => value === 0n,
+  hash: poseidon,
+};
 
 export function hashChain(values: readonly bigint[]): bigint {
-  const first = values[0];
-  if (first === undefined) return 0n;
-  let result = first;
-  for (let index = 1; index < values.length; index++) {
-    const value = values[index];
-    if (value === undefined) throw hasherError("EmptyInput");
-    result = poseidon([result, value]);
-  }
-  return result;
+  return foldHashChain(values, FIELD);
 }
 
-/**
- * Folds three elements per Poseidon call. The fold carries no length tag, so it
- * is injective only over the fixed-length public-input chains of one circuit.
- */
+/** Three elements per Poseidon call, see `foldHashChain4`. */
 export function hashChain4(values: readonly bigint[]): bigint {
-  const first = values[0];
-  if (first === undefined) return 0n;
-  let result = first;
-  for (let index = 1; index < values.length; index += 3) {
-    result = poseidon([
-      result,
-      values[index] ?? 0n,
-      values[index + 1] ?? 0n,
-      values[index + 2] ?? 0n,
-    ]);
-  }
-  return result;
+  return foldHashChain4(values, FIELD);
 }
 
 /**
@@ -198,38 +181,12 @@ export function inputFlags(allowDummyInputs: boolean, treeIndexes: readonly numb
 }
 
 export function rightHashChain(values: readonly bigint[]): bigint {
-  const last = values.at(-1);
-  if (last === undefined) return 0n;
-  let result = last;
-  for (let index = values.length - 2; index >= 0; index -= 1) {
-    result = poseidon([values[index] as bigint, result]);
-  }
-  return result;
+  return foldRightHashChain(values, FIELD);
 }
 
-/**
- * Folds three elements per Poseidon call from the right: the chain starts at
- * the last element and every group of up to three preceding elements, in
- * order, folds as `Poseidon(g0, g1, g2, h)`. The short group is the leftmost
- * one and its elements stay left-aligned, so an all-zero suffix folds to a
- * value that depends on its length alone and SPP can seed the fold from that
- * constant. Mirrors Rust `create_right_hash_chain_4_from_slice`; the
- * cached-commitment chain uses it.
- */
+/** Rust `create_right_hash_chain_4_from_slice`, see `foldRightHashChain4`. */
 export function rightHashChain4(values: readonly bigint[]): bigint {
-  const last = values.at(-1);
-  if (last === undefined) return 0n;
-  let result = last;
-  for (let end = values.length - 1; end > 0;) {
-    const start = Math.max(end - 3, 0);
-    const group = [0n, 0n, 0n, result];
-    for (let index = start; index < end; index += 1) {
-      group[index - start] = values[index] as bigint;
-    }
-    result = poseidon(group);
-    end = start;
-  }
-  return result;
+  return foldRightHashChain4(values, FIELD);
 }
 
 export function hashBytesBigInt(bytes: Uint8Array): bigint {

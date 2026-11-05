@@ -37,7 +37,7 @@ import {
   treeSlotsHashChain,
   type TreeSlot,
 } from "../../interface/tree-slot.js";
-import { solanaOwnerIdentity } from "../../hasher/index.js";
+import { BN254_SCALAR_ORDER, solanaOwnerIdentity } from "../../hasher/index.js";
 import {
   SppProofInputs,
   cacheBoundExternalDataHash,
@@ -62,7 +62,6 @@ import type {
 } from "../ports.js";
 import { ClientError, fromClientCause } from "../error.js";
 import {
-  BN254_MODULUS,
   addressBytes,
   bigintToBytes,
   bytesField,
@@ -1820,7 +1819,7 @@ function publicTransfers(proofInputs: SppProofInputs): Readonly<{
 }
 
 export function signedField(value: bigint, name: string): bigint {
-  const result = ((value % BN254_MODULUS) + BN254_MODULUS) % BN254_MODULUS;
+  const result = ((value % BN254_SCALAR_ORDER) + BN254_SCALAR_ORDER) % BN254_SCALAR_ORDER;
   return field(result, name);
 }
 

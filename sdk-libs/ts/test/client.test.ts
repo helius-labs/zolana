@@ -28,7 +28,8 @@ import {
   type SprClientConfig,
 } from "../src/client/index.js";
 import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
-import { BN254_MODULUS, bigintToBytes, bytesField, checkedBytes } from "../src/client/internal.js";
+import { bigintToBytes, bytesField, checkedBytes } from "../src/client/internal.js";
+import { BN254_SCALAR_ORDER } from "../src/hasher/index.js";
 import { asField, assemble } from "../src/client/prover/assembly.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
@@ -992,7 +993,7 @@ describe("prover indexer fetching", () => {
   it("refuses a key holder's root at the field modulus as unparsable", async () => {
     const fixture = proofFixture();
     const expected = assemble(fixture.proofInputs, [fixture.spendProof]);
-    const modulus = checkedBytes(bigintToBytes(BN254_MODULUS, "root"), 32, "root");
+    const modulus = checkedBytes(bigintToBytes(BN254_SCALAR_ORDER, "root"), 32, "root");
     const tree = {
       tree: TREE,
       id: TREE_ID,
@@ -1314,7 +1315,7 @@ describe("prover indexer fetching", () => {
       if (corruption === "modulus")
         resolution.trees[0] = {
           ...resolution.trees[0]!,
-          nullifierRoot: `0x${BN254_MODULUS.toString(16)}`,
+          nullifierRoot: `0x${BN254_SCALAR_ORDER.toString(16)}`,
         };
       const fetch = vi.fn<typeof globalThis.fetch>(
         async () =>

@@ -2,6 +2,7 @@ import { assertIsAddress } from "@solana/kit";
 
 import { ClientError } from "../client/error.js";
 import type { Address } from "../interface/types.js";
+import { U64_MAX } from "../interface/internal.js";
 
 /** @internal */
 export function checkedAddress(value: Address, field: string): void {
@@ -32,7 +33,7 @@ export function checkedComputeUnitLimit(value: number): number {
 
 /** @internal */
 export function checkedPriorityFee(value: bigint | undefined): void {
-  if (value !== undefined && (value < 0n || value > 0xffff_ffff_ffff_ffffn)) {
+  if (value !== undefined && (value < 0n || value > U64_MAX)) {
     throw new ClientError("CLIENT_INVALID_INTEGER", {
       details: { field: "priorityFeeLamports" },
     });

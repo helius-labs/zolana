@@ -31,6 +31,7 @@ import {
   rightAlign,
 } from "./internal.js";
 import { sha256Bytes } from "../keypair/hash.js";
+import { U64_MAX } from "../interface/internal.js";
 
 export type Blinding = Bytes32;
 
@@ -96,7 +97,7 @@ const DEPOSIT_BLINDING_DOMAIN = new TextEncoder().encode("Deposit");
  * to check an indexed record.
  */
 export function depositBlinding(tree: Address, leafIndex: bigint): Blinding {
-  if (leafIndex < 0n || leafIndex > 0xffff_ffff_ffff_ffffn) {
+  if (leafIndex < 0n || leafIndex > U64_MAX) {
     throw new TransactionError("TRANSACTION_INVALID_POSITION", {
       position: leafIndex.toString(),
     });

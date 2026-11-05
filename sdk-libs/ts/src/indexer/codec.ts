@@ -38,6 +38,7 @@ import {
   limit,
   schemaFailure,
 } from "./scalars.js";
+import { U64_MAX } from "../interface/internal.js";
 
 type WireObject = Record<string, unknown>;
 
@@ -83,7 +84,6 @@ function userRecord(value: unknown, path: string): UserRecord {
 
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
-const U64_MAX = (1n << 64n) - 1n;
 const U16_MAX = 65_535;
 
 export function object(value: unknown, path: string, fields: readonly string[]): WireObject {

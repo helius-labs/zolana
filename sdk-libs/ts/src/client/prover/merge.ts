@@ -47,6 +47,7 @@ import {
   validateSpendProof,
 } from "./assembly.js";
 import type { Field, MergeInputs, TransferInput } from "./types.js";
+import { U64_MAX } from "../../interface/internal.js";
 
 export interface MergeAssembly {
   readonly proverInputs: MergeInputs;
@@ -605,7 +606,7 @@ function validatePreparedMerge(prepared: PreparedMerge): void {
     )
   )
     throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
-  if (total !== prepared.output.amount || total > 0xffff_ffff_ffff_ffffn)
+  if (total !== prepared.output.amount || total > U64_MAX)
     throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
 }
 

@@ -12,7 +12,8 @@ import {
   treeSlotFields,
 } from "../src/client/prover/assembly.js";
 import { LocalKeys } from "../src/client/keys.js";
-import { BN254_MODULUS, bytesField } from "../src/client/internal.js";
+import { bytesField } from "../src/client/internal.js";
+import { BN254_SCALAR_ORDER } from "../src/hasher/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
   ProverClient,
@@ -1045,7 +1046,7 @@ describe("indexed prover failures", () => {
 
 describe("error details", () => {
   it("keeps an out-of-range secret out of the error and its JSON", () => {
-    const secret = BN254_MODULUS + 0x5ec2e7n;
+    const secret = BN254_SCALAR_ORDER + 0x5ec2e7n;
     const [input] = transferInputs().payload.inputs;
     if (input === undefined) throw new Error("missing fixture input");
     const transfer = transferInputs();

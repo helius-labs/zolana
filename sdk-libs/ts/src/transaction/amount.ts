@@ -1,6 +1,5 @@
 import { TransactionError } from "./error.js";
-
-const U64_MAX = 0xffff_ffff_ffff_ffffn;
+import { checkU64 } from "./internal.js";
 
 export function formatAmount(amount: bigint, decimals: number): string {
   checkRawAmount(amount);
@@ -32,9 +31,7 @@ export function parseAmount(value: string, decimals: number): bigint {
 }
 
 function checkRawAmount(amount: bigint): void {
-  if (typeof amount !== "bigint" || amount < 0n || amount > U64_MAX) {
-    throw new TransactionError("TRANSACTION_INVALID_AMOUNT");
-  }
+  checkU64(amount, "amount");
 }
 
 function checkDecimals(decimals: number): void {

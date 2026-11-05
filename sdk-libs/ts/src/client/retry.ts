@@ -4,11 +4,11 @@ import type { RequestContext } from "../interface/types.js";
 import { ClientError, isClientError, type RetryErrorCause } from "./error.js";
 import { composeSignal } from "./internal.js";
 import type { ProofDataSource } from "./ports.js";
+import { U64_MAX } from "../interface/internal.js";
 
 export type { RetryErrorCause } from "./error.js";
 
 const MAX_U32 = 0xffff_ffff;
-const MAX_U64 = 0xffff_ffff_ffff_ffffn;
 const MAX_TIMER_DELAY_MS = 0x7fff_ffffn;
 
 const RPC_CAUSE: RetryErrorCause = Object.freeze({ category: "rpc" });
@@ -100,10 +100,10 @@ export function validatePollConfig(config: IndexerPollConfig): IndexerPollConfig
   ) {
     throw invalidPollConfig("numRetries", numRetries);
   }
-  if (typeof delayMs !== "bigint" || delayMs < 0n || delayMs > MAX_U64) {
+  if (typeof delayMs !== "bigint" || delayMs < 0n || delayMs > U64_MAX) {
     throw invalidPollConfig("delayMs", delayMs);
   }
-  if (typeof maxDelayMs !== "bigint" || maxDelayMs < 0n || maxDelayMs > MAX_U64) {
+  if (typeof maxDelayMs !== "bigint" || maxDelayMs < 0n || maxDelayMs > U64_MAX) {
     throw invalidPollConfig("maxDelayMs", maxDelayMs);
   }
   return Object.freeze({ numRetries, delayMs, maxDelayMs });

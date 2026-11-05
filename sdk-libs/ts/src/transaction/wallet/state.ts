@@ -7,6 +7,7 @@ import { TransactionError } from "../error.js";
 import { copy } from "../internal.js";
 import { Utxo } from "../utxo.js";
 import { AssetRegistry } from "../asset.js";
+import { U64_MAX } from "../../interface/internal.js";
 
 export interface AssetBalance {
   readonly assetId: bigint;
@@ -631,7 +632,7 @@ function randomReservationId(): string {
 }
 
 function checkedBalance(amount: bigint): bigint {
-  if (amount > 0xffff_ffff_ffff_ffffn) {
+  if (amount > U64_MAX) {
     throw new TransactionError("TRANSACTION_WALLET_BALANCE_OVERFLOW");
   }
   return amount;

@@ -25,6 +25,7 @@ import {
 import { WalletError, wrapWalletError } from "./error.js";
 import { reserveWalletEntries } from "./internal.js";
 import { resolveRegisteredAddress } from "./registry.js";
+import { U64_MAX } from "../interface/internal.js";
 
 export { resolveWithdrawalSettlement as resolveWithdrawal };
 
@@ -192,7 +193,7 @@ export interface CreatedSplit {
 
 /** Rust takes a `u64`, so only a value outside that range is refused. */
 function u64Amount(amount: bigint): void {
-  if (amount < 0n || amount > 0xffff_ffff_ffff_ffffn) {
+  if (amount < 0n || amount > U64_MAX) {
     throw new WalletError("WALLET_INVALID_AMOUNT", {
       details: { amount: amount.toString() },
     });

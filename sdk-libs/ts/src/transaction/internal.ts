@@ -1,21 +1,27 @@
 import { getAddressDecoder, getAddressEncoder, getBase58Encoder } from "@solana/kit";
-import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
+import {
+  type ChainField,
+  foldHashChain,
+  foldHashChain4,
+  foldNonZeroHashChain,
+  foldRightHashChain,
+} from "../hasher/chain.js";
+import { poseidonOr } from "../hasher/index.js";
 
-import { bytesToBigInt } from "../interface/bytes.js";
+import { isZero } from "../interface/bytes.js";
+import { U64_MAX } from "../interface/internal.js";
 import type { Address, Bytes16, Bytes32, Bytes33 } from "../interface/types.js";
 export { hashBytes } from "../hasher/index.js";
 export { sha256Be } from "../keypair/hash.js";
 
 import { TransactionError, type TransactionErrorCode } from "./error.js";
 
-const BN254_MODULUS =
-  21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
 const addressDecoder = getAddressDecoder();
 const addressEncoder = getAddressEncoder();
 const base58Encoder = getBase58Encoder();
 
 export const ZERO_32 = new Uint8Array(32) as Bytes32;
-export const U64_MAX = 0xffff_ffff_ffff_ffffn;
+export { U64_MAX };
 
 export function copy<T extends Uint8Array>(bytes: T): T {
   return new Uint8Array(bytes) as T;
@@ -37,25 +43,15 @@ export function checked<T extends Uint8Array>(
 }
 
 export function checkU64(value: bigint, name: string): bigint {
-  if (value < 0n || value > U64_MAX) {
+  if (typeof value !== "bigint" || value < 0n || value > U64_MAX) {
     throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
       name,
       minimum: "0",
       maximum: U64_MAX.toString(),
-      actual: value.toString(),
+      actual: String(value),
     });
   }
   return value;
-}
-
-export function bigIntBytes(value: bigint, length = 32): Uint8Array {
-  const output = new Uint8Array(length);
-  let remaining = value;
-  for (let index = length - 1; index >= 0; index--) {
-    output[index] = Number(remaining & 0xffn);
-    remaining >>= 8n;
-  }
-  return output;
 }
 
 export function rightAlign(bytes: Uint8Array): Bytes32 {
@@ -71,15 +67,14 @@ export function rightAlign(bytes: Uint8Array): Bytes32 {
 }
 
 function hashFields(inputs: readonly Uint8Array[], code: TransactionErrorCode): Bytes32 {
-  if (inputs.length < 1 || inputs.length > MAX_POSEIDON_INPUTS) {
-    throw new TransactionError(code, { inputCount: inputs.length });
-  }
-  inputs.forEach((input, index) => {
-    if (input.length > 32 || bytesToBigInt(input) >= BN254_MODULUS) {
-      throw new TransactionError(code, { index, reason: "invalidField" });
-    }
-  });
-  return hash(inputs) as Bytes32;
+  return poseidonOr(inputs, (failure) => {
+    if (failure.code === "NotInitialized") return failure;
+    const { inputCount, index } = failure.details;
+    return new TransactionError(
+      code,
+      inputCount === undefined ? { index, reason: "invalidField" } : { inputCount },
+    );
+  }) as Bytes32;
 }
 
 export function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
@@ -90,56 +85,28 @@ export function commitmentPoseidon(inputs: readonly Uint8Array[]): Bytes32 {
   return hashFields(inputs, "TRANSACTION_POSEIDON");
 }
 
+const FIELD: ChainField<Bytes32> = {
+  zero: () => copy(ZERO_32),
+  isZero,
+  hash: poseidon,
+};
+
 export function hashChain(values: readonly Bytes32[]): Bytes32 {
-  const [first, ...remaining] = values;
-  if (!first) return copy(ZERO_32);
-  let hash = copy(first);
-  for (const value of remaining) hash = poseidon([hash, value]);
-  return hash;
+  return copy(foldHashChain(values, FIELD));
 }
 
-/**
- * Folds `Poseidon(h, v)` over the nonzero entries in order, starting from the
- * first nonzero entry; a chain with no nonzero entry is zero. Zero entries are
- * skipped, so padding positions do not change the result. Mirrors Rust
- * `create_nonzero_hash_chain_from_slice`.
- */
+/** Rust `create_nonzero_hash_chain_from_slice`, see `foldNonZeroHashChain`. */
 export function nonZeroHashChain(values: readonly Bytes32[]): Bytes32 {
-  let hash = copy(ZERO_32);
-  for (const value of values) {
-    if (value.every((byte) => byte === 0)) continue;
-    hash = hash.every((byte) => byte === 0) ? copy(value) : poseidon([hash, value]);
-  }
-  return hash;
+  return copy(foldNonZeroHashChain(values, FIELD));
 }
 
-/**
- * Folds three elements per Poseidon call. The fold carries no length tag, so it
- * is injective only over the fixed-length public-input chains of one circuit.
- */
+/** Three elements per Poseidon call, see `foldHashChain4`. */
 export function hashChain4(values: readonly Bytes32[]): Bytes32 {
-  const [first, ...remaining] = values;
-  if (!first) return copy(ZERO_32);
-  let hash = copy(first);
-  for (let index = 0; index < remaining.length; index += 3) {
-    hash = poseidon([
-      hash,
-      remaining[index] ?? ZERO_32,
-      remaining[index + 1] ?? ZERO_32,
-      remaining[index + 2] ?? ZERO_32,
-    ]);
-  }
-  return hash;
+  return copy(foldHashChain4(values, FIELD));
 }
 
 export function rightHashChain(values: readonly Bytes32[]): Bytes32 {
-  const last = values.at(-1);
-  if (!last) return copy(ZERO_32);
-  let hash = copy(last);
-  for (let index = values.length - 2; index >= 0; index -= 1) {
-    hash = poseidon([values[index] as Bytes32, hash]);
-  }
-  return hash;
+  return copy(foldRightHashChain(values, FIELD));
 }
 
 export function random16(): Bytes16 {

@@ -42,9 +42,9 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
-- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows.
-- `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note, and now stores the note.
+- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits and failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown scheme accompanied a confidential note; it now omits those history rows and stores the note.
 - `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
+- `bigIntBytes` from `@heliuslabs/spr/internal` dropped the high bytes of a value wider than its length and wrapped a negative one, and now throws `KEYPAIR_INVALID_LENGTH` for both.
 
 ## 0.8.0-alpha — 2026-11-03
 

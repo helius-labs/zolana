@@ -6,14 +6,23 @@ export type HasherFailureCode =
   | "InvalidInputLength"
   | "Poseidon";
 
+/** Which input a rejected hash named: the input count, or one input's position and width. */
+export type HasherFailureDetails = Readonly<{
+  inputCount?: number;
+  index?: number;
+  length?: number;
+}>;
+
 /** @internal No barrel exports it. */
 export class HasherFailure extends Error {
   readonly code: HasherFailureCode;
+  readonly details: HasherFailureDetails;
 
-  constructor(code: HasherFailureCode, message: string) {
+  constructor(code: HasherFailureCode, message: string, details: HasherFailureDetails = {}) {
     super(message);
     this.name = "HasherFailure";
     this.code = code;
+    this.details = Object.freeze({ ...details });
   }
 }
 
@@ -63,7 +72,12 @@ export function resetPoseidonForTests(): void {
   WasmFactory.resetModule();
 }
 
-/** Hashes one to twelve unsigned big-endian field elements. */
+/**
+ * Hashes one to twelve unsigned big-endian field elements. Every input is at
+ * most 32 bytes and below `BN254_SCALAR_ORDER`; anything else is a
+ * `HasherFailure` naming the input. Layers with their own error taxonomy call
+ * it through `poseidonOr`.
+ */
 export function poseidon(inputs: readonly Uint8Array[]): Uint8Array {
   const active = loaded;
   if (active === undefined) {
@@ -76,6 +90,7 @@ export function poseidon(inputs: readonly Uint8Array[]): Uint8Array {
     throw new HasherFailure(
       "InvalidNumFields",
       `Poseidon takes 1 to ${String(MAX_POSEIDON_INPUTS)} inputs, received ${String(inputs.length)}`,
+      { inputCount: inputs.length },
     );
   }
 
@@ -84,10 +99,18 @@ export function poseidon(inputs: readonly Uint8Array[]): Uint8Array {
       throw new HasherFailure(
         "InvalidInputLength",
         `Poseidon input ${String(index)} is ${String(input.length)} bytes, the field takes 32`,
+        { index, length: input.length },
       );
     }
     let value = 0n;
     for (const byte of input) value = (value << 8n) | BigInt(byte);
+    if (value >= BN254_SCALAR_ORDER) {
+      throw new HasherFailure(
+        "Poseidon",
+        `Poseidon input ${String(index)} is not below the BN254 scalar order`,
+        { index, length: input.length },
+      );
+    }
     return value.toString();
   });
   try {
@@ -95,6 +118,22 @@ export function poseidon(inputs: readonly Uint8Array[]): Uint8Array {
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message : String(cause);
     throw new HasherFailure("Poseidon", `Poseidon rejected the input, ${reason}`);
+  }
+}
+
+/**
+ * `poseidon`, with a rejection mapped to the caller's error by `fail`. Returning
+ * the failure itself lets it pass through unchanged.
+ */
+export function poseidonOr(
+  inputs: readonly Uint8Array[],
+  fail: (failure: HasherFailure) => Error,
+): Uint8Array {
+  try {
+    return poseidon(inputs);
+  } catch (cause) {
+    if (cause instanceof HasherFailure) throw fail(cause);
+    throw cause;
   }
 }
 

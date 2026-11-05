@@ -23,7 +23,7 @@ import {
   signerAddress,
   type SignerAccount,
 } from "../interface/instructions/index.js";
-import { copyBytes } from "../interface/internal.js";
+import { Reader, copyBytes } from "../interface/internal.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
 import { isMergeEncryptionScheme, type MergeEncryptionScheme } from "../interface/state.js";
 import {
@@ -148,30 +148,13 @@ export async function internalMergeRecord(
   return Object.freeze({ ...record, recordAddress: pda.address });
 }
 
-class Reader {
-  readonly #bytes: Uint8Array;
-  #offset = 0;
-
-  constructor(bytes: Uint8Array) {
-    this.#bytes = bytes;
-  }
-
-  bytes(length: number): Uint8Array {
-    const end = this.#offset + length;
-    if (end > this.#bytes.length) throw new WalletError("WALLET_INVALID_USER_RECORD");
-    const value = this.#bytes.slice(this.#offset, end);
-    this.#offset = end;
-    return value;
-  }
-
-  u8(): number {
-    return this.bytes(1)[0] ?? 0;
-  }
+function invalidUserRecord(): WalletError {
+  return new WalletError("WALLET_INVALID_USER_RECORD");
 }
 
 function decodeRecordBody(data: Uint8Array): DecodedUserRecord {
   if (data.length !== USER_RECORD_SIZE) throw new WalletError("WALLET_INVALID_USER_RECORD");
-  const reader = new Reader(data);
+  const reader = new Reader(data, invalidUserRecord);
   if (reader.u8() !== 1) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const owner = addressDecoder.decode(reader.bytes(32));
   const bump = reader.u8();

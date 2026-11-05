@@ -18,7 +18,7 @@ import {
   mergePaddedInputCount,
 } from "../../interface/constants.js";
 import { TransactionError } from "../error.js";
-import { checked, decodeAddress } from "../internal.js";
+import { checkU64, checked, decodeAddress } from "../internal.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import { encryptMergeOutput, type MergeOutputCiphertext } from "../serialization/merge.js";
@@ -38,18 +38,7 @@ import {
   singleInputTreeId,
   type InputUtxoContext,
 } from "./transact.js";
-
-const U64_MAX = 0xffff_ffff_ffff_ffffn;
-
-function checkedU64(value: bigint, field: string): bigint {
-  if (typeof value !== "bigint" || value < 0n || value > U64_MAX) {
-    throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
-      field,
-      value: String(value),
-    });
-  }
-  return value;
-}
+import { U64_MAX } from "../../interface/internal.js";
 
 export class PreparedMerge {
   readonly inputs: readonly ProofInputUtxo[];
@@ -142,7 +131,7 @@ export class PreparedMerge {
     this.inputTreeId = singleInputTreeId(input.inputs);
     this.inputs = Object.freeze([...input.inputs]);
     this.output = input.output;
-    this.expiryUnixTs = checkedU64(input.expiryUnixTs, "expiryUnixTs");
+    this.expiryUnixTs = checkU64(input.expiryUnixTs, "expiryUnixTs");
     this.signingPublicKey = input.signingPublicKey;
     this.nullifierPublicKey = checked<Bytes32>(
       input.nullifierPublicKey,
@@ -330,7 +319,7 @@ export class Merge {
         throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
       }
       amount += spend.utxo.amount;
-      if (amount > 0xffff_ffff_ffff_ffffn) {
+      if (amount > U64_MAX) {
         throw new TransactionError("TRANSACTION_SELECTED_BALANCE_OVERFLOW");
       }
     });
@@ -418,7 +407,7 @@ export class Merge {
     this.#prepared = new PreparedMerge({
       inputs: this.#prepared.inputs,
       output: this.#prepared.output,
-      expiryUnixTs: checkedU64(expiryUnixTs, "expiryUnixTs"),
+      expiryUnixTs: checkU64(expiryUnixTs, "expiryUnixTs"),
       signingPublicKey: this.#prepared.signingPublicKey,
       nullifierPublicKey: this.#prepared.nullifierPublicKey,
       dummyNullifiers: this.#prepared.dummyNullifiers(),
@@ -498,7 +487,7 @@ export class ConfidentialSplit {
     ) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_HAS_DATA");
     }
-    const perOutputAmount = checkedU64(input.perOutputAmount, "perOutputAmount");
+    const perOutputAmount = checkU64(input.perOutputAmount, "perOutputAmount");
     if (perOutputAmount * BigInt(input.numOutputs) !== input.input.utxo.amount) {
       throw new TransactionError("TRANSACTION_SPLIT_AMOUNT_MISMATCH", {
         input: input.input.utxo.amount.toString(),
@@ -623,7 +612,7 @@ export class PreparedSplit {
         actual: input.outputs.length,
       });
     }
-    const perOutputAmount = checkedU64(input.perOutputAmount, "perOutputAmount");
+    const perOutputAmount = checkU64(input.perOutputAmount, "perOutputAmount");
     const blindingSeed = checked<Bytes32>(input.blindingSeed, 32, "blinding seed");
     const firstNullifier = input.input.nullifier();
     const outputSeed = outputBlindingSeed(firstNullifier, blindingSeed);
