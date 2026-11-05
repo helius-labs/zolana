@@ -78,12 +78,10 @@ fn a_transaction_config_always_states_both_ceilings() {
     );
 }
 
-/// The implicit budget a legacy transaction used to receive, now stated.
-/// Every call site that sent no compute-budget instruction is routed
-/// through this, so it has to reproduce the runtime's rule exactly --
-/// 200,000 per instruction, capped at 1,400,000 for the transaction.
+/// The runtime's default budget, stated in the header: 200,000 per
+/// instruction, capped at 1,400,000 for the transaction.
 #[test]
-fn an_instruction_count_reproduces_the_implicit_legacy_budget() {
+fn an_instruction_count_gets_the_runtime_default_budget() {
     assert_eq!(
         ComputeBudgetConfig::for_instruction_count(1).cu_limit,
         200_000

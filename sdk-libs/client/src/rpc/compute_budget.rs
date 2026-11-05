@@ -2,10 +2,10 @@ use solana_message::v1;
 
 use super::constants::MAX_LOADED_ACCOUNTS_DATA_SIZE;
 
-/// What the runtime grants an instruction that asks for nothing, and the
-/// ceiling it caps the whole transaction at. A legacy transaction carrying no
-/// compute-budget instruction received `min(200_000 * instructions, 1_400_000)`
-/// implicitly; a v1 header has to say so.
+/// What the runtime grants an instruction that requests no compute budget,
+/// and the ceiling it caps the whole transaction at:
+/// `min(200_000 * instructions, 1_400_000)`. A v1 header reads an absent limit
+/// as zero, so the header has to state it.
 const DEFAULT_COMPUTE_UNITS_PER_INSTRUCTION: u32 = 200_000;
 const MAX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
@@ -30,13 +30,11 @@ impl ComputeBudgetConfig {
         }
     }
 
-    /// The budget a legacy transaction of `instructions` instructions received
-    /// without asking.
+    /// The runtime's default budget for `instructions` instructions that
+    /// request none.
     ///
-    /// A v1 header must state a ceiling, so every caller that previously sent
-    /// no compute-budget instruction needs one written for it. Reproducing the
-    /// runtime's own implicit rule keeps those callers on exactly the budget
-    /// they already had rather than inventing a number per call site.
+    /// A v1 header must state a ceiling, so a caller with no budget of its own
+    /// takes the runtime's default rule rather than a number per call site.
     pub const fn for_instruction_count(instructions: usize) -> Self {
         let requested = DEFAULT_COMPUTE_UNITS_PER_INSTRUCTION.saturating_mul(
             if instructions > u32::MAX as usize {

@@ -10,11 +10,11 @@ import (
 	spp "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 )
 
-// MaxPoseidonInputs is the widest Poseidon light_hasher computes, so a wider
+// MaxPoseidonInputs is the widest Poseidon spr_hasher computes, so a wider
 // in-circuit hash could never be recomputed by a program or client.
 const MaxPoseidonInputs = 12
 
-// Poseidon is light_hasher's BN254 Poseidon of 1 to MaxPoseidonInputs values.
+// Poseidon is spr_hasher's BN254 Poseidon of 1 to MaxPoseidonInputs values.
 // An unsupported field or arity panics, which frontend.Compile reports as a
 // compile error.
 func Poseidon(api frontend.API, inputs ...frontend.Variable) frontend.Variable {
@@ -29,7 +29,8 @@ func Poseidon(api frontend.API, inputs ...frontend.Variable) frontend.Variable {
 
 // HashBytes is spr_hasher's hash_bytes of a fixed-length byte string, one
 // variable per byte: 31-byte big-endian chunks folded left to right.
-// Bit checks, the std range checker adds a BSB22 commitment.
+// Each byte is range-checked by bit decomposition rather than with gnark's std
+// range checker, which would add a BSB22 commitment to the circuit.
 func HashBytes(api frontend.API, bytes []frontend.Variable) frontend.Variable {
 	return gadget.HashBytesWith(api, gadget.BitChecker{API: api}, bytes)
 }

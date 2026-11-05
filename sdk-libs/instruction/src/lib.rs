@@ -1,10 +1,10 @@
 //! # spr-instruction
 //!
-//! SPP instructions for Solana programs. Everything here is `no_std` and
-//! builds for the SBF target, so a program that consumes SPP transactions
-//! through CPI can build the shielded-pool instruction and recompute the values
-//! the proof derives instead of trusting instruction data. `spr-program`
-//! re-exports this crate.
+//! Shielded pool program (SPP) instructions for Solana programs. Everything
+//! here is `no_std` and builds for the SBF target, so a program that consumes
+//! SPP transactions through CPI can build the shielded-pool instruction and
+//! recompute the values the proof derives instead of trusting instruction
+//! data. `spr-program` re-exports this crate.
 //!
 //! What belongs here: the shielded-pool instruction builders in
 //! [`instruction`], and derivations shared between an SPP proof and the

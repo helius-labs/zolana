@@ -110,18 +110,16 @@ signature.
 
 ```rust
 let inputs = select_merge(spendable.utxos(), asset, MERGE_DEFAULT_INPUT_COUNT, &reserved)?;
-let tree_id = inputs[0].tree_id();
 let merge = MergeTransaction::new(inputs)?
-    .with_output_tree_id(tree_id)
     .with_expiry(now + 600)
     .encrypt(&keys)?;
 let submission = MergeSubmission::new(&merge, owner, &address, &nullifier_key);
 let signature = submission.send_sync(&client, &fee_payer)?;
 ```
 
-`with_output_tree_id` is required in practice: without it the merged UTXO is
-appended to tree 0. Pass the inputs' tree, or the tree the indexer names for
-new outputs when that one is full or paused.
+The merged UTXO is appended to the first input's `latest_tree_id`, the tree
+the indexer named for new outputs when the wallet synced it, else to tree 0.
+`with_output_tree_id` picks another tree.
 
 `prove_sync` checks the owner's record (PoseidonCtrV1 selected, same keys), fetches
 the witness, proves and verifies the proof. The proof binds no fee payer, so
@@ -145,7 +143,7 @@ is one: `harness.into_client(ProverClient::local())
 indexer are the litesvm harness, so a transfer proves, sends and confirms in
 one process beside a prover server.
 
-# Prover data source
+## Prover data source
 
 `ProverClient` and `AsyncProverClient` use prover fetching by default.
 Configure `PROVER_INDEXER_URL` and, when needed, `PROVER_INDEXER_API_KEY` on
