@@ -388,7 +388,8 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         interface_transfer_accounts: Vec::new(),
         data: ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let queue_next_before = nullifier_queue_next_index(&env.rpc, &env.tree_pubkey)?;
     let tree_before = fetch_tree_account(env)?;
     let sig = send_transaction(&mut env.rpc, &[tx_ix], &env.payer.pubkey(), &[&env.payer])?;

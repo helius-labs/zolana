@@ -140,7 +140,7 @@ impl LifecycleHarness {
             )],
             data: ix_data,
         }
-        .instruction();
+        .instruction()?;
         let sig = send_transaction_with_budget(
             &mut self.rpc,
             std::slice::from_ref(&withdraw_ix),

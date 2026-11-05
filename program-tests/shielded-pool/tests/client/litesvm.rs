@@ -266,7 +266,7 @@ fn a_client_over_the_harness_merges_a_wallets_utxos() {
         merge.output_hash().expect("output hash")
     );
     let relayer = Keypair::new();
-    let instruction = proved.instruction(relayer.pubkey());
+    let instruction = proved.instruction(relayer.pubkey()).unwrap();
     assert!(instruction
         .accounts
         .iter()

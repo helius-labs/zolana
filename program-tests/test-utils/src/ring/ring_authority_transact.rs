@@ -73,7 +73,7 @@ impl RingHarness {
             interface_transfer_accounts: Vec::new(),
             data: ix_data.clone(),
         }
-        .instruction();
+        .instruction()?;
         let signature = send_transaction_with_budget(
             &mut self.rpc,
             &[transfer_ix],
@@ -405,7 +405,7 @@ impl RingHarness {
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
-        .instruction();
+        .instruction()?;
         match send_transaction_with_budget(
             &mut self.rpc,
             &[transfer_ix],
@@ -453,7 +453,7 @@ impl RingHarness {
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
-        .instruction();
+        .instruction()?;
         match send_transaction_with_budget(
             &mut self.rpc,
             &[transfer_ix],

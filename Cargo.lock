@@ -10701,7 +10701,6 @@ dependencies = [
  "http 1.5.0",
  "httpdate",
  "num-bigint 0.4.8",
- "num-traits",
  "rand 0.8.8",
  "rand_core 0.9.5",
  "reqwest",

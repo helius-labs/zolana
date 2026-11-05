@@ -1090,7 +1090,7 @@ pub fn build_spl_withdrawal(
         )],
         data: data.clone(),
     }
-    .instruction();
+    .instruction()?;
 
     Ok(SplWithdrawal {
         mint,

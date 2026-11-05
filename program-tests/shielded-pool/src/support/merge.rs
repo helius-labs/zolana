@@ -210,6 +210,7 @@ impl RealMerge {
             }),
         }
         .instruction()
+        .expect("valid instruction")
     }
 }
 
@@ -606,6 +607,7 @@ impl RealRingMerge {
             }),
         }
         .instruction()
+        .expect("valid instruction")
     }
 }
 

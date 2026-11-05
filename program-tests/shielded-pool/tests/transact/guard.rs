@@ -73,7 +73,8 @@ fn expect_rejection(env: &mut Pool, data: TransactIxData, expected: ShieldedPool
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     expect_ix_rejection(env, ix, &[], Rejection::pool(expected));
 }
 
@@ -192,6 +193,7 @@ fn ring_instruction(
             data,
         }
         .cpi_instruction()
+        .unwrap()
     } else {
         RingTransact {
             payer,
@@ -203,6 +205,7 @@ fn ring_instruction(
             data,
         }
         .cpi_instruction()
+        .unwrap()
     };
     ix.accounts.get_mut(4).expect("ring config meta").pubkey = ring_config.pubkey();
     ix
@@ -310,7 +313,8 @@ fn transact_rejects_a_wrong_trailing_system_program_account() {
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 4),
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     ix.accounts.get_mut(3).expect("system program meta").pubkey = impostor;
     expect_ix_rejection(
         &mut env,
@@ -336,7 +340,8 @@ fn ring_transact_rejects_an_unsigned_ring_config() {
             data
         },
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .unwrap();
     // The `ring_config` signature IS the ring authorization (see
     // merge/contract.rs): without it the flag must be rejected before the
     // config is even loaded (so the account does not need to exist).
@@ -365,7 +370,8 @@ fn transact_rejects_a_non_writable_tree_meta() {
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 4),
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     for meta in ix
         .accounts
         .iter_mut()
@@ -430,7 +436,8 @@ fn transact_rejects_a_tree_not_owned_by_the_program() {
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 4),
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     expect_ix_rejection(
         &mut env,
         ix,
@@ -468,7 +475,8 @@ fn transact_rejects_a_malformed_wincode_payload() {
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 4),
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     // INV-TRANSACT-07: every payload `TransactIxDataRef::from_bytes` fails to
     // parse is rejected with the built-in error, never a pool code. The
@@ -533,7 +541,8 @@ fn transact_rejects_trailing_payload_bytes_at_parse() {
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 4),
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     ix.data.extend_from_slice(&[0xAB; 7]);
     let error = env
         .rpc
@@ -726,7 +735,8 @@ fn ring_authority_transact_rejects_an_unsigned_ring_config() {
             data
         },
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .unwrap();
     ix.accounts.get_mut(4).expect("ring config meta").is_signer = false;
 
     expect_ix_rejection(
@@ -862,7 +872,8 @@ fn expect_tree_run_rejection(
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     expect_ix_rejection(env, ix, &[], Rejection::pool(expected));
 }
 
@@ -896,7 +907,8 @@ fn transact_rejects_input_trees_inserted_into_the_fixed_prefix() {
             interface_transfer_accounts: Vec::new(),
             data: multi_tree_ix_data(&indexes, tree_count),
         }
-        .instruction();
+        .instruction()
+        .unwrap();
         // Move the input trees back between payer and output_tree. The parser
         // must reject this order before any tree or nullifier account changes.
         ix.accounts
@@ -1001,7 +1013,8 @@ fn transact_with_no_outputs_reaches_verification_without_output_tree_funds() {
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     // The inner payer can fund only the input fee; the placeholder proof must
     // cause the rejection, rather than a transfer to the untouched output tree.
     expect_ix_rejection(

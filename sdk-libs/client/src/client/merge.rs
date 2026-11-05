@@ -79,8 +79,8 @@ pub struct ProvedMerge {
 impl ProvedMerge {
     /// The `merge_transact` `payer` pays for and signs. It verifies a Groth16
     /// proof: give its transaction [`MERGE_CU_LIMIT`].
-    pub fn instruction(&self, payer: Address) -> Instruction {
-        MergeTransact {
+    pub fn instruction(&self, payer: Address) -> Result<Instruction, ClientError> {
+        Ok(MergeTransact {
             input_tree: pda::tree(self.input_tree_id),
             output_tree: pda::tree(self.output_tree_id),
             payer,
@@ -88,7 +88,7 @@ impl ProvedMerge {
             data: self.data.clone(),
             cache: None,
         }
-        .instruction()
+        .instruction()?)
     }
 }
 
@@ -176,7 +176,7 @@ impl<'a> MergeSubmission<'a> {
     ) -> Result<UnsignedMessage, ClientError> {
         let (proved, (recent_blockhash, last_valid_block_height)) =
             prove_with_blockhash(client.rpc(), self.prove(client)).await?;
-        let merge = proved.instruction(fee_payer);
+        let merge = proved.instruction(fee_payer)?;
         let mut compute_budget = client.compute_budget();
         compute_budget.cu_limit = MERGE_CU_LIMIT;
         Ok(UnsignedMessage {

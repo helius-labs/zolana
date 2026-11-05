@@ -193,7 +193,7 @@ impl LifecycleHarness {
             data,
             cache: None,
         }
-        .instruction();
+        .instruction()?;
         let ix = if merge_key_pays {
             merge_ix
         } else {

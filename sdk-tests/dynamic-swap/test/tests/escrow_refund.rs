@@ -189,7 +189,8 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             interface_transfer_accounts: Vec::new(),
             data: split_transact,
         }
-        .instruction();
+        .instruction()
+        .unwrap();
         env.localnet
             .client
             .rpc()

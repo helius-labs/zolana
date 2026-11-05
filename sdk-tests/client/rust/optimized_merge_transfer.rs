@@ -267,7 +267,7 @@ fn main() -> Result<()> {
             compute_budget,
         )?;
         client.create_and_send_transaction(
-            &[create_cache_ix, merge_ix.instruction()],
+            &[create_cache_ix, merge_ix.instruction().unwrap()],
             rent_sponsor.pubkey(),
             &[&rent_sponsor],
             compute_budget,
@@ -298,7 +298,8 @@ fn main() -> Result<()> {
         interface_transfer_accounts: Vec::new(),
         data: transfer.with_proof(ProofCompressed::try_from(transfer_proof)?.to_transact_proof()),
     }
-    .instruction_with_cache_read(cache);
+    .instruction_with_cache_read(cache)
+    .unwrap();
     let close_cache_ix = CloseCache {
         cache,
         rent_recipient: rent_sponsor.pubkey(),

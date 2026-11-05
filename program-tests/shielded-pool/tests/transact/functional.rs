@@ -653,7 +653,8 @@ fn transact_sends_valid_proof() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let indexed = env
         .rpc
@@ -821,7 +822,8 @@ fn transact_with_no_sent_outputs_appends_nothing() {
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     env.rpc
         .create_and_send_default_payer_transaction_with_budget(
             &[ix],
@@ -973,7 +975,8 @@ fn send_assembled_spend(
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     env.rpc
         .create_and_send_default_payer_transaction_with_budget(
             &[ix],
@@ -1102,7 +1105,8 @@ fn transact_rejects_tampered_output_owner_tag() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let error = env
         .rpc
@@ -1146,7 +1150,8 @@ fn transact_rejects_tampered_public_amount() {
         )],
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let error = env
         .rpc
@@ -1184,7 +1189,8 @@ fn transact_rejects_an_uncached_spend_that_names_no_utxo_root() {
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let error = env
         .rpc
@@ -1216,7 +1222,8 @@ fn transact_rejects_tampered_private_transaction_hash() {
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let error = env
         .rpc
@@ -1245,7 +1252,8 @@ fn transact_rejects_tampered_external_data() {
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let error = env
         .rpc
@@ -1283,7 +1291,8 @@ fn transact_rejects_out_of_field_output_hash() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let error = env
         .rpc
@@ -1329,7 +1338,8 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     ix.accounts
         .get_mut(owner_signer_index)
         .expect("input owner account meta")
@@ -1374,7 +1384,8 @@ fn transact_rejects_a_substituted_input_signer() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let error = env
         .rpc
@@ -1409,7 +1420,8 @@ fn transact_rejects_a_payer_owned_input_without_an_owner_signer() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let error = env
         .rpc
@@ -1450,7 +1462,8 @@ fn transact_accepts_a_sponsoring_payer_when_the_owner_signs() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     env.rpc
         .create_and_send_default_payer_transaction(&[ix], &[&sponsor, &input_owner])
@@ -1484,7 +1497,8 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
 
     // A structurally valid RingConfig at a keypair address: `load_ring_config`
@@ -1534,7 +1548,8 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
 
     let ring_config = write_signed_ring_config(&mut env, Pubkey::new_unique(), true);
@@ -1582,7 +1597,8 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     *base_ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
 
     let config_b = write_signed_ring_config(&mut env, ring_b, true);
@@ -1643,7 +1659,8 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     *base_ix.data.first_mut().expect("instruction tag byte") = tag::RING_AUTHORITY_TRANSACT;
 
     // The authority variant requires `ring_authority_transact_is_enabled`.
@@ -1697,7 +1714,8 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     *ix.data.first_mut().expect("instruction tag byte") = tag::RING_AUTHORITY_TRANSACT;
 
     let ring_config = write_signed_ring_config(&mut env, ring, true);
@@ -1753,7 +1771,8 @@ fn transact_accepts_the_widest_input_shape() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     // Five fixed metas, one nullifier PDA per input, and the paying owner as
     // its own owner signer.
     assert_eq!(ix.accounts.len(), 6 + shape.n_inputs());
@@ -1817,7 +1836,8 @@ fn ring_transact_accepts_the_widest_input_shape() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
 
     let ring_config = write_signed_ring_config(&mut env, ring, false);
@@ -1935,7 +1955,8 @@ fn transact_rejects_an_owner_signer_run_longer_than_the_signer_width() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let signer_refs: Vec<&dyn Signer> = extra_signers
         .iter()
@@ -2020,7 +2041,8 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let error = env
         .rpc
@@ -2366,7 +2388,8 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let indexed = env
         .rpc

@@ -368,7 +368,8 @@ fn phase_shielded_transfer(
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let transfer_sig = send_transaction(
         &mut env.rpc,
         &[transfer_ix],
@@ -570,7 +571,8 @@ fn phase_unshield(
         )],
         data: withdraw_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let withdraw_sig = send_transaction(
         &mut env.rpc,
         &[withdraw_ix],

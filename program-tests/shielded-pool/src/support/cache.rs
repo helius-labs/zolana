@@ -278,7 +278,8 @@ impl CachedSpendFixture {
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
-        .instruction_with_cache_read(cache);
+        .instruction_with_cache_read(cache)
+        .expect("valid instruction");
 
         CachedSpend {
             instruction,

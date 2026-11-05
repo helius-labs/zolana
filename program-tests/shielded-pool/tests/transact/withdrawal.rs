@@ -100,7 +100,8 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         )],
         data: substituted_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[substituted], &[])
@@ -333,7 +334,8 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         )],
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     // The proof is bound to this exact expiry. Submit it one second late first
     // and verify complete rollback, then restore the boundary clock and submit
@@ -554,7 +556,8 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         )],
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     // A deposit transfers FROM the settlement account; the builder already
     // marks the depositor meta as a signer.
 
@@ -743,7 +746,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         )],
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     env.rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect("real-proof SPL deposit");
@@ -1048,7 +1052,8 @@ fn phase_transfer_to_recipient(
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let result = env
         .rpc
         .create_and_send_default_payer_transaction(&[transfer_ix], &[]);
@@ -1270,7 +1275,8 @@ fn phase_withdraw_recipient_utxo(
         )],
         data: withdraw_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let result = env
         .rpc
         .create_and_send_default_payer_transaction(&[withdraw_ix], &[recipient_owner]);

@@ -7,8 +7,8 @@ use spr_interface::{
 };
 
 use super::transact::{
-    append_cache_accounts, append_interface_transfer_accounts, transact_nullifier_pda_accounts,
-    TransactInterfaceTransferAccounts,
+    append_cache_accounts, append_interface_transfer_accounts, transact_instruction_data,
+    transact_nullifier_pda_accounts, TransactBuildError, TransactInterfaceTransferAccounts,
 };
 
 /// Builder for the `ring_transact` instruction, the confidential policy-ring analog
@@ -33,13 +33,13 @@ impl RingTransact {
     /// Instruction sent to the ring program, which CPIs into SPP. The `ring_auth`
     /// PDA is not a transaction-level signer; the ring program signs for it in its
     /// CPI.
-    pub fn instruction(&self) -> Instruction {
+    pub fn instruction(&self) -> Result<Instruction, TransactBuildError> {
         self.build_instruction(self.ring_program_id, false)
     }
 
     /// The SPP instruction a ring program constructs for its own CPI: program id
     /// is SPP and the `ring_auth` PDA is passed as a signer.
-    pub fn cpi_instruction(&self) -> Instruction {
+    pub fn cpi_instruction(&self) -> Result<Instruction, TransactBuildError> {
         self.build_instruction(PROGRAM_ID_PUBKEY, true)
     }
 
@@ -47,22 +47,29 @@ impl RingTransact {
         &self,
         read_cache: Option<Pubkey>,
         write_cache: Option<(Pubkey, Pubkey)>,
-    ) -> Instruction {
-        let mut instruction = self.cpi_instruction();
+    ) -> Result<Instruction, TransactBuildError> {
+        let mut instruction = self.cpi_instruction()?;
         append_cache_accounts(&mut instruction.accounts, read_cache, write_cache);
-        instruction
+        Ok(instruction)
     }
 
-    pub fn instruction_with_cache_read(&self, cache: Pubkey) -> Instruction {
-        let mut instruction = self.instruction();
+    pub fn instruction_with_cache_read(
+        &self,
+        cache: Pubkey,
+    ) -> Result<Instruction, TransactBuildError> {
+        let mut instruction = self.instruction()?;
         append_cache_accounts(&mut instruction.accounts, Some(cache), None);
-        instruction
+        Ok(instruction)
     }
 
-    pub fn instruction_with_cache_write(&self, cache: Pubkey, writer: Pubkey) -> Instruction {
-        let mut instruction = self.instruction();
+    pub fn instruction_with_cache_write(
+        &self,
+        cache: Pubkey,
+        writer: Pubkey,
+    ) -> Result<Instruction, TransactBuildError> {
+        let mut instruction = self.instruction()?;
         append_cache_accounts(&mut instruction.accounts, None, Some((cache, writer)));
-        instruction
+        Ok(instruction)
     }
 
     pub fn instruction_with_caches(
@@ -70,26 +77,22 @@ impl RingTransact {
         read_cache: Pubkey,
         write_cache: Pubkey,
         writer: Pubkey,
-    ) -> Instruction {
-        let mut instruction = self.instruction();
+    ) -> Result<Instruction, TransactBuildError> {
+        let mut instruction = self.instruction()?;
         append_cache_accounts(
             &mut instruction.accounts,
             Some(read_cache),
             Some((write_cache, writer)),
         );
-        instruction
+        Ok(instruction)
     }
 
-    fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
+    fn build_instruction(
+        &self,
+        program_id: Pubkey,
+        auth_signer: bool,
+    ) -> Result<Instruction, TransactBuildError> {
         let ring_config = pda::ring_auth(&self.ring_program_id).0;
-
-        let mut instruction_data = vec![tag::RING_TRANSACT];
-        instruction_data.extend_from_slice(
-            &self
-                .data
-                .serialize()
-                .expect("shielded-pool instruction serialization is infallible"),
-        );
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
@@ -106,7 +109,7 @@ impl RingTransact {
         accounts.extend(transact_nullifier_pda_accounts(
             &self.input_trees,
             self.data.inputs.iter(),
-        ));
+        )?);
         accounts.extend(
             self.owner_signers
                 .iter()
@@ -117,12 +120,12 @@ impl RingTransact {
             &mut accounts,
             &self.data.interface_transfers,
             &self.interface_transfer_accounts,
-        );
-        Instruction {
+        )?;
+        Ok(Instruction {
             program_id,
             accounts,
-            data: instruction_data,
-        }
+            data: transact_instruction_data(tag::RING_TRANSACT, &self.data)?,
+        })
     }
 }
 
@@ -167,8 +170,8 @@ mod tests {
         let builder = builder();
         let cache = Pubkey::new_unique();
         let writer = Pubkey::new_unique();
-        let ix = builder.instruction_with_cache_write(cache, writer);
-        let mut expected = builder.instruction().accounts;
+        let ix = builder.instruction_with_cache_write(cache, writer).unwrap();
+        let mut expected = builder.instruction().unwrap().accounts;
         expected.push(AccountMeta::new(cache, false));
         expected.push(AccountMeta::new_readonly(writer, true));
         assert_eq!(ix.program_id, builder.ring_program_id);
@@ -179,8 +182,8 @@ mod tests {
     fn cache_read_targets_the_ring_program_with_read_only_cache() {
         let builder = builder();
         let cache = Pubkey::new_unique();
-        let ix = builder.instruction_with_cache_read(cache);
-        let mut expected = builder.instruction().accounts;
+        let ix = builder.instruction_with_cache_read(cache).unwrap();
+        let mut expected = builder.instruction().unwrap().accounts;
         expected.push(AccountMeta::new_readonly(cache, false));
         assert_eq!(ix.program_id, builder.ring_program_id);
         assert_eq!(ix.accounts, expected);
@@ -197,15 +200,18 @@ mod tests {
             AccountMeta::new(write_cache, false),
             AccountMeta::new_readonly(writer, true),
         ];
-        let ix = builder.instruction_with_caches(read_cache, write_cache, writer);
-        let mut expected = builder.instruction().accounts;
+        let ix = builder
+            .instruction_with_caches(read_cache, write_cache, writer)
+            .unwrap();
+        let mut expected = builder.instruction().unwrap().accounts;
         expected.extend(tail.clone());
         assert_eq!(ix.program_id, builder.ring_program_id);
         assert_eq!(ix.accounts, expected);
 
-        let cpi =
-            builder.cpi_instruction_with_caches(Some(read_cache), Some((write_cache, writer)));
-        let mut expected = builder.cpi_instruction().accounts;
+        let cpi = builder
+            .cpi_instruction_with_caches(Some(read_cache), Some((write_cache, writer)))
+            .unwrap();
+        let mut expected = builder.cpi_instruction().unwrap().accounts;
         expected.extend(tail);
         assert_eq!(cpi.program_id, PROGRAM_ID_PUBKEY);
         assert_eq!(cpi.accounts, expected);

@@ -263,7 +263,8 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
         interface_transfer_accounts: Vec::new(),
         data: transact,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let poison_signature = send_from(env, poison_ix, &attacker, None)?;
     wait_for_indexed_utxo(&env.localnet.client, pda.to_bytes(), poison_signature);
     Ok(poison_signature)

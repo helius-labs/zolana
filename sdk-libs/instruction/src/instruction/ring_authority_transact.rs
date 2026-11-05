@@ -7,8 +7,8 @@ use spr_interface::{
 };
 
 use super::transact::{
-    append_interface_transfer_accounts, transact_nullifier_pda_accounts,
-    TransactInterfaceTransferAccounts,
+    append_interface_transfer_accounts, transact_instruction_data, transact_nullifier_pda_accounts,
+    TransactBuildError, TransactInterfaceTransferAccounts,
 };
 
 /// Builder for the `ring_authority_transact` instruction: a ring-authority state
@@ -34,26 +34,22 @@ pub struct RingAuthorityTransact {
 impl RingAuthorityTransact {
     /// Instruction sent to the ring program, which CPIs into SPP. The `ring_auth`
     /// PDA is not a transaction-level signer; the ring program signs for it.
-    pub fn instruction(&self) -> Instruction {
+    pub fn instruction(&self) -> Result<Instruction, TransactBuildError> {
         self.build_instruction(self.ring_program_id, false)
     }
 
     /// The SPP instruction a ring program constructs for its own CPI: program id
     /// is SPP and the `ring_auth` PDA is passed as a signer.
-    pub fn cpi_instruction(&self) -> Instruction {
+    pub fn cpi_instruction(&self) -> Result<Instruction, TransactBuildError> {
         self.build_instruction(PROGRAM_ID_PUBKEY, true)
     }
 
-    fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
+    fn build_instruction(
+        &self,
+        program_id: Pubkey,
+        auth_signer: bool,
+    ) -> Result<Instruction, TransactBuildError> {
         let ring_config = pda::ring_auth(&self.ring_program_id).0;
-
-        let mut instruction_data = vec![tag::RING_AUTHORITY_TRANSACT];
-        instruction_data.extend_from_slice(
-            &self
-                .data
-                .serialize()
-                .expect("shielded-pool instruction serialization is infallible"),
-        );
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
@@ -70,16 +66,16 @@ impl RingAuthorityTransact {
         accounts.extend(transact_nullifier_pda_accounts(
             &self.input_trees,
             self.data.inputs.iter(),
-        ));
+        )?);
         append_interface_transfer_accounts(
             &mut accounts,
             &self.data.interface_transfers,
             &self.interface_transfer_accounts,
-        );
-        Instruction {
+        )?;
+        Ok(Instruction {
             program_id,
             accounts,
-            data: instruction_data,
-        }
+            data: transact_instruction_data(tag::RING_AUTHORITY_TRANSACT, &self.data)?,
+        })
     }
 }

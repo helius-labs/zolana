@@ -161,7 +161,8 @@ fn main() -> Result<()> {
             interface_transfer_accounts: Vec::new(),
             data: transfer_data,
         }
-        .instruction();
+        .instruction()
+        .unwrap();
 
         // 7 and 8. Sign, send and confirm; confirmation yields the landed slot.
         let signature = client.create_and_send_transaction(
@@ -244,7 +245,8 @@ fn main() -> Result<()> {
             // SPL: ],
             data: withdrawal_data,
         }
-        .instruction();
+        .instruction()
+        .unwrap();
 
         // 7 and 8. Sign, send and confirm.
         let signature = client.create_and_send_transaction(

@@ -1306,7 +1306,7 @@ impl ProverLaunch {
     fn start(&self) -> Result<(), ClientError> {
         // One probe: a prover that is not up yet is started below, and the CLI
         // reuses one a parallel start brought up in the meantime.
-        if health_check(1, 1) {
+        if health_check(1, 1)? {
             return Ok(());
         }
 
@@ -1315,7 +1315,7 @@ impl ProverLaunch {
             .is_err()
         {
             // Another caller is already starting it; wait for that to finish.
-            if health_check(STARTUP_HEALTH_CHECK_RETRIES, 1) {
+            if health_check(STARTUP_HEALTH_CHECK_RETRIES, 1)? {
                 return Ok(());
             }
             return Err(ClientError::Prover(
@@ -1359,22 +1359,23 @@ impl ProverLaunch {
 }
 
 #[cfg(feature = "reqwest")]
-fn health_check(retries: usize, timeout_secs: u64) -> bool {
-    let client = build_http_client(None).expect("failed to build HTTP client");
+fn health_check(retries: usize, timeout_secs: u64) -> Result<bool, ClientError> {
+    let client = build_http_client(None)
+        .map_err(|e| ClientError::Prover(format!("failed to build HTTP client: {e}")))?;
     let timeout = Duration::from_secs(timeout_secs);
     let Ok(url) = ProverEndpoint::parse(&server_address()).url(HEALTH_CHECK) else {
-        return false;
+        return Ok(false);
     };
     for attempt in 0..retries {
         let ok = client.get(url.clone()).timeout(timeout).send().is_ok();
         if ok {
-            return true;
+            return Ok(true);
         }
         if attempt + 1 < retries {
             sleep(timeout);
         }
     }
-    false
+    Ok(false)
 }
 
 #[cfg(feature = "reqwest")]

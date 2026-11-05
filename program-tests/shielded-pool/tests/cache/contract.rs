@@ -401,7 +401,8 @@ fn merge_rejects_invalid_writes_and_rolls_back_overwrites() {
                 writer: owner,
             }),
         }
-        .instruction();
+        .instruction()
+        .unwrap();
         let before = rpc.account_data(&tree).expect("tree data");
         reject(&mut rpc, ix, error);
         assert_eq!(state(&rpc, &cache), cache_state, "{case}");

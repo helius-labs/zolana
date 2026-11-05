@@ -6,7 +6,10 @@ use spr_interface::{
     pda, PROGRAM_ID_PUBKEY,
 };
 
-use super::{merge_transact::CacheWriteAccounts, transact::nullifier_pda_accounts};
+use super::{
+    merge_transact::CacheWriteAccounts,
+    transact::{nullifier_pda_accounts, TransactBuildError},
+};
 
 /// Builder for the `merge_ring` instruction, the policy-ring analog of
 /// [`super::merge_transact::MergeTransact`]. The account layout mirrors the
@@ -34,17 +37,21 @@ pub struct MergeRing {
 impl MergeRing {
     /// Instruction sent to the ring program, which CPIs into SPP. The `ring_auth`
     /// PDA is not a transaction-level signer; the ring program signs for it.
-    pub fn instruction(&self) -> Instruction {
+    pub fn instruction(&self) -> Result<Instruction, TransactBuildError> {
         self.build_instruction(self.ring_program_id, false)
     }
 
     /// The SPP instruction a ring program constructs for its own CPI: program id
     /// is SPP and the `ring_auth` PDA is passed as a signer.
-    pub fn cpi_instruction(&self) -> Instruction {
+    pub fn cpi_instruction(&self) -> Result<Instruction, TransactBuildError> {
         self.build_instruction(PROGRAM_ID_PUBKEY, true)
     }
 
-    fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
+    fn build_instruction(
+        &self,
+        program_id: Pubkey,
+        auth_signer: bool,
+    ) -> Result<Instruction, TransactBuildError> {
         let ring_config = pda::ring_auth(&self.ring_program_id).0;
 
         let ix_data = MergeRingIxData {
@@ -55,7 +62,7 @@ impl MergeRing {
         instruction_data.extend_from_slice(
             &ix_data
                 .serialize()
-                .expect("shielded-pool instruction serialization is infallible"),
+                .map_err(|_| TransactBuildError::Serialization)?,
         );
 
         let mut accounts = vec![
@@ -76,11 +83,11 @@ impl MergeRing {
                 .flat_map(CacheWriteAccounts::account_metas),
         );
 
-        Instruction {
+        Ok(Instruction {
             program_id,
             accounts,
             data: instruction_data,
-        }
+        })
     }
 }
 
@@ -149,7 +156,7 @@ mod tests {
             cache: None,
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().unwrap();
         assert_eq!(ix.program_id, ring_program_id);
         assert_eq!(ix.data.first(), Some(&tag::RING_MERGE_TRANSACT));
         assert_eq!(ix.data.get(1..33), Some(&[7u8; 32][..]));
@@ -179,7 +186,7 @@ mod tests {
             }),
         };
 
-        let ix = builder.cpi_instruction();
+        let ix = builder.cpi_instruction().unwrap();
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
         assert_eq!(ix.accounts, expected_accounts(&builder, true));
         assert_eq!(ix.accounts.len(), 6 + 8 + 2);

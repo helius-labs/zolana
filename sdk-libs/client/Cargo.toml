@@ -37,7 +37,6 @@ spr-user-registry-interface = { workspace = true, features = ["solana"] }
 zeroize = { workspace = true }
 spr-api = { workspace = true, default-features = false }
 num-bigint = { workspace = true }
-num-traits = { workspace = true }
 solana-address = { workspace = true }
 thiserror = { workspace = true }
 hex = { workspace = true, features = ["serde"] }

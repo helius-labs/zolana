@@ -110,7 +110,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ConfidentialSigner(2, 2, 3), &nullifiers),
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let mut expected_transact = vec![
         AccountMeta::new(payer, true),
         AccountMeta::new(output_tree, false),
@@ -132,7 +133,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ConfidentialRingEddsa(2, 2, 3), &nullifiers),
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .unwrap();
     let mut expected_ring = vec![
         AccountMeta::new(payer, true),
         AccountMeta::new(output_tree, false),
@@ -154,7 +156,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::RingAuthority(2, 2, 3), &nullifiers),
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .unwrap();
     let mut expected_ring_authority = vec![
         AccountMeta::new(payer, true),
         AccountMeta::new(output_tree, false),
@@ -177,7 +180,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         data: merge_data.clone(),
         cache: None,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let mut expected_merge = vec![
         AccountMeta::new(input_tree, false),
         AccountMeta::new(output_tree, false),
@@ -198,7 +202,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         output_ring_data_hash: [0u8; 32],
         cache: None,
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .unwrap();
     let mut expected_merge_ring = vec![
         AccountMeta::new(input_tree, false),
         AccountMeta::new(output_tree, false),
@@ -227,7 +232,8 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ConfidentialRingEddsa(0, 0, 3), &[]),
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     assert_eq!(ring.program_id, ring_program_id);
     assert_eq!(
         ring.accounts,
@@ -249,7 +255,8 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::RingAuthority(0, 0, 3), &[]),
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     assert_eq!(authority.program_id, ring_program_id);
     assert_eq!(authority.accounts, ring.accounts);
 }
@@ -266,7 +273,8 @@ fn same_pubkey_is_valid_in_both_tree_slots() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ConfidentialSigner(0, 0, 3), &[]),
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     assert_eq!(
         instruction.accounts,
@@ -327,12 +335,15 @@ fn transact_cpi_accounts_insert_signer_pdas_before_interface_transfers() {
             .map(|pda| AccountMeta::new_readonly(*pda, false)),
     );
     expected_cpi.extend(interface_transfer_metas.clone());
-    assert_eq!(transact.cpi_accounts(&signer_pdas), expected_cpi);
+    assert_eq!(transact.cpi_accounts(&signer_pdas).unwrap(), expected_cpi);
 
     let mut expected_instruction = expected_prefix;
     expected_instruction.extend(interface_transfer_metas);
-    assert_eq!(transact.cpi_accounts(&[]), expected_instruction);
-    assert_eq!(transact.instruction().accounts, expected_instruction);
+    assert_eq!(transact.cpi_accounts(&[]).unwrap(), expected_instruction);
+    assert_eq!(
+        transact.instruction().unwrap().accounts,
+        expected_instruction
+    );
 }
 
 /// A spend across two trees: the tree run follows the fixed prefix in context order,
@@ -381,7 +392,8 @@ fn transact_builders_lay_out_the_tree_run_and_derive_pdas_per_input_tree() {
         interface_transfer_accounts: Vec::new(),
         data: data.clone(),
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     assert_eq!(
         instruction.accounts,
@@ -420,10 +432,10 @@ fn transact_builders_lay_out_the_tree_run_and_derive_pdas_per_input_tree() {
         data,
     };
     for (actual, auth_signer) in [
-        (ring.instruction(), false),
-        (ring.cpi_instruction(), true),
-        (authority.instruction(), false),
-        (authority.cpi_instruction(), true),
+        (ring.instruction().unwrap(), false),
+        (ring.cpi_instruction().unwrap(), true),
+        (authority.instruction().unwrap(), false),
+        (authority.cpi_instruction().unwrap(), true),
     ] {
         let mut expected = instruction.accounts.clone();
         expected.insert(4, AccountMeta::new_readonly(ring_auth, auth_signer));

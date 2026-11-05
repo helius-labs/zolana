@@ -223,6 +223,7 @@ fn transact_ix(
         data,
     }
     .instruction()
+    .unwrap()
 }
 
 fn send(

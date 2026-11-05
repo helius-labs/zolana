@@ -72,6 +72,7 @@ fn merge_instruction(
         cache: None,
     }
     .instruction()
+    .unwrap()
 }
 
 #[test]
@@ -300,7 +301,8 @@ fn merge_rejects_an_unsigned_payer() {
         data: merge_ix_data(),
         cache: None,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     ix.accounts.get_mut(2).expect("payer meta").is_signer = false;
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -321,7 +323,8 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
         output_ring_data_hash: fe(99),
         cache: None,
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .unwrap();
     // The `ring_config` signature IS the ring authorization; without the ring
     // program's `invoke_signed` the flag must be rejected before the config is
     // even loaded (so the account does not need to exist).
@@ -514,6 +517,7 @@ fn merge_ring_cpi_instruction(
         cache: None,
     }
     .cpi_instruction()
+    .unwrap()
 }
 
 /// A valid-shaped `RingConfig` account written at a keypair address, so the
@@ -605,7 +609,8 @@ fn merge_ring_rejects_an_unsigned_payer() {
         output_ring_data_hash: fe(92),
         cache: None,
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .unwrap();
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config_signer.pubkey();
     ix.accounts.get_mut(3).expect("payer meta").is_signer = false;
     let error = rpc
@@ -699,7 +704,8 @@ fn merge_ring_rejects_a_paused_tree() {
         output_ring_data_hash: fe(95),
         cache: None,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a ring merge against a paused tree must be rejected");
