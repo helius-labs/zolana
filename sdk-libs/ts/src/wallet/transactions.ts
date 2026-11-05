@@ -25,6 +25,7 @@ import {
   type TransferDestination,
 } from "./actions.js";
 import { wrapWalletError } from "./error.js";
+import { holdReservation } from "./internal.js";
 import { authorizePrivateTransaction } from "./private-transaction.js";
 import { withdrawalSetupInstructions } from "../flows/settlement.js";
 
@@ -184,7 +185,7 @@ async function buildAuthorizedTransaction(
   setupInstructions: readonly Instruction[],
   context: RequestContext | undefined,
 ): Promise<Transaction> {
-  try {
+  return holdReservation(input.wallet, transaction._reservationId(), async (assertHeld) => {
     const authorized = await authorizePrivateTransaction(
       transaction,
       input.wallet,
@@ -194,7 +195,8 @@ async function buildAuthorizedTransaction(
       context,
       input.owner !== undefined,
     );
-    return await withProofDataRetry(
+    assertHeld();
+    return withProofDataRetry(
       input.client.proofDataSource,
       (attempt) =>
         input.client.assembleAuthorizedPrivateTransaction(
@@ -208,11 +210,7 @@ async function buildAuthorizedTransaction(
         ),
       context,
     );
-  } catch (cause) {
-    const reservationId = transaction._reservationId();
-    if (reservationId !== undefined) input.wallet._releaseReservation(reservationId);
-    throw cause;
-  }
+  });
 }
 
 export type { TransferDestination } from "./actions.js";

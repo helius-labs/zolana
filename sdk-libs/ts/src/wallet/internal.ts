@@ -1,6 +1,6 @@
 import { getBase64Encoder } from "@solana/kit";
 
-import { reserveEntries } from "../flows/reserve.js";
+import { leaseReservation, reserveEntries } from "../flows/reserve.js";
 import type { Bytes32 } from "../interface/types.js";
 import { TransactionError } from "../transaction/error.js";
 import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
@@ -21,6 +21,33 @@ export function reserveWalletEntries(
         cause,
       });
     }
+    throw cause;
+  }
+}
+
+/**
+ * @internal Runs `build` with the reservation held whatever its expiry says,
+ * so a slow approval, key holder or prover never frees its UTXOs to another
+ * build. `assertHeld` throws `WALLET_RESERVATION_LOST` once a sync that saw
+ * the UTXOs spent has dropped the reservation. A failure releases it; a
+ * result keeps it for `DEFAULT_RESERVATION_TTL_MS` from the return, or until
+ * a sync sees the spend.
+ */
+export async function holdReservation<T>(
+  wallet: Wallet,
+  id: string,
+  build: (assertHeld: () => void) => Promise<T>,
+): Promise<T> {
+  const assertHeld = (): void => {
+    if (!wallet._holdReservation(id)) throw new WalletError("WALLET_RESERVATION_LOST");
+  };
+  try {
+    assertHeld();
+    const built = await build(assertHeld);
+    if (!leaseReservation(wallet, id)) throw new WalletError("WALLET_RESERVATION_LOST");
+    return built;
+  } catch (cause) {
+    wallet._releaseReservation(id);
     throw cause;
   }
 }

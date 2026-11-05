@@ -409,6 +409,16 @@ Call `syncWallet`:
 Do not build another private spend until the wallet has synced after the
 previous confirmed transaction.
 
+A build holds the UTXOs it selects until it returns, however long approval,
+the key holder and the prover take, so a concurrent build on the same `Wallet`
+never spends them. A failed build frees them at once, and an approval handler
+that never settles holds them for as long as the `Wallet` lives. A built
+transaction keeps them for two minutes from its return, about as long as its
+blockhash stays valid. A sync that sees the spend frees them sooner, and a
+transaction that is never sent frees them when the two minutes end. When a sync
+sees them spent before the build returns, the build fails with
+`WALLET_RESERVATION_LOST`.
+
 Persist wallet state with `serializeWallet` and restore it with
 `deserializeWallet`. Persist key material separately. Serialized wallet state
 contains UTXO data and must be encrypted at rest.
