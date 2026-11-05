@@ -14,6 +14,7 @@ use solana_clock::Clock;
 use solana_hash::Hash;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
+use solana_transaction_status_client_types::{TransactionConfirmationStatus, TransactionStatus};
 use spr_client::{
     rpc::{
         Context, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
@@ -130,6 +131,36 @@ impl Rpc for ProgramTestHandle {
         Ok(self.lock().transaction_traces().iter().any(|trace| {
             trace.signature == signature && trace.outcome == TransactionOutcome::Succeeded
         }))
+    }
+
+    /// Every transaction the harness ran is finalized, with the error it
+    /// failed with. A trace records no slot, so each reports the current one.
+    fn get_signature_statuses(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        let harness = self.lock();
+        let slot = harness.svm.get_sysvar::<Clock>().slot;
+        Ok(signatures
+            .iter()
+            .map(|signature| {
+                let trace = harness
+                    .transaction_traces()
+                    .iter()
+                    .rfind(|trace| trace.signature == *signature)?;
+                let err = match &trace.outcome {
+                    TransactionOutcome::Succeeded => None,
+                    TransactionOutcome::Failed(failure) => Some(failure.clone()),
+                };
+                Some(TransactionStatus {
+                    slot,
+                    confirmations: None,
+                    status: err.clone().map_or(Ok(()), Err),
+                    err,
+                    confirmation_status: Some(TransactionConfirmationStatus::Finalized),
+                })
+            })
+            .collect())
     }
 
     fn get_shielded_transactions_by_signature(

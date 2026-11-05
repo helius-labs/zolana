@@ -357,6 +357,10 @@ impl<'a> Submission<'a> {
     /// the native owners the transaction's inputs name, except the owner whose
     /// key was supplied with [`Self::with_confidential_eddsa_owner`]. One keypair
     /// playing both roles signs once.
+    ///
+    /// [`ClientError::TransactionNotIndexed`] means the transaction landed and
+    /// carries its signature: wait for the indexer instead of sending again,
+    /// which would prove anew and fail on the spent nullifiers.
     pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncSprClient<R, I>,
