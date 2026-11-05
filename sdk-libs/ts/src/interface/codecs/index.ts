@@ -31,7 +31,7 @@ import type {
 } from "../types.js";
 import { circuitCacheAccess } from "../types.js";
 import { validCacheAccess } from "../cache.js";
-import { mergePaddedInputCount } from "../constants.js";
+import { MAX_INTERFACE_TRANSFERS, mergePaddedInputCount } from "../constants.js";
 import type { CreateTreeData, NullifierTreeParams } from "../program.js";
 import {
   CACHE_ACCOUNT_SIZE,
@@ -369,6 +369,12 @@ function writeTransactExternalData(writer: Writer, value: TransactExternalData):
 }
 
 function writeTransactData(writer: Writer, value: TransactInstructionData): void {
+  if (value.interfaceTransfers.length > MAX_INTERFACE_TRANSFERS) {
+    fail("INTERFACE_INVALID_LENGTH", {
+      interfaceTransfers: value.interfaceTransfers.length,
+      max: MAX_INTERFACE_TRANSFERS,
+    });
+  }
   writeTransactExternalData(writer, value);
   writer.bytes(value.privateTxHash, 32, "privateTxHash");
   writeCircuit(writer, value.circuit);
