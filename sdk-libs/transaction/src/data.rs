@@ -63,13 +63,6 @@ impl Data {
         self.records.is_empty()
     }
 
-    /// Whether any record carries application or ring data rather than a memo.
-    pub(crate) fn has_non_memo_records(&self) -> bool {
-        self.records
-            .iter()
-            .any(|record| !matches!(record, DataRecord::Memo(_)))
-    }
-
     /// Records must appear at most once and in canonical tag order:
     /// `RingData` (1) < `UtxoData` (2) < `Memo` (3).
     pub fn validate(&self) -> Result<(), TransactionError> {

@@ -184,13 +184,10 @@ impl WalletUtxo {
         self.utxo.ring_program_id.is_none() && self.ring_data_hash.is_none()
     }
 
-    /// No ring binding or application data: a split or merge drops the data
-    /// hashes, so only uncommitted memos may be attached. The new outputs do
-    /// not inherit those memos.
+    /// No ring binding and no attached data: the only UTXOs a split or a merge
+    /// takes, since their spend input drops the committed data hashes.
     pub fn is_plain(&self) -> bool {
-        self.is_default_ring_spendable()
-            && self.data_hash.is_none()
-            && !self.utxo.data.has_non_memo_records()
+        self.is_default_ring_spendable() && self.data_hash.is_none() && self.utxo.data.is_empty()
     }
 }
 

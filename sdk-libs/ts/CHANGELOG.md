@@ -29,7 +29,6 @@ Breaking
 
 Added
 
-- `Data.hasNonMemoRecords()` distinguishes application and ring data from informational memos.
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `SprClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `SprClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
@@ -37,6 +36,7 @@ Added
 
 Changed
 
+- `ProofOutputUtxo.withMemo` documentation directs payment memos to transaction messages and explains why default wallet builders exclude UTXOs with attached data.
 - The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
 - `SprIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 
