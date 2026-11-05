@@ -36,7 +36,7 @@ import {
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
 import { WalletError, wrapWalletError } from "./error.js";
-import { reserveWalletEntries } from "./internal.js";
+import { holdReservation, reserveWalletEntries } from "./internal.js";
 import { proofInputFromEntry } from "./private-transaction.js";
 import { internalMergeRecord, type MergeRecord } from "./registry.js";
 
@@ -94,7 +94,7 @@ export async function createMerge(
     throw new WalletError("WALLET_INPUT_UTXO_TREE_MISMATCH");
   }
   const reservation = reserveWalletEntries(params.wallet, selected);
-  try {
+  return holdReservation(params.wallet, reservation.id, async () => {
     const address = params.keys.address();
     const inputs: readonly ProofInputUtxo[] = selected.map((entry) =>
       proofInputFromEntry(entry, address),
@@ -114,10 +114,7 @@ export async function createMerge(
       tree,
       reservationId: reservation.id,
     });
-  } catch (cause) {
-    params.wallet._releaseReservation(reservation.id);
-    throw cause;
-  }
+  });
 }
 
 function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
@@ -183,12 +180,9 @@ export async function buildMergeTransaction(
       },
       context,
     );
-    try {
-      return await proveAndAssembleMerge(input, owner, address, created, context);
-    } catch (cause) {
-      input.wallet._releaseReservation(created.reservationId);
-      throw cause;
-    }
+    return await holdReservation(input.wallet, created.reservationId, (assertHeld) =>
+      proveAndAssembleMerge(input, owner, address, created, assertHeld, context),
+    );
   } catch (cause) {
     throw wrapWalletError("WALLET_BUILD_MERGE", cause);
   }
@@ -199,6 +193,7 @@ async function proveAndAssembleMerge(
   owner: Address,
   address: ShieldedAddress,
   created: CreatedMerge,
+  assertHeld: () => void,
   context: RequestContext | undefined,
 ): Promise<Transaction> {
   const intent: TransactionIntent = {
@@ -222,6 +217,7 @@ async function proveAndAssembleMerge(
       details: { proofTree: input.client.tree, submitTree: created.tree },
     });
   }
+  assertHeld();
   const proved = await withProofDataRetry(
     input.client.proofDataSource,
     (attempt) => input.client.proveMerge({ prepared: created.prepared, keys: input.keys }, attempt),

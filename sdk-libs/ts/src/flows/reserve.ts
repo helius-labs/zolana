@@ -2,7 +2,10 @@ import { bytesKey } from "../interface/bytes.js";
 import type { Bytes32 } from "../interface/types.js";
 import { type UtxoReservation, type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
 
-/** A built transaction dies with its blockhash on roughly the same clock. */
+/**
+ * How long a reservation outlives the build that made it. A built transaction
+ * dies with its blockhash on roughly the same clock.
+ */
 export const DEFAULT_RESERVATION_TTL_MS = 120_000n;
 
 /** @internal */
@@ -26,6 +29,18 @@ export function reserveEntries(
 /** @internal */
 export function extendReservation(wallet: Wallet, id: string): void {
   wallet._extendReservation({ id, nowMs: BigInt(Date.now()), ttlMs: DEFAULT_RESERVATION_TTL_MS });
+}
+
+/**
+ * @internal Ends a build's hold, the reservation then expires one TTL from
+ * now. False once it is gone.
+ */
+export function leaseReservation(wallet: Wallet, id: string): boolean {
+  return wallet._leaseReservation({
+    id,
+    nowMs: BigInt(Date.now()),
+    ttlMs: DEFAULT_RESERVATION_TTL_MS,
+  });
 }
 
 /** @internal */

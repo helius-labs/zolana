@@ -59,7 +59,7 @@ export class UnsignedPrivateTransaction {
   readonly #action: PrivateAction;
   readonly #withdrawal?: TransactWithdrawal;
   readonly #summary: string;
-  readonly #reservationId?: string;
+  readonly #reservationId: string;
 
   constructor(
     input: Readonly<{
@@ -69,7 +69,7 @@ export class UnsignedPrivateTransaction {
       action: PrivateAction;
       withdrawal?: TransactWithdrawal;
       summary: string;
-      reservationId?: string;
+      reservationId: string;
     }>,
   ) {
     this.#payer = input.payer;
@@ -78,7 +78,7 @@ export class UnsignedPrivateTransaction {
     this.#action = input.action;
     if (input.withdrawal !== undefined) this.#withdrawal = input.withdrawal;
     this.#summary = input.summary;
-    if (input.reservationId !== undefined) this.#reservationId = input.reservationId;
+    this.#reservationId = input.reservationId;
   }
 
   payer(): Address {
@@ -114,7 +114,7 @@ export class UnsignedPrivateTransaction {
   }
 
   /** @internal */
-  _reservationId(): string | undefined {
+  _reservationId(): string {
     return this.#reservationId;
   }
 }

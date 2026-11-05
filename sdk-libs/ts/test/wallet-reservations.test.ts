@@ -1,10 +1,12 @@
-import { address, type Address } from "@solana/kit";
+import { address, getAddressEncoder, type Address } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
 import { LocalKeys } from "../src/client/keys.js";
+import { prepareMerge } from "../src/client/prover/merge.js";
 import type { PrivateTransactionClient } from "../src/wallet/index.js";
-import type { Bytes32 } from "../src/interface/index.js";
+import type { Bytes128, Bytes32 } from "../src/interface/index.js";
+import { USER_REGISTRY_PROGRAM_ID } from "../src/interface/program.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import {
   Data,
@@ -18,8 +20,10 @@ import {
 import { treeAddress } from "../src/interface/pda/index.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
 import { extendReservation } from "../src/flows/reserve.js";
+import { approveUnattended, type ApprovalRequest } from "../src/transaction/wallet/intent.js";
 import { createSplit, createTransfer } from "../src/wallet/actions.js";
-import { createMerge } from "../src/wallet/merge.js";
+import { buildMergeTransaction, createMerge, type MergeClient } from "../src/wallet/merge.js";
+import { internalUserRecordPda } from "../src/wallet/registry.js";
 import { buildTransferTransaction } from "../src/wallet/transactions.js";
 import { privateTransactionClient } from "./helpers/clients.js";
 import { emptyTransaction } from "./helpers/transactions.js";
@@ -118,6 +122,58 @@ function assemblingClient(): Readonly<{
     assemble,
   };
 }
+
+/** A merge client whose user record matches `keypair` and whose prover answers at once. */
+async function mergeClient(keypair: ShieldedKeypair): Promise<MergeClient> {
+  const shielded = keypair.shieldedAddress();
+  const owner = shielded.solanaAddress();
+  const pda = await internalUserRecordPda(owner);
+  const record = Uint8Array.of(
+    1,
+    ...getAddressEncoder().encode(owner),
+    pda.bump,
+    ...shielded.nullifierPublicKey,
+    ...shielded.viewingPublicKey.toBytes(),
+    1,
+  );
+  return {
+    proofDataSource: "client",
+    tree: TREE,
+    treeId: 0,
+    getAccount: async (key: Address) =>
+      key === pda.address
+        ? { owner: USER_REGISTRY_PROGRAM_ID, data: record, lamports: 1n }
+        : undefined,
+    proveMerge: async ({ prepared }) => {
+      const complete = prepareMerge(prepared, TREE).finish({
+        slot: { id: 0, utxoRoot: filled(1), nullifierRoot: filled(2) },
+        utxoRootIndex: 0,
+        nullifierRootIndex: 0,
+      });
+      return {
+        data: complete.instructionData({
+          a: filled(0),
+          b: new Uint8Array(128) as Bytes128,
+          c: filled(0),
+        }),
+        outputHash: complete.outputHash,
+      };
+    },
+    assembleAuthorizedMergeTransaction: async () => TRANSACTION,
+  };
+}
+
+/** Grants the intent once `before` settles. */
+function approveAfter(before: () => unknown) {
+  return async (request: ApprovalRequest) => {
+    await before();
+    return approveUnattended(request);
+  };
+}
+
+const START = 1_000_000;
+/** One step of a build that outlasts the reservation's two-minute lease. */
+const SLOW_STEP_MS = 121_000;
 
 describe("UTXO reservations", () => {
   afterEach(() => {
@@ -253,4 +309,144 @@ describe("UTXO reservations", () => {
       code: "WALLET_NOTHING_TO_MERGE",
     });
   });
+  it.each(["key holder", "approval", "prover"] as const)(
+    "holds a transfer's UTXO while the %s outlasts the lease",
+    async (step) => {
+      const now = vi.spyOn(Date, "now").mockReturnValue(START);
+      const keypair = spendingKeypair();
+      const wallet = fundedWallet(keypair, [5n]);
+      const { client, assemble } = assemblingClient();
+      const keys = localKeys(keypair);
+      let second: unknown;
+      const stall = async (): Promise<void> => {
+        now.mockReturnValue(START + SLOW_STEP_MS);
+        second = await buildTransferTransaction(buildParams(client, wallet, keypair)).catch(
+          (cause: unknown) => cause,
+        );
+      };
+      if (step === "key holder") {
+        const mint = keys.transactionKeys.bind(keys);
+        vi.spyOn(keys, "transactionKeys").mockImplementationOnce(async (requests) => {
+          await stall();
+          return mint(requests);
+        });
+      }
+      if (step === "prover") {
+        assemble.mockImplementationOnce(async () => {
+          await stall();
+          return TRANSACTION;
+        });
+      }
+      const first = await buildTransferTransaction({
+        ...buildParams(client, wallet, keypair),
+        keys,
+        ...(step === "approval" ? { approve: approveAfter(stall) } : {}),
+      });
+      expect(first).toBe(TRANSACTION);
+      expect(second).toMatchObject({
+        code: "WALLET_BUILD_TRANSFER",
+        causeCodes: ["WALLET_CREATE_TRANSFER", "WALLET_INSUFFICIENT_BALANCE"],
+      });
+      expect(assemble).toHaveBeenCalledTimes(1);
+      // A built transaction that is never sent frees its UTXO one lease after it returns.
+      now.mockReturnValue(START + SLOW_STEP_MS + 119_999);
+      await expect(createTransfer(transferParams(wallet, 3n))).rejects.toMatchObject({
+        causeCode: "WALLET_INSUFFICIENT_BALANCE",
+      });
+      now.mockReturnValue(START + SLOW_STEP_MS + 120_000);
+      await expect(createTransfer(transferParams(wallet, 3n))).resolves.toBeDefined();
+    },
+  );
+
+  it("saves a held reservation with its lease, so a restarted wallet frees it", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(START);
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [5n]);
+    const { client } = assemblingClient();
+    let snapshot = "";
+    await buildTransferTransaction({
+      ...buildParams(client, wallet, keypair),
+      approve: approveAfter(() => {
+        now.mockReturnValue(START + SLOW_STEP_MS);
+        snapshot = serializeWallet(wallet);
+      }),
+    });
+    await expect(createTransfer(transferParams(wallet, 3n))).rejects.toMatchObject({
+      causeCode: "WALLET_INSUFFICIENT_BALANCE",
+    });
+    await expect(
+      createTransfer(transferParams(deserializeWallet(snapshot), 3n)),
+    ).resolves.toBeDefined();
+  });
+
+  it.each(["approval", "prover"] as const)(
+    "refuses a transfer whose UTXO a sync sees spent while the %s runs",
+    async (step) => {
+      const keypair = spendingKeypair();
+      const wallet = fundedWallet(keypair, [5n]);
+      const { client, assemble } = assemblingClient();
+      const spend = (): void =>
+        wallet._replace({
+          utxos: [{ ...walletUtxo(keypair, 5n, 0), spent: true }],
+          transactions: [],
+          nullifiers: new Set(),
+        });
+      if (step === "prover") {
+        assemble.mockImplementationOnce(async () => {
+          spend();
+          return TRANSACTION;
+        });
+      }
+      await expect(
+        buildTransferTransaction({
+          ...buildParams(client, wallet, keypair),
+          ...(step === "approval" ? { approve: approveAfter(spend) } : {}),
+        }),
+      ).rejects.toMatchObject({
+        code: "WALLET_BUILD_TRANSFER",
+        causeCode: "WALLET_RESERVATION_LOST",
+      });
+      expect(assemble).toHaveBeenCalledTimes(step === "prover" ? 1 : 0);
+      expect(wallet._reservationEntries()).toHaveLength(0);
+    },
+  );
+
+  it.each(["key holder", "approval"] as const)(
+    "holds a merge's UTXOs while the %s outlasts the lease",
+    async (step) => {
+      const now = vi.spyOn(Date, "now").mockReturnValue(START);
+      const keypair = spendingKeypair();
+      const wallet = fundedWallet(keypair, [20n, 30n]);
+      const client = await mergeClient(keypair);
+      const keys = localKeys(keypair);
+      const feePayer = keypair.shieldedAddress().solanaAddress();
+      let second: unknown;
+      const stall = async (): Promise<void> => {
+        now.mockReturnValue(START + SLOW_STEP_MS);
+        second = await buildMergeTransaction({ client, wallet, keys, feePayer }).catch(
+          (cause: unknown) => cause,
+        );
+      };
+      if (step === "key holder") {
+        const derive = keys.derive.bind(keys);
+        vi.spyOn(keys, "derive").mockImplementationOnce(async (requests) => {
+          await stall();
+          return derive(requests);
+        });
+      }
+      const first = await buildMergeTransaction({
+        client,
+        wallet,
+        keys,
+        feePayer,
+        ...(step === "approval" ? { approve: approveAfter(stall) } : {}),
+      });
+      expect(first).toBe(TRANSACTION);
+      expect(second).toMatchObject({
+        code: "WALLET_BUILD_MERGE",
+        causeCode: "WALLET_NOTHING_TO_MERGE",
+      });
+      expect(wallet._reservationEntries()).toHaveLength(1);
+    },
+  );
 });

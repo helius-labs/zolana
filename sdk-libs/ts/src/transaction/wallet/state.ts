@@ -225,6 +225,12 @@ export class Wallet {
   #revision = 0;
   #syncQueue: Promise<unknown> = Promise.resolve();
   #reservations: UtxoReservation[] = [];
+  /**
+   * Reservations a build in progress holds whatever their expiry says. Memory
+   * only: a snapshot keeps the expiry, so a restart frees what a crashed build
+   * held.
+   */
+  #held = new Set<string>();
   #pendingSubmissions: PendingWalletSubmission[] = [];
 
   constructor(input: Readonly<{ identity: ShieldedAddress; registry?: AssetRegistry }>) {
@@ -474,15 +480,40 @@ export class Wallet {
     );
   }
 
+  /**
+   * @internal Holds a reservation past its expiry until `_leaseReservation` or
+   * `_releaseReservation`. Idempotent, false once the reservation is gone.
+   */
+  _holdReservation(id: string): boolean {
+    if (!this.#reservations.some((reservation) => reservation.id === id)) return false;
+    this.#held.add(id);
+    return true;
+  }
+
+  /** @internal Ends the hold and extends the reservation, false once it is gone. */
+  _leaseReservation(input: Readonly<{ id: string; nowMs: bigint; ttlMs: bigint }>): boolean {
+    this.#held.delete(input.id);
+    if (!this.#reservations.some((reservation) => reservation.id === input.id)) return false;
+    this._extendReservation(input);
+    return true;
+  }
+
   /** @internal Idempotent. */
   _releaseReservation(id: string): void {
+    this.#held.delete(id);
     this.#reservations = this.#reservations.filter((reservation) => reservation.id !== id);
   }
 
   /** @internal */
   _activeReservations(nowMs: bigint): readonly UtxoReservation[] {
-    return this.#reservations.filter(
-      (reservation) => reservation.expiresAtMs === null || reservation.expiresAtMs > nowMs,
+    return this.#reservations.filter((reservation) => this.#unexpired(reservation, nowMs));
+  }
+
+  #unexpired(reservation: UtxoReservation, nowMs: bigint): boolean {
+    return (
+      this.#held.has(reservation.id) ||
+      reservation.expiresAtMs === null ||
+      reservation.expiresAtMs > nowMs
     );
   }
 
@@ -503,7 +534,7 @@ export class Wallet {
     );
     this.#reservations = this.#reservations.filter(
       (reservation) =>
-        (reservation.expiresAtMs === null || reservation.expiresAtMs > nowMs) &&
+        this.#unexpired(reservation, nowMs) &&
         (reservation.expiresAtMs === null
           ? reservation.utxoHashes.some((utxoHash) => unspent.has(bytesKey(utxoHash)))
           : reservation.utxoHashes.every((utxoHash) => unspent.has(bytesKey(utxoHash)))),
@@ -577,6 +608,7 @@ export class Wallet {
       clone.#syncCheckpoints.set(key, slot);
     }
     clone.#reservations = [...this.#reservations];
+    clone.#held = new Set(this.#held);
     clone.#pendingSubmissions = [...this.#pendingSubmissions];
     return clone;
   }
