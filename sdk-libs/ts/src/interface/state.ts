@@ -31,6 +31,7 @@ export const CACHE_CAPACITY = 36;
 export const CACHE_ACCOUNT_SIZE = 1_228;
 
 export const FIRST_ASSET_ID = 2n;
+export const SPL_ASSET_REGISTRY_ASSET_ID_OFFSET = 40n;
 export const STATE_HEIGHT = 32;
 /** Final roots for the latest 500 slots that actually updated the state tree. */
 export const STATE_ROOT_HISTORY_CAPACITY = 500;

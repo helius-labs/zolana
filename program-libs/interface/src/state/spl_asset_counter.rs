@@ -21,6 +21,19 @@ impl SplAssetCounter {
     pub const SEED: &'static [u8] = SPL_ASSET_COUNTER_PDA_SEED;
     pub const FIRST_ASSET_ID: u64 = 2;
 
+    pub fn from_account_bytes(data: &[u8]) -> Result<&Self, InterfaceError> {
+        if data.len() != Self::SIZE {
+            return Err(InterfaceError::InvalidAccountData);
+        }
+        let counter: &Self =
+            bytemuck::try_from_bytes(data).map_err(|_| InterfaceError::InvalidAccountData)?;
+        counter.check_discriminator()?;
+        if counter.next_id < Self::FIRST_ASSET_ID {
+            return Err(InterfaceError::InvalidAccountData);
+        }
+        Ok(counter)
+    }
+
     pub fn check_discriminator(&self) -> Result<(), InterfaceError> {
         (self.discriminator == SPL_ASSET_COUNTER)
             .then_some(())

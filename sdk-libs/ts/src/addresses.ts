@@ -8,6 +8,7 @@ export {
   splAssetCounterAddress as getSplAssetCounterAddress,
   splAssetRegistryAddress as getSplAssetRegistryAddress,
   splAssetVaultAddress as getSplAssetVaultAddress,
+  splInterfaceWithBump as getSplAssetVaultAddressWithBump,
   treeAddress as getTreeAddress,
 } from "./interface/pda/index.js";
 export { internalUserRecordAddress as getUserRecordAddress } from "./wallet/registry.js";

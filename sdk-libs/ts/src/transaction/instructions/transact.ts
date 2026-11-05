@@ -1358,8 +1358,8 @@ export function prepareRingAuthorityTransfer(
       outputs: layouts.length,
     });
   const first = input.inputs[0];
-  if (first === undefined || input.inputs.some((spend) => spend.treeId !== first.treeId))
-    throw new TransactionError("TRANSACTION_NO_INPUTS");
+  if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  const trees = inputTreeIds(input.inputs);
   const firstNullifier = first.nullifier();
   const seed = randomBlinding();
   const outputSeed = outputBlindingSeed(firstNullifier, seed);
@@ -1376,7 +1376,7 @@ export function prepareRingAuthorityTransfer(
     outputs: Object.freeze(outputs),
     firstNullifier,
     blindingSeed: seed,
-    inputTreeIds: [first.treeId],
+    inputTreeIds: trees,
     outputTreeId: checkedTreeId(input.outputTreeId),
     shape: { inputs: width, outputs: width },
     payer: input.payer,

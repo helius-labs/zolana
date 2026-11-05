@@ -412,6 +412,9 @@ pub enum ClientError {
     #[error("rpc error: {0}")]
     Rpc(String),
 
+    #[error("Solana RPC account read failed {0}")]
+    SolanaRpcRead(#[source] solana_rpc_client_api::client_error::Error),
+
     #[error("Solana RPC transaction failed during {operation}: {source}")]
     SolanaRpcTransaction {
         operation: &'static str,

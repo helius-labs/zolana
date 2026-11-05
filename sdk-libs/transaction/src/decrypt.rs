@@ -17,6 +17,48 @@ use crate::{
     utxo::{Utxo, WalletUtxo},
 };
 
+pub struct MergeOpening<'a, K: ?Sized> {
+    pub keys: &'a K,
+    pub transaction: &'a ShieldedTransaction,
+    pub slot_index: usize,
+}
+
+pub struct AuthenticatedMergeOpening {
+    pub utxo: Utxo,
+    pub ring_data_hash: Option<[u8; 32]>,
+}
+
+impl<K: ShieldedKeys + ?Sized> MergeOpening<'_, K> {
+    pub fn open(self) -> Result<Option<AuthenticatedMergeOpening>, TransactionError> {
+        let Some(slot) = self.transaction.output_slots.get(self.slot_index) else {
+            return Ok(None);
+        };
+        let Some(encoding) = slot.output_data() else {
+            return Ok(None);
+        };
+        let (blob, ring) = match encoding {
+            OutputDataEncoding::Encrypted(blob) => (blob, true),
+            OutputDataEncoding::VerifiablyEncrypted(blob) => {
+                (blob, self.transaction.ring_program_id.is_some())
+            }
+            OutputDataEncoding::Plaintext(_) => return Ok(None),
+        };
+        let address = self.keys.address()?;
+        let Some(decoded) = decode_merge(self.keys, &address, self.transaction, slot, &blob, ring)?
+        else {
+            return Ok(None);
+        };
+        Ok(decoded
+            .utxos
+            .into_iter()
+            .next()
+            .map(|utxo| AuthenticatedMergeOpening {
+                utxo,
+                ring_data_hash: decoded.ring_data_hash,
+            }))
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DecryptionResult {
     pub utxos: Vec<WalletUtxo>,
@@ -416,7 +458,10 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
             // A ring merge publishes its ciphertext unverified: the ring merge
             // proof does not bind it, so only the commitment check accepts it.
             if scheme == EncryptedScheme::Merge {
-                return decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx, true);
+                return registered_merge(
+                    decode_merge(shielded_keys, address, tx, slot, &blob, true)?,
+                    assets,
+                );
             }
             let (ciphertext, viewing_pubkeys) = match scheme {
                 EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
@@ -476,7 +521,10 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
         }
         OutputDataEncoding::VerifiablyEncrypted(blob) => {
             let ring = tx.ring_program_id.is_some();
-            decode_merge(shielded_keys, address, tx, slot, &blob, owner_cx, ring)
+            registered_merge(
+                decode_merge(shielded_keys, address, tx, slot, &blob, ring)?,
+                assets,
+            )
         }
     }
 }
@@ -496,7 +544,6 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     tx: &ShieldedTransaction,
     slot: &OutputSlot,
     blob: &[u8],
-    owner_cx: OwnerCx,
     ring: bool,
 ) -> Result<Option<DecodedSlot>, TransactionError> {
     let Some((&scheme_byte, body)) = blob.split_first() else {
@@ -532,8 +579,8 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     };
     // Only the mint address enters the commitment. Resolve its registry ID
     // after authentication so unverified ciphertext cannot request backfills.
-    let mut utxo = plaintext.into_utxo(
-        owner_cx.owner,
+    let utxo = plaintext.into_utxo(
+        address.signing_pubkey,
         Mint::new(plaintext.mint, 0),
         blinding,
         tx.ring_program_id,
@@ -548,12 +595,23 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     if hash != context.hash {
         return Ok(None);
     }
-    utxo.asset = owner_cx.assets.mint(&plaintext.mint)?;
     Ok(Some(DecodedSlot {
         utxos: vec![utxo],
         data_hash: None,
         ring_data_hash: ring_data_hash.copied(),
     }))
+}
+
+fn registered_merge(
+    mut decoded: Option<DecodedSlot>,
+    assets: &AssetRegistry,
+) -> Result<Option<DecodedSlot>, TransactionError> {
+    if let Some(decoded) = &mut decoded {
+        for utxo in &mut decoded.utxos {
+            utxo.asset = assets.mint(&utxo.asset.asset)?;
+        }
+    }
+    Ok(decoded)
 }
 
 /// A sender-chosen plaintext that rebuilds no note skips its slot, except a registry miss.

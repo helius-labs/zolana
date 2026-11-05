@@ -15,7 +15,11 @@ import {
 } from "../src/interface/tree-slot.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { TransactionError } from "../src/transaction/error.js";
-import { inputTreeIds, singleInputTreeId } from "../src/transaction/instructions/transact.js";
+import {
+  inputTreeIds,
+  prepareRingAuthorityTransfer,
+  singleInputTreeId,
+} from "../src/transaction/instructions/transact.js";
 import {
   ProofInputUtxo,
   SOL_MINT,
@@ -247,6 +251,108 @@ describe("a transact spending from two trees", () => {
     expect(() => assemble(fixture.proofInputs, fixture.spendProofs, [strayRoot])).toThrow(
       expect.objectContaining({ code: "CLIENT_NULLIFIER_ROOT_MISMATCH" }),
     );
+  });
+});
+
+describe("a ring authority transfer spending from two trees", () => {
+  function authorityFixture(treeIds: readonly number[]) {
+    const keypair = ShieldedKeypair.generate();
+    const owner = keypair.shieldedAddress();
+    const ringProgramId = owner.solanaAddress();
+    const inputs = treeIds.map((treeId, index) =>
+      ProofInputUtxo.fromKeypair(
+        new Utxo({
+          owner: keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 7n,
+          blinding: blinding(index + 1),
+          ringProgramId,
+        }),
+        keypair,
+        {},
+        treeId,
+      ),
+    );
+    const prepare = () =>
+      prepareRingAuthorityTransfer({
+        owner,
+        inputs,
+        outputs: [{ recipient: owner, asset: SOL_MINT, amount: BigInt(inputs.length) * 7n }],
+        payer: owner.solanaAddress(),
+        ringProgramId,
+        outputTreeId: TREE_0.treeId,
+      });
+    return { keypair, ringProgramId, inputs, prepare };
+  }
+
+  it("binds interleaved real inputs and padding to their own tree contexts", () => {
+    const fixture = authorityFixture([TREE_0.treeId, TREE_1.treeId, TREE_0.treeId]);
+    try {
+      const prepared = fixture.prepare();
+      expect(prepared.inputTreeIds).toEqual([TREE_0.treeId, TREE_1.treeId]);
+      const proofInputs = prepared.finalize({
+        txViewingPublicKey: fixture.keypair.viewingPublicKey(),
+        salt: new Uint8Array(16) as Bytes16,
+        payload: [
+          {
+            viewTag: fixture.keypair.shieldedAddress().confidentialViewTag(),
+            data: new Uint8Array(),
+          },
+        ],
+      });
+      const padding = proofInputs.inputUtxos.at(-1);
+      if (padding === undefined) expect.unreachable();
+      expect(padding.isDummy()).toBe(true);
+      expect(padding.treeId).toBe(TREE_1.treeId);
+      const proofs = fixture.inputs.map((input) =>
+        spendProof(input, input.treeId === TREE_0.treeId ? TREE_0 : TREE_1),
+      );
+      const assembled = assemble(
+        proofInputs,
+        proofs,
+        [nonInclusionProof(padding.nullifier(), TREE_1)],
+        { kind: "ringAuthority", ring: fixture.ringProgramId },
+      );
+      expect(assembled.instructionData.inputs.map((input) => input.treeIndex)).toEqual([0, 1, 0, 1]);
+      expect(assembled.proverInputs.payload.inputs.map((input) => input.treeSlot)).toEqual([
+        0n, 1n, 0n, 1n,
+      ]);
+      const substituted = proofs.map((proof, index) =>
+        index === 1
+          ? {
+              ...proof,
+              state: {
+                ...proof.state,
+                merkleContext: { treeType: 0, tree: treeAddress(TREE_0.treeId) },
+              },
+            }
+          : proof,
+      );
+      expect(() =>
+        assemble(
+          proofInputs,
+          substituted,
+          [nonInclusionProof(padding.nullifier(), TREE_1)],
+          { kind: "ringAuthority", ring: fixture.ringProgramId },
+        ),
+      ).toThrow(expect.objectContaining({ code: "CLIENT_PROOF_TREE_MISMATCH" }));
+    } finally {
+      fixture.keypair.destroy();
+    }
+  });
+
+  it("refuses a third input tree", () => {
+    const fixture = authorityFixture([TREE_0.treeId, TREE_1.treeId, 2]);
+    try {
+      expect(fixture.prepare).toThrow(
+        expect.objectContaining({
+          code: "TRANSACTION_TOO_MANY_INPUT_TREES",
+          details: expect.objectContaining({ got: 3, max: MAX_INPUT_TREES }),
+        }),
+      );
+    } finally {
+      fixture.keypair.destroy();
+    }
   });
 });
 

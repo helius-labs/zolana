@@ -21,7 +21,10 @@ use solana_transaction_status_client_types::{
 use crate::{error::ClientError, rpc::Rpc};
 
 use super::{
-    accounts::{filtered_program_accounts, pubkey_from_address, ProgramAccountsFilter},
+    accounts::{
+        filtered_program_accounts, pubkey_from_address, retryable_account_read,
+        ProgramAccountsFilter,
+    },
     transaction::{
         instruction_groups_from_confirmed_transaction,
         transact_output_view_tags_from_instruction_groups, ConfirmedInstructionGroups,
@@ -72,7 +75,7 @@ impl SolanaRpc {
         let accounts = self
             .client
             .get_program_ui_accounts_with_config(&program_id, filter.rpc_config())
-            .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program_id}: {err}")))?;
+            .map_err(ClientError::SolanaRpcRead)?;
         filtered_program_accounts(&program_id, filter, accounts)
     }
 
@@ -165,6 +168,10 @@ impl SolanaRpc {
 }
 
 impl Rpc for SolanaRpc {
+    fn should_retry(&self, error: &ClientError) -> bool {
+        retryable_account_read(error)
+    }
+
     fn get_program_accounts_filtered(
         &self,
         program_id: Address,
