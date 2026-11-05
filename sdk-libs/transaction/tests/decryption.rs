@@ -11,9 +11,12 @@ use spr_event::{encode_merge_output_data, MergeOutputDataRef, OutputDataEncoding
 use spr_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
 use spr_transaction::{
     decrypt, decrypt_spendable,
-    instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
-        MERGE_DEFAULT_INPUT_COUNT,
+    instructions::{
+        merge::{
+            merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
+            MERGE_DEFAULT_INPUT_COUNT,
+        },
+        transact::{ConfidentialTransaction, Shape},
     },
     serialization::{
         confidential::{Confidential, ConfidentialEncode},
@@ -1328,4 +1331,85 @@ fn low_order_transaction_keys_leave_the_scan_intact() {
 
     let candidates = decrypt(&owner, &batch, &assets).unwrap();
     assert_eq!(candidates.utxos, vec![note]);
+}
+
+/// A dummy embeds the viewing key of the participant whose tag it carries, so
+/// that participant's scan opens it like a real slot. It decrypts to padding,
+/// which is no output: each scan keeps exactly its real notes and reports no
+/// unknown asset.
+#[test]
+fn padding_slots_open_to_no_output_for_the_participant_they_name() {
+    let sender = keypair(1);
+    let recipient = keypair(2);
+    let sender_address = sender.shielded_address().unwrap();
+    let recipient_address = recipient.shielded_address().unwrap();
+    let assets = AssetRegistry::default();
+    // A sponsored transfer with change pads under the sender's tag, a self-paid
+    // one without change under the recipient's.
+    for (payer, amount, padded_for, kept) in [
+        (Address::new_from_array([99; 32]), 4, 0, [vec![6], vec![4]]),
+        (
+            sender_address.solana_address().unwrap(),
+            10,
+            1,
+            [vec![], vec![10]],
+        ),
+    ] {
+        let mut tx =
+            ConfidentialTransaction::new(vec![wallet_utxo(&sender, Mint::SOL, 10, 7, 1)], payer)
+                .unwrap();
+        tx.transfer_sol(&recipient_address, amount).unwrap();
+        tx.pad_utxos(Shape::IN1_OUT8, &sender_address).unwrap();
+        let proof = tx.encrypt(&sender).unwrap();
+        let external = &proof.external_data;
+        let indexed = ShieldedTransaction {
+            slot: 1,
+            tx_signature: Signature::from([1; 64]),
+            event_index: None,
+            tx_viewing_pk: Some(X25519Pubkey::from_bytes(external.tx_viewing_pk).unwrap()),
+            salt: Some(external.salt),
+            output_slots: external
+                .outputs
+                .iter()
+                .zip(&external.resolved_owner_tags)
+                .enumerate()
+                .map(|(index, (output, tag))| OutputSlot {
+                    view_tag: *tag,
+                    output_context: OutputContext {
+                        hash: output.utxo_hash,
+                        tree_id: proof.output_tree_id,
+                        leaf_index: index as u64,
+                    },
+                    payload: output.data.clone().unwrap(),
+                })
+                .collect(),
+            messages: vec![],
+            nullifiers: vec![proof.first_nullifier().unwrap()],
+            proofless: false,
+            ring_config: None,
+            ring_program_id: None,
+        };
+        let real = proof
+            .output_utxos
+            .iter()
+            .filter(|output| !output.is_dummy())
+            .count();
+        for (index, (owner, kept)) in [&sender, &recipient].into_iter().zip(kept).enumerate() {
+            let keys = RecordingKeys::new(owner);
+            let decrypted = decrypt(&keys, std::slice::from_ref(&indexed), &assets).unwrap();
+            assert!(decrypted.unknown_asset_ids.is_empty() && decrypted.unknown_mints.is_empty());
+            let spendable = verify_spendable(&keys, &decrypted).unwrap();
+            let amounts: Vec<u64> = spendable.utxos().map(|note| note.utxo.amount).collect();
+            assert_eq!(amounts, kept);
+            let opened_padding = keys
+                .decrypt_calls
+                .borrow()
+                .iter()
+                .flatten()
+                .filter(|request| request.slot_index as usize >= real)
+                .count();
+            let dummies = if index == padded_for { 8 - real } else { 0 };
+            assert_eq!(opened_padding, dummies);
+        }
+    }
 }

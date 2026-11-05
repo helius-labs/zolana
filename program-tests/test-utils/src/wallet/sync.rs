@@ -1080,7 +1080,7 @@ mod tests {
     use spr_transaction::{
         instructions::{
             merge::MergeTransaction as MergePlan,
-            transact::{ConfidentialTransaction, SppProofInputs, SPP_SUPPORTED_SHAPES},
+            transact::{ConfidentialTransaction, Shape, SppProofInputs, SPP_SUPPORTED_SHAPES},
         },
         serialization::Proofless,
         Address, AssetRegistry, Data, OwnerCx, Utxo, UtxoSerialization, WalletUtxo, SOL_MINT,
@@ -2174,6 +2174,48 @@ mod tests {
             outbound.counterparty_viewing_pubkey,
             Some(bob.viewing_pubkey())
         );
+    }
+
+    /// The dummies of a padded send carry the sender's tag and viewing key and
+    /// open to padding, so each wallet stores its own output and counts no
+    /// dummy as undecryptable.
+    #[test]
+    fn sync_wallet_reads_padding_under_its_tag_as_no_output() {
+        let assets = AssetRegistry::default();
+        let alice = ed25519_keypair(1);
+        let bob = ed25519_keypair(2);
+        let input = input_utxo(test_utxo(&alice, SOL_MINT, 100, 1), &alice);
+        let mut transfer = confidential_transaction(vec![input]);
+        transfer
+            .transfer_sol(&bob.shielded_address().expect("bob"), 40)
+            .expect("transfer");
+        transfer
+            .pad_utxos(Shape::IN1_OUT8, &alice.shielded_address().expect("alice"))
+            .expect("pad");
+        let outbound = signed_to_shielded_tx(transfer.encrypt(&alice).expect("encrypt"), 2);
+        for (keypair, amount) in [(&alice, 60), (&bob, 40)] {
+            let mut wallet = Wallet::new(
+                keypair.shielded_address().expect("shielded address"),
+                assets.clone(),
+            )
+            .expect("wallet");
+            let report = sync_wallet(
+                &mut wallet,
+                &local_authority(keypair),
+                &MockIndexer {
+                    transactions: vec![outbound.clone()],
+                    matches: Vec::new(),
+                    program_accounts: Vec::new(),
+                    protocol_config: None,
+                },
+            )
+            .expect("sync padded send");
+            assert_eq!(report.undecryptable_candidates, 0);
+            assert_eq!(
+                wallet.balance(SOL_MINT, None).expect("balance").amount,
+                amount
+            );
+        }
     }
 
     /// Recipients are judged by viewing key alone, a distinct signing key changes nothing.

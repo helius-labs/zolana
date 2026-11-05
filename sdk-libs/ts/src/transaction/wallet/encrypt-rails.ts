@@ -1,6 +1,7 @@
 import type { Bytes16, Bytes32, MessageData } from "../../interface/types.js";
 import { randomSalt } from "../../keypair/bytes.js";
 import type { X25519PublicKey } from "../../keypair/x25519.js";
+import type { ShieldedAddress } from "../../keypair/shielded.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { encodeConfidentialSlots } from "../instructions/transact.js";
@@ -29,8 +30,8 @@ export interface EncryptedEnvelope<P> {
 
 /**
  * Transfer payload: one ciphertext per output slot, keyed to that output's
- * owner. `undefined` marks a dummy slot the transfer builder pads with a
- * length-matched random ciphertext.
+ * owner, or for a dummy to the participant its tag names. `undefined` marks
+ * compact padding, which publishes no slot.
  */
 export type EncryptedTransfer = EncryptedEnvelope<readonly (MessageData | undefined)[]>;
 
@@ -43,19 +44,25 @@ export type EncryptedSplit = EncryptedEnvelope<MessageData>;
 
 /**
  * Every sealing step of a transaction, over the per-transaction key
- * `ShieldedKeys.transactionKeys` returns for its first nullifier. The key is
- * the caller's to destroy once the proof inputs are finalized.
+ * `ShieldedKeys.transactionKeys` returns for its first nullifier. Pass
+ * `PreparedTransfer.proofOutputs()` and `PreparedTransfer.owner` so padding is
+ * sealed too. The key is the caller's to destroy once the proof inputs are
+ * finalized.
  */
 export function encryptConfidentialTransfer(
   tx: ViewingKey,
   // A registry is needed only for outputs without retained Mint metadata.
-  input: Readonly<{ outputs: readonly ProofOutputUtxo[]; assets?: AssetRegistry }>,
+  input: Readonly<{
+    outputs: readonly ProofOutputUtxo[];
+    assets?: AssetRegistry;
+    owner?: ShieldedAddress;
+  }>,
 ): EncryptedTransfer {
   const salt = randomSalt();
   return {
     txViewingPublicKey: tx.publicKey(),
     salt,
-    payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+    payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt, input.owner),
   };
 }
 

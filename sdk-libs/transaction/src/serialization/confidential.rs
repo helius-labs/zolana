@@ -7,6 +7,10 @@ use wincode::{SchemaRead, SchemaWrite};
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{data::Data, error::TransactionError, utxo::Utxo, AssetRegistry, EncryptedScheme};
 
+/// Every byte of a padding plaintext. Read as the option tag of
+/// `ring_program_id` it is invalid, so no reader decodes padding as an output.
+pub const PADDING_BYTE: u8 = 0xff;
+
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct ConfidentialOutputPlaintext {
     pub asset_id: u64,
@@ -17,6 +21,25 @@ pub struct ConfidentialOutputPlaintext {
 }
 
 impl ConfidentialOutputPlaintext {
+    /// The plaintext a dummy slot encrypts: [`PADDING_BYTE`] repeated to the
+    /// length of an output in `ring_program_id` without data, so the slot is as
+    /// long as a real one.
+    pub fn padding(ring_program_id: Option<Address>) -> Result<Vec<u8>, TransactionError> {
+        let empty = Self {
+            asset_id: 0,
+            amount: 0,
+            blinding: [0; 32],
+            ring_program_id,
+            data: Data::default(),
+        };
+        Ok(vec![PADDING_BYTE; empty.serialize()?.len()])
+    }
+
+    /// Whether a decrypted slot is [`Self::padding`] rather than an output.
+    pub fn is_padding(bytes: &[u8]) -> bool {
+        !bytes.is_empty() && bytes.iter().all(|&byte| byte == PADDING_BYTE)
+    }
+
     pub fn serialize(&self) -> Result<Vec<u8>, TransactionError> {
         self.data.validate()?;
         Ok(wincode::serialize(self)?)

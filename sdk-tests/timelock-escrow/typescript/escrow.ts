@@ -28,6 +28,7 @@ import {
   decodeConfidential,
   decodeOutputData,
   decryptTransactions,
+  isConfidentialPadding,
   type AssetRegistry,
   type IndexedShieldedTransaction,
 } from "@heliuslabs/spr/transaction";
@@ -235,7 +236,7 @@ export function escrowUtxos(
       if (txViewingPublicKey === undefined || salt === undefined) continue;
       tx.outputSlots.forEach((slot, slotIndex) => {
         if (hex(slot.viewTag) !== ownerTag) return;
-        // Padding reuses the owner's tag and publishes random bytes.
+        // Skip a slot whose payload is no output frame.
         let frame: ReturnType<typeof decodeOutputData>;
         try {
           frame = decodeOutputData(slot.payload);
@@ -256,14 +257,15 @@ export function escrowUtxos(
         if (frame.encoding !== "encrypted" || frame.scheme !== EncryptedScheme.confidential) return;
         const { body } = frame;
         if (hex(body.slice(0, recipientKey.length)) !== recipient) return;
-        const plaintext = decodeConfidential(
-          viewingKey.decryptUtxo(
-            body.slice(recipientKey.length),
-            txViewingPublicKey,
-            salt,
-            slotIndex,
-          ),
+        const opened = viewingKey.decryptUtxo(
+          body.slice(recipientKey.length),
+          txViewingPublicKey,
+          salt,
+          slotIndex,
         );
+        // Padding reuses the owner's tag and key and opens to no output.
+        if (isConfidentialPadding(opened)) return;
+        const plaintext = decodeConfidential(opened);
         const utxoHash = slot.outputContext.hash;
         const candidate = {
           utxo: {

@@ -5,12 +5,13 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import type { Bytes32 } from "../src/interface/index.js";
 import { splInterfaceWithBump, treeAddress } from "../src/interface/pda/index.js";
-import { checkedBytes, type Bytes34 } from "../src/keypair/bytes.js";
+import { checkedBytes, type Bytes33, type Bytes34 } from "../src/keypair/bytes.js";
 import {
   ShieldedKeypair,
   ShieldedPublicKey,
   SigningKey,
   ViewingKey,
+  X25519PublicKey,
 } from "../src/keypair/index.js";
 import {
   AssetRegistry,
@@ -34,7 +35,12 @@ import {
   type ProgramTransaction,
   type ProgramWalletUtxo,
 } from "../src/program/index.js";
-import { dummyCiphertextLength } from "../src/transaction/instructions/transact.js";
+import {
+  EncryptedScheme,
+  confidentialPadding,
+  isConfidentialPadding,
+  readOutputData,
+} from "../src/transaction/serialization/codecs.js";
 
 type FixtureBytes = readonly number[];
 
@@ -608,48 +614,67 @@ describe("program transaction decoding", () => {
     throw new Error("escrow fixture shape");
   }
 
-  it("fills a padding slot with a length-matched random ciphertext under its tag", async () => {
+  it("seals a padding slot like a real one, keyed to the participant its tag names", async () => {
     const raw = programTransaction(withdraw.transaction.finalizedTx);
     const compact = await decodeProgramTransaction(raw, new AssetRegistry());
     const padding = compact.outputs[1];
     if (padding === undefined) throw new Error("withdraw fixture needs padding");
-    const ownerTag = checkedBytes<Bytes32>(new Uint8Array(32).fill(7), 32, "padding tag");
-    const dummyHash = createProofOutput({ ...padding, compact: false, ownerTag }).hash(
-      compact.outputTreeId,
-    );
-    const decoded = await decodeProgramTransaction(
-      {
-        ...raw,
-        outputUtxos: raw.outputUtxos.map((output, index) =>
-          index === 1 ? { ...output, compact: false, ownerTag } : output,
-        ),
-        outputHashes: raw.outputHashes.map((hash, index) => (index === 1 ? dummyHash : hash)),
-        ownerTags: raw.ownerTags.map((entry, index) =>
-          index === 1 ? { tag: { kind: "inline", value: ownerTag }, resolved: ownerTag } : entry,
-        ),
-      },
-      new AssetRegistry(),
-    );
-    const tx = senderKeypair().transactionViewingKey(decoded.firstNullifier);
-    try {
-      const externalData = decoded.encrypt(tx);
-      const slot = externalData.outputs[1];
+    const sender = compact.sender;
+    // The sender's tag takes the sender's key; a tag naming no participant
+    // the transaction holds takes a fresh one.
+    for (const [ownerTag, expectedKey] of [
+      [sender.signingPublicKey.confidentialViewTag(), sender.viewingPublicKey],
+      [checkedBytes<Bytes32>(new Uint8Array(32).fill(7), 32, "padding tag"), undefined],
+    ] as const) {
+      const dummyHash = createProofOutput({ ...padding, compact: false, ownerTag }).hash(
+        compact.outputTreeId,
+      );
+      const decoded = await decodeProgramTransaction(
+        {
+          ...raw,
+          outputUtxos: raw.outputUtxos.map((output, index) =>
+            index === 1 ? { ...output, compact: false, ownerTag } : output,
+          ),
+          outputHashes: raw.outputHashes.map((hash, index) => (index === 1 ? dummyHash : hash)),
+          ownerTags: raw.ownerTags.map((entry, index) =>
+            index === 1 ? { tag: { kind: "inline", value: ownerTag }, resolved: ownerTag } : entry,
+          ),
+        },
+        new AssetRegistry(),
+      );
+      const tx = senderKeypair().transactionViewingKey(decoded.firstNullifier);
+      try {
+        const externalData = decoded.encrypt(tx);
+        const slot = externalData.outputs[1];
+        const frame = readOutputData(slot?.data ?? new Uint8Array());
+        const key = X25519PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
 
-      expect({
-        dummy: decoded.outputs.map((output) => output.isDummy()),
-        utxoHash: slot?.utxoHash,
-        ownerTag: slot?.ownerTag,
-        resolved: externalData.resolvedOwnerTags[1],
-        length: slot?.data?.length,
-      }).toEqual({
-        dummy: [false, true],
-        utxoHash: decoded.outputHashes[1],
-        ownerTag: decoded.ownerTags[1],
-        resolved: decoded.outputs[1]?.ownerTag,
-        length: dummyCiphertextLength(externalData.salt, undefined),
-      });
-    } finally {
-      tx.destroy();
+        expect({
+          dummy: decoded.outputs.map((output) => output.isDummy()),
+          utxoHash: slot?.utxoHash,
+          ownerTag: slot?.ownerTag,
+          resolved: externalData.resolvedOwnerTags[1],
+          frame: [frame.encoding, frame.scheme, frame.body.length],
+          padding: isConfidentialPadding(
+            tx.decryptSlotEphemeral(key, frame.body.slice(33), externalData.salt, 1),
+          ),
+        }).toEqual({
+          dummy: [false, true],
+          utxoHash: decoded.outputHashes[1],
+          ownerTag: decoded.ownerTags[1],
+          resolved: decoded.outputs[1]?.ownerTag,
+          frame: [
+            "encrypted",
+            EncryptedScheme.confidential,
+            33 + confidentialPadding(undefined).length,
+          ],
+          padding: true,
+        });
+        if (expectedKey === undefined) expect(key.equals(sender.viewingPublicKey)).toBe(false);
+        else expect(key.equals(expectedKey)).toBe(true);
+      } finally {
+        tx.destroy();
+      }
     }
   });
 

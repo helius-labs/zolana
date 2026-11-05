@@ -140,7 +140,8 @@ export {
 // viewing key locally; a client whose viewing key is held remotely gets
 // plaintext back and still has to read it. `decodeOutputData` names the scheme
 // of a slot payload and hands back the body to decrypt; the per-scheme decoders
-// turn the returned plaintext into fields.
+// turn the returned plaintext into fields, and `isConfidentialPadding` tells a
+// padding slot from an output.
 export {
   decodeConfidential,
   decodeData,
@@ -149,6 +150,7 @@ export {
   decodeProofless,
   decodeSplitBundle,
   decodeSplitEncrypted,
+  isConfidentialPadding,
   type ConfidentialOutputPlaintext,
   type ProoflessOutput,
   type SplitEncryptedUtxos,

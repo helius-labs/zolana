@@ -219,7 +219,11 @@ async function authorizeWithInputs(
       keys,
       prepared.firstNullifier,
       (tx) =>
-        encryptConfidentialTransfer(tx, { outputs: prepared.outputs, assets: wallet.registry }),
+        encryptConfidentialTransfer(tx, {
+          outputs: prepared.proofOutputs(),
+          assets: wallet.registry,
+          owner: prepared.owner,
+        }),
       context,
     );
     intent =

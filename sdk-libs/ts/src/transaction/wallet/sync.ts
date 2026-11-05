@@ -20,6 +20,7 @@ import {
   decodeSplitBundle,
   decodeConfidential,
   decryptConfidentialAsSender,
+  isConfidentialPadding,
   prooflessUtxo,
   plaintextTransferUtxos,
   readOutputData,
@@ -781,6 +782,11 @@ class SyncPass {
       }
       const decrypted = this.#decryptSlot(viewingPublicKey, tx, ciphertext, site.slot, siteKey);
       if (decrypted === undefined) return;
+      // A dummy under this wallet's tag opens to padding, which is no output.
+      if (isConfidentialPadding(decrypted)) {
+        this.#processedSlots.add(siteKey);
+        return;
+      }
       try {
         utxo = confidentialUtxo(decodeConfidential(decrypted), this.#owner, this.#assets);
       } catch (error) {

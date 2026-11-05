@@ -100,7 +100,10 @@ fn decode_order_slot(
             continue;
         }
         let cx = DecodeCx::for_slot(viewing_key, tx, this_index);
-        let plaintext = Confidential::decode(body, &cx).map_err(err)?;
+        // Padding of a later spend shares the tag and opens to no note.
+        let Ok(plaintext) = Confidential::decode(body, &cx) else {
+            continue;
+        };
         return Ok(Some((slot.output_context.hash, plaintext)));
     }
     Ok(None)
