@@ -20,6 +20,7 @@ pub(crate) mod verify;
 pub mod witness;
 
 pub use backend::{Prover, ProverExt};
+pub(crate) use call::MAX_RESPONSE_BYTES;
 #[cfg(feature = "reqwest")]
 pub use client::{spawn_prover, ProverLaunch};
 pub use client::{

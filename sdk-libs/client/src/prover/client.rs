@@ -31,7 +31,7 @@ use crate::{
     error::ClientError,
     prover::{
         backend::Prover,
-        call::{transport_error, Answer, Call, CallError, Recipient},
+        call::{transport_error, with_reason, Answer, Call, CallError, Recipient},
         endpoint::ProverEndpoint,
         inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
         key_set::ProvingKeySet,
@@ -476,7 +476,7 @@ impl ProofRoute {
             {
                 ClientError::ProverIndexerUnconfigured
             }
-            _ => ClientError::ProverServer(format!("status {status}: {text}")),
+            _ => ClientError::ProverServer(with_reason(format_args!("status {status}"), text)),
         }
     }
 }
@@ -506,20 +506,12 @@ struct ProofRequest<'a> {
 }
 
 trait ProverResponse: Sized {
-    fn decode(
-        value: &serde_json::Value,
-        raw: &str,
-        key: &ExpectedProvingKey,
-    ) -> Result<Self, ClientError>;
+    fn decode(value: &serde_json::Value, key: &ExpectedProvingKey) -> Result<Self, ClientError>;
 }
 
 impl ProverResponse for Proof {
-    fn decode(
-        value: &serde_json::Value,
-        raw: &str,
-        key: &ExpectedProvingKey,
-    ) -> Result<Self, ClientError> {
-        proof_from_value(value, raw, key)
+    fn decode(value: &serde_json::Value, key: &ExpectedProvingKey) -> Result<Self, ClientError> {
+        proof_from_value(value, key)
     }
 }
 
@@ -529,12 +521,8 @@ struct IndexedResponse {
 }
 
 impl ProverResponse for IndexedResponse {
-    fn decode(
-        value: &serde_json::Value,
-        raw: &str,
-        key: &ExpectedProvingKey,
-    ) -> Result<Self, ClientError> {
-        let proof = proof_from_value(value, raw, key)?;
+    fn decode(value: &serde_json::Value, key: &ExpectedProvingKey) -> Result<Self, ClientError> {
+        let proof = proof_from_value(value, key)?;
         let resolution = value
             .get("proof")
             .unwrap_or(value)
@@ -563,8 +551,9 @@ fn indexed_from_health(status: StatusCode, text: &str) -> Result<(), ClientError
         indexed: bool,
     }
     if !status.is_success() {
-        return Err(ClientError::ProverServer(format!(
-            "health status {status}, {text}"
+        return Err(ClientError::ProverServer(with_reason(
+            format_args!("health status {status}"),
+            text,
         )));
     }
     let health: Health = serde_json::from_str(text).map_err(|_| {
@@ -613,8 +602,9 @@ fn rail(configured: Delivery, requested: Delivery) -> Delivery {
 
 fn prover_keys_from_response(status: StatusCode, text: &str) -> Result<ProverKeys, ClientError> {
     if !status.is_success() {
-        return Err(ClientError::ProverServer(format!(
-            "proving keys status {status}: {text}"
+        return Err(ClientError::ProverServer(with_reason(
+            format_args!("proving keys status {status}"),
+            text,
         )));
     }
     serde_json::from_str(text)
@@ -1117,7 +1107,7 @@ impl AsyncProverClient {
                 return self.poll_async(job_id, key).await;
             }
         }
-        T::decode(&value, &text, key)
+        T::decode(&value, key)
     }
 
     async fn post(
@@ -1176,8 +1166,9 @@ impl AsyncProverClient {
                 }
             };
             if status.is_client_error() {
-                return Err(ClientError::ProverServer(format!(
-                    "status {status}: {text}"
+                return Err(ClientError::ProverServer(with_reason(
+                    format_args!("status {status}"),
+                    &text,
                 )));
             }
             if status.is_server_error() {
@@ -1191,12 +1182,13 @@ impl AsyncProverClient {
             match value.get("status").and_then(|v| v.as_str()) {
                 Some("completed") => {
                     let result = value.get("result").map_or(&value, |result| result);
-                    return T::decode(result, &text, key);
+                    return T::decode(result, key);
                 }
                 Some("failed") => {
                     return Err(typed_failure(&value).unwrap_or_else(|| {
-                        ClientError::ProverServer(format!(
-                            "async proof failed (job {job_id}): {text}"
+                        ClientError::ProverServer(with_reason(
+                            format_args!("async proof failed (job {job_id})"),
+                            &text,
                         ))
                     }));
                 }
@@ -1449,7 +1441,7 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::{TcpListener, TcpStream},
-        sync::{mpsc, Arc},
+        sync::{atomic::AtomicUsize, mpsc, Arc},
         thread,
     };
 
@@ -1458,9 +1450,12 @@ mod tests {
 
     use super::super::indexed::IndexedProofRequest;
     use super::*;
-    use crate::prover::tee::{
-        FixtureSession, FreshnessSigners, NitroFixture, PolicySigners, ReleasePayload,
-        SignedPolicyFile,
+    use crate::prover::{
+        tee::{
+            FixtureSession, FreshnessSigners, NitroFixture, PolicySigners, ReleasePayload,
+            SignedPolicyFile,
+        },
+        MAX_RESPONSE_BYTES,
     };
 
     #[derive(Debug)]
@@ -2116,7 +2111,7 @@ mod tests {
                 nitro_attestation(now),
                 key_lost(),
                 nitro_attestation(now),
-                MockResponse::text(404, "resent"),
+                MockResponse::json(404, json!({ "code": "resent" })),
             ]);
             let mut client = ProverClient::new(server.url().to_string());
             client.client.tee = Tee::On(Box::new(session));
@@ -2226,7 +2221,7 @@ mod tests {
             nitro_attestation(now),
             key_lost(),
             nitro_attestation(now),
-            MockResponse::text(404, "resent"),
+            MockResponse::json(404, json!({ "code": "resent" })),
         ]);
         let mut client = AsyncProverClient::new(server.url().to_string());
         client.tee = Tee::On(Box::new(nitro_session(now)));
@@ -2280,6 +2275,61 @@ mod tests {
         let requests = server.requests();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[1].path, "/proving-keys");
+    }
+
+    #[test]
+    fn an_oversized_encrypted_answer_is_refused_before_decrypting() {
+        let now = now_secs();
+        let server = MockServer::respond_with(vec![
+            nitro_attestation(now),
+            MockResponse::Encrypted(vec![0; MAX_RESPONSE_BYTES + 64]),
+        ]);
+        let mut client = ProverClient::new(server.url().to_string());
+        client.client.tee = Tee::On(Box::new(nitro_session(now)));
+        let error = client.check_proving_keys().unwrap_err();
+        assert!(
+            matches!(error, ClientError::ProverResponseTooLarge),
+            "{error}"
+        );
+        server.requests();
+    }
+
+    /// The gateway in front of an attested prover writes unencrypted
+    /// failures, and the attestation's.
+    #[test]
+    fn a_gateway_failure_carries_a_bounded_reason() {
+        let now = now_secs();
+        let server = MockServer::respond_with(vec![
+            nitro_attestation(now),
+            MockResponse::json(
+                400,
+                json!({ "code": "gateway", "message": "y".repeat(5_000) }),
+            ),
+        ]);
+        let mut client = ProverClient::new(server.url().to_string());
+        client.client.tee = Tee::On(Box::new(nitro_session(now)));
+        assert_eq!(
+            client.check_proving_keys().unwrap_err().to_string(),
+            "prover server error: proving keys status 400 Bad Request"
+        );
+        server.requests();
+
+        let server = MockServer::respond_with(vec![MockResponse::json(
+            400,
+            json!({ "code": "denied", "message": "z".repeat(1_000) }),
+        )]);
+        let error = ProverClient::new(server.url().to_string())
+            .with_tee(probe_policy())
+            .attest()
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "prover server error: attestation failed with status 400 Bad Request: denied: {}",
+                "z".repeat(200 - "denied: ".len())
+            )
+        );
+        server.requests();
     }
 
     #[test]
@@ -2885,6 +2935,113 @@ mod tests {
         assert!(message.contains("job_not_found"));
     }
 
+    const FLOOD_BYTES: usize = 64 << 20;
+
+    fn flood(status: u16) -> (MockResponse, Arc<AtomicUsize>) {
+        let written = Arc::new(AtomicUsize::new(0));
+        let answer = MockResponse::Flood {
+            status,
+            len: FLOOD_BYTES,
+            written: Arc::clone(&written),
+        };
+        (answer, written)
+    }
+
+    /// The client stopped reading near its limit and hung up: the server got
+    /// out only that and what the socket buffers held.
+    fn assert_read_bounded(written: &AtomicUsize) {
+        let written = written.load(Ordering::SeqCst);
+        assert!(
+            written < FLOOD_BYTES / 4,
+            "the server wrote {written} bytes"
+        );
+    }
+
+    #[test]
+    fn an_oversized_proof_answer_is_refused_without_reading_it() {
+        let (answer, written) = flood(200);
+        let server = MockServer::respond_with(vec![answer]);
+        let error = ProverClient::new(server.url().to_string())
+            .send("{}", Delivery::InResponse, &test_key())
+            .unwrap_err();
+        assert!(
+            matches!(error, ClientError::ProverResponseTooLarge),
+            "{error}"
+        );
+        assert_paths(&server.requests(), ["/prove/test"]);
+        assert_read_bounded(&written);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_oversized_status_answer_ends_the_poll() {
+        let (answer, written) = flood(200);
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "jobId": "job-flood" })),
+            answer,
+        ]);
+        let error = AsyncProverClient::new(server.url().to_string())
+            .send("{}", Delivery::Queued, &test_key())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, ClientError::ProverResponseTooLarge),
+            "{error}"
+        );
+        assert_paths(
+            &server.requests(),
+            ["/prove/test", "/prove/test/status?jobId=job-flood"],
+        );
+        assert_read_bounded(&written);
+    }
+
+    #[test]
+    fn an_oversized_error_body_stays_out_of_the_error() {
+        let (answer, written) = flood(400);
+        let server = MockServer::respond_with(vec![answer]);
+        let error = ProverClient::new(server.url().to_string())
+            .send("{}", Delivery::InResponse, &test_key())
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "prover server error: status 400 Bad Request"
+        );
+        server.requests();
+        assert_read_bounded(&written);
+    }
+
+    /// An error names the body's code and message, cut to 200 characters,
+    /// and nothing of a body above 4 KiB or of a body without them.
+    #[test]
+    fn an_error_reason_is_cut_as_the_ts_sdk_cuts_it() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(
+                400,
+                json!({ "code": "bad_input", "message": "x".repeat(1_000) }),
+            ),
+            MockResponse::json(
+                400,
+                json!({ "code": "bad_input", "message": "x".repeat(5_000) }),
+            ),
+            MockResponse::text(400, "a gateway's page"),
+        ]);
+        let client = ProverClient::new(server.url().to_string());
+        let errors: Vec<_> = (0..3)
+            .map(|_| {
+                client
+                    .send("{}", Delivery::InResponse, &test_key())
+                    .unwrap_err()
+                    .to_string()
+            })
+            .collect();
+        let status = "prover server error: status 400 Bad Request";
+        let reason = format!("bad_input: {}", "x".repeat(200 - "bad_input: ".len()));
+        assert_eq!(
+            errors,
+            [format!("{status}: {reason}"), status.into(), status.into()]
+        );
+        server.requests();
+    }
+
     #[test]
     fn poll_async_retries_transient_status_poll_errors() {
         let server = MockServer::respond_with(vec![
@@ -3442,6 +3599,13 @@ mod tests {
         },
         Disconnect,
         Computed(Box<dyn FnOnce(&RecordedRequest) -> MockResponse + Send>),
+        /// A `status` answer announcing `len` bytes, written until the
+        /// client hangs up and counted in `written`.
+        Flood {
+            status: u16,
+            len: usize,
+            written: Arc<AtomicUsize>,
+        },
     }
 
     impl MockResponse {
@@ -3538,6 +3702,11 @@ mod tests {
                         }
                         MockResponse::Disconnect => {}
                         MockResponse::Computed(_) => unreachable!("resolved above"),
+                        MockResponse::Flood {
+                            status,
+                            len,
+                            written,
+                        } => write_flood(&mut stream, status, len, &written),
                     }
                 }
             });
@@ -3600,6 +3769,11 @@ mod tests {
                         }
                         Some(MockResponse::Disconnect) => {}
                         Some(MockResponse::Computed(_)) => unreachable!("resolved above"),
+                        Some(MockResponse::Flood {
+                            status,
+                            len,
+                            written,
+                        }) => write_flood(&mut stream, status, len, &written),
                         None => {
                             if let Some((status, body)) = last.as_ref() {
                                 write_http_response(&mut stream, *status, body);
@@ -3738,6 +3912,29 @@ mod tests {
     fn write_encrypted_response(stream: &mut TcpStream, body: &[u8]) {
         write!(stream, "HTTP/1.1 200 OK\r\nspr-tee: v1\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).unwrap();
         stream.write_all(body).unwrap();
+    }
+
+    fn write_flood(stream: &mut TcpStream, status: u16, len: usize, written: &AtomicUsize) {
+        let head = format!(
+            "HTTP/1.1 {status} {}\r\ncontent-type: application/json\r\ncontent-length: {len}\r\nconnection: close\r\n\r\n",
+            reason_phrase(status)
+        );
+        if stream.write_all(head.as_bytes()).is_err() {
+            return;
+        }
+        let chunk = [b' '; 64 << 10];
+        loop {
+            let left = len - written.load(Ordering::SeqCst);
+            if left == 0 {
+                return;
+            }
+            match stream.write(&chunk[..chunk.len().min(left)]) {
+                Ok(0) | Err(_) => return,
+                Ok(sent) => {
+                    written.fetch_add(sent, Ordering::SeqCst);
+                }
+            }
+        }
     }
 
     fn write_http_response(stream: &mut TcpStream, status: u16, body: &str) {

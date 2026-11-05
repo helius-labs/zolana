@@ -203,12 +203,11 @@ impl Proof {
 }
 
 /// Decode a prover's response to a proof request for `key`, parsed into
-/// `value`, `raw` being its text: the gnark proof JSON alone or as the
-/// `proof` of a `{ proof, .. }` envelope. A null proof is rejected, and so is
-/// a proof whose reported `provingKeySha256` is missing or not `key`'s.
+/// `value`: the gnark proof JSON alone or as the `proof` of a `{ proof, .. }`
+/// envelope. A null proof is rejected, and so is a proof whose reported
+/// `provingKeySha256` is missing or not `key`'s.
 pub(crate) fn proof_from_value(
     value: &serde_json::Value,
-    raw: &str,
     key: &ExpectedProvingKey,
 ) -> Result<Proof, ClientError> {
     let proof_value = value.get("proof").unwrap_or(value);
@@ -232,7 +231,7 @@ pub(crate) fn proof_from_value(
     let proof_json = serde_json::to_string(proof_value)
         .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
     proof_from_gnark_json(&proof_json)
-        .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
+        .ok_or_else(|| ClientError::ProofParse("could not parse proof".to_string()))
 }
 
 /// Parse a gnark proof JSON (`{ar, bs, krs, proofCommitment?, proofCommitmentPok?}`)

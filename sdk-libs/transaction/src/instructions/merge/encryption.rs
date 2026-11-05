@@ -12,11 +12,19 @@ use crate::{
 };
 
 /// The nullifier-secret derivations a merge output needs, answered by
-/// [`ShieldedKeys::derive`].
-#[derive(Clone, Copy, Debug)]
+/// [`ShieldedKeys::derive`]. Its `Debug` prints neither.
+#[derive(Clone, Copy)]
 pub struct MergeOutputSecrets {
     pub blinding: [u8; 32],
     pub key: [u8; 32],
+}
+
+impl core::fmt::Debug for MergeOutputSecrets {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("MergeOutputSecrets")
+            .finish_non_exhaustive()
+    }
 }
 
 impl MergeTransaction {
@@ -118,5 +126,19 @@ impl MergeTransaction {
             output_ciphertext_salt: salt,
             output_ciphertext,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MergeOutputSecrets;
+
+    #[test]
+    fn debug_output_prints_no_merge_secret() {
+        let secrets = MergeOutputSecrets {
+            blinding: [0x5a; 32],
+            key: [0xa5; 32],
+        };
+        assert_eq!(format!("{secrets:?}"), "MergeOutputSecrets { .. }");
     }
 }

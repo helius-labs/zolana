@@ -25,6 +25,8 @@ const PROVE_URL: &str = "http://127.0.0.1:3001/v1/spr/prove/test?api-key=secret"
 const STATUS_URL: &str =
     "http://127.0.0.1:3001/v1/spr/prove/test/status?api-key=secret&jobId=job-1";
 const PROVING_KEYS_URL: &str = "http://127.0.0.1:3001/v1/spr/proving-keys?api-key=secret";
+/// The most a prover client reads of an answer, the TS SDK's limit.
+const MAX_RESPONSE_BYTES: usize = 1 << 20;
 
 struct Request(Delivery);
 
@@ -154,7 +156,7 @@ fn header<'a>(request: &'a HttpRequest, name: &str) -> Option<&'a str> {
 }
 
 /// A proof `POST`: a JSON body on the key's proof path, the rail in a header
-/// and the client's proof timeout on the request.
+/// and the client's proof timeout and answer limit on the request.
 fn assert_proof_post(request: &HttpRequest, rail: &str) {
     assert_eq!(request.method, Method::POST);
     assert_eq!(request.url, PROVE_URL);
@@ -162,6 +164,7 @@ fn assert_proof_post(request: &HttpRequest, rail: &str) {
     assert_eq!(header(request, rail), Some("true"));
     assert_eq!(request.body.as_slice(), br#"{"inputs":1}"#);
     assert_eq!(request.timeout, Some(Duration::from_secs(600)));
+    assert_eq!(request.body_limit, Some(MAX_RESPONSE_BYTES));
 }
 
 /// A status poll or a check: a bare `GET`, bounded on its own.
@@ -170,6 +173,7 @@ fn assert_get(request: &HttpRequest, url: &str) {
     assert_eq!(request.url, url);
     assert!(request.body.is_empty());
     assert_eq!(request.timeout, Some(Duration::from_secs(30)));
+    assert_eq!(request.body_limit, Some(MAX_RESPONSE_BYTES));
 }
 
 fn assert_sync_route(requests: &[HttpRequest]) {
@@ -259,6 +263,26 @@ fn the_client_answers_as_the_prover_does() {
         ProverClient::with_client(PROVER_URL.to_string(), client).prove(&IN_RESPONSE),
         Err(ClientError::ProvingKeyMismatch { .. })
     ));
+}
+
+/// A client may read past the request's limit; the prover client still
+/// refuses the longer answer, whatever its route.
+#[test]
+fn an_answer_past_the_limit_is_refused() {
+    let oversized = json!("x".repeat(MAX_RESPONSE_BYTES));
+    for answers in [
+        vec![Ok((200, oversized.clone()))],
+        vec![Ok((202, json!({ "jobId": "job-1" }))), Ok((200, oversized))],
+    ] {
+        let (client, _) = FakeClient::answering(answers);
+        let error = ProverClient::with_client(PROVER_URL.to_string(), client)
+            .prove(&IN_RESPONSE)
+            .unwrap_err();
+        assert!(
+            matches!(error, ClientError::ProverResponseTooLarge),
+            "{error}"
+        );
+    }
 }
 
 /// A client's failure is a transport failure: a proof submission is retried,
