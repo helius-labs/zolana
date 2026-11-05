@@ -4,6 +4,7 @@
 //!   tee-policy sign   <network>.json --key alias/zolana-tee-policy-signer-1
 //!   tee-policy verify <network>.json [--previous <file>] [--min-days-left 14]
 //!   tee-policy verify-served <file or https URL> [--min-hours-left 24]
+//!   tee-policy check-release --manifest <release.json> --generation tee-N <prover URL>...
 //!
 //! Keys are KMS key ids, ARNs or aliases; nothing here holds a private key.
 
@@ -20,6 +21,7 @@ use spr_tee_policy::{
     kms::{kms_public_key, KmsSigner},
     manifest,
     release::{self, MAX_RELEASE_DAYS},
+    release_check,
 };
 
 /// The keys live in eu-north-1 unless AWS_REGION says otherwise.
@@ -71,6 +73,22 @@ enum Command {
         source: String,
         #[arg(long, default_value_t = 24)]
         min_hours_left: u64,
+    },
+    /// Attests every backend of a generation before its release part is
+    /// relied on: each must attest under the generation's PCRs through the
+    /// SDK's prover client, pass an encrypted proving-key check and refuse a
+    /// plaintext proof request; all must hold one key.
+    CheckRelease {
+        /// The zolana-infra release manifest that records the generation.
+        #[arg(long)]
+        manifest: PathBuf,
+        /// The generation, such as tee-4.
+        #[arg(long)]
+        generation: String,
+        /// One URL per backend: each region's URL of this generation, such
+        /// as the `staging_urls` of the environment while it is not active.
+        #[arg(required = true)]
+        urls: Vec<String>,
     },
 }
 
@@ -162,6 +180,24 @@ async fn main() -> Result<()> {
                 verified.release.network,
                 verified.release.version,
                 verified.expires_at()
+            );
+        }
+        Command::CheckRelease {
+            manifest,
+            generation,
+            urls,
+        } => {
+            let manifest: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(&manifest)
+                    .with_context(|| format!("read {}", manifest.display()))?,
+            )
+            .with_context(|| format!("{} is not JSON", manifest.display()))?;
+            let policy = manifest::generation_policy(&manifest, &generation, MAX_AGE_SECS)?;
+            let key = release_check::check(&policy, &urls).await?;
+            println!(
+                "{} backends attest {generation} with key {} and refuse plaintext",
+                urls.len(),
+                hex::encode(key)
             );
         }
     }
