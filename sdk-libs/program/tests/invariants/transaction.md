@@ -4,7 +4,7 @@ Covers `TxContext`, `ConfidentialTransaction::check` and `PublicInputs` of
 `src/circuit/transaction.rs`: the output blindings, `private_tx_hash`,
 `transaction_hash`, the public hash and the value balance, against the native
 `spr-transaction` `FinalizedTransaction`. Invariants every type shares live in
-`cross-cutting.md`. ID prefix: `INV-TX`; the tests live in
+[`cross-cutting.md`](https://github.com/helius-labs/zk-tools/blob/ecb5c8aa8b3d3f19c6b3af020d6d13784df93bac/zk-dsl/dsl/tests/invariants/cross-cutting.md). ID prefix: `INV-TX`; the tests live in
 `tests/unit/protocol/transaction/`.
 
 `tests/unit/protocol/transaction/fixtures.rs` holds the fixtures. The program shapes are
@@ -41,7 +41,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/native.rs` `every_shape_reproduces_the_native_private_transaction_and_public_hashes`; `tests/unit/protocol/transaction/properties.rs` `every_random_payment_reproduces_the_native_hashes` (property); `tests/unit/protocol/transaction/properties.rs` `every_random_seed_and_output_tree_reproduces_the_native_hashes` (property)
   - Kind: native equivalence
   - Statement: the native run of `Asserted` returns exactly `Ok(())` for four refreshes, three payments, two fundings, two settlements and a sweep, for every random payment split and amount, and for every random blinding seed, output tree and first-input latest tree: `check`'s output blindings, commitments, input and output hash chains, private blinding, transfer chain and public hash all equal the native `FinalizedTransaction`'s.
-  - Location: `src/circuit/transaction.rs:182-251` (`fn check`), `src/circuit/transaction.rs:43-77` (the blindings), `src/circuit/transaction.rs:258-271` (`fn transaction_hash`)
+  - Location: `src/circuit/transaction.rs` (`fn check`, the blindings, `fn transaction_hash`)
   - Severity: Critical
   - Suggested test: positive + property; `tests/unit/protocol/transaction/native.rs`, `tests/unit/protocol/transaction/properties.rs`
 
@@ -49,7 +49,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/native.rs` `every_shape_reproduces_the_native_private_transaction_and_public_hashes`; `tests/unit/protocol/transaction/native.rs` `the_hashes_bind_the_blinding_seed_the_output_tree_the_transfers_and_the_public_inputs`
   - Kind: native equivalence
   - Statement: a refresh into tree 0 or 2 by context, into the first input's latest tree 7 with no context tree, and into tree 2 over the latest tree 7 each reproduce the native hashes; the reference built with tree 7 for the last one breaks exactly the private transaction hash rule.
-  - Location: `src/circuit/transaction.rs:23-36` (`fn output_tree_id`)
+  - Location: `src/circuit/transaction.rs` (`fn output_tree_id`)
   - Severity: Critical
   - Suggested test: positive + negative; `tests/unit/protocol/transaction/native.rs`
 
@@ -57,7 +57,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/native.rs` `the_hashes_bind_the_blinding_seed_the_output_tree_the_transfers_and_the_public_inputs`
   - Kind: native equivalence
   - Statement: against the reference with another blinding seed, a refresh breaks exactly the private transaction hash rule; with another settlement account, a settlement breaks exactly the transaction hash rule, its private hash still matching; with another recipient in the public fields, a payment breaks exactly the public hash rule.
-  - Location: `src/circuit/transaction.rs:232-239`, `src/circuit/transaction.rs:258-271` (`fn transaction_hash`)
+  - Location: `src/circuit/transaction.rs` (`fn transaction_hash`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/transaction/native.rs`
 
@@ -65,7 +65,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/native.rs` `each_hash_that_differs_from_the_native_one_breaks_exactly_its_rule`
   - Kind: native equivalence
   - Statement: for the SOL refresh, the native private transaction, transaction or public hash increased by 1 returns exactly `RuleBroken` with that hash's rule, located in the fixture's file.
-  - Location: `src/circuit/transaction.rs:104-116` (the `CheckedTransaction` accessors)
+  - Location: `src/circuit/transaction.rs` (the `CheckedTransaction` accessors)
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/transaction/native.rs`
 
@@ -73,7 +73,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/native.rs` `every_shape_reproduces_the_native_private_transaction_and_public_hashes`
   - Kind: native equivalence
   - Statement: for `NoFields` (Poseidon of the transaction hash alone) and `Recipient` (Poseidon of the recipient's owner hash and the transaction hash), `check`'s public hash is exactly the native Poseidon over the same fields.
-  - Location: `src/circuit/transaction.rs:79-81` (`trait PublicInputs`), `src/circuit/transaction.rs:239`
+  - Location: `src/circuit/transaction.rs` (`trait PublicInputs`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/transaction/native.rs`
 
@@ -91,7 +91,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `every_shape_has_exactly_the_pinned_size_and_digest`
   - Kind: constraint
   - Statement: `Asserted` over a refresh, a payment, a funding and a settlement has exactly 4194, 10521, 8977 and 6464 constraints over 4200, 10527, 8983 and 6469 variables, with the R1CS sha256 digests pinned in the test. Every output adds a 64-bit range check. Only trailing token outputs need emptiness gadgets; a data output makes every preceding slot statically nonempty.
-  - Location: `src/circuit/transaction.rs:182-251` (`fn check`)
+  - Location: `src/circuit/transaction.rs` (`fn check`)
   - Severity: High
   - Suggested test: positive (digest); `tests/unit/protocol/transaction/r1cs.rs`
 
@@ -99,7 +99,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `the_balance_and_tree_rules_own_rows_only_where_a_value_is_variable`
   - Kind: constraint
   - Statement: "value leaves the transaction: a utxo was not added" owns exactly one row in a payment and a funding, whose transfers move a variable amount, and none in a refresh or a settlement, whose transferred total is the constant 0; the output tree rule owns exactly one row in every shape.
-  - Location: `src/circuit/transaction.rs:195-203`
+  - Location: `src/circuit/transaction.rs`
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/transaction/r1cs.rs`
 
@@ -109,7 +109,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `every_refresh_and_one_of_each_other_shape_checks_exactly_the_pinned_count`
   - Kind: completeness
   - Statement: `check_constraints` returns exactly `Ok(4194)` for all four refreshes, whichever output tree they select, and exactly `Ok(10521)`, `Ok(8977)` and `Ok(6464)` for a payment, a funding and a settlement: the setup matrices over the placeholder and the proving matrices agree.
-  - Location: `zk/dsl/src/prover/synthesis.rs` (`fn check`)
+  - Location: `zk-tools/zk-dsl/dsl/src/prover/synthesis.rs` (`fn check`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/transaction/r1cs.rs`
 
@@ -119,7 +119,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `only_the_first_nullifier_enters_the_program_circuit_and_the_rest_are_carried`
   - Kind: soundness
   - Statement: in a payment, tampering the first input's nullifier breaks a row of "a poseidon hash" (the blindings), and its latest tree a row of "the transaction's outputs and hashes"; tampering the second or third input's nullifier or latest tree leaves every row satisfied, because the shielded pool circuit checks them.
-  - Location: `src/circuit/transaction.rs:199-205`, `sdk-libs/transaction/src/circuit/utxo.rs:24-30` (`SpentInput`)
+  - Location: `src/circuit/transaction.rs`, `sdk-libs/transaction/src/circuit/utxo.rs` (`SpentInput`)
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/transaction/r1cs.rs`
 
@@ -127,7 +127,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `each_tampered_hash_claim_breaks_exactly_its_rule`
   - Kind: soundness
   - Statement: for the SOL refresh, tampering the private transaction, transaction and public hash claims breaks exactly their own rules inside their own rows.
-  - Location: `src/circuit/transaction.rs:182-251` (`fn check`)
+  - Location: `src/circuit/transaction.rs` (`fn check`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/transaction/r1cs.rs`
 
@@ -135,7 +135,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `a_tampered_context_breaks_its_range_or_booleanity_row`
   - Kind: soundness
   - Statement: in a payment, tampering the output tree id breaks exactly the u16 range rule and the "uses the output tree" flag (1 to 2) exactly the bool rule; in a refresh that uses the first input's latest tree, flipping the flag to 1 breaks a row of "the transaction's outputs and hashes".
-  - Location: `src/conversion/transaction.rs:4-14`, `src/circuit/transaction.rs:23-36` (`fn output_tree_id`)
+  - Location: `src/conversion/transaction.rs`, `src/circuit/transaction.rs` (`fn output_tree_id`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/transaction/r1cs.rs`
 
@@ -143,7 +143,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `no_variable_is_free_and_only_carried_spend_values_are_tolerated`
   - Kind: soundness
   - Statement: `check_private_variables` reports no free variable for a refresh, a payment, a funding and a settlement, and exactly 0, 9, 2 and 0 tolerated ones.
-  - Location: `zk/dsl/src/prover/synthesis.rs` (`fn unconstrained_private_variables`)
+  - Location: `zk-tools/zk-dsl/dsl/src/prover/synthesis.rs` (`fn unconstrained_private_variables`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/transaction/r1cs.rs`
 
@@ -169,7 +169,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/native.rs` `a_malformed_transaction_breaks_exactly_its_rule`
   - Kind: error
   - Statement: natively, located in the fixture's file, each of these returns exactly `RuleBroken`: a forgotten destination with "value leaves the transaction: a utxo was not added"; a deposit alone with "a transaction spends at least one input"; neither a context tree nor a latest tree with the output tree rule; a counter at 2^64 - 1 with "the counter overflows"; a burned input left holding its balance with "a burned token utxo leaves a balance".
-  - Location: `src/circuit/transaction.rs:182-203` (`fn check`), `src/circuit/utxo/token.rs:69-83` (`fn change`)
+  - Location: `src/circuit/transaction.rs` (`fn check`), `src/circuit/utxo/token.rs` (`fn change`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/transaction/native.rs`
@@ -178,7 +178,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/r1cs.rs` `the_prover_refuses_value_that_leaves_the_transaction`
   - Kind: error
   - Statement: `check_constraints` of the forgotten payment returns exactly `CircuitError.RuleBroken` before any proof: the prover refuses to synthesize a transaction that leaks value.
-  - Location: `src/circuit/transaction.rs:195-198`
+  - Location: `src/circuit/transaction.rs`
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
   - Suggested test: negative; `tests/unit/protocol/transaction/r1cs.rs`
@@ -189,7 +189,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_accepts_every_honest_refresh_and_rejects_each_tampered_hash_claim`
   - Kind: interop
   - Statement: for every refresh, `snarkjs wtns check` accepts the refresh R1CS with the honest assignment and rejects it with each of the three hash claims increased by 1.
-  - Location: `zk/dsl/src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
+  - Location: `zk-tools/zk-dsl/dsl/src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
 
@@ -197,7 +197,7 @@ The wallets (`wallets.rs`) are deterministic keypairs and blindings.
   - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_and_verifies_a_whole_refresh`
   - Kind: interop
   - Statement: snarkjs Groth16 setup over a throwaway ptau, prove and verify accept the refresh R1CS with the assignment of the 2^64 - 1 USDC refresh, with exactly the empty public signal list.
-  - Location: `zk/dsl/src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
+  - Location: `zk-tools/zk-dsl/dsl/src/prover/snarkjs.rs` (`fn r1cs`, `fn wtns`)
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
 
@@ -208,7 +208,7 @@ INV-TX summary: 17 (Critical 7, High 9, Medium 1); covered 16, partial 1 (INV-TX
   - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_a_payment_with_dummy_padding_and_rejects_changed_hashes`
   - Kind: interop
   - Statement: for the payment with two real inputs and a padded dummy, snarkjs accepts the exported witness, refuses each of its three hash claims increased by one, and verifies a Groth16 proof with no public signals.
-  - Location: `src/circuit/transaction.rs` (`ConfidentialTransaction::check`), `zk/dsl/src/prover/snarkjs.rs`
+  - Location: `src/circuit/transaction.rs` (`ConfidentialTransaction::check`), `zk-tools/zk-dsl/dsl/src/prover/snarkjs.rs`
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
 
@@ -216,7 +216,7 @@ INV-TX summary: 17 (Critical 7, High 9, Medium 1); covered 16, partial 1 (INV-TX
   - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_a_data_utxo_update_and_rejects_changed_hashes`
   - Kind: interop
   - Statement: for the counter update funded by a token input, snarkjs accepts the exported witness, refuses each of its three hash claims increased by one, and verifies a Groth16 proof with no public signals.
-  - Location: `src/circuit/transaction.rs` (`ConfidentialTransaction::check`), `zk/dsl/src/prover/snarkjs.rs`
+  - Location: `src/circuit/transaction.rs` (`ConfidentialTransaction::check`), `zk-tools/zk-dsl/dsl/src/prover/snarkjs.rs`
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
 
@@ -224,7 +224,7 @@ INV-TX summary: 17 (Critical 7, High 9, Medium 1); covered 16, partial 1 (INV-TX
   - Covered by: `tests/unit/protocol/transaction/external.rs` `snarkjs_proves_public_deposit_and_withdrawal_and_rejects_changed_hashes`
   - Kind: interop
   - Statement: for the transaction containing a public deposit and withdrawal, snarkjs accepts the exported witness, refuses each of its three hash claims increased by one, and verifies a Groth16 proof with no public signals.
-  - Location: `src/circuit/transaction.rs` (`ConfidentialTransaction::check`), `zk/dsl/src/prover/snarkjs.rs`
+  - Location: `src/circuit/transaction.rs` (`ConfidentialTransaction::check`), `zk-tools/zk-dsl/dsl/src/prover/snarkjs.rs`
   - Severity: High
   - Suggested test: external (snarkjs); `tests/unit/protocol/transaction/external.rs`
 

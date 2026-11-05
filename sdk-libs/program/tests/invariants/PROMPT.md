@@ -6,27 +6,29 @@ Your only task is to extract from the source code a complete and precise list of
 
 ### Analysis Scope
 
-Analyze the following code (a builtin's behavior is spread between the DSL, the synthesis and the export -- all are mandatory):
+Analyze the following code (a builtin's behavior is spread between the DSL, the synthesis and the export -- all are mandatory). The DSL lives in [`helius-labs/zk-tools`](https://github.com/helius-labs/zk-tools/tree/ecb5c8aa8b3d3f19c6b3af020d6d13784df93bac/zk-dsl) under `zk-dsl/`, at the release this workspace pins (`spr-zk-dsl` 0.8.0); paths under `zk-tools/` refer to that tree:
 
-- `zk/dsl/src/circuit/builtins/**` -- the DSL builtins: `field/` (`var.rs` operators and `Field`, `primitive.rs` arkworks wrappers, `arithmetic.rs`, `bits.rs`), `gadgets/`, `ops/` (`Assert`, `Select`), `types/` (`Bool`, `Bytes`, `Uint`)
-- `zk/dsl/src/prover/synthesis.rs` -- setup and proving synthesis, `check_constraints`, the output binding in `zk/dsl/src/circuit/output.rs` (`CheckedTransaction` binds one public hash, `()` has no public inputs), the public-input count check, the unsatisfied-row and free-variable analysis
-- `zk/dsl/src/prover/snarkjs.rs` -- the iden3 `.r1cs` and `.wtns` export
-- `zk/dsl/src/conversion/**` -- client values to circuit values and back, the canonical byte checks
-- `zk/dsl/src/circuit/mod.rs` (`Circuit<Output = ()>`) and `zk/dsl/src/client/zk_circuit.rs` (`ZkCircuit`) -- the constraint-only circuit the builtin fixtures are written as
-- `zk/dsl/src/testing.rs` -- `check_tampered`, `check_private_variables`, `constraint_labels`
-- `../docs.md` -- the source of truth for the DSL semantics; use it only as a reference
+- `zk-tools/zk-dsl/dsl/src/circuit/builtins/**` -- the DSL builtins: `field/` (`var.rs` operators and `Field`, `primitive.rs` arkworks wrappers, `arithmetic.rs`, `bits.rs`), `ops/` (`Assert`, `Select`), `types/` (`Bool`, `Bytes`, `Uint`, `SolanaAddress`)
+- `zk-tools/zk-dsl/gadgets/src/**` -- `poseidon`, `hash_bytes`, `nonzero_hash_chain`, membership and indexing
+- `zk-tools/zk-dsl/dsl/src/prover/synthesis.rs` -- setup and proving synthesis, `check_constraints`, the output binding in `zk-tools/zk-dsl/dsl/src/circuit/output.rs` (`CheckedTransaction` binds one public hash, `()` has no public inputs), the public-input count check, the unsatisfied-row and free-variable analysis
+- `zk-tools/zk-dsl/dsl/src/prover/snarkjs.rs` -- the iden3 `.r1cs` and `.wtns` export
+- `zk-tools/zk-dsl/dsl/src/conversion/**` -- client values to circuit values and back, the canonical byte checks
+- `zk-tools/zk-dsl/dsl/src/circuit/mod.rs` (`Circuit<Output = ()>`) and `zk-tools/zk-dsl/dsl/src/client/zk_circuit.rs` (`ZkCircuit`) -- the constraint-only circuit the fixtures are written as
+- `zk-tools/zk-dsl/dsl/src/testing.rs` -- `check_tampered`, `check_private_variables`, `constraint_labels`
+- `docs.md` -- the source of truth for the DSL semantics; use it only as a reference
 
 For a protocol type, also analyze (mandatory):
 
-- `src/circuit/**` -- the protocol types (using `SolanaAddress` from zk-tools): `owner.rs` (`SigningPubkey`, `UtxoOwner`, `DataHash`), `transfer.rs` (`PublicTransfer`), `transaction.rs` (`TxContext`, `ConfidentialTransaction::check`, `PublicInputs`), `utxo/` (`Utxo`, `SpentInput`, `Output`, `UtxoTrait`, `TokenUtxos`, `DataUtxo`, `UtxoData`, `UtxoData::utxo_data`)
-- the native references every circuit value must equal: `spr-hasher` (`program-libs/hasher`: Poseidon, `hash_bytes`), `spr-keypair` (`sdk-libs/keypair`: the owner hash and the nullifier), `spr-transaction` (`sdk-libs/transaction`: `Utxo::hash`, `OutputUtxo::hash`, `FinalizedTransaction`, `transaction_hash`), and `src/program/transfer.rs` (`PublicTransfer::hash`)
+- `src/circuit/**` -- the protocol types: `transfer.rs` (`PublicTransfer`), `transaction.rs` (`TxContext`, `ConfidentialTransaction::check`, `PublicInputs`), `utxo/` (`UtxoTrait`, `TokenUtxos`, `DataUtxo`, `UniqueDataUtxo`, `NewAddress`, `Output`, `DataHash`, `UtxoData`, `UtxoData::utxo_data`)
+- the circuit types of the protocol crates: `sdk-libs/keypair/src/circuit/` (`SigningPubkey`, `UtxoOwner`, `ShieldedAddressCircuit`) and `sdk-libs/transaction/src/circuit/` (`Utxo`, `UtxoMeta`, `SpentInput`, the asset and UTXO conversions)
+- the native references every circuit value must equal: `spr-hasher` (`program-libs/hasher`: Poseidon, `hash_bytes`), `spr-keypair` (`sdk-libs/keypair`: the owner hash and the nullifier), `spr-transaction` (`sdk-libs/transaction`: `Utxo::hash`, `OutputUtxo::hash`, `FinalizedTransaction`), and `spr-instruction` (`sdk-libs/instruction/src/public_transfer.rs`: `PublicTransfer::hash`, `transaction_hash`)
 
 ### Hard Rules
 
 1. Work ONLY with the provided source code. Do not invent anything.
 2. If information is insufficient, write `INSUFFICIENT_INFO: <what is missing>`.
-3. If the code diverges from `../docs.md`, do not silently pick a side -- flag it as `SPEC_DIVERGENCE: <file/lines> vs <spec section>`.
-4. Every invariant must be verifiable by a single test. Give the exact location: `src/<path>.rs:<lines>`, function or macro name.
+3. If the code diverges from `docs.md`, do not silently pick a side -- flag it as `SPEC_DIVERGENCE: <file and symbol> vs <spec section>`.
+4. Every invariant must be verifiable by a single test. Give the exact location: the file and the function or macro name, without line numbers (`src/<path>.rs`, `fn <name>`).
 5. Prioritize soundness (an under-constrained circuit or a wrong constraint), then native semantics and setup/proving shape.
 
 ### Formulation Rules (mandatory for every invariant)
@@ -70,7 +72,7 @@ Provide in `README.md` a matrix with one row per builtin operation (for example 
 
 ### Output Format (strict)
 
-Do NOT answer inline. Write the results as md files into `sdk-libs/program/tests/invariants/`, one file per builtin type (mirroring `tests/unit/<type>/`), plus cross-cutting and the index:
+Do NOT answer inline. Write the results as md files, one file per type (mirroring `tests/unit/<type>/`), plus cross-cutting and the index. The builtin files and `cross-cutting.md` belong to zk-tools (`zk-dsl/dsl/tests/invariants/`, and `gadgets.md` in `zk-dsl/gadgets/invariants/`); the protocol type files and `README.md` go into `sdk-libs/program/tests/invariants/`:
 
 | File | Covers |
 |---|---|
@@ -101,7 +103,7 @@ Each builtin file uses this structure:
 - [ ] **INV-<TYPE>-<OP>-<NN>: <short name>**
   - Kind: semantics | constraint | completeness | soundness | shape | equivalence | native equivalence | interop | error
   - Statement: <one precise claim with explicit quantifiers and snapshots>
-  - Location: `src/<path>.rs:<lines>` (`fn <name>` or `macro <name>`)
+  - Location: `src/<path>.rs` (`fn <name>` or `macro <name>`)
   - Error: `CircuitErrorKind::<Variant>` or `ProverErrorKind::<Variant>` (if applicable)
   - Severity: Critical (soundness: an under-constrained circuit or a wrong constraint) | High (semantics or shape) | Medium (cost or diagnostics)
   - Suggested test: positive | negative | property (proptest) | external (circom, snarkjs); `tests/unit/<type>/<op>/<file>.rs`
@@ -117,7 +119,7 @@ When a test covering an invariant lands, tick its checkbox and append a `Covered
 # spr-program Invariants
 
 Test-coverage checklist derived from the SDK builtins. Detailed invariants
-live in the per-type files; `../docs.md` remains the DSL source of truth.
+live in the per-type files; `docs.md` remains the DSL source of truth.
 
 ## Coverage Matrix
 | Operation | File | Semantics | Constraint | Completeness | Soundness | Shape | Error | Equivalence | Interop | Properties |
@@ -138,7 +140,7 @@ Matrix cells contain the invariant IDs covering that cell (e.g. `INV-CV-ADD-07`)
 
 ### Test Layout (one directory per builtin operation)
 
-Every invariant is covered from `tests/unit/<type>/<op>/` (`tests/unit/protocol/<type>/` for a protocol type), which holds the same files for every builtin, on top of the shared `zk/test-harness/`:
+Every invariant is covered from `tests/unit/<type>/<op>/` (`tests/unit/protocol/<type>/` for a protocol type), which holds the same files for every builtin, on top of the shared `tests/harness/`:
 
 | File | Holds |
 |---|---|
@@ -157,4 +159,4 @@ Every invariant is covered from `tests/unit/<type>/<op>/` (`tests/unit/protocol/
 - Invariants that only exercise the `ProofInput` derive, unless a test depends on its allocation order (the circom variable mapping does).
 - Generic statements without specifics ("addition is correct", "the circuit is sound").
 
-Now start the analysis with `zk/dsl/src/circuit/builtins/field/var.rs` (the `CircuitVar` operators), then walk `zk/dsl/src/circuit/builtins/` in module order.
+Now start the analysis with `zk-tools/zk-dsl/dsl/src/circuit/builtins/field/var.rs` (the `CircuitVar` operators), then walk `zk-tools/zk-dsl/dsl/src/circuit/builtins/` in module order, then the protocol types.
