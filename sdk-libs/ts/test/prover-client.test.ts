@@ -239,6 +239,107 @@ describe("queued prover polling", () => {
   });
 });
 
+describe("prover deadlines and retries", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** A request that answers only by failing once its signal aborts. */
+  function hang(init?: RequestInit): Promise<Response> {
+    return new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+    });
+  }
+
+  const json = { "content-type": "application/json" };
+
+  it("asks a full queue again after the retry delay", async () => {
+    const posts: (string | null)[] = [];
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts.push(new Headers(init.headers).get("X-Async"));
+        if (posts.length < 3) return new Response("busy", { status: 429 });
+        return new Response(JSON.stringify({ jobId: "job-1" }), { status: 202, headers: json });
+      }
+      return new Response(JSON.stringify({ status: "completed", result: TRANSFER_PROOF }), {
+        headers: json,
+      });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
+
+    const proof = prover.prove(transferInputs());
+    await vi.advanceTimersByTimeAsync(2_100);
+    await expect(proof).resolves.toBeDefined();
+    // In-response, refused; queued, refused; queued after the delay, accepted.
+    expect(posts).toEqual([null, "true", "true"]);
+  });
+
+  it("fails a queue that stays full after every attempt", async () => {
+    const fetch = vi.fn(
+      async () => new Response("busy", { status: 429 }),
+    ) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
+
+    const proof = prover.prove(transferInputs()).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(4_100);
+    expect(await proof).toMatchObject({
+      code: "CLIENT_PROVER_HTTP",
+      details: { method: "prove", status: 429, attempts: 3 },
+    });
+    expect(fetch).toHaveBeenCalledTimes(4);
+  });
+
+  it("bounds each status poll at 30s inside a longer wait", async () => {
+    let polls = 0;
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit): Promise<Response> => {
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ jobId: "job-1" }), { status: 202, headers: json });
+      }
+      if (polls++ === 0) return await hang(init);
+      return new Response(JSON.stringify({ status: "completed", result: TRANSFER_PROOF }), {
+        headers: json,
+      });
+    }) as typeof globalThis.fetch;
+    const prover = new ProverClient({
+      url: "http://127.0.0.1:3001",
+      fetch,
+      asyncPoll: { pollIntervalCapMs: 1_000, maxWaitMs: 600_000 },
+    });
+
+    const proof = prover.prove(transferInputs());
+    await vi.advanceTimersByTimeAsync(30_100);
+    await expect(proof).resolves.toBeDefined();
+    expect(polls).toBe(2);
+  });
+
+  it("bounds health and the proving-key catalog at 30s unless the caller sets a deadline", async () => {
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) =>
+      hang(init),
+    ) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
+
+    const health = prover.health().catch((error: unknown) => error);
+    const keys = prover.checkProvingKeys().catch((error: unknown) => error);
+    let longer: unknown;
+    void prover.health({ timeoutMs: 60_000 }).catch((error: unknown) => {
+      longer = error;
+    });
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(await health).toMatchObject({ code: "CLIENT_TIMEOUT", details: { method: "health" } });
+    expect(await keys).toMatchObject({
+      code: "CLIENT_TIMEOUT",
+      details: { method: "provingKeys" },
+    });
+    expect(longer).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(longer).toMatchObject({ code: "CLIENT_TIMEOUT" });
+  });
+});
+
 describe("prover request routing", () => {
   it("rejects a merge for another wallet before submitting a proof", async () => {
     const owner = ShieldedKeypair.generate();

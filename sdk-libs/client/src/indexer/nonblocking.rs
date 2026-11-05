@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use solana_address::Address;
@@ -23,19 +23,8 @@ use super::{
         convert_shielded_transactions_response, convert_user_records_response, encode_hash,
         encode_pubkey, ring_history_request,
     },
-    error::indexer_error,
+    error::{indexer_error, is_transient_indexer_error},
 };
-
-const MERKLE_PROOF_POLL_TIMEOUT: Duration = Duration::from_secs(60);
-/// First wait after an incomplete answer.
-///
-/// A transfer spends a UTXO the indexer has only just written, so the first
-/// attempt often lands a few milliseconds early and this sleep is on the
-/// critical path of every transfer. A flat 500ms charged the tail's wait to
-/// every caller; starting short and backing off keeps the 60s ceiling for an
-/// indexer that is genuinely behind.
-const MERKLE_PROOF_POLL_START: Duration = Duration::from_millis(25);
-const MERKLE_PROOF_POLL_MAX: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Debug)]
 pub struct AsyncSprIndexer {
@@ -67,7 +56,7 @@ impl AsyncSprIndexer {
 #[async_trait]
 impl AsyncRpc for AsyncSprIndexer {
     fn should_retry(&self, error: &ClientError) -> bool {
-        matches!(error, ClientError::IndexerUnavailable(_))
+        is_transient_indexer_error(error)
     }
 
     async fn get_encrypted_utxos_by_tags(
@@ -229,59 +218,32 @@ impl AsyncRpc for AsyncSprIndexer {
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        let single = || async {
-            let response = {
-                let _t = crate::prover::timing::Phase::start("merkle_http", 0);
-                self.api
-                    .get_merkle_proofs(
-                        encode_pubkey(tree_account),
-                        leaves.iter().copied().map(encode_hash).collect(),
-                    )
-                    .await
-            };
-            response
-                .map_err(indexer_error)
-                .map(|response| GetMerkleProofsResponse {
-                    context: convert_context(response.context),
-                    proofs: response
-                        .proofs
-                        .into_iter()
-                        .map(convert_merkle_proof)
-                        .collect(),
-                })
-        };
-
-        // A caller that named a slot wants that guarantee, so honour it directly and
-        // skip the completeness-polling path below.
-        if let Some(config) = config.filter(|config| config.require_slot.is_some()) {
-            return wait_for_indexer_async(
-                Some(config),
-                |response: &GetMerkleProofsResponse| response.context,
-                single,
-            )
-            .await;
-        }
-
-        let expected = leaves.len();
-        let started = Instant::now();
-        let mut last_error = None;
-        let mut wait = MERKLE_PROOF_POLL_START;
-        loop {
-            match single().await {
-                Ok(response) if response.proofs.len() >= expected => return Ok(response),
-                Ok(_) => {}
-                Err(error) => last_error = Some(error),
-            }
-            if started.elapsed() >= MERKLE_PROOF_POLL_TIMEOUT {
-                return Err(last_error.unwrap_or_else(|| {
-                    ClientError::Rpc(format!(
-                        "merkle proofs for {expected} leaves not indexed within {MERKLE_PROOF_POLL_TIMEOUT:?}"
-                    ))
-                }));
-            }
-            tokio::time::sleep(wait).await;
-            wait = (wait * 2).min(MERKLE_PROOF_POLL_MAX);
-        }
+        wait_for_indexer_async(
+            config,
+            |response: &GetMerkleProofsResponse| response.context,
+            || async {
+                let response = {
+                    let _t = crate::prover::timing::Phase::start("merkle_http", 0);
+                    self.api
+                        .get_merkle_proofs(
+                            encode_pubkey(tree_account),
+                            leaves.iter().copied().map(encode_hash).collect(),
+                        )
+                        .await
+                };
+                response
+                    .map_err(indexer_error)
+                    .map(|response| GetMerkleProofsResponse {
+                        context: convert_context(response.context),
+                        proofs: response
+                            .proofs
+                            .into_iter()
+                            .map(convert_merkle_proof)
+                            .collect(),
+                    })
+            },
+        )
+        .await
     }
 
     async fn get_non_inclusion_proofs(
@@ -338,6 +300,12 @@ impl AsyncRpc for AsyncSprIndexer {
     }
 }
 
+/// One request without `require_slot`. With it, poll on `config.poll` until
+/// the indexer answers at or past the slot: an answer below it, a
+/// minimum-context-slot refusal and a transient failure retry, and any other
+/// error returns at once. An exhausted schedule is classified by its final
+/// attempt: a lagging answer is [`ClientError::IndexerNotCaughtUp`], a
+/// transient failure [`ClientError::PollTimedOut`] carrying it.
 async fn wait_for_indexer_async<T, F, Fut>(
     config: Option<IndexerRpcConfig>,
     context: impl Fn(&T) -> Context,
@@ -351,6 +319,7 @@ where
         return request().await;
     };
     let mut indexed = 0;
+    let mut last_error = None;
     for delay in std::iter::once(Duration::ZERO).chain(config.poll.backoff()) {
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
@@ -359,19 +328,32 @@ where
             Ok(response) => response,
             Err(ClientError::IndexerMinimumContextSlot { indexed: observed }) => {
                 indexed = indexed.max(observed);
+                last_error = None;
+                continue;
+            }
+            Err(error) if is_transient_indexer_error(&error) => {
+                last_error = Some(error.to_string());
                 continue;
             }
             Err(error) => return Err(error),
         };
+        last_error = None;
         indexed = context(&response).slot;
         if indexed >= required {
             return Ok(response);
         }
     }
-    Err(ClientError::IndexerNotCaughtUp {
-        required,
-        indexed,
-        attempts: config.poll.num_retries.saturating_add(1),
+    let attempts = config.poll.num_retries.saturating_add(1);
+    Err(match last_error {
+        Some(last_error) => ClientError::PollTimedOut {
+            attempts,
+            last_error: Some(last_error),
+        },
+        None => ClientError::IndexerNotCaughtUp {
+            required,
+            indexed,
+            attempts,
+        },
     })
 }
 
@@ -404,5 +386,91 @@ mod tests {
         .unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert_eq!(response.slot, 10);
+    }
+
+    fn at_slot_10() -> Option<IndexerRpcConfig> {
+        Some(IndexerRpcConfig {
+            require_slot: Some(10),
+            poll: crate::rpc::IndexerPollConfig::new(1, 0, 0),
+        })
+    }
+
+    fn answer(slot: u64) -> Result<Context, ClientError> {
+        Ok(Context {
+            slot,
+            block_time: 0,
+        })
+    }
+
+    fn unavailable() -> Result<Context, ClientError> {
+        Err(ClientError::IndexerUnavailable("Internal error".into()))
+    }
+
+    /// Runs the slot poll over `script`, one entry per attempt.
+    async fn poll(
+        script: Vec<Result<Context, ClientError>>,
+    ) -> (Result<Context, ClientError>, usize) {
+        let script = std::sync::Mutex::new(script.into_iter());
+        let calls = AtomicUsize::new(0);
+        let result = wait_for_indexer_async(
+            at_slot_10(),
+            |context: &Context| *context,
+            || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                let next = script.lock().unwrap().next().expect("scripted attempt");
+                async move { next }
+            },
+        )
+        .await;
+        (result, calls.load(Ordering::SeqCst))
+    }
+
+    #[tokio::test]
+    async fn a_transient_failure_retries_until_the_required_slot() {
+        let (result, calls) = poll(vec![unavailable(), answer(10)]).await;
+        assert_eq!(result.unwrap().slot, 10);
+        assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn a_permanent_failure_ends_the_poll_at_once() {
+        let (result, calls) = poll(vec![
+            Err(ClientError::UnsupportedRpcMethod("getMerkleProofs")),
+            answer(10),
+        ])
+        .await;
+        assert!(matches!(
+            result,
+            Err(ClientError::UnsupportedRpcMethod("getMerkleProofs"))
+        ));
+        assert_eq!(calls, 1);
+    }
+
+    /// The final attempt decides: an answer below the slot is a lag, a
+    /// transient failure a timeout carrying that failure.
+    #[tokio::test]
+    async fn an_exhausted_poll_is_classified_by_its_final_attempt() {
+        let (result, _) = poll(vec![unavailable(), answer(9)]).await;
+        assert!(
+            matches!(
+                result,
+                Err(ClientError::IndexerNotCaughtUp {
+                    required: 10,
+                    indexed: 9,
+                    attempts: 2
+                })
+            ),
+            "{result:?}"
+        );
+
+        let (result, _) = poll(vec![answer(9), unavailable()]).await;
+        let Err(ClientError::PollTimedOut {
+            attempts: 2,
+            last_error: Some(last_error),
+        }) = result
+        else {
+            panic!("expected PollTimedOut, got {result:?}");
+        };
+        assert!(last_error.contains("Internal error"), "{last_error}");
     }
 }

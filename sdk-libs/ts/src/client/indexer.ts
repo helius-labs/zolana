@@ -35,6 +35,7 @@ import type { RegistryRecord, UserRecordsLookup } from "./ports.js";
 import { decodeBase64 } from "./internal.js";
 import {
   DEFAULT_INDEXER_POLL_CONFIG,
+  attempts,
   pollUntil,
   validatePollConfig,
   type IndexerRpcConfig,
@@ -583,33 +584,40 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
   const target = config?.requireSlot;
   if (target === undefined) return request();
   const poll = validatePollConfig(config?.poll ?? DEFAULT_INDEXER_POLL_CONFIG);
-  const attempts = poll.numRetries + 1;
   let latest: bigint | undefined;
-  let responses = 0;
-  try {
-    return await pollUntil(
-      request,
-      (response) => {
-        responses++;
-        latest = response.context.slot;
-        return latest >= target;
-      },
-      { config: poll, ...(context === undefined ? {} : { context }) },
-    );
-  } catch (cause) {
-    // Fewer responses than attempts means the schedule ended on a failure, so
-    // `cause` already carries the precise reason and its structured cause.
-    if (latest === undefined || responses !== attempts) throw cause;
-    if (!isClientError(cause) || cause.code !== "CLIENT_POLL_TIMED_OUT") throw cause;
-    throw new ClientError("CLIENT_INDEXER_NOT_CAUGHT_UP", {
-      details: {
-        target: target.toString(),
-        latest: latest.toString(),
-        attempts,
-      },
-    });
-  }
+  return await pollUntil(
+    request,
+    (response) => {
+      latest = response.context.slot;
+      return latest >= target;
+    },
+    {
+      config: poll,
+      ...(context === undefined ? {} : { context }),
+      // The final attempt decides: an answer below the slot is a lag, a
+      // transient failure a timeout carrying its cause.
+      onTimeout: (exhausted, lastCause) =>
+        lastCause !== undefined || latest === undefined
+          ? new ClientError("CLIENT_POLL_TIMED_OUT", {
+              details: {
+                attempts: attempts(exhausted),
+                ...(lastCause === undefined ? {} : { lastCause }),
+              },
+            })
+          : new ClientError("CLIENT_INDEXER_NOT_CAUGHT_UP", {
+              details: {
+                target: target.toString(),
+                latest: latest.toString(),
+                attempts: attempts(exhausted),
+              },
+            }),
+    },
+  );
 }
+
+const JSON_RPC_MIN_CONTEXT_SLOT = -32016;
+const JSON_RPC_METHOD_NOT_FOUND = -32601;
+const JSON_RPC_INTERNAL_ERROR = -32603;
 
 export function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
@@ -617,8 +625,14 @@ export function wrapIndexer(cause: unknown, method: string): ClientError {
     cause instanceof ApiError && cause.code === "API_JSON_RPC"
       ? cause.details?.["rpcCode"]
       : undefined;
-  if (rpcCode === -32016) {
+  // `-32016` is a minimum context slot the indexer has not reached, and `-32603`
+  // is the indexer's internal error, a transient database failure as often as a
+  // bug, whose body Photon scrubs. Both are retried, as Rust `indexer_error` does.
+  if (rpcCode === JSON_RPC_MIN_CONTEXT_SLOT || rpcCode === JSON_RPC_INTERNAL_ERROR) {
     return new ClientError("CLIENT_INDEXER", { details: { method, retryable: true }, cause });
+  }
+  if (rpcCode === JSON_RPC_METHOD_NOT_FOUND) {
+    return new ClientError("CLIENT_UNSUPPORTED_RPC_METHOD", { details: { method }, cause });
   }
   const code = externalCode(cause);
   if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });

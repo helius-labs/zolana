@@ -51,7 +51,7 @@ import {
   type ProvingKeySet,
 } from "./key-set.js";
 import { parseCheckedProof } from "./proof.js";
-import { MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
+import { GET_TIMEOUT_MS, MAX_ATTEMPTS, RETRY_DELAY_MS } from "./retry.js";
 import { TeeSession, sendCall, type ProverCall, type ProverTee } from "./tee/session.js";
 import type { AttestedProver } from "./tee/verify.js";
 import type {
@@ -290,7 +290,7 @@ export class ProverClient {
   /** The circuits the server serves. */
   async health(context?: RequestContext): Promise<ProverHealth> {
     const url = this.#routeUrl(HEALTH_PATH);
-    const request = composeSignal(context, "health");
+    const request = composeSignal(boundedGet(context), "health");
     try {
       const response = await sendCall(this.#tee, this.#call(url, request));
       if (response === undefined) {
@@ -334,7 +334,7 @@ export class ProverClient {
     context?: RequestContext,
     pins: Readonly<Record<string, string>> = PROVING_KEY_SHA256S,
   ): Promise<ProvingKeyReport> {
-    const request = composeSignal(context, "provingKeys");
+    const request = composeSignal(boundedGet(context), "provingKeys");
     try {
       const response = await this.#provingKeysResponse(request);
       if (!response.ok) {
@@ -364,7 +364,7 @@ export class ProverClient {
    */
   async fetchProvingKeySet(context?: RequestContext): Promise<ProvingKeySet> {
     if (this.#tee === undefined) throw refused("attestation_required");
-    const request = composeSignal(context, "provingKeys");
+    const request = composeSignal(boundedGet(context), "provingKeys");
     try {
       const response = await this.#provingKeysResponse(request);
       if (response.status !== 200) {
@@ -440,12 +440,17 @@ export class ProverClient {
                 details: { method: "prove", attempts: attempt },
               });
             }
+            // A refused in-response proof is queued instead, and a queue that is
+            // full is asked again; every other non-success status is final.
             if (response.status === 429 && delivery === "inResponse") {
               await response.body?.cancel();
               delivery = "queued";
               continue deliveryAttempt;
             }
-            // Rust fails fast on any non-success status; only a transport failure retries.
+            if (response.status === 429 && attempt < MAX_ATTEMPTS) {
+              await response.body?.cancel();
+              continue;
+            }
             if (!response.ok) {
               if (route === "indexed") throw await indexedHttpFailure(response, attempt, refusal);
               throw new ClientError("CLIENT_PROVER_HTTP", {
@@ -486,9 +491,6 @@ export class ProverClient {
     }
   }
 
-  /// Mirrors `poll_async`: request the status, then wait between attempts, with
-  /// the total wall-clock duration bounded by `maxWaitMs`. A 4xx is final, a 5xx or a
-  /// transport failure is transient, and every other status has its body read.
   /**
    * `/prove/<key>`: every proof and its status poll go to its proving key's
    * path, so a gateway sends both to the prover pool that serves the key.
@@ -498,6 +500,12 @@ export class ProverClient {
     return this.#routeUrl(`${path}${suffix}`);
   }
 
+  /**
+   * Mirrors `poll_async`: request the status, then wait between attempts, with
+   * the total wall-clock duration bounded by `maxWaitMs`. A 4xx is final, a 5xx
+   * or a transport failure is transient, and every other status has its body
+   * read. Each status GET is bounded by `GET_TIMEOUT_MS` and the remaining wait.
+   */
   async #poll(
     jobId: string,
     signal: ComposedSignal,
@@ -528,14 +536,10 @@ export class ProverClient {
       interval = Math.min(interval * 2, intervalCap);
     };
     for (;;) {
-      // The Rust status GET inherits the shared client's request timeout, so a
-      // server that accepts the connection and never answers is a transport
-      // failure there. Without a bound here the same server hangs the poll
-      // past `maxWaitMs` forever.
       const remaining = remainingMs();
       if (remaining === 0) timeout();
       const request = composeSignal(
-        { signal: signal.signal, timeoutMs: Math.min(REQUEST_TIMEOUT_MS, remaining) },
+        { signal: signal.signal, timeoutMs: Math.min(GET_TIMEOUT_MS, remaining) },
         "proveStatus",
       );
       try {
@@ -593,6 +597,11 @@ export class ProverClient {
       }
     }
   }
+}
+
+/** A prover GET without a caller deadline is bounded like the Rust client's. */
+function boundedGet(context: RequestContext | undefined): RequestContext {
+  return { ...context, timeoutMs: context?.timeoutMs ?? GET_TIMEOUT_MS };
 }
 
 const invalidProverJson = (): ClientError => new ClientError("CLIENT_PROVER_JSON");

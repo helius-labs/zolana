@@ -15,12 +15,7 @@ import {
   untilAborted,
   type ComposedSignal,
 } from "../../internal.js";
-import {
-  ATTESTATION_TIMEOUT_MS,
-  MAX_ATTEMPTS,
-  RETRY_DELAY_MS,
-  attestationRetryDelayMs,
-} from "../retry.js";
+import { GET_TIMEOUT_MS, MAX_ATTEMPTS, RETRY_DELAY_MS, attestationRetryDelayMs } from "../retry.js";
 import {
   HEADER_ENC,
   HEADER_CIPHERTEXT,
@@ -140,10 +135,7 @@ export class TeeSession {
       const nonce = randomBytes(NONCE_SIZE);
       const url = new URL(attestationUrl);
       setUrlQuery(url, "nonce", bytesToHex(nonce));
-      const request = composeSignal(
-        { signal: signal.signal, timeoutMs: ATTESTATION_TIMEOUT_MS },
-        "attest",
-      );
+      const request = composeSignal({ signal: signal.signal, timeoutMs: GET_TIMEOUT_MS }, "attest");
       try {
         let response: Response;
         try {
