@@ -1,4 +1,7 @@
 import { equalBytes } from "../../interface/bytes.js";
+import { isCanonicalField } from "../../interface/canonical-field.js";
+import type { Bytes31 } from "../../keypair/bytes.js";
+import { NullifierKey } from "../../keypair/nullifier-key.js";
 import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import {
@@ -183,7 +186,19 @@ export class PreparedMerge {
     this.#outputCiphertext = Object.freeze([ciphertext0, ciphertext1, ciphertext2] as const);
     this.outputTreeId = checkedTreeId(input.outputTreeId);
     if (input.mergeSeed !== undefined) {
-      this.mergeSeed = checked<Bytes32>(input.mergeSeed, 32, "merge seed");
+      const seed = checked<Bytes32>(input.mergeSeed, 32, "merge seed");
+      if (seed.every((byte) => byte === 0) || !isCanonicalField(seed)) {
+        throw new TransactionError("TRANSACTION_INVALID_MERGE_SEED");
+      }
+      const zeroKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
+      try {
+        if (!equalBytes(this.nullifierPublicKey, zeroKey.publicKey())) {
+          throw new TransactionError("TRANSACTION_MERGE_SEED_WITH_NULLIFIER_KEY");
+        }
+      } finally {
+        zeroKey.destroy();
+      }
+      this.mergeSeed = seed;
     }
   }
 
