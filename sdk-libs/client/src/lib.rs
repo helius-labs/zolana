@@ -29,8 +29,8 @@ pub mod user_registry;
 pub use authority::ProofAuthority;
 pub use client::{
     check_merge_record, check_service_url, AsyncIndexer, AsyncSprClient, BlockingIndexer,
-    BlockingRpc, MergeSubmission, ProvedMerge, SignedPrivateTransaction, SprClient, Submission,
-    UnsignedMessage, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
+    BlockingRpc, MergeCache, MergeSubmission, ProvedMerge, SignedPrivateTransaction, SprClient,
+    Submission, UnsignedMessage, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
 };
 pub use error::ClientError;
 pub use indexer::{AsyncSprIndexer, SprIndexer};

@@ -3,9 +3,10 @@ use solana_address::Address;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use spr_client::user_registry::{
-    build_registration_transaction_sync, set_merge_encryption_instruction,
+    build_registration_instructions_sync, build_registration_transaction_sync,
+    set_merge_encryption_instruction,
 };
-use spr_client::{check_merge_record, ClientError, Rpc};
+use spr_client::{check_merge_record, compile_message, ClientError, ComputeBudgetConfig, Rpc};
 use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
 use spr_user_registry_interface::MergeEncryptionScheme;
 use spr_user_registry_interface::{user_record_pda, UserRecord};
@@ -60,6 +61,58 @@ fn registration_builder_uses_optional_payer_for_rent_and_fee() {
     assert_eq!(
         register_accounts.get(..3),
         Some(&[user_record_pda(&owner).0, owner, payer][..])
+    );
+}
+
+/// Serves no record and no blockhash: building the registration instructions
+/// fetches only the record.
+struct RecordReadsOnly;
+
+impl Rpc for RecordReadsOnly {
+    fn get_account(&self, _address: Address) -> Result<Option<Account>, ClientError> {
+        Ok(None)
+    }
+}
+
+#[test]
+fn registration_instructions_compile_with_the_callers_instructions_and_blockhash() {
+    let owner = Pubkey::new_unique();
+    let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
+        .expect("ed25519 keypair");
+    let address = keypair.shielded_address().expect("shielded address");
+    let mut instructions =
+        build_registration_instructions_sync(&RecordReadsOnly, owner, &address, None)
+            .expect("build registration instructions")
+            .expect("registration required");
+    instructions.push(set_merge_encryption_instruction(
+        owner,
+        MergeEncryptionScheme::PoseidonCtrV1,
+    ));
+    let blockhash = solana_hash::Hash::new_from_array([3u8; 32]);
+    let message = compile_message(
+        &owner,
+        &instructions,
+        blockhash,
+        ComputeBudgetConfig::for_instruction_count(instructions.len()),
+    )
+    .expect("compile registration");
+    assert_eq!(*message.recent_blockhash(), blockhash);
+    let VersionedMessage::V1(message) = message else {
+        panic!("expected v1 registration message");
+    };
+    assert_eq!(message.header.num_required_signatures, 1);
+    assert_eq!(message.account_keys.first(), Some(&owner));
+    let tags: Vec<u8> = message
+        .instructions
+        .iter()
+        .map(|instruction| instruction.data[0])
+        .collect();
+    assert_eq!(
+        tags,
+        [
+            spr_user_registry_interface::instruction::discriminator::REGISTER,
+            spr_user_registry_interface::instruction::discriminator::SET_MERGE_ENCRYPTION,
+        ]
     );
 }
 

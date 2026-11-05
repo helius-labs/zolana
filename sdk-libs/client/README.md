@@ -106,7 +106,25 @@ A merge turns up to 52 plain UTXOs of one asset on one tree into one. The
 owner enables it once by selecting the merge encryption scheme with
 `set_merge_encryption_instruction(owner, MergeEncryptionScheme::PoseidonCtrV1)`,
 which the owner signs; after that a merge with that scheme needs no owner
-signature.
+signature. A new wallet can register and enable merging in one message:
+`build_registration_instructions_sync` makes the checks of
+`build_registration_transaction_sync` and returns its instructions, or `None`
+when the record already holds the address. It fetches no blockhash, so the
+caller appends its own instructions and compiles the message once.
+
+```rust
+if let Some(mut instructions) =
+    build_registration_instructions_sync(&rpc, owner, &address, None)?
+{
+    instructions.push(set_merge_encryption_instruction(
+        owner,
+        MergeEncryptionScheme::PoseidonCtrV1,
+    ));
+    let (blockhash, _) = rpc.get_latest_blockhash()?;
+    let budget = ComputeBudgetConfig::for_instruction_count(instructions.len());
+    let message = compile_message(&owner, &instructions, blockhash, budget)?;
+}
+```
 
 ```rust
 let inputs = select_merge(spendable.utxos(), asset, MERGE_DEFAULT_INPUT_COUNT, &reserved)?;
@@ -134,6 +152,16 @@ methods, so `MergeSubmission` itself is a plain borrow. Set an expiry: until it 
 anyone holding the proof can submit it. The proof request carries the
 owner's nullifier secret, so a prover other than this process learns it and
 every merged amount; `MergeSubmission::with_prover` keeps it in process.
+
+`MergeSubmission::with_cache(MergeCache { address, slot, writer })` also
+writes the merged UTXO to slot `slot` of the cache at `address`, which must
+be on the output tree, so a dependent spend can read it before the tree
+includes it. The proof binds the cache and the slot; the instruction names
+the cache's write authority `writer` as a signer. `send_sync` signs with the
+fee payer alone, so it needs the writer as fee payer; with another writer, sign
+the `finish_unsigned_sync` message with both. The cache must exist when the
+merge lands: to create it in the same message, put its `CreateCache` before
+`proved.instruction(payer)`.
 
 ## In process: litesvm
 

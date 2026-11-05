@@ -1,7 +1,8 @@
 //! A `SprClient` whose RPC and indexer are the litesvm harness proves and
-//! sends a private transfer, and a merge, with nothing beside it but the
-//! prover server: the client fetches the proof data from the harness, the
-//! prover proves it, and the harness runs and indexes the transaction.
+//! sends a private transfer, and a merge, plain and into a cache, with nothing
+//! beside it but the prover server: the client fetches the proof data from the
+//! harness, the prover proves it, and the harness runs and indexes the
+//! transaction.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program` and the workspace prover.
 
@@ -12,11 +13,15 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
-    IndexerRequirement, MergeSubmission, ProofDataSource, ProverClient, Rpc,
+    IndexerRequirement, MergeCache, MergeSubmission, ProofDataSource, ProverClient, Rpc,
     SignedPrivateTransaction, Submission,
 };
-use spr_interface::{instruction::instruction_data::transact::OwnerTag, state::read_tree_id};
+use spr_interface::{
+    instruction::instruction_data::{transact::OwnerTag, CreateCacheData},
+    state::{cache::CacheAccount, read_tree_id},
+};
 use spr_keypair::ShieldedKeypair;
+use spr_program::instruction::CreateCache;
 use spr_program_test::SprProgramTest;
 use spr_test_utils::prover::spawn_workspace_prover;
 use spr_transaction::{
@@ -275,6 +280,74 @@ fn a_client_over_the_harness_merges_a_wallets_utxos() {
         .send_sync(&client, &payer)
         .expect("proved, sent, confirmed and indexed");
     assert!(client.confirm_transaction(signature).expect("confirmed"));
+    let indexer = client.indexer().lock();
+    for nullifier in &nullifiers {
+        assert!(indexer.indexer().is_nullifier_spent(nullifier));
+    }
+}
+
+/// A merge with a cache writes its output to the cache slot it proved for, and
+/// still appends it to the tree. The payer is the cache's writer, so it signs
+/// alone.
+#[test]
+fn a_client_over_the_harness_merges_into_a_cache() {
+    const SLOT: u8 = 3;
+    spawn_workspace_prover(IndexerRequirement::Optional);
+    let (mut harness, tree, tree_id) = harness_with_tree();
+    let payer = harness.payer.insecure_clone();
+    let owner = Keypair::new();
+    let wallet = ShieldedKeypair::from_keypair(&owner).expect("wallet");
+    let address = wallet.shielded_address().expect("shielded address");
+    let inputs: Vec<_> = [1_000_000, 200_000]
+        .into_iter()
+        .map(|amount| shield(&mut harness, &tree, tree_id, &wallet, amount))
+        .collect();
+    let nullifiers: Vec<_> = inputs.iter().map(|input| input.nullifier).collect();
+    write_merging_record(&mut harness, owner.pubkey(), &wallet);
+    let expires_at = harness
+        .svm
+        .get_sysvar::<solana_clock::Clock>()
+        .unix_timestamp
+        + 1_000;
+    let create = CreateCache {
+        payer: payer.pubkey(),
+        data: CreateCacheData {
+            write_authority: payer.pubkey(),
+            nonce: 1,
+            tree_id,
+            expires_at,
+        },
+    };
+    let cache = create.cache();
+    harness
+        .create_and_send_default_payer_transaction(&[create.instruction()], &[])
+        .expect("create the cache");
+
+    let client = harness
+        .into_client(ProverClient::local())
+        .with_proof_data_source(ProofDataSource::Client);
+    let merge = MergeTransaction::new(inputs)
+        .expect("merge")
+        .with_output_tree_id(tree_id)
+        .encrypt(&wallet)
+        .expect("encrypt");
+    let output_hash = merge.output_hash().expect("output hash");
+    let submission = MergeSubmission::new(&merge, owner.pubkey(), &address, &wallet.nullifier_key)
+        .with_cache(MergeCache {
+            address: cache,
+            slot: SLOT,
+            writer: payer.pubkey(),
+        });
+    submission
+        .send_sync(&client, &payer)
+        .expect("proved, sent, confirmed and indexed");
+
+    let account = client
+        .get_account(cache)
+        .expect("read the cache")
+        .expect("the cache exists");
+    let written: CacheAccount = *bytemuck::from_bytes(&account.data);
+    assert_eq!(written.utxo_hashes[usize::from(SLOT)], output_hash);
     let indexer = client.indexer().lock();
     for nullifier in &nullifiers {
         assert!(indexer.indexer().is_nullifier_spent(nullifier));
