@@ -8,10 +8,9 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
-    input_utxos_from_nullifiers,
-    prover::transact::anonymous_ring_eddsa::anonymous_signer_pk_hashes, transaction_size,
-    AnonymousRingEddsaProver, ComputeBudgetConfig, ProofAuthority, ProofCompressed, Prover,
-    ProverClient, ProverExt, RingTransferProver, Shape, TransferInputUtxo,
+    input_utxos_from_nullifiers, transaction_size, AnonymousRingEddsaProver, ComputeBudgetConfig,
+    ProofAuthority, ProofCompressed, Prover, ProverClient, RingTransferProver, Shape,
+    TransferInputUtxo,
 };
 use spr_interface::{
     error::ShieldedPoolError,
@@ -626,7 +625,7 @@ impl RingHarness {
     }
 
     /// Drive the ring prover rail and fold the result into a `TransactIxData`,
-    /// mirroring `witness.rs::assemble`. The prover always runs on `rail`;
+    /// mirroring `witness.rs::build_transfer`. The prover always runs on `rail`;
     /// `tamper` only changes what lands on the wire (grafted selector or
     /// corrupted proof data).
     fn prove_and_assemble(
@@ -659,7 +658,10 @@ impl RingHarness {
                 // The assembled witness carries no nullifier secrets; the signer
                 // is the authority that fills in the inputs it owns.
                 signer.complete_inputs(&mut result.inputs.inputs)?;
-                let proof = ProverClient::local().prove_transfer_ring(&result.inputs)?;
+                let proof = ProverClient::local().prove(
+                    &spr_client::prover::requests::transfer_ring(&result.inputs)
+                        .expect("encode ring proof request"),
+                )?;
                 let proof = pack_transact_proof(&proof)?;
                 if tamper == ProofTamper::EddsaProofUnderAnonymousSelector {
                     // No valid BSB22 commitment can exist for an eddsa proof; a
@@ -704,10 +706,13 @@ impl RingHarness {
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
                     public_transfers: proof_inputs.public_transfers()?,
-                    signer_pk_hashes: anonymous_signer_pk_hashes(
-                        proof_inputs,
-                        &signer.signing_pubkey(),
-                    )?,
+                    signer_pk_hashes: {
+                        let mut signers = proof_inputs.signer_pk_hashes(shape.signer_width())?;
+                        let hidden = signer.signing_pubkey().owner_proof_input_hash()?;
+                        signers.retain(|identity| *identity != hidden);
+                        signers.resize(shape.signer_width(), [0; 32]);
+                        signers
+                    },
                     allow_dummy_inputs: true,
                     owner: (&signer.signing_key).into(),
                     ring_program_id: Some(ring),
@@ -1245,7 +1250,7 @@ impl RingHarness {
 }
 
 /// Assemble the `TransactIxData` from the signed transaction's external data and
-/// the prover result, mirroring `client::prover::transact::witness::assemble`. Each
+/// the prover result, mirroring `client::prover::transact::witness::build_transfer`. Each
 /// padded input carries its nullifier hash and root indices; authorization comes
 /// from the leading owner-signer run in the accounts array, not from any
 /// per-input field. `external_data` fields flow through unchanged (already

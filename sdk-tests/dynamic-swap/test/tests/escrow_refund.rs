@@ -174,12 +174,18 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         let owner_signers = spp_proof_inputs
             .owner_signer_pubkeys()
             .map_err(|e| anyhow!("owner signers: {e:?}"))?;
-        let split_transact = env
-            .localnet
-            .client
-            .indexer()
-            .prove_transact(spp_proof_inputs, &env.user.keypair)
-            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+        let split_transact = (|| -> Result<_, spr_client::ClientError> {
+            let authorities: &[&dyn spr_client::ProofAuthority] = &[&env.user.keypair];
+            let request = spr_client::TransactionProofRequest::new(spp_proof_inputs, authorities)?;
+            let input_proofs = env.localnet.client.fetch_input_proofs(&request)?;
+            let transfer = request.build(input_proofs)?;
+            let proof = request.prove_sync(&env.localnet.client, &transfer)?;
+            Ok(request
+                .with_proof(transfer, proof)?
+                .instruction_data()
+                .clone())
+        })()
+        .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
 
         let split_ix = Transact {
             payer: user_solana.pubkey(),
@@ -387,18 +393,19 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             output_tree_id: env.localnet.tree_id,
             cache_accounts: Default::default(),
         };
-        let transact = env
-            .localnet
-            .client
-            .indexer()
-            .prove_transact(
-                spp_proof_inputs,
-                &spr_test_utils::utxo::ProofKeys(&[
-                    &env.user.keypair.nullifier_key,
-                    escrow_owner.as_ref(),
-                ]),
-            )
-            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+        let transact = (|| -> Result<_, spr_client::ClientError> {
+            let authorities: &[&dyn spr_client::ProofAuthority] =
+                &[&env.user.keypair.nullifier_key, escrow_owner.as_ref()];
+            let request = spr_client::TransactionProofRequest::new(spp_proof_inputs, authorities)?;
+            let input_proofs = env.localnet.client.fetch_input_proofs(&request)?;
+            let transfer = request.build(input_proofs)?;
+            let proof = request.prove_sync(&env.localnet.client, &transfer)?;
+            Ok(request
+                .with_proof(transfer, proof)?
+                .instruction_data()
+                .clone())
+        })()
+        .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
 
         let escrow_authority_owner_hash = escrow_owner
             .shielded_address()?
@@ -677,12 +684,18 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             output_tree_id: env.localnet.tree_id,
             cache_accounts: Default::default(),
         };
-        let transact = env
-            .localnet
-            .client
-            .indexer()
-            .prove_transact(spp_proof_inputs, escrow_owner.as_ref())
-            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+        let transact = (|| -> Result<_, spr_client::ClientError> {
+            let authorities: &[&dyn spr_client::ProofAuthority] = &[escrow_owner.as_ref()];
+            let request = spr_client::TransactionProofRequest::new(spp_proof_inputs, authorities)?;
+            let input_proofs = env.localnet.client.fetch_input_proofs(&request)?;
+            let transfer = request.build(input_proofs)?;
+            let proof = request.prove_sync(&env.localnet.client, &transfer)?;
+            Ok(request
+                .with_proof(transfer, proof)?
+                .instruction_data()
+                .clone())
+        })()
+        .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
 
         let authority_owner_hash = env
             .authority

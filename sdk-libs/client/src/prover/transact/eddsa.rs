@@ -1,6 +1,7 @@
 use num_bigint::BigUint;
 use spr_interface::{
-    instruction::instruction_data::transact::TreeContext, verifying_keys::CacheAccess,
+    instruction::instruction_data::transact::{TransactIxData, TreeContext},
+    verifying_keys::CacheAccess,
 };
 use spr_transaction::{
     instructions::transact::{CacheAccounts, PublicTransfers},
@@ -39,6 +40,9 @@ pub struct TransferProver {
 
 #[derive(Debug, Clone)]
 pub struct TransferProofResult {
+    pub authorization: Option<super::EddsaAuthorization>,
+    pub cache_accounts: CacheAccounts,
+    pub(crate) instruction_data: TransactIxData,
     pub inputs: TransferInputs,
     pub public_input_hash: [u8; 32],
     /// Every circuit slot's published value, 0 for compact padding. The
@@ -129,7 +133,31 @@ impl TransferProver {
             public_input_hash: be(&public_input),
         };
 
+        let instruction_data = super::witness::TransferInstructionData {
+            external_data: self.external_data,
+            private_tx_hash: private_tx,
+            circuit: match cache.access {
+                Some(access) => spr_interface::verifying_keys::CircuitId::ConfidentialSignerCached(
+                    shape.n_inputs() as u8,
+                    shape.n_outputs() as u8,
+                    spr_interface::N_PUBLIC_SLOTS as u8,
+                    access,
+                ),
+                None => spr_interface::verifying_keys::CircuitId::ConfidentialSigner(
+                    shape.n_inputs() as u8,
+                    shape.n_outputs() as u8,
+                    spr_interface::N_PUBLIC_SLOTS as u8,
+                ),
+            },
+            nullifiers: &assembled_inputs.nullifiers,
+            input_tree_indexes: &assembled_inputs.input_tree_indexes,
+            tree_contexts: assembled_inputs.tree_contexts.clone(),
+        }
+        .build()?;
         Ok(TransferProofResult {
+            authorization: None,
+            cache_accounts: self.cache_accounts,
+            instruction_data,
             inputs,
             public_input_hash: public_input,
             nullifiers: assembled_inputs.nullifiers,

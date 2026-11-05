@@ -25,10 +25,13 @@ use spr_client::user_registry::{
     try_resolve_registered_address, try_resolve_registered_address_async, ResolvedAddress,
 };
 use spr_client::{
-    client::{AsyncIndexer, AsyncSprClient, BlockingIndexer, BlockingRpc, SprClient, Submission},
+    client::{
+        AsyncIndexer, AsyncSprClient, BlockingIndexer, BlockingRpc, SprClient,
+        TransactionProofRequest,
+    },
     error::ClientError,
     rpc::{sign_transaction, AsyncRpc, Rpc},
-    SignedPrivateTransaction, UnsignedMessage,
+    UnsignedMessage,
 };
 
 #[derive(Clone)]
@@ -552,8 +555,11 @@ pub async fn build_private_transaction<
 ) -> Result<UnsignedMessage, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
-    Submission::new(&shielded, fee_payer, &nullifier_key)
-        .finish_unsigned(client)
+    if shielded.payer != fee_payer {
+        return Err(ClientError::FeePayerMismatch);
+    }
+    TransactionProofRequest::new(shielded, &[&nullifier_key])?
+        .fetch_and_prove(client)
         .await
 }
 
@@ -582,11 +588,9 @@ pub async fn sign_private_transaction_with_signers<
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
 ) -> Result<VersionedTransaction, ClientError> {
-    let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
-    let nullifier_key = authority.spend_nullifier_key().await?;
-    let unsigned = Submission::new(&shielded, fee_payer.pubkey(), &nullifier_key)
-        .finish_unsigned(client)
-        .await?;
+    let unsigned =
+        build_private_transaction(transaction, wallet, authority, client, fee_payer.pubkey())
+            .await?;
     sign_transaction(
         unsigned.message,
         &native_signers(fee_payer, additional_native_signers),
@@ -608,7 +612,10 @@ pub fn build_private_transaction_sync<
 ) -> Result<UnsignedMessage, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
     let nullifier_key = authority.spend_nullifier_key()?;
-    Submission::new(&shielded, fee_payer, &nullifier_key).finish_unsigned_sync(client)
+    if shielded.payer != fee_payer {
+        return Err(ClientError::FeePayerMismatch);
+    }
+    TransactionProofRequest::new(shielded, &[&nullifier_key])?.fetch_and_prove_sync(client)
 }
 
 pub fn sign_private_transaction_sync<
@@ -645,18 +652,8 @@ pub fn sign_private_transaction_sync_with_signers<
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
 ) -> Result<VersionedTransaction, ClientError> {
-    let shielded = {
-        let _t = timing::Phase::start("sign_shielded", 0);
-        sign_shielded_transaction_sync(transaction, wallet, authority)?
-    };
-    // The message carries its own blockhash, fetched after proving, so there is
-    // no separate one here to keep in step with it.
-    let nullifier_key = authority.spend_nullifier_key()?;
-    let unsigned = {
-        let _t = timing::Phase::start("finish_submission", 0);
-        Submission::new(&shielded, fee_payer.pubkey(), &nullifier_key)
-            .finish_unsigned_sync(client)?
-    };
+    let unsigned =
+        build_private_transaction_sync(transaction, wallet, authority, client, fee_payer.pubkey())?;
     sign_transaction(
         unsigned.message,
         &native_signers(fee_payer, additional_native_signers),
@@ -678,7 +675,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-) -> Result<SignedPrivateTransaction, ClientError> {
+) -> Result<SppProofInputs, ClientError> {
     validate_unsigned_inputs(wallet, transaction.tree, &transaction.inputs)?;
     let address = authority.shielded_address().await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
@@ -723,10 +720,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
         }
     }
     let signed = encrypt_transaction(tx, authority, transaction.approval_summary).await?;
-    Ok(SignedPrivateTransaction {
-        transaction: signed,
-        settlement_transfers: transaction.settlement_transfers,
-    })
+    Ok(signed)
 }
 
 #[doc(hidden)]
@@ -734,7 +728,7 @@ pub fn sign_shielded_transaction_sync<A: SyncWalletAuthority + ?Sized>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-) -> Result<SignedPrivateTransaction, ClientError> {
+) -> Result<SppProofInputs, ClientError> {
     futures::executor::block_on(sign_shielded_transaction(transaction, wallet, authority))
 }
 
@@ -1426,7 +1420,7 @@ mod tests {
         let signed =
             sign_shielded_transaction_sync(created.transaction, &wallet, &authority).unwrap();
         assert_eq!(
-            signed.transaction.external_data.interface_transfers.first(),
+            signed.external_data.interface_transfers.first(),
             Some(&SettlementTransfer::Sol {
                 is_deposit: false,
                 amount: u64::MAX,
@@ -1476,7 +1470,7 @@ mod tests {
         let signed =
             sign_shielded_transaction_sync(created.transaction, &wallet, &authority).unwrap();
         assert_eq!(
-            signed.transaction.external_data.interface_transfers,
+            signed.external_data.interface_transfers,
             vec![
                 SettlementTransfer::Sol {
                     is_deposit: false,
@@ -1714,7 +1708,7 @@ mod tests {
 
         let signed = sign_shielded_transaction_sync(unsigned, &wallet, &authority).unwrap();
 
-        let inputs = signed.transaction.input_utxo_hashes().unwrap();
+        let inputs = signed.input_utxo_hashes().unwrap();
         assert_eq!(inputs.first().expect("input").utxo_hash, hash);
     }
 

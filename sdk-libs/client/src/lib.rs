@@ -26,11 +26,11 @@ pub mod rpc;
 pub mod scan;
 pub mod user_registry;
 
-pub use authority::ProofAuthority;
+pub use authority::{LocalMergeKeys, MergeKeys, ProofAuthority};
 pub use client::{
     check_merge_record, check_service_url, AsyncIndexer, AsyncSprClient, BlockingIndexer,
-    BlockingRpc, MergeSubmission, ProvedMerge, SignedPrivateTransaction, SprClient, Submission,
-    UnsignedMessage, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
+    BlockingRpc, MergeProofRequest, ProvedMerge, ProvedTransaction, SprClient,
+    TransactionProofRequest, UnsignedMessage, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
 };
 pub use error::ClientError;
 pub use indexer::{AsyncSprIndexer, SprIndexer};
@@ -41,8 +41,8 @@ pub use prover::{
     indexed::ProofDataSource,
     input_utxos_from_nullifiers,
     transact::{
-        assemble, assemble_confidential_eddsa, assemble_confidential_eddsa_with_dummy_policy,
-        assemble_with_dummy_policy, AssembledTransfer, SpendProof,
+        build_confidential_eddsa_transfer, build_confidential_eddsa_transfer_with_dummy_policy,
+        build_transfer, build_transfer_with_dummy_policy, SpendProof,
     },
     verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs,
     verify_confidential_transfer_proof, AnonymousEddsaTransferInputs,
@@ -69,13 +69,16 @@ pub use rpc::{
     GetMerkleProofsResponse, GetNonInclusionProofsResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsResponse, HistoryFilters, IndexedShieldedTransaction, MerkleContext, MerkleProof,
-    NonInclusionProof, OutputContext, OutputSlot, Page, PaginationToken, ProveResult,
-    RingHistoryOptions, Rpc, ShieldedTransaction, ShieldedTransactionStream, SlotFilter,
-    TransactionEvents, TransactionOutputs, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE,
-    MAX_USER_RECORD_OWNERS, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    NonInclusionProof, OutputContext, OutputSlot, Page, PaginationToken, RingHistoryOptions, Rpc,
+    ShieldedTransaction, ShieldedTransactionStream, SlotFilter, TransactionEvents,
+    TransactionOutputs, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE, MAX_USER_RECORD_OWNERS,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
-pub use scan::{fetch_asset_id, fetch_spl_asset_registrations, UtxoScan, UtxoScanResult};
+pub use scan::{
+    fetch_asset_id, fetch_spl_asset_registrations, UnresolvedOutput, UnresolvedOutputReason,
+    UtxoScan, UtxoScanResult,
+};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

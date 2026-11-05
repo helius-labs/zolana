@@ -363,7 +363,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     // The payer owns the inputs, so it signs as their owner as well.
     let owner_signers = proof_inputs.owner_signer_pubkeys()?;
     // Both inputs are real (no dummy slots), so no dummy nullifier proofs.
-    let mut assembled = spr_client::assemble(
+    let mut assembled = spr_client::build_transfer(
         proof_inputs,
         &[
             SpendProof {

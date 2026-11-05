@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
-    assemble, transaction_size, ComputeBudgetConfig, ProverClient, Shape, SpendProof,
+    build_transfer, transaction_size, ComputeBudgetConfig, ProverClient, Shape, SpendProof,
 };
 use spr_keypair::PublicKey;
 use spr_program::instruction::Transact;
@@ -270,7 +270,7 @@ impl LifecycleHarness {
 
         // The Ed25519 owner authorizes the spend by signing the transaction.
         let owner_signers = proof_inputs.owner_signer_pubkeys()?;
-        let mut assembled = assemble(proof_inputs, &spend_proofs, &dummy_proofs)?;
+        let mut assembled = build_transfer(proof_inputs, &spend_proofs, &dummy_proofs)?;
         let proof = assembled.prove(&ProverClient::local(), &from_keypair.nullifier_key)?;
         let ix_data = assembled.with_proof(proof);
 

@@ -42,14 +42,14 @@ impl SprProgramTest {
     }
 
     /// A client whose RPC and indexer are this harness, proving through
-    /// `prover`. [`SprClient::with_prover`] over two clones of
+    /// `prover`. [`SprClient::from_parts`] over two clones of
     /// [`Self::into_handle`] gives one with a custom prover.
     pub fn into_client(
         self,
         prover: ProverClient,
     ) -> SprClient<ProgramTestHandle, ProgramTestHandle> {
         let handle = self.into_handle();
-        SprClient::new(handle.clone(), handle, prover)
+        SprClient::from_parts(handle.clone(), handle, prover)
     }
 }
 

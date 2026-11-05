@@ -2,15 +2,12 @@ use std::collections::HashMap;
 
 use num_bigint::BigUint;
 use spr_client::{
-    ClientError, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed, ProveResult,
-    ProverClient, ProverExt, Rpc, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    ClientError, MerkleContext, MerkleProof, NonInclusionProof, Rpc, SpendProof,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use spr_hasher::Poseidon;
 use spr_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use spr_transaction::{
-    instructions::transact::{SppProofInputs, BN254_MODULUS_DEC},
-    utxo::SppProofInputUtxo,
-};
+use spr_transaction::{instructions::transact::BN254_MODULUS_DEC, utxo::SppProofInputUtxo};
 
 fn test_merkle_context() -> MerkleContext {
     MerkleContext {
@@ -138,30 +135,5 @@ impl Rpc for TestIndexer {
             .iter()
             .map(|commitment| self.input_merkle_proof(commitment))
             .collect()
-    }
-
-    fn prove(
-        &self,
-        proof_inputs: SppProofInputs,
-        authority: &dyn spr_client::ProofAuthority,
-    ) -> Result<ProveResult, ClientError> {
-        let commitments = proof_inputs.input_utxo_hashes()?;
-        let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
-        let dummy_proofs: Vec<NonInclusionProof> = proof_inputs
-            .dummy_nullifiers()
-            .into_iter()
-            .map(|nullifier| self.dummy_nullifier_proof(nullifier))
-            .collect();
-        let mut assembled =
-            spr_client::assemble(proof_inputs, &input_merkle_proofs, &dummy_proofs)?;
-        let inputs = &mut assembled.prover_inputs;
-        authority.complete_inputs(&mut inputs.inputs)?;
-        let proof = ProverClient::local().prove_transfer(inputs)?;
-        let circuit_id = 0;
-        Ok(ProveResult {
-            proof: ProofCompressed::try_from(proof)?,
-            public_inputs: vec![assembled.public_input_hash],
-            circuit_id,
-        })
     }
 }

@@ -8,7 +8,6 @@ use crate::{
         field::{be, right_align_slice},
         json::{output_to_json, utxo_to_json, OutputParamsJson, UtxoParamsJson},
         transact::assembly::{assemble_outputs, input_utxos_from_nullifiers, PublicInputs},
-        verify::TransferProofStatement,
         ExpectedProvingKey, OwnerAuthorization, Proof, ProofCompressed, ProofInputUtxo,
         TransferInput,
     },
@@ -72,6 +71,14 @@ impl IndexedTransferPreparation<'_> {
     pub fn prepare_with_dummy_policy(
         self,
         authority: &dyn ProofAuthority,
+        allow_dummy_inputs: bool,
+    ) -> Result<PreparedIndexedTransfer, ClientError> {
+        self.prepare_with_authorities(&[authority], allow_dummy_inputs)
+    }
+
+    pub(crate) fn prepare_with_authorities(
+        self,
+        authorities: &[&dyn ProofAuthority],
         allow_dummy_inputs: bool,
     ) -> Result<PreparedIndexedTransfer, ClientError> {
         let Self { transaction, rail } = self;
@@ -221,7 +228,11 @@ impl IndexedTransferPreparation<'_> {
             address_nullifiers.push(input.private_tx_address_nullifier());
             nullifiers.push(nullifier);
         }
-        authority.complete_inputs(&mut local_inputs)?;
+        crate::authority::complete_with_authorities(
+            &mut local_inputs,
+            &transaction.input_utxos,
+            authorities,
+        )?;
         let first = nullifiers.first().ok_or(ClientError::NoInputs)?;
         let seed = derive_output_blinding_seed(first, &transaction.blinding_seed)?;
         for (index, output) in transaction.output_utxos.iter().enumerate() {
@@ -474,12 +485,6 @@ impl Request for PreparedIndexedTransfer {
         let IndexedProof { proof, resolution } = self.request.finish(proof, resolution)?;
         let mut data = self.data.clone();
         let public_input_hash = resolution.public_input_hash;
-        // 2. Verify the resolved statement before exposing transaction bytes.
-        TransferProofStatement {
-            circuit: data.circuit,
-            public_input_hash,
-        }
-        .verify(&proof)?;
         data.tree_contexts = resolution.trees.iter().map(|tree| tree.context).collect();
         let input_tree_ids = resolution.trees.iter().map(|tree| tree.id).collect();
         let proof = ProofCompressed::try_from(proof)?;
@@ -496,7 +501,14 @@ impl Request for PreparedIndexedTransfer {
                 data.proof = transact;
                 proof_data.bsb22_commitment = commitment;
             }
-            _ => data.proof = proof.to_transact_proof(),
+            _ => {
+                if proof.commitment.is_some() {
+                    return Err(ClientError::ProofParse(
+                        "signer proof carries an unexpected BSB22 commitment".into(),
+                    ));
+                }
+                data.proof = proof.to_transact_proof();
+            }
         }
         Ok(ProvenIndexedTransfer {
             input_tree_ids,
@@ -716,7 +728,7 @@ mod tests {
             let signers = transaction.signer_pk_hashes(shape.signer_width()).unwrap();
             let (mode, expected) = match rail {
                 0 => {
-                    let result = crate::prover::transact::witness::assemble(
+                    let result = crate::prover::transact::witness::build_transfer(
                         transaction.clone(),
                         &[inputs[0].proof.clone().unwrap()],
                         &[],
@@ -724,7 +736,7 @@ mod tests {
                     .unwrap();
                     (
                         IndexedTransferRail::Confidential,
-                        result.prover_inputs.public_input_hash,
+                        result.inputs.public_input_hash,
                     )
                 }
                 1 => {

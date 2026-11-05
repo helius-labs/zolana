@@ -14,8 +14,8 @@ use shielded_pool_tests::support::{
 use solana_address::Address;
 use solana_signer::Signer;
 use spr_client::{
-    assemble_confidential_eddsa, AssembledTransfer, ComputeBudgetConfig, MerkleContext,
-    MerkleProof, NonInclusionProof, ProverClient, SpendProof, STATE_TREE_HEIGHT,
+    build_confidential_eddsa_transfer, ComputeBudgetConfig, MerkleContext, MerkleProof,
+    NonInclusionProof, ProverClient, SpendProof, TransferProofResult, STATE_TREE_HEIGHT,
 };
 use spr_hasher::Poseidon;
 use spr_interface::{
@@ -194,7 +194,7 @@ fn assemble_relayed(
     deposits: &OwnedDeposits,
     notes: Vec<WalletUtxo>,
     owner: &ShieldedKeypair,
-) -> AssembledTransfer {
+) -> TransferProofResult {
     let payer = Address::new_from_array(env.rpc.payer.pubkey().to_bytes());
     let mut transfer = ConfidentialTransaction::new(notes, payer)
         .expect("transfer")
@@ -205,8 +205,8 @@ fn assemble_relayed(
         .expect("pad to 2x8");
     let proof_inputs = transfer.encrypt(owner).expect("encrypt");
     let (spends, padding) = deposits.witnesses(env.tree, &proof_inputs);
-    assemble_confidential_eddsa(proof_inputs, &spends, &padding, &owner.signing_key)
-        .expect("assemble on the in-circuit EdDSA rail")
+    build_confidential_eddsa_transfer(proof_inputs, &spends, &padding, &owner.signing_key)
+        .expect("build on the in-circuit EdDSA rail")
 }
 
 fn transact_ix(
@@ -323,9 +323,13 @@ fn every_confidential_eddsa_shape_proves_and_executes_at_its_input_and_output_ca
                 .expect("pad to the selected shape");
             let proof_inputs = transfer.encrypt(&owner).expect("encrypt");
             let (spends, padding) = deposits.witnesses(env.tree, &proof_inputs);
-            let mut assembled =
-                assemble_confidential_eddsa(proof_inputs, &spends, &padding, &owner.signing_key)
-                    .expect("assemble the selected shape");
+            let mut assembled = build_confidential_eddsa_transfer(
+                proof_inputs,
+                &spends,
+                &padding,
+                &owner.signing_key,
+            )
+            .expect("build the selected shape");
             let proof = assembled
                 .prove(&ProverClient::local(), &owner)
                 .unwrap_or_else(|error| {

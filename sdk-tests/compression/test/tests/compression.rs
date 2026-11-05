@@ -137,11 +137,18 @@ fn prove_update(
     spp_proof_inputs: SppProofInputs,
     meta: UtxoMeta,
 ) -> Result<(UtxoMeta, TransactProof)> {
-    let transact = env.localnet.client.prove_transact(
-        spp_proof_inputs,
-        None,
-        &compression_example_sdk::shared::zero_nullifier_key(),
-    )?;
+    let transact = (|| -> Result<_, spr_client::ClientError> {
+        let authorities: &[&dyn spr_client::ProofAuthority] =
+            &[&compression_example_sdk::shared::zero_nullifier_key()];
+        let request = spr_client::TransactionProofRequest::new(spp_proof_inputs, authorities)?;
+        let input_proofs = env.localnet.client.fetch_input_proofs(&request)?;
+        let transfer = request.build(input_proofs)?;
+        let proof = request.prove_sync(&env.localnet.client, &transfer)?;
+        Ok(request
+            .with_proof(transfer, proof)?
+            .instruction_data()
+            .clone())
+    })()?;
     let [tree_context] = transact.tree_contexts.as_slice() else {
         bail!("SPP transact must declare exactly one input tree");
     };
@@ -242,19 +249,28 @@ fn land_malformed_tagged_output(env: &Environment, pda: Address) -> Result<Signa
         vec![pda.to_bytes()],
         Vec::new(),
     );
-    let transact = env.localnet.client.prove_transact(
-        SppProofInputs {
-            input_utxos,
-            output_utxos: poison_outputs,
-            external_data: external,
-            payer: attacker.pubkey(),
-            blinding_seed,
-            output_tree_id: DEFAULT_TREE_ID,
-            cache_accounts: Default::default(),
-        },
-        None,
-        &attacker,
-    )?;
+    let transact = (|| -> Result<_, spr_client::ClientError> {
+        let authorities: &[&dyn spr_client::ProofAuthority] = &[&attacker];
+        let request = spr_client::TransactionProofRequest::new(
+            SppProofInputs {
+                input_utxos,
+                output_utxos: poison_outputs,
+                external_data: external,
+                payer: attacker.pubkey(),
+                blinding_seed,
+                output_tree_id: DEFAULT_TREE_ID,
+                cache_accounts: Default::default(),
+            },
+            authorities,
+        )?;
+        let input_proofs = env.localnet.client.fetch_input_proofs(&request)?;
+        let transfer = request.build(input_proofs)?;
+        let proof = request.prove_sync(&env.localnet.client, &transfer)?;
+        Ok(request
+            .with_proof(transfer, proof)?
+            .instruction_data()
+            .clone())
+    })()?;
     let poison_ix = Transact {
         payer: attacker.pubkey(),
         input_trees: vec![env.localnet.tree],

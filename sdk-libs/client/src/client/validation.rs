@@ -1,6 +1,3 @@
-use solana_address::Address;
-use solana_pubkey::Pubkey;
-
 use crate::error::ClientError;
 
 /// Reject a service URL that would carry shielded material in plaintext:
@@ -42,14 +39,4 @@ pub fn check_service_url(url: &str, field: &'static str) -> Result<(), ClientErr
     } else {
         Err(insecure())
     }
-}
-
-pub(super) fn validate_fee_payer_pubkey(
-    expected_payer: &Address,
-    fee_payer: Pubkey,
-) -> Result<(), ClientError> {
-    if expected_payer.to_bytes() != fee_payer.to_bytes() {
-        return Err(ClientError::FeePayerMismatch);
-    }
-    Ok(())
 }

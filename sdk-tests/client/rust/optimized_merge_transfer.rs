@@ -14,7 +14,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
     prover::MergeCacheTarget, ComputeBudgetConfig, MergeProver, ProofAuthority, ProofCompressed,
-    ProverClient, ProverExt, Rpc, SolanaRpc, SprClient, SprIndexer, WitnessReader,
+    ProverClient, ProverExt, Rpc, SprClient, SprIndexer, WitnessReader,
 };
 use spr_interface::instruction::instruction_data::CreateCacheData;
 use spr_program::instruction::{
@@ -102,12 +102,7 @@ fn main() -> Result<()> {
         utxos,
     } = setup_merge_scenario(UTXO_COUNT, DEPOSIT_AMOUNT)?;
 
-    let client = SprClient::from_urls(
-        SolanaRpc::new(rpc_url),
-        &indexer_url,
-        prover_url.clone(),
-        None,
-    )?;
+    let client = SprClient::from_urls(rpc_url, &indexer_url, prover_url.clone(), None)?;
     let indexer = SprIndexer::new(&indexer_url);
     let prover = ProverClient::new(prover_url);
     let assets = AssetRegistry::default();
@@ -221,7 +216,7 @@ fn main() -> Result<()> {
         *input = input.clone().with_cache_slot(CACHE_SLOT)?;
     }
     let mut transfer = assemble_cached_transfer(&client, tree, proof_inputs)?;
-    sender.complete_inputs(&mut transfer.prover_inputs.inputs)?;
+    sender.complete_inputs(&mut transfer.inputs.inputs)?;
 
     // 3. Both proofs are requested at once, and the merge is sent the moment its
     // own proof is ready. Neither proof is an input to the other, so the
@@ -233,7 +228,7 @@ fn main() -> Result<()> {
     log(started, "merge and transfer proofs requested");
     let transfer_proof = std::thread::scope(|scope| {
         let transfer = scope.spawn(|| {
-            let proof = prover.prove_transfer(&transfer.prover_inputs);
+            let proof = prover.prove_transfer(&transfer.inputs);
             log(started, "transfer proof ready");
             proof
         });

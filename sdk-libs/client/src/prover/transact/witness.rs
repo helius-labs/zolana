@@ -1,9 +1,9 @@
 use spr_interface::{
     instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
-    pda, N_PUBLIC_SLOTS,
+    pda,
 };
 use spr_transaction::{
-    instructions::transact::{CacheAccounts, SppProofInputs, TransactRail},
+    instructions::transact::{SppProofInputs, TransactRail},
     utxo::SppProofInputUtxo,
 };
 
@@ -16,14 +16,12 @@ use crate::{
             assembly::{input_utxos_from_nullifiers, TransferInputUtxo},
             confidential_eddsa::{
                 confidential_eddsa_signer_pk_hashes, ConfidentialEddsaProver,
-                ConfidentialEddsaTransferInputs, EddsaAuthorization,
+                ConfidentialEddsaTransferInputs,
             },
             eddsa::TransferProver,
             OwnerAuthorization,
         },
-        verify::{verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs},
-        ExpectedProvingKey, Proof, ProofCompressed, Prover, ProverExt, ProvingKeySet,
-        TransferInputs,
+        Proof, ProofCompressed, Prover, ProverExt, ProvingKeySet,
     },
     rpc::{MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
@@ -138,36 +136,52 @@ pub fn attach_input_proofs(
     Ok(input_utxos)
 }
 
-/// A transaction assembled exactly once: the prover witness, the public input it
-/// commits to, and the `Transact` instruction data minus the proof bytes. The
-/// per-input nullifiers, hash chains and `private_tx_hash` are
-/// computed a single time and shared by the witness and the instruction, so they
-/// are identical by construction. Call [`AssembledTransfer::with_proof`] once the
-/// proof is produced from [`AssembledTransfer::prover_inputs`].
-pub struct AssembledTransfer {
-    pub prover_inputs: TransferInputs,
-    /// The in-circuit owner's signature on the `ConfidentialEddsa` rail; the
-    /// signer rail has none.
-    pub authorization: Option<EddsaAuthorization>,
-    pub public_input_hash: [u8; 32],
-    /// The raw ids of the trees the inputs are nullified in, in the order
-    /// `ix.tree_contexts` declares them. The `Transact` builder takes one tree
-    /// account per context entry in that order, and `pda::tree` of these is the
-    /// only place that list can come from.
-    pub input_tree_ids: Vec<u16>,
-    pub cache_accounts: CacheAccounts,
-    ix: TransactIxData,
+/// Instruction data built from the same values as the prover inputs.
+pub(crate) struct TransferInstructionData<'a> {
+    pub external_data: spr_transaction::ExternalData,
+    pub private_tx_hash: [u8; 32],
+    pub circuit: CircuitId,
+    pub nullifiers: &'a [[u8; 32]],
+    pub input_tree_indexes: &'a [u8],
+    pub tree_contexts: Vec<spr_interface::instruction::instruction_data::transact::TreeContext>,
 }
 
-impl AssembledTransfer {
+impl TransferInstructionData<'_> {
+    pub fn build(self) -> Result<TransactIxData, ClientError> {
+        let external = self.external_data;
+        Ok(TransactIxData {
+            proof: TransactProof::zeroed(),
+            expiry_unix_ts: external.expiry_unix_ts,
+            private_tx_hash: self.private_tx_hash,
+            circuit: self.circuit,
+            inputs: input_utxos_from_nullifiers(self.nullifiers, self.input_tree_indexes)?,
+            tree_contexts: self.tree_contexts,
+            interface_transfers: external
+                .interface_transfers
+                .into_iter()
+                .map(
+                    spr_transaction::instructions::transact::SettlementTransfer::interface_transfer,
+                )
+                .collect(),
+            data_hash: external.data_hash,
+            ring_data_hash: external.ring_data_hash,
+            tx_viewing_pk: external.tx_viewing_pk,
+            salt: external.salt,
+            outputs: external.outputs,
+            messages: external.messages,
+        })
+    }
+}
+
+impl super::TransferProofResult {
     pub fn with_proof(mut self, proof: TransactProof) -> TransactIxData {
-        self.ix.proof = proof;
-        self.ix
+        self.instruction_data.proof = proof;
+        self.instruction_data
     }
 
     /// The selector the instruction carries, before any commitment.
     pub fn circuit(&self) -> CircuitId {
-        self.ix.circuit
+        self.instruction_data.circuit
     }
 
     /// The request that proves this assembly once its inputs are complete.
@@ -175,16 +189,15 @@ impl AssembledTransfer {
         match &self.authorization {
             Some(authorization) => crate::prover::requests::transfer_confidential_eddsa(
                 &ConfidentialEddsaTransferInputs {
-                    transfer: self.prover_inputs.clone(),
+                    transfer: self.inputs.clone(),
                     authorization: authorization.clone(),
                 },
             ),
-            None => crate::prover::requests::transfer(&self.prover_inputs),
+            None => crate::prover::requests::transfer(&self.inputs),
         }
     }
 
-    /// Refuse, before any proving, an assembly `keys` cannot prove: a
-    /// runtime set holds no EdDSA-authorized keys.
+    /// Runtime key sets currently support only transaction-signer rails.
     pub(crate) fn check_key_set(&self, keys: Option<&ProvingKeySet>) -> Result<(), ClientError> {
         if self.authorization.is_some() && keys.is_some() {
             return Err(ClientError::ProvingKeySet("unsupported_circuit"));
@@ -192,34 +205,17 @@ impl AssembledTransfer {
         Ok(())
     }
 
-    /// Verify `proof` against the public input the assembly fixed and turn it
-    /// into the instruction's proof. On the `ConfidentialEddsa` rail the
-    /// signature gadget's commitment moves into the selector.
+    /// Encode the returned proof for its instruction without local verification.
+    /// In-circuit signature rails also carry their BSB22 commitment in the selector.
     pub fn accept_proof(&mut self, proof: Proof) -> Result<TransactProof, ClientError> {
-        self.accept_proof_with_keys(proof, None)
-    }
-
-    /// As [`Self::accept_proof`], verifying against `keys` when the proof
-    /// came from a runtime key set.
-    pub fn accept_proof_with_keys(
-        &mut self,
-        proof: Proof,
-        keys: Option<&ProvingKeySet>,
-    ) -> Result<TransactProof, ClientError> {
-        match &self.authorization {
-            Some(_) if keys.is_some() => Err(ClientError::ProvingKeySet("unsupported_circuit")),
-            Some(authorization) => {
-                let inputs = ConfidentialEddsaTransferInputs {
-                    transfer: self.prover_inputs.clone(),
-                    authorization: authorization.clone(),
-                };
-                verify_confidential_eddsa_transfer_inputs(&inputs, self.public_input_hash, &proof)?;
-                let (transact, commitment) =
-                    ProofCompressed::try_from(proof)?.into_committed_transact_parts()?;
-                match &mut self.ix.circuit {
-                    CircuitId::ConfidentialEddsa(_, _, _, proof_data)
-                    | CircuitId::ConfidentialEddsaCached(_, _, _, proof_data, _) => {
-                        proof_data.bsb22_commitment = commitment;
+        let compressed = ProofCompressed::try_from(proof)?;
+        match (&self.authorization, compressed.commitment) {
+            (Some(_), _) => {
+                let (transact, commitment) = compressed.into_committed_transact_parts()?;
+                match &mut self.instruction_data.circuit {
+                    CircuitId::ConfidentialEddsa(_, _, _, data)
+                    | CircuitId::ConfidentialEddsaCached(_, _, _, data, _) => {
+                        data.bsb22_commitment = commitment;
                     }
                     _ => {
                         return Err(ClientError::ProofParse(
@@ -229,31 +225,15 @@ impl AssembledTransfer {
                 }
                 Ok(transact)
             }
-            None => {
-                match keys {
-                    Some(keys) => keys.verify(
-                        &ExpectedProvingKey::transfer_confidential(
-                            self.prover_inputs.inputs.len(),
-                            self.prover_inputs.outputs.len(),
-                        )?
-                        .name,
-                        self.public_input_hash,
-                        &proof,
-                    )?,
-                    None => verify_confidential_transfer_inputs(
-                        &self.prover_inputs,
-                        self.public_input_hash,
-                        &proof,
-                    )?,
-                }
-                Ok(ProofCompressed::try_from(proof)?.to_transact_proof())
-            }
+            (None, Some(_)) => Err(ClientError::ProofParse(
+                "signer proof carries an unexpected BSB22 commitment".into(),
+            )),
+            (None, None) => Ok(compressed.to_transact_proof()),
         }
     }
 
-    /// Prove this assembly through `authority`, which fills in the nullifier
-    /// secrets it owns, and verify the proof against the public input the
-    /// assembly fixed.
+    /// Complete the inputs through `authority`, invoke the synchronous prover,
+    /// and encode its returned proof. Verification is performed on chain.
     ///
     /// One call rather than "complete, then prove": the two belong together, and
     /// nothing between assembly and the prover has any use for a witness
@@ -264,62 +244,39 @@ impl AssembledTransfer {
         authority: &dyn ProofAuthority,
     ) -> Result<TransactProof, ClientError> {
         self.check_key_set(prover.key_set())?;
-        authority.complete_inputs(&mut self.prover_inputs.inputs)?;
+        authority.complete_inputs(&mut self.inputs.inputs)?;
         let proof = match &self.authorization {
             Some(authorization) => {
                 prover.prove_transfer_confidential_eddsa(&ConfidentialEddsaTransferInputs {
-                    transfer: self.prover_inputs.clone(),
+                    transfer: self.inputs.clone(),
                     authorization: authorization.clone(),
                 })?
             }
-            None => prover.prove_transfer(&self.prover_inputs)?,
+            None => prover.prove_transfer(&self.inputs)?,
         };
-        self.accept_proof_with_keys(proof, prover.key_set())
+        self.accept_proof(proof)
     }
 }
 
-/// Assemble the prover witness and the `Transact` instruction data in a single
-/// pass over the already-padded transaction. The witness and the instruction
-/// commit to identical values by construction: the nullifiers and
-/// `private_tx_hash` come from the one prover build, and `external_data`
-/// was finalized before proving. Root indices come from the supplied proofs.
-pub fn assemble(
+/// Build proof inputs and matching instruction data in one synchronous operation.
+pub fn build_transfer(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
-) -> Result<AssembledTransfer, ClientError> {
-    assemble_with_dummy_policy(proof_inputs, input_proofs, dummy_nullifier_proofs, true)
+) -> Result<super::TransferProofResult, ClientError> {
+    build_transfer_with_dummy_policy(proof_inputs, input_proofs, dummy_nullifier_proofs, true)
 }
 
-pub fn assemble_with_dummy_policy(
+pub fn build_transfer_with_dummy_policy(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
     allow_dummy_inputs: bool,
-) -> Result<AssembledTransfer, ClientError> {
+) -> Result<super::TransferProofResult, ClientError> {
     let shape = proof_inputs.check_shape()?;
-
-    let spr_transaction::ExternalData {
-        expiry_unix_ts,
-        interface_transfers,
-        data_hash,
-        ring_data_hash,
-        tx_viewing_pk,
-        salt,
-        outputs,
-        messages,
-        ..
-    } = proof_inputs.external_data.clone();
-    let interface_transfers = interface_transfers
-        .iter()
-        .copied()
-        .map(spr_transaction::instructions::transact::SettlementTransfer::interface_transfer)
-        .collect();
-
-    let cache_accounts = proof_inputs.cache_accounts;
     let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
     let public_transfers = proof_inputs.public_transfers()?;
-    let result = TransferProver {
+    TransferProver {
         inputs: attach_input_proofs(
             proof_inputs.input_utxos,
             input_proofs,
@@ -333,66 +290,19 @@ pub fn assemble_with_dummy_policy(
         signer_pk_hashes,
         allow_dummy_inputs,
         shape,
-        cache_accounts,
+        cache_accounts: proof_inputs.cache_accounts,
     }
-    .build()?;
-    let (n_inputs, n_outputs) = (shape.n_inputs() as u8, shape.n_outputs() as u8);
-    let circuit_id = match result.cache_access {
-        Some(access) => {
-            CircuitId::ConfidentialSignerCached(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8, access)
-        }
-        None => CircuitId::ConfidentialSigner(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8),
-    };
-    let prover_inputs = result.inputs;
-    let public_input_hash = result.public_input_hash;
-    let nullifiers = result.nullifiers;
-    let private_tx = result.private_tx_hash;
-
-    if nullifiers.len() != shape.n_inputs() {
-        return Err(ClientError::WitnessInputCountMismatch {
-            got: nullifiers.len(),
-            expected: shape.n_inputs(),
-        });
-    }
-
-    let inputs = input_utxos_from_nullifiers(&nullifiers, &result.input_tree_indexes)?;
-
-    let ix = TransactIxData {
-        proof: TransactProof::zeroed(),
-        expiry_unix_ts,
-        private_tx_hash: private_tx,
-        circuit: circuit_id,
-        inputs,
-        tree_contexts: result.tree_contexts,
-        interface_transfers,
-        data_hash,
-        ring_data_hash,
-        tx_viewing_pk,
-        salt,
-        outputs,
-        messages,
-    };
-
-    Ok(AssembledTransfer {
-        prover_inputs,
-        authorization: None,
-        public_input_hash,
-        input_tree_ids: result.tree_ids,
-        cache_accounts,
-        ix,
-    })
+    .build()
 }
 
-/// [`assemble`] for the `ConfidentialEddsa` rail: `owner` signs the
-/// transaction message digest and the proof verifies that signature, so the
-/// owner does not sign the transaction. Every other input owner still does.
-pub fn assemble_confidential_eddsa<'a>(
+/// Build the same instruction and proof inputs with in-circuit owner authorization.
+pub fn build_confidential_eddsa_transfer<'a>(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
     owner: impl Into<OwnerAuthorization<'a>>,
-) -> Result<AssembledTransfer, ClientError> {
-    assemble_confidential_eddsa_with_dummy_policy(
+) -> Result<super::TransferProofResult, ClientError> {
+    build_confidential_eddsa_transfer_with_dummy_policy(
         proof_inputs,
         input_proofs,
         dummy_nullifier_proofs,
@@ -401,20 +311,20 @@ pub fn assemble_confidential_eddsa<'a>(
     )
 }
 
-pub fn assemble_confidential_eddsa_with_dummy_policy<'a>(
+pub fn build_confidential_eddsa_transfer_with_dummy_policy<'a>(
     proof_inputs: SppProofInputs,
     input_proofs: &[SpendProof],
     dummy_nullifier_proofs: &[NonInclusionProof],
     allow_dummy_inputs: bool,
     owner: impl Into<OwnerAuthorization<'a>>,
-) -> Result<AssembledTransfer, ClientError> {
+) -> Result<super::TransferProofResult, ClientError> {
     let owner = owner.into();
     let shape = proof_inputs.check_shape_for(TransactRail::ConfidentialEddsa)?;
     let signer_pk_hashes = confidential_eddsa_signer_pk_hashes(&proof_inputs, &owner.public_key())?;
+    let public_transfers = proof_inputs.public_transfers()?;
     let external = proof_inputs.external_data.clone();
     let cache_accounts = proof_inputs.cache_accounts;
-    let public_transfers = proof_inputs.public_transfers()?;
-    let result = ConfidentialEddsaProver {
+    let computed = ConfidentialEddsaProver {
         inputs: attach_input_proofs(
             proof_inputs.input_utxos,
             input_proofs,
@@ -432,43 +342,32 @@ pub fn assemble_confidential_eddsa_with_dummy_policy<'a>(
         cache_accounts,
     }
     .build()?;
-    if result.nullifiers.len() != shape.n_inputs() {
-        return Err(ClientError::WitnessInputCountMismatch {
-            got: result.nullifiers.len(),
-            expected: shape.n_inputs(),
-        });
-    }
     let ConfidentialEddsaTransferInputs {
-        transfer: prover_inputs,
+        transfer: inputs,
         authorization,
-    } = result.inputs;
-    let ix = TransactIxData {
-        proof: TransactProof::zeroed(),
-        expiry_unix_ts: external.expiry_unix_ts,
-        private_tx_hash: result.private_tx_hash,
-        circuit: authorization.circuit(shape, result.cache_access),
-        inputs: input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?,
-        tree_contexts: result.tree_contexts,
-        interface_transfers: external
-            .interface_transfers
-            .iter()
-            .copied()
-            .map(spr_transaction::instructions::transact::SettlementTransfer::interface_transfer)
-            .collect(),
-        data_hash: external.data_hash,
-        ring_data_hash: external.ring_data_hash,
-        tx_viewing_pk: external.tx_viewing_pk,
-        salt: external.salt,
-        outputs: external.outputs,
-        messages: external.messages,
-    };
-    Ok(AssembledTransfer {
-        prover_inputs,
+    } = computed.inputs;
+    let instruction_data = TransferInstructionData {
+        external_data: external,
+        private_tx_hash: computed.private_tx_hash,
+        circuit: authorization.circuit(shape, computed.cache_access),
+        nullifiers: &computed.nullifiers,
+        input_tree_indexes: &computed.input_tree_indexes,
+        tree_contexts: computed.tree_contexts.clone(),
+    }
+    .build()?;
+    Ok(super::TransferProofResult {
+        inputs,
         authorization: Some(authorization),
-        public_input_hash: result.public_input_hash,
-        input_tree_ids: result.tree_ids,
+        instruction_data,
         cache_accounts,
-        ix,
+        public_input_hash: computed.public_input_hash,
+        nullifiers: computed.nullifiers,
+        output_hashes: computed.output_hashes,
+        private_tx_hash: computed.private_tx_hash,
+        tree_contexts: computed.tree_contexts,
+        tree_ids: computed.tree_ids,
+        input_tree_indexes: computed.input_tree_indexes,
+        cache_access: computed.cache_access,
     })
 }
 
@@ -511,7 +410,7 @@ mod tests {
         Data, ExternalData, SppProofOutputUtxo, Utxo,
     };
 
-    use super::{assemble, attach_input_proofs, SpendProof};
+    use super::{attach_input_proofs, build_transfer, SpendProof};
     use crate::rpc::{
         MerkleContext, MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
     };
@@ -654,14 +553,11 @@ mod tests {
                 nf
             })
             .collect();
-        let mut assembled = assemble(proof_inputs, &[proof], &dummy).expect("assemble");
-        crate::authority::ProofAuthority::complete_inputs(
-            &sender,
-            &mut assembled.prover_inputs.inputs,
-        )
-        .unwrap();
+        let mut assembled = build_transfer(proof_inputs, &[proof], &dummy).expect("build transfer");
+        crate::authority::ProofAuthority::complete_inputs(&sender, &mut assembled.inputs.inputs)
+            .unwrap();
         let mut complete_json: serde_json::Value =
-            serde_json::from_str(&crate::prover::json::to_json(&assembled.prover_inputs).unwrap())
+            serde_json::from_str(&crate::prover::json::to_json(&assembled.inputs).unwrap())
                 .unwrap();
         let object = complete_json.as_object_mut().unwrap();
         object.remove("treeSlots");
@@ -681,7 +577,7 @@ mod tests {
         assert_eq!(indexed_body["prepared"], complete_json);
 
         let witnessed: Vec<[u8; 32]> = assembled
-            .ix
+            .instruction_data
             .inputs
             .iter()
             .skip(1)
@@ -750,9 +646,13 @@ mod tests {
                 nf
             })
             .collect();
-        let mut assembled =
-            super::assemble_confidential_eddsa(proof_inputs, &[proof], &dummy, &sender.signing_key)
-                .expect("assemble");
+        let mut assembled = super::build_confidential_eddsa_transfer(
+            proof_inputs,
+            &[proof],
+            &dummy,
+            &sender.signing_key,
+        )
+        .expect("assemble");
         assert!(matches!(
             assembled.prove(&SetProver(keys), &sender),
             Err(crate::ClientError::ProvingKeySet("unsupported_circuit"))

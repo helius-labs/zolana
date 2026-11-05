@@ -3,6 +3,7 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signer::Signer;
+use spr_client::Prover as _;
 use spr_client::{transaction_size, ComputeBudgetConfig, MergeProver, ProverClient, ProverExt};
 use spr_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MergeProof,
@@ -248,9 +249,15 @@ impl RingHarness {
         let proof = if prove_for_default_merge {
             ProverClient::local().prove_merge(&result.inputs)?
         } else {
-            ProverClient::local().prove_merge_ring(&result.inputs)?
+            ProverClient::local().prove(
+                &spr_client::prover::requests::merge_ring(&result.inputs)
+                    .expect("encode ring proof request"),
+            )?
         };
-        let data = result.ring_instruction_data(pack_merge_proof(&proof)?);
+        let data = spr_interface::instruction::instruction_data::merge_ring::MergeRingIxData {
+            output_ring_data_hash: result.output_ring_data_hash,
+            merge: result.instruction_data(pack_merge_proof(&proof)?),
+        };
         let output_hash = result.output_hash;
         let input_nullifiers = data.merge.nullifiers.clone();
 
@@ -413,7 +420,10 @@ impl RingHarness {
 
         // Assemble the instruction data exactly as the happy path does, then
         // zero the proof so verification is the only thing that fails.
-        let data = result.ring_instruction_data(MergeProof::zeroed());
+        let data = spr_interface::instruction::instruction_data::merge_ring::MergeRingIxData {
+            output_ring_data_hash: result.output_ring_data_hash,
+            merge: result.instruction_data(MergeProof::zeroed()),
+        };
 
         let payer = self.payer.insecure_clone();
         let tree_before = fetch_account(&self.rpc, &self.tree)?;

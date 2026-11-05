@@ -62,9 +62,17 @@ fn escrow_then_withdraw() -> Result<()> {
         .get(slot::ESCROW)
         .cloned()
         .ok_or_else(|| anyhow!("the escrow transaction has no escrow output"))?;
-    let transact = localnet
-        .client
-        .prove_transact(spp_proof_inputs, None, &creator)?;
+    let transact = (|| -> Result<_, spr_client::ClientError> {
+        let authorities: &[&dyn spr_client::ProofAuthority] = &[&creator];
+        let request = spr_client::TransactionProofRequest::new(spp_proof_inputs, authorities)?;
+        let input_proofs = localnet.client.fetch_input_proofs(&request)?;
+        let transfer = request.build(input_proofs)?;
+        let proof = request.prove_sync(&localnet.client, &transfer)?;
+        Ok(request
+            .with_proof(transfer, proof)?
+            .instruction_data()
+            .clone())
+    })()?;
     let escrow_slot = send(
         &localnet,
         &creator,
@@ -127,10 +135,17 @@ fn escrow_then_withdraw() -> Result<()> {
         .prove_inputs(&transaction.proof_inputs)?
         .compressed()?;
     let spp_proof_inputs = transaction.finalized.encrypt_with_keys(&creator)?;
-    let transact =
-        localnet
-            .client
-            .prove_transact(spp_proof_inputs, None, &ProgramOwner::nullifier_key())?;
+    let transact = (|| -> Result<_, spr_client::ClientError> {
+        let authorities: &[&dyn spr_client::ProofAuthority] = &[&ProgramOwner::nullifier_key()];
+        let request = spr_client::TransactionProofRequest::new(spp_proof_inputs, authorities)?;
+        let input_proofs = localnet.client.fetch_input_proofs(&request)?;
+        let transfer = request.build(input_proofs)?;
+        let proof = request.prove_sync(&localnet.client, &transfer)?;
+        Ok(request
+            .with_proof(transfer, proof)?
+            .instruction_data()
+            .clone())
+    })()?;
     let withdraw_slot = send(
         &localnet,
         &creator,

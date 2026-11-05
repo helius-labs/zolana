@@ -1,6 +1,6 @@
 //! Litesvm program-test for the `transact` instruction: boot a protocol config
 //! and pool tree, build a valid (2,3) Groth16 proof on the Solana-only eddsa
-//! rail, assemble the `transact` instruction data, and send it to the program.
+//! rail, build the `transact` instruction data, and send it to the program.
 //!
 //! Covers real deposited UTXOs and circuit dummies, including spends across two
 //! input trees. Proofs bind each input to its tree roots and owner, and bind the
@@ -12,6 +12,7 @@ use shielded_pool_tests::support::{
     ring::{RealRingTransact, RingRail},
     transact::{current_tree_roots, proof_env, tree_progress, write_ring_config_account, Pool},
 };
+use spr_client::Prover as _;
 
 use num_bigint::BigUint;
 
@@ -596,11 +597,17 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let prover = ProverClient::local();
     let proof = if IS_AUTHORITY {
         prover
-            .prove_ring_authority(&prover_inputs)
+            .prove(
+                &spr_client::prover::requests::ring_authority(&prover_inputs)
+                    .expect("encode ring proof request"),
+            )
             .expect("prove ring authority transact")
     } else {
         prover
-            .prove_transfer_ring(&prover_inputs)
+            .prove(
+                &spr_client::prover::requests::transfer_ring(&prover_inputs)
+                    .expect("encode ring proof request"),
+            )
             .expect("prove ring transact")
     };
     // Local pairing gate against the committed ring verifying key: the proof
@@ -948,14 +955,14 @@ fn single_deposit_spend(
 fn send_assembled_spend(
     env: &mut Pool,
     keypair: &spr_keypair::ShieldedKeypair,
-    mut assembled: spr_client::AssembledTransfer,
+    mut assembled: spr_client::TransferProofResult,
 ) -> (Vec<[u8; 32]>, usize) {
     use spr_client::ProofAuthority;
     keypair
-        .complete_inputs(&mut assembled.prover_inputs.inputs)
+        .complete_inputs(&mut assembled.inputs.inputs)
         .expect("complete inputs");
     let proof = ProverClient::local()
-        .prove_transfer(&assembled.prover_inputs)
+        .prove_transfer(&assembled.inputs)
         .expect("prove transfer");
     let data = assembled
         .with_proof(spr_test_utils::transact::pack_transact_proof(&proof).expect("pack proof"));
@@ -993,8 +1000,8 @@ fn transact_with_compact_padding_spends_and_appends_only_the_sent_slots() {
     let tree = env.tree;
     let (keypair, proof_inputs, spend, dummy_nullifier_proofs) =
         single_deposit_spend(&mut env, true);
-    let assembled =
-        spr_client::assemble(proof_inputs, &[spend], &dummy_nullifier_proofs).expect("assemble");
+    let assembled = spr_client::build_transfer(proof_inputs, &[spend], &dummy_nullifier_proofs)
+        .expect("build transfer");
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
     let (nullifiers, output_count) = send_assembled_spend(&mut env, &keypair, assembled);
     assert_eq!((nullifiers.len(), output_count), (1, 1));
@@ -1059,13 +1066,13 @@ fn transact_past_the_dummy_threshold_accepts_only_compact_padding() {
         .prepare_with_dummy_policy(&dummy_keypair, false),
         Err(spr_client::ClientError::NonSpendInputNotAllowed { index: 1 })
     ));
-    let assembled = spr_client::assemble_with_dummy_policy(
+    let assembled = spr_client::build_transfer_with_dummy_policy(
         proof_inputs,
         &[spend],
         &dummy_nullifier_proofs,
         false,
     )
-    .expect("assemble without dummy inputs");
+    .expect("build without dummy inputs");
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
     send_assembled_spend(&mut env, &keypair, assembled);
     assert_eq!(

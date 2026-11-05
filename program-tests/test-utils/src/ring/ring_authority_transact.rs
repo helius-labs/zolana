@@ -4,8 +4,9 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use spr_client::Prover as _;
 use spr_client::{
-    input_utxos_from_nullifiers, ComputeBudgetConfig, ProofAuthority, ProverClient, ProverExt,
+    input_utxos_from_nullifiers, ComputeBudgetConfig, ProofAuthority, ProverClient,
     PublicTransfers, RingAuthorityProver, Shape, SpendProof, TransferInputUtxo,
 };
 use spr_interface::{
@@ -323,7 +324,10 @@ impl RingHarness {
         keypair
             .nullifier_key
             .complete_inputs(&mut result.inputs.inputs)?;
-        let proof = ProverClient::local().prove_ring_authority(&result.inputs)?;
+        let proof = ProverClient::local().prove(
+            &spr_client::prover::requests::ring_authority(&result.inputs)
+                .expect("encode ring proof request"),
+        )?;
 
         // Assemble the instruction inputs from the one prover build: the nullifier and
         // root indices are computed once and shared with the proof, so the witness and

@@ -109,41 +109,6 @@ impl TransferProofStatement {
     }
 }
 
-pub(crate) struct MergeProofStatement {
-    pub n_inputs: usize,
-    pub public_input_hash: [u8; 32],
-}
-
-impl MergeProofStatement {
-    pub fn verify_ring(self, proof: &Proof) -> Result<(), ClientError> {
-        use spr_interface::verifying_keys::{merge_ring_24_1, merge_ring_52_1, merge_ring_8_1};
-        let verifying_key = match self.n_inputs {
-            8 => &merge_ring_8_1::VERIFYINGKEY,
-            24 => &merge_ring_24_1::VERIFYINGKEY,
-            52 => &merge_ring_52_1::VERIFYINGKEY,
-            _ => {
-                return Err(ClientError::UnsupportedShape {
-                    n_in: self.n_inputs,
-                    n_out: 1,
-                })
-            }
-        };
-        StatementVerification {
-            verifying_key,
-            public_input_hash: self.public_input_hash,
-        }
-        .verify(proof)
-    }
-
-    pub fn verify(self, proof: &Proof) -> Result<(), ClientError> {
-        StatementVerification {
-            verifying_key: merge_verifying_key(self.n_inputs)?,
-            public_input_hash: self.public_input_hash,
-        }
-        .verify(proof)
-    }
-}
-
 pub(crate) fn merge_verifying_key(
     n_inputs: usize,
 ) -> Result<&'static Groth16Verifyingkey<'static>, ClientError> {
