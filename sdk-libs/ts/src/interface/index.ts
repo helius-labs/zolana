@@ -23,7 +23,7 @@ export {
   encodeTransactInstructionData,
   encodeTreeFeeSchedule,
 } from "./codecs/index.js";
-export { MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "./constants.js";
+export { MAX_INTERFACE_TRANSFERS, MAX_MERGE_INPUTS, MERGE_INPUT_COUNT } from "./constants.js";
 export { InterfaceError, ShieldedPoolError, decodeShieldedPoolError } from "./errors.js";
 export type {
   DecodedShieldedPoolError,

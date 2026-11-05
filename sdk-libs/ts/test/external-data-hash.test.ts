@@ -5,6 +5,7 @@ import {
   encodeTransactExternalData,
   encodeTransactInstructionData,
 } from "../src/interface/codecs/index.js";
+import { MAX_INTERFACE_TRANSFERS } from "../src/interface/constants.js";
 import { InterfaceError } from "../src/interface/errors.js";
 import { externalDataHash } from "../src/interface/external-data-hash.js";
 import { InstructionTag, SOL_INTERFACE } from "../src/interface/program.js";
@@ -110,16 +111,18 @@ describe("externalDataHash", () => {
   });
 });
 
+const INSTRUCTION: TransactInstructionData = {
+  ...PARITY_EXTERNAL_DATA,
+  privateTxHash: bytes32(0xc0),
+  circuit: { kind: "confidentialSigner", inputs: 1, outputs: 2, publicAssetSlots: 3 },
+  proof: { a: bytes32(0x01), b: sequence(128, 0x02) as Bytes128, c: bytes32(0x03) },
+  inputs: [{ nullifierHash: bytes32(0x04), treeIndex: 0 }],
+  treeContexts: [{ utxoTreeRootIndex: 6, nullifierTreeRootIndex: 5 }],
+};
+
 describe("encodeTransactInstructionData", () => {
   it("starts with the encoded external data", () => {
-    const instruction: TransactInstructionData = {
-      ...PARITY_EXTERNAL_DATA,
-      privateTxHash: bytes32(0xc0),
-      circuit: { kind: "confidentialSigner", inputs: 1, outputs: 2, publicAssetSlots: 3 },
-      proof: { a: bytes32(0x01), b: sequence(128, 0x02) as Bytes128, c: bytes32(0x03) },
-      inputs: [{ nullifierHash: bytes32(0x04), treeIndex: 0 }],
-      treeContexts: [{ utxoTreeRootIndex: 6, nullifierTreeRootIndex: 5 }],
-    };
+    const instruction = INSTRUCTION;
     const prefix = encodeTransactExternalData(PARITY_EXTERNAL_DATA);
     const encoded = encodeTransactInstructionData(instruction);
     expect(encoded.subarray(0, prefix.length)).toEqual(prefix);
@@ -129,5 +132,22 @@ describe("encodeTransactInstructionData", () => {
     expect(prefix.length).toBe(
       8 + 33 + 16 + 1 + 9 + 10 + 1 + 1 + 1 + (32 + 33 + 3 + 16) + (32 + 33 + 1) + 1,
     );
+  });
+
+  it("refuses more interface transfers than the protocol maximum, as Rust does", () => {
+    const transfers = (count: number): TransactInstructionData["interfaceTransfers"] =>
+      Array.from({ length: count }, () => ({ kind: "solDeposit", amount: 1n }));
+    expect(() =>
+      encodeTransactInstructionData({
+        ...INSTRUCTION,
+        interfaceTransfers: transfers(MAX_INTERFACE_TRANSFERS),
+      }),
+    ).not.toThrow();
+    expect(() =>
+      encodeTransactInstructionData({
+        ...INSTRUCTION,
+        interfaceTransfers: transfers(MAX_INTERFACE_TRANSFERS + 1),
+      }),
+    ).toThrow(expect.objectContaining({ code: "INTERFACE_INVALID_LENGTH" }));
   });
 });

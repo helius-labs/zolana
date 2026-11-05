@@ -1,9 +1,17 @@
 /**
- * Fixed layout parameters of the merge instruction data, mirroring
+ * Protocol limits of the transact and merge instruction data, mirroring
+ * `program-libs/interface/src/lib.rs` and
  * `program-libs/interface/src/instruction/instruction_data/merge_transact.rs`.
  * Kept in a leaf module so the codecs can enforce them without importing the
  * package root, which imports the codecs.
  */
+
+/**
+ * Most interface transfers one transact carries; mirrors Rust
+ * `MAX_INTERFACE_TRANSFERS`. The wire format keeps a u8 count, but the
+ * program rejects a count above this bound.
+ */
+export const MAX_INTERFACE_TRANSFERS = 32;
 
 /** Input slots of the middle merge proof, the width an automatic merge sweeps. */
 export const MERGE_INPUT_COUNT = 24;
