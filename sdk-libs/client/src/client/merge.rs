@@ -132,7 +132,11 @@ impl<'a> MergeSubmission<'a> {
         let commitments = self.merge.input_utxo_hashes()?;
         let witnesses = client
             .indexer
-            .input_witnesses(&commitments, &self.merge.dummy_nullifiers(), None)
+            .input_witnesses(
+                &commitments,
+                &self.merge.dummy_nullifiers(),
+                Some(client.indexer_config),
+            )
             .await?;
         ensure_on_tree(&witnesses, pda::tree(input_tree_id))?;
         let result = MergeProver {

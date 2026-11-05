@@ -7,6 +7,8 @@
 #[path = "common/input.rs"]
 mod input_fixture;
 
+use std::sync::{Arc, Mutex};
+
 use borsh::to_vec;
 use input_fixture::wallet_utxo;
 use solana_account::Account;
@@ -18,7 +20,9 @@ use spr_client::{
 use spr_interface::pda;
 use spr_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use spr_transaction::{
-    instructions::merge::MergeTransaction, utxo::SppProofInputUtxo, Data, Mint, Utxo,
+    instructions::merge::{MergeProofInputs, MergeTransaction},
+    utxo::SppProofInputUtxo,
+    Data, Mint, Utxo,
 };
 use spr_user_registry_interface::MergeEncryptionScheme;
 use spr_user_registry_interface::{user_record_pda, user_registry_program_id, UserRecord};
@@ -36,8 +40,21 @@ impl Rpc for Chain {
     }
 }
 
-/// Answers every witness request with the same witness.
-struct Witnesses(InputWitnesses);
+/// Answers every witness request with the same witness, and records the
+/// indexer config each request carried.
+struct Witnesses {
+    witness: InputWitnesses,
+    configs: Arc<Mutex<Vec<Option<IndexerRpcConfig>>>>,
+}
+
+impl Witnesses {
+    fn new(witness: InputWitnesses) -> Self {
+        Self {
+            witness,
+            configs: Arc::default(),
+        }
+    }
+}
 
 impl Rpc for Witnesses {}
 
@@ -46,9 +63,10 @@ impl WitnessReader for Witnesses {
         &self,
         _inputs: &[&SppProofInputUtxo],
         _dummy_nullifiers: &[[u8; 32]],
-        _config: Option<IndexerRpcConfig>,
+        config: Option<IndexerRpcConfig>,
     ) -> Result<InputWitnesses, ClientError> {
-        Ok(self.0.clone())
+        self.configs.lock().unwrap().push(config);
+        Ok(self.witness.clone())
     }
 }
 
@@ -109,8 +127,7 @@ fn witnesses(state: Address, nullifier: Address, dummy: Address) -> InputWitness
     }
 }
 
-#[test]
-fn a_witness_proof_from_another_tree_than_the_inputs_is_refused() {
+fn merge_fixture() -> (ShieldedKeypair, Address, MergeProofInputs) {
     let sender = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
         .expect("ed25519 sender keypair");
     let address = sender.shielded_address().expect("address");
@@ -132,6 +149,13 @@ fn a_witness_proof_from_another_tree_than_the_inputs_is_refused() {
         .expect("merge")
         .encrypt(&sender)
         .expect("encrypt merge");
+    (sender, owner, merge)
+}
+
+#[test]
+fn a_witness_proof_from_another_tree_than_the_inputs_is_refused() {
+    let (sender, owner, merge) = merge_fixture();
+    let address = sender.shielded_address().expect("address");
     let tree = pda::tree(TREE_ID);
     let other = pda::tree(TREE_ID + 1);
 
@@ -144,7 +168,7 @@ fn a_witness_proof_from_another_tree_than_the_inputs_is_refused() {
             Chain {
                 record: record_account(owner, &sender),
             },
-            Witnesses(witness),
+            Witnesses::new(witness),
             ProverClient::new("http://unused.invalid".to_string()),
         );
         let proved = MergeSubmission::new(&merge, owner, &address, &sender.nullifier_key)
@@ -155,4 +179,36 @@ fn a_witness_proof_from_another_tree_than_the_inputs_is_refused() {
                 if proof_tree == other.to_bytes() && input_tree == tree.to_bytes()
         ));
     }
+}
+
+/// The merge fetches its witness under the client's indexer config, so a
+/// client-level `require_slot` reaches the indexer.
+#[test]
+fn a_merge_reads_its_witness_under_the_clients_indexer_config() {
+    let (sender, owner, merge) = merge_fixture();
+    let address = sender.shielded_address().expect("address");
+    let other = pda::tree(TREE_ID + 1);
+    let tree = pda::tree(TREE_ID);
+    let reader = Witnesses::new(witnesses(other, tree, tree));
+    let configs = Arc::clone(&reader.configs);
+    let client = SprClient::new(
+        Chain {
+            record: record_account(owner, &sender),
+        },
+        reader,
+        ProverClient::new("http://unused.invalid".to_string()),
+    )
+    .with_indexer_config(IndexerRpcConfig::at_slot(42));
+    let proved =
+        MergeSubmission::new(&merge, owner, &address, &sender.nullifier_key).prove_sync(&client);
+    assert!(matches!(
+        proved,
+        Err(ClientError::MergeInputTreeMismatch { .. })
+    ));
+    let configs = configs.lock().unwrap();
+    let slots: Vec<_> = configs
+        .iter()
+        .map(|config| config.and_then(|config| config.require_slot))
+        .collect();
+    assert_eq!(slots, [Some(42)]);
 }

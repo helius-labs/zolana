@@ -582,6 +582,95 @@ fn a_prover_given_for_one_submission_replaces_the_clients() {
     assert!(own.requests.lock().unwrap().is_empty());
 }
 
+/// A client-level `require_slot` reaches the indexer when the client fetches
+/// the proof data itself: with a prover of its own, with
+/// `ProofDataSource::Client`, and through `prove` and `prove_transact`. The
+/// mock indexer answers at slot 1, so a client requiring slot 2 fails.
+#[test]
+fn a_client_level_require_slot_reaches_the_indexer_when_the_client_fetches() {
+    let config = IndexerRpcConfig {
+        poll: IndexerPollConfig::new(0, 0, 0),
+        require_slot: Some(2),
+    };
+    let with_own_prover = |server: &MockIndexerServer| {
+        SprClient::with_prover(
+            MockSubmitRpc::new(Signature::default()),
+            SprIndexer::new(server.url()),
+            RecordingProver::default(),
+        )
+        .with_indexer_config(config)
+    };
+    let fetching_for_the_prover = |server: &MockIndexerServer| {
+        SprClient::new(
+            MockSubmitRpc::new(Signature::default()),
+            SprIndexer::new(server.url()),
+            ProverClient::new("http://unused.invalid".to_string()),
+        )
+        .with_proof_data_source(spr_client::ProofDataSource::Client)
+        .with_indexer_config(config)
+    };
+    let not_caught_up = |result: Result<(), ClientError>| {
+        assert!(
+            matches!(
+                result,
+                Err(ClientError::IndexerNotCaughtUp {
+                    required: 2,
+                    indexed: 1,
+                    ..
+                })
+            ),
+            "{result:?}"
+        );
+    };
+    for client in [
+        &with_own_prover as &dyn Fn(&MockIndexerServer) -> SprClient<MockSubmitRpc>,
+        &fetching_for_the_prover,
+    ] {
+        let (sender, signed, server) = with_prover_fixture();
+        not_caught_up(
+            Submission::new(&signed, signed.transaction.payer, &sender)
+                .finish_unsigned_sync(&client(&server))
+                .map(drop),
+        );
+        let (sender, signed, server) = with_prover_fixture();
+        not_caught_up(Rpc::prove(&client(&server), signed.transaction, &sender).map(drop));
+        let (sender, signed, server) = with_prover_fixture();
+        not_caught_up(
+            client(&server)
+                .prove_transact(signed.transaction, None, &sender)
+                .map(drop),
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_level_require_slot_reaches_the_indexer_when_async() {
+    let (sender, signed, server) = with_prover_fixture();
+    let client = AsyncSprClient::with_prover(
+        MockSubmitRpc::new(Signature::default()),
+        AsyncSprIndexer::new(server.url()),
+        RecordingProver::default(),
+    )
+    .with_indexer_config(IndexerRpcConfig {
+        poll: IndexerPollConfig::new(0, 0, 0),
+        require_slot: Some(2),
+    });
+    let result = Submission::new(&signed, signed.transaction.payer, &sender)
+        .finish_unsigned(&client)
+        .await;
+    assert!(
+        matches!(
+            result,
+            Err(ClientError::IndexerNotCaughtUp {
+                required: 2,
+                indexed: 1,
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+}
+
 #[test]
 fn spend_proofs_are_bound_to_requested_commitments_and_tree() {
     let payer = Keypair::new();
