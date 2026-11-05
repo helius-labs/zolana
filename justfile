@@ -545,7 +545,7 @@ bench-rfq:
     cargo test -p rfq-test --test bench_cu -- --ignored --nocapture
 
 bench-spr-program:
-    ZOLANA_PROGRAM_BENCHMARK=1 cargo test --release -p spr-program --features test-support,setup,parallel,compression --test scenarios -- --test-threads=1
+    SPR_PROGRAM_BENCHMARK=1 cargo test --release -p spr-program --features test-support,setup,parallel,compression --test scenarios -- --test-threads=1
 
 test-spr-macros:
     cargo test --release -p spr-macros

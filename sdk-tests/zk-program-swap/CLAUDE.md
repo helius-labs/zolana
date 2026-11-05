@@ -56,7 +56,8 @@ instructions, and circuits.
 - program: `pinocchio` (+`cpi`), `spr-interface`, `spr-account-checks`,
   `spr-hasher` (+`poseidon`), `groth16-solana` (+`bsb22`) for verification,
   `wincode`/`borsh` for instruction data, `thiserror` +
-  `solana-program-error` for errors. Never sdk crates.
+  `solana-program-error` for errors, and `spr-program` (+`cpi`) for the SPP
+  `transact` CPI (`SppTransactAccounts`). No other sdk crates.
 - prover: `spr-gnark-ffi-prover` for the FFI, key loading, proof compression and
   UTXO witness encoding (`spr-gnark-ffi-prover-build` as the build dependency),
   `spr-client` for proof input UTXOs, the program crate for shared types.

@@ -1,13 +1,13 @@
-# Zolana program SDK
+# SPR program SDK
 
-The Zolana program SDK defines zk program logic as Rust circuits that check private state changes and transfers and bind them to a zolana shielded-pool transaction.
+The SPR program SDK defines zk program logic as Rust circuits that check private state changes and transfers and bind them to an SPR shielded-pool transaction.
 
 The circuits are defined in a Rust crate alongside the Solana program.
 
 The developer defines circuit public and private inputs with normal rust types.  
-Macros derive the circuit equivalent types and client wasm bindings for state deserilization, witness generation and proving.
+Macros derive the circuit equivalent types and client wasm bindings for state deserialization, witness generation and proving.
 
-The zolana cli build command unifies the build of circuits, program and wasm for ts clients.
+The `zolana build-zk-program` command builds the circuits, the program and the wasm package for TypeScript clients in one step.
 
 ## Development of a Zk program
 
@@ -49,7 +49,7 @@ The zolana cli build command unifies the build of circuits, program and wasm for
 | 6   | ProofInputs         | The circuit’s input and intermediate values used to generate a zk proof.                                                                                                        |
 | 7   | State UTXO          | A UTXO that holds private program data accessible in the circuit. The data struct must implement hashing. The UTXO’s data hash commits to that data.                            |
 | 8   | SPP proof           | A zk proof that SPP verifies to check UTXO spends and transaction balances.                                                                                                     |
-| 9   | SPP                 | The zolana shielded pool program that verifies transaction proofs and applies private transfers and UTXO state changes.                                                         |
+| 9   | SPP                 | The SPR shielded pool program that verifies transaction proofs and applies private transfers and UTXO state changes.                                                            |
 | 10  | R1CS                | The circuit’s checks exported as equations for key generation and proving.                                                                                                      |
 | 11  | Proving key         | Public data the client uses to generate zk proofs. Each circuit has its own proving key.                                                                                        |
 | 12  | Verifying key       | Public data the Solana program uses to verify zk proofs generated with the corresponding proving key. Each circuit has its own proving key and verifying key pair.              |
@@ -248,7 +248,7 @@ SDK circuit types are available through `spr_program::circuit`. The code blocks 
 
 1. **`TokenUtxos`**
 
-   A token balance for one owner and asset, backed by zero or more input UTXOs. Also provides the shared [UtxoTrait methods](https://github.com/helius-labs/zk-tools/blob/jorrit/feat-zk-dsl/zk-dsl/spec.md#utxotrait-methods). `new_mut` requires at least one real input unless `with_optional(owner, asset)` is used. That builder allows all input slots to be dummies and supplies the owner and asset for the empty group. Real inputs must match the supplied owner and asset. Configure optional inputs before balance operations. The real-input requirement is checked during transaction registration.
+   A token balance for one owner and asset, backed by zero or more input UTXOs. Also provides the shared `UtxoTrait` methods listed below. `new_mut` requires at least one real input unless `with_optional(owner, asset)` is used. That builder allows all input slots to be dummies and supplies the owner and asset for the empty group. Real inputs must match the supplied owner and asset. Configure optional inputs before balance operations. The real-input requirement is checked during transaction registration.
 
 ```rust
 impl TokenUtxos {
@@ -297,7 +297,7 @@ impl UtxoTrait for TokenUtxos {
 
 2. **`DataUtxo<S>`**
 
-   A state UTXO with data of type `S` and a token balance. State fields and methods are accessible through `Deref` and `DerefMut`. Also provides the shared [UtxoTrait methods](https://github.com/helius-labs/zk-tools/blob/jorrit/feat-zk-dsl/zk-dsl/spec.md#utxotrait-methods). The `*_with_hash` methods apply to `DataUtxo<CircuitVar>` and use an application-provided state hash.
+   A state UTXO with data of type `S` and a token balance. State fields and methods are accessible through `Deref` and `DerefMut`. Also provides the shared `UtxoTrait` methods listed under [`TokenUtxos`](#circuit-types). The `*_with_hash` methods apply to `DataUtxo<CircuitVar>` and use an application-provided state hash.
 
 ```rust
 impl<S> DataUtxo<S> {
@@ -325,7 +325,7 @@ impl DataUtxo<CircuitVar> {
 
 3. **`UniqueDataUtxo<S>`**
 
-   A state UTXO with a unique address derived from its owner and seed. State fields and methods are accessible through `Deref` and `DerefMut`. Also provides the shared [UtxoTrait methods](https://github.com/helius-labs/zk-tools/blob/jorrit/feat-zk-dsl/zk-dsl/spec.md#utxotrait-methods). `new_init` derives the address and prepares its reservation; `.with(state)` registers the reservation together with the state output.
+   A state UTXO with a unique address derived from its owner and seed. State fields and methods are accessible through `Deref` and `DerefMut`. Also provides the shared `UtxoTrait` methods listed under [`TokenUtxos`](#circuit-types). `new_init` derives the address and prepares its reservation; `.with(state)` registers the reservation together with the state output.
 
 ```rust
 impl<S> UniqueDataUtxo<S> {
@@ -417,13 +417,11 @@ pub fn process_increment_ix(accounts: &mut [AccountView], data: &[u8]) -> Progra
         .map_err(|_| ProgramError::InvalidInstructionData)?;
 
     // Verify the proof with the public step and the transaction being executed.
-    ProgramVerifier {
-        circuit: increment::Verifier {
-            proof: &args.proof,
-            public_inputs: increment::PublicInputs { step: args.step },
-        },
+    increment::Verifier {
+        proof: &args.proof,
+        public_inputs: increment::PublicInputs { step: args.step },
         private_tx_hash: tx.private_tx_hash,
-        deposits_and_withdrawals: &[],
+        transfers: &[],
     }
     .verify()?;
 
@@ -439,7 +437,7 @@ pub fn process_increment_ix(accounts: &mut [AccountView], data: &[u8]) -> Progra
 
 ## Build
 
-The Zolana CLI builds the circuits, verifier modules, client wasm package, and Solana program.
+The `zolana` CLI builds the circuits, verifier modules, client wasm package, and Solana program.
 
 ```sh
 zolana build-zk-program -p <crate>
@@ -581,7 +579,7 @@ await sendAndConfirm([instruction]);
 
 ### Rust
 
-The Rust example uses the same fetched UTXO and loaded key bytes. `IncrementInstruction` and `send_and_confirm` are application helpers, matching the TypeScript helpers. The finalized transaction is already typed, so Rust can encrypt its outputs directly. Proof generation accepts a slice of `ShieldedKeypairTrait` implementations and matches inputs by signing identity, independently of keypair order.
+The Rust example uses the same fetched UTXO and loaded key bytes. `IncrementInstruction` and `send_and_confirm` are application helpers, matching the TypeScript helpers. The finalized transaction is already typed, so Rust can encrypt its outputs directly. Proof generation takes one `ProofAuthority`: the counter's PDA owner spends under the fixed zero nullifier key, so `ProgramOwner::nullifier_key()` authorizes its input.
 
 ```rust
 let counter = spr_program::DataUtxo::<Counter>::try_from(counter_wallet_utxo)?;
@@ -609,13 +607,7 @@ let circuit_proof = prover.prove_inputs(&circuit_proof_inputs)?.compressed()?;
 
 // Encrypt the outputs and generate the SPP proof.
 let spp_proof_inputs = finalized.encrypt_with_keys(&sender)?;
-let shielded_pda = ShieldedPda::with_viewing_key(
-    *authority.pda(),
-    ProgramOwner::nullifier_key(),
-    sender.viewing_key.clone(),
-);
-let keypairs: &[&dyn ShieldedKeypairTrait] = &[&shielded_pda];
-let transact = client.prove_transact(spp_proof_inputs, None, keypairs)?;
+let transact = client.prove_transact(spp_proof_inputs, None, &ProgramOwner::nullifier_key())?;
 
 let instruction = IncrementInstruction {
     program_id,
@@ -634,7 +626,7 @@ send_and_confirm(&client, &payer, &[instruction])?;
 
 ### Zk Circuits
 
-1. **Fixed shape:** array lengths and loop bounds must be known when building the circuit. Variable-length collections need a maximum length. Dummys or compact padding can be used to alliviate this for token utxos.
+1. **Fixed shape:** array lengths and loop bounds must be known when building the circuit. Variable-length collections need a maximum length. Dummies or compact padding can be used to alleviate this for token UTXOs.
 2. **Conditional logic:** private values cannot control ordinary Rust branches. Use circuit conditions and selection to express conditional checks.
 3. **Arithmetic:** field operations wrap around the field modulus. Use checked integer types when overflow or value ranges matter.
 4. **Trusted setup:** each circuit requires a trusted setup. A single-party setup can fit an upgradeable program’s trust model when the setup operator is also the trusted upgrade authority. Setup secrets must be discarded; fixed-seed test setups are for testing only.

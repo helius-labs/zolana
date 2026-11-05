@@ -14,14 +14,14 @@ The SDK for Solana programs built on the shielded pool (SPP). It has three parts
   - as R1CS in the prover, where it checks the constraints and the public hash.
 
   The circuits are arkworks 0.6 R1CS over BN254. The DSL, the prover and the core derives
-  come from [`spr-zk-dsl`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/dsl), the gadgets from
-  [`spr-zk-gadgets`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/gadgets), and the UTXO derives from
+  come from [`spr-zk-dsl`](https://github.com/helius-labs/zk-tools/tree/ecb5c8aa8b3d3f19c6b3af020d6d13784df93bac/zk-dsl/dsl), the gadgets from
+  [`spr-zk-gadgets`](https://github.com/helius-labs/zk-tools/tree/ecb5c8aa8b3d3f19c6b3af020d6d13784df93bac/zk-dsl/gadgets), and the UTXO derives from
   [`spr-macros`](../macros). This crate re-exports all of them at the paths below.
 
 The ZK program part implements [`docs.md`](docs.md); [`tests/invariants/`](tests/invariants) states what
 each protocol type guarantees and which tests cover it. The builtins' invariants live with the
-DSL in [`zk-dsl/dsl/tests/invariants`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/dsl/tests/invariants) and
-[`zk-dsl/gadgets/invariants`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/gadgets/invariants).
+DSL in [`zk-dsl/dsl/tests/invariants`](https://github.com/helius-labs/zk-tools/tree/ecb5c8aa8b3d3f19c6b3af020d6d13784df93bac/zk-dsl/dsl/tests/invariants) and
+[`zk-dsl/gadgets/invariants`](https://github.com/helius-labs/zk-tools/tree/ecb5c8aa8b3d3f19c6b3af020d6d13784df93bac/zk-dsl/gadgets/invariants).
 
 A developer writes plain Rust input types, and the client, the tests and the prover all take
 them. `CircuitVar` appears only in the `circuit` impls.
@@ -82,8 +82,8 @@ nothing of the protocol; this crate holds the protocol and re-exports everything
 
 | Crate | Holds |
 | --- | --- |
-| [`spr-zk-dsl`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/dsl) | The builtins (`CircuitVar`, `Bool`, `Uint`, `Bytes`, `Assert`, `Select`), the `Circuit` and `CircuitType` traits, `ProofInput`, `FromCircuit`, `Allocator`, `Records`, the errors, `ZkCircuit`, `CompressedProof`, and the prover: `Groth16Prover`, the Groth16 types, zkeys and the R1CS synthesis. |
-| [`spr-zk-gadgets`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/gadgets) | `poseidon`, `nonzero_hash_chain`, `is_in`/`assert_in`, `one_hot`/`select_index`, `HashBytes`. |
+| [`spr-zk-dsl`](https://github.com/helius-labs/zk-tools/tree/ecb5c8aa8b3d3f19c6b3af020d6d13784df93bac/zk-dsl/dsl) | The builtins (`CircuitVar`, `Bool`, `Uint`, `Bytes`, `Assert`, `Select`), the `Circuit` and `CircuitType` traits, `ProofInput`, `FromCircuit`, `Allocator`, `Records`, the errors, `ZkCircuit`, `CompressedProof`, and the prover: `Groth16Prover`, the Groth16 types, zkeys and the R1CS synthesis. |
+| [`spr-zk-gadgets`](https://github.com/helius-labs/zk-tools/tree/ecb5c8aa8b3d3f19c6b3af020d6d13784df93bac/zk-dsl/gadgets) | `poseidon`, `nonzero_hash_chain`, `is_in`/`assert_in`, `one_hot`/`select_index`, `HashBytes`. |
 | `spr-keypair` (feature `circuit`) | The owner circuit types and how a `ShieldedAddress` enters a circuit. |
 | `spr-transaction` (feature `circuit`) | The asset and UTXO circuit types and how a `Mint` and a `WalletUtxo` enter a circuit. |
 
@@ -91,7 +91,7 @@ In this crate, modules are grouped by the phase that uses them:
 
 | Module | Phase |
 | --- | --- |
-| `circuit/` | The DSL a `circuit` fn is written in, re-exported, plus `protocol/`: the UTXOs built on the circuit types and the transaction. |
+| `circuit/` | The DSL a `circuit` fn is written in, re-exported, plus the protocol types built on it: the UTXOs (`utxo/`), the public transfers (`transfer.rs`) and the transaction (`transaction.rs`). |
 | `conversion/` | Between client and circuit values: the re-exported conversion traits and the `TxContext` conversion. |
 | `client/` | The plain Rust side: `TxContext`, `ProgramOwner`, `DataUtxo`, and with feature `client`, `ZkProgramCircuit` and `ProgramTransaction`. |
 | `hasher/` | The data hashes and discriminators that Solana programs and circuits share. |
@@ -114,7 +114,7 @@ use, `spr_program::circuit` the DSL, and `spr_program::conversion` what lies bet
 | `DataUtxo<T>` | A decrypted UTXO and the program state its data holds. `TryFrom<WalletUtxo>` accepts ordinary `DATA` state or `UNIQ` state prefixed by its reserved address, checks the matching UTXO hash, and returns that address when present. |
 | `ZkProgramCircuit` | Feature `client`. Implemented for every `ZkCircuit` input whose circuit has `Output = CheckedTransaction` and whose type is `'static`. `create_program_transaction` runs `circuit` natively, resolves the slots against the records and returns a `ProgramTransaction`. `create_finalized_transaction` returns only the SPP transaction. `create_proof_inputs_and_encrypt_with_keys` encrypts it with the sender's `ShieldedKeys` into `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints`, `proof_inputs` and the exports come from `ZkCircuit`. |
 | `ProgramTransaction` | Feature `client`. What `create_program_transaction` returns: the SPP `FinalizedTransaction`, the program's `ProofInputs` and the public hash, so one call feeds both proofs. |
-| `ZkCircuit` | Feature `client`. Implemented for every input that implements `ProofInput` with a `Circuit` and `Placeholder`, whatever the circuit's `Output`. `check_constraints` runs the circuit natively and in R1CS without proving, and also synthesizes the placeholder the keys come from: it names a value read of a variable, a shape that differs from the placeholder's and the first constraint that does, and an unsatisfied row by its rule and line. `proof_inputs` returns the full variable assignment and `export_assignment` writes it as a snarkjs `.wtns` file. `export_r1cs` and `export_picus_r1cs` (feature `setup`) write the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony and in the Picus format. The public inputs follow the circuit's `Output`: none for `()`, the public hash for `CheckedTransaction`. `Groth16Prover` takes only a `ZkProgramCircuit`; snarkjs proves a `()` circuit from the exported files. |
+| `ZkCircuit` | Feature `client`. Implemented for every input that implements `ProofInput` with a `Circuit` and `Placeholder`, whatever the circuit's `Output`. `check_constraints` runs the circuit natively and in R1CS without proving, and also synthesizes the placeholder the keys come from: it names a value read of a variable, a shape that differs from the placeholder's and the first constraint that does, and an unsatisfied row by its rule and line. `proof_inputs` returns the full variable assignment and `export_assignment` writes it as a snarkjs `.wtns` file. `export_r1cs` and `export_picus_r1cs` (feature `setup`) write the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony and in the Picus format. The public inputs follow the circuit's `Output`: none for `()`, the public hash for `CheckedTransaction`. `Groth16Prover` takes any `ZkCircuit`, so it proves standalone circuits too (`sdk-tests/zk-standalone`); snarkjs can also prove one from the exported files. |
 | `Groth16Prover<P>` | Feature `client`. The Groth16 keys of program `P`. `new_with_test_setup` (feature `setup`) sets them up from `P`'s placeholder with a fixed seed, and `new` takes loaded keys and refuses keys of another circuit. Setup and proving both use the snarkjs QAP reduction, so keys from the local setup and from a zkey have the same shape. `prove` borrows the inputs and returns a `ProofResult`; `verify` checks one in its compressed form, as a program does. |
 | `ProofResult` | Feature `client`. A proof and the public hash it is valid for. |
 | `SolanaProof` | Feature `client`. A proof in the groth16-solana layout, from an arkworks `Proof`. |
@@ -124,6 +124,10 @@ use, `spr_program::circuit` the DSL, and `spr_program::conversion` what lies bet
 | `ProverError` | What `check_constraints`, the keys and `Groth16Prover` return. The error of a failing constraint includes its row, the rule of the check that made it and the circuit's `file:line`, which `location()` returns. |
 | `SourceLocation`, `SlotKind` | The `file:line:column` of an error, and the kind of slot a slot error names. |
 | `ProvingKey`, `VerifyingKey`, `Proof` | Features `client` or `setup`. The arkworks Groth16 types over BN254, without the curve parameter. |
+
+`ProofInputs::public_hash()` works only when synthesis established a single public
+input. A `.wtns` file does not record that layout, so imported assignments expose
+the public hash through the prover's verified `ProofResult`.
 
 **Setup** (feature `setup`)
 
@@ -149,7 +153,7 @@ use, `spr_program::circuit` the DSL, and `spr_program::conversion` what lies bet
 | `Bool` | A 0 or 1 value, from a `bool` input, `Bool::try_from(&var)`, `is_equal` or a comparison: `select(if_true, if_false)` for any `Select` type, `not`, `and`, `or`, `xor`, `nand`, `implies`, `Bool::all`, `Bool::any`, `assert_true`, `assert_false` and `assert_true_if(condition)`. `Uint::from(flag)` and `CircuitVar::from(flag)` turn one into a value, for arithmetic or hashing. A circuit needs no arkworks import to branch on one. |
 | `Select` | Selection by a `Bool`, for `CircuitVar`, `Uint<BITS>`, `Bool`, `Bytes<N>`, `SolanaAddress`, `SigningPubkey`, `UtxoOwner` and arrays. `one_hot::<N>(index)` and `select_index(&items, index)` index an array by a variable and refuse an index outside it. |
 | `is_in`, `assert_in` | Membership of a value in a set of `CircuitVar`s. |
-| `poseidon` | The circom Poseidon that zolana hashes with natively, built from light-poseidon's parameters. |
+| `poseidon` | The circom Poseidon that SPR hashes with natively, built from light-poseidon's parameters. |
 | `nonzero_hash_chain` | The hash chain `private_tx_hash` computes over the input and output hashes. It skips zeros, so dummies do not enter it. |
 | `Bytes<N>::hash_bytes()` | A fixed-width commitment over checked bytes: 31-byte big-endian chunks folded with Poseidon. Use one `N` per protocol hash domain; leading zeroes are valid. |
 | `Bytes<N>` | `N` byte variables, each range-checked to 8 bits when allocated. `Bytes::<N>::try_from(&var)` splits a variable into big-endian bytes and `CircuitVar::try_from(&bytes)` packs them back, for `N` up to 31. |
@@ -162,14 +166,27 @@ use, `spr_program::circuit` the DSL, and `spr_program::conversion` what lies bet
 | `SigningPubkey` | The tag and key bytes. `identity()` is `hash_bytes(tag \|\| key)`, the value the program sees as `owner_identity`. |
 | `UtxoOwner` | An `SigningPubkey` and the nullifier key. `hash()` is the owner hash. Owners compare by their packed preimage. |
 | `ShieldedAddressCircuit` | A distinct circuit value whose `hash()` includes both the owner hash and the viewing key. UTXO ownership uses its `UtxoOwner` projection. |
-| `Utxo` | The circuit form of a spent UTXO, with its `UtxoOwner` and `SolanaAddress`. Its amount is crate-private: the SPP proof range-checks it, and a circuit reads it through `UtxoTrait`. `Utxo::dummy()` pads a `TokenUtxos`. A dummy's owner is unconstrained and never read: it adds no hash and no amount. |
-| `UtxoMeta` | The spent UTXO's nullifier and latest tree, not part of the commitment; the SPP proof constrains them, and this circuit includes them. |
+| `Utxo` | The circuit form of a spent UTXO, with its `UtxoOwner` and `SolanaAddress`. Its amount is a `#[doc(hidden)]` field of `spr_transaction`, public only for the protocol crates: the SPP proof range-checks it, and a circuit reads it through `UtxoTrait`. `Utxo::dummy()` pads a `TokenUtxos`. A dummy's owner is unconstrained and never read: it adds no hash and no amount. |
 | `DataHash` | The hash of a state: Poseidon over its fields, each contributing its own `hash`. |
 | `UtxoData` | Names a state's client form. The borsh bytes of that form are the data a new data UTXO contains. |
-| `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init(owner)` or `new_mut`; `close()` suppresses its output; `with_asset` selects a non-SOL asset. It moves value through `UtxoTrait` like a token UTXO; what is left is its output, a real UTXO even at a zero balance because it contains state, or must be zero once closed. |
+| `DataUtxo<S>` | A UTXO that holds program state `S`, from `new_init(owner)` or `new_mut`; `close()` suppresses its output; `with_asset` selects a non-SOL asset. It moves value through `UtxoTrait` like a token UTXO; what is left is its output, a real UTXO even at a zero balance because it contains state, or must be zero once closed. |
 | `UniqueDataUtxo<S>` | A `DataUtxo` with an address the circuit derives from its owner, so one address holds the state. `new_init` reserves the address, `new_mut` spends and replaces the state, `close()` leaves an address tombstone and `burn()` leaves nothing. The last of these builders selects the final output mode. The client includes the address input and places the address before the Borsh state in the output data. |
 | `TokenUtxos` | Plain UTXOs of one owner and asset: none from `new_init(owner, asset)`, or `N` slots from `new_mut`, with any slot allowed to be a dummy. It moves value through `UtxoTrait`, and its lifecycle decides whether what is left becomes an output. An output whose balance is zero at proof time, and that only empty outputs follow, is an empty UTXO: it keeps its slot and derived blinding, enters `private_tx_hash` as 0, and leaves no zero-amount UTXO. Dummies must come after every real output, so add change that may reach zero last. The circuit decides this from the balances, so a prover cannot choose it. `close()` asserts that nothing is left and takes no slot. `with_optional(owner, asset)` allows zero real inputs and checks real inputs against the supplied owner and asset. Configure it before balance operations. Without it, registration requires a real input. |
 | `UtxoTrait` | The value operations the UTXO types share: `owner`, `asset`, `amount`, `transfer` and `transfer_all` into a destination UTXO of any type, `deposit`, `withdraw` and `withdraw_all`. Amounts are `Uint<64>`. A transfer refuses a closed destination and constrains the destination to hold the source's asset, at no cost when the destination was built from the source's `asset()`. `transfer` and `withdraw` check that what remains fits in 64 bits: a named error natively, a range check in R1CS. A public transfer of zero is refused by a constraint. `amount` is a `Uint<64>`, range-checked only when the balance could exceed 64 bits, as for a token with several inputs. They are default methods over a crate-private `Balance`. |
+
+`UniqueDataUtxo::new_init(owner, seed)` reserves an address. Include the program id
+and account identifier in the seed to separate applications and accounts. The
+Rust client prepends address slots to the transaction and fetches only their nullifier
+non-inclusion proofs. Use `create_proof_inputs_and_encrypt_with_keys` when a new
+address supplies the first nullifier; it has no cached transaction viewing key. Address-first transactions also need an
+explicit output tree in `TxContext`.
+
+A spent UTXO's nullifier and tree-selection metadata are internal and outside its
+commitment. ZK programs verify the
+shared `private_tx_hash`; the SPP proof binds the transaction's nullifiers and
+other SPP fields. Application authorization uses the program's constrained state
+and public inputs, not the carried metadata. Tests that inspect SDK internals
+must explicitly enable `test-support`.
 
 **Transaction and circuit**
 
@@ -304,14 +321,14 @@ Everything the derives generate goes through these, and each can be written by h
 | `Records` | What a `CircuitVar` cannot hold, keyed by hash: addresses, `Mint`s and spent UTXOs. |
 | `field`, `field_bytes`, `to_bytes` | SDK bytes to circuit values and back. |
 
-### `spr_program::hasher` (feature `circuit`)
+### `spr_program::hasher`
 
 | Name | What it is good for |
 | --- | --- |
 | `DataHasher` | The hash of a state that its data UTXO commits to. `#[derive(UtxoState)]` implements it to match the circuit's `DataHash`. |
 | `Discriminator`, `state_discriminator` | An 8-byte state type tag: the first bytes of `sha256("account:" \|\| type_name)`. |
 | `data_hash`, `unique_data_hash` | A data UTXO's data hash under the `DATA` and `UNIQ` domains: a state or an addressed state. |
-| `ToByteArray` | A value as the 32 bytes a hash takes. |
+| `ToByteArray` | Feature `circuit`. A value as the 32 bytes a hash takes. |
 
 `spr_program::EncryptionCodec` (feature `circuit`) defines a state's encryption plaintext
 and reconstructs the state after decryption. `UtxoState` generates a complete Borsh-backed
@@ -422,7 +439,7 @@ The proof inputs go to a `Groth16Prover` of the program. Its keys come from
 `new_with_test_setup`, which synthesizes the circuit from the program's `Placeholder`, or from
 `new` with loaded keys. Serialized keys include a digest of their circuit matrices, which `new`
 checks against the current circuit before proving. `prove` proves and checks the proof against the keys. `verify` and the
-program's generated `zk::<program>::verify` accept the compressed proof for that public hash.
+program's generated `crate::verifier::<program>::Verifier { .. }.verify()` accept the compressed proof for that public hash.
 
 ```mermaid
 stateDiagram-v2
@@ -444,7 +461,7 @@ stateDiagram-v2
     Slots --> [*]
 ```
 
-*Figure 2: The lifecycles shared by `DataUtxo` and `TokenUtxos`, the counterparts of `LightAccount`.*
+*Figure 2: The lifecycles shared by `DataUtxo` and `TokenUtxos`.*
 
 A UTXO starts in `Init` or `Mut`; `close()` selects `Close`. `Init` adds only an output: the new state for a
 `DataUtxo`, the value transferred into it for a `TokenUtxos`. `Mut` adds its inputs and that
@@ -518,23 +535,6 @@ Keys use arkworks canonical uncompressed serialization: a ceremony-import flag
 followed by the proving key. Loading validates curve and subgroup membership.
 A trusted checksum covers the provenance flag along with the key; it does not
 prove that a ceremony's participants behaved honestly.
-
-`UniqueDataUtxo::new_init(owner, seed)` reserves an address. Include the program id
-and account identifier in the seed to separate applications and accounts. The
-Rust client prepends address slots to the transaction and fetches only their nullifier
-non-inclusion proofs. Use `create_proof_inputs_and_encrypt_with_keys` when a new
-address supplies the first nullifier; it has no cached transaction viewing key. Address-first transactions also need an
-explicit output tree in `TxContext`.
-
-`ProofInputs::public_hash()` works only when synthesis established a single public
-input. A `.wtns` file does not record that layout, so imported assignments expose
-the public hash through the prover's verified `ProofResult`.
-
-UTXO nullifier and tree-selection metadata are internal. ZK programs verify the
-shared `private_tx_hash`; the SPP proof binds the transaction's nullifiers and
-other SPP fields. Application authorization uses the program's constrained state
-and public inputs, not the carried metadata. Tests that inspect SDK internals
-must explicitly enable `test-support`.
 
 ### Circuit outputs and client traits
 
