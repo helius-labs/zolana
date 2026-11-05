@@ -43,7 +43,11 @@ export {
   transactCpiAccounts,
   transactInstruction,
 } from "./instructions/index.js";
-export type { CacheWriteAccounts, TransactAccountsInput } from "./instructions/index.js";
+export type {
+  CacheWriteAccounts,
+  TransactAccountsInput,
+  TransactDeposit,
+} from "./instructions/index.js";
 export { DepositAsset, TransactWithdrawal, circuitCacheAccess } from "./types.js";
 export {
   ciphertextHash,

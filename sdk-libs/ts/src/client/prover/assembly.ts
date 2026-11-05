@@ -498,7 +498,12 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
   const realInputs = proofInputs.inputUtxos.filter((input) => !input.isDummy());
-  if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
+  // A deposit funds its outputs from a public leg alone.
+  if (
+    realInputs.length === 0 &&
+    !proofInputs.externalData.interfaceTransfers.some((transfer) => transfer.isDeposit)
+  )
+    throw new ClientError("CLIENT_NO_INPUTS");
   validateOutputBlindings(proofInputs);
   const cache = checkedTransferCache(proofInputs);
 
@@ -1091,7 +1096,11 @@ export function prepareSlots(
   inputs: readonly ProofInputUtxo[],
   ownerField: (input: ProofInputUtxo, index: number) => bigint,
 ): PreparedSlots {
-  const treeIds: TreeId[] = [];
+  // A deposit holds only dummies, they take the tree of the first.
+  const treeIds: TreeId[] =
+    inputs.length > 0 && inputs.every((input) => input.isDummy() && !input.isCompact())
+      ? [inputs[0]!.treeId]
+      : [];
   const treeIndexes: number[] = [];
   const transferInputs = inputs.map((input, index) => {
     let treeSlot = treeIds.indexOf(input.treeId);
@@ -1159,6 +1168,9 @@ export function assembleSlots(
   const inputOwnerFields: bigint[] = [];
   const runs: InputTreeRun[] = [];
   const treeIndexes: number[] = [];
+  const depositsOnly =
+    proofInputs.inputUtxos.every((input) => input.isDummy() && !input.isCompact()) &&
+    proofInputs.externalData.interfaceTransfers.some((transfer) => transfer.isDeposit);
   let proofIndex = 0;
   let dummyProofIndex = 0;
   for (let index = 0; index < proofInputs.inputUtxos.length; index++) {
@@ -1173,12 +1185,6 @@ export function assembleSlots(
     const openIndex = runs.findIndex((run) => run.treeId === treeId);
     const openRun = runs[openIndex];
     if (input.isDummy()) {
-      if (runs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
-      if (openRun === undefined || (input.isCompact() && openIndex !== INPUT_TREE_SLOT)) {
-        throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", {
-          details: { index },
-        });
-      }
       const proof = dummyNullifierProofs[dummyProofIndex++];
       if (!proof) {
         throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
@@ -1186,17 +1192,35 @@ export function assembleSlots(
         });
       }
       validateNullifierProof(input, proof, index);
-      checkNullifierRoot(openRun, proof, expectedTree, index);
+      // A deposit holds only dummies, the first opens its tree with no state root.
+      if (runs.length === 0) {
+        if (!depositsOnly || proof.merkleContext.tree !== expectedTree)
+          throw new ClientError("CLIENT_NO_INPUTS");
+        runs.push({
+          treeId,
+          nullifierRoot: new Uint8Array(proof.root) as Bytes32,
+          nullifierRootIndex: proof.rootIndex,
+          state: undefined,
+        });
+      }
+      const dummyIndex = runs.findIndex((run) => run.treeId === treeId);
+      const dummyRun = runs[dummyIndex];
+      if (dummyRun === undefined || (input.isCompact() && dummyIndex !== INPUT_TREE_SLOT)) {
+        throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", {
+          details: { index },
+        });
+      }
+      checkNullifierRoot(dummyRun, proof, expectedTree, index);
       const converted = createDummyTransferInput(
         input,
         proof,
         input.publishedNullifier(),
-        openIndex,
+        dummyIndex,
       );
       transferInputs.push(converted);
       nullifiers.push(bigintToBytes(converted.nullifier, "nullifier") as Bytes32);
       inputOwnerFields.push(converted.ownerPublicKeyHash);
-      treeIndexes.push(openIndex);
+      treeIndexes.push(dummyIndex);
       continue;
     }
     let treeIndex: number;

@@ -36,6 +36,7 @@ export {
 } from "./instructions/index.js";
 export type {
   CacheAccounts,
+  DepositSource,
   EncryptedTransaction,
   ExternalData,
   ExternalDataInit,

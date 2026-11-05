@@ -333,6 +333,31 @@ export async function depositInstruction(
   );
 }
 
+/** The account group one deposit leg settles from, the funder signs it, Rust `TransactInterfaceTransferAccounts`. */
+export type TransactDeposit =
+  | Readonly<{ kind: "sol"; funder: SignerAccount }>
+  | Readonly<{
+      kind: "spl";
+      mint: Address;
+      splTokenInterface: Address;
+      funder: SignerAccount;
+      sourceTokenAccount: Address;
+      tokenProgram: Address;
+    }>;
+
+function depositSettlementAccounts(deposit: TransactDeposit): AccountMeta[] {
+  if (deposit.kind === "sol") {
+    return [meta(SOL_INTERFACE, false, true), meta(deposit.funder, true, true)];
+  }
+  return [
+    meta(deposit.mint, false, false),
+    meta(deposit.splTokenInterface, false, true),
+    meta(deposit.funder, true, false),
+    meta(deposit.sourceTokenAccount, false, true),
+    meta(deposit.tokenProgram, false, false),
+  ];
+}
+
 function settlementAccounts(withdrawal?: TransactWithdrawal): AccountMeta[] {
   if (withdrawal === undefined) return [];
   if (withdrawal.kind === "sol") {
@@ -480,6 +505,8 @@ export async function ringTransactAccounts(
     inputs: readonly InputUtxo[];
     treeContexts: readonly TreeContext[];
     ownerSigners?: readonly SignerAccount[];
+    /** In leg order, ahead of the withdrawal's group. */
+    deposits?: readonly TransactDeposit[];
     withdrawal?: TransactWithdrawal;
     cache?: TransactCacheAccounts;
   }>,
@@ -511,6 +538,7 @@ export async function ringTransactAccounts(
     ...input.inputTrees.map((tree) => meta(tree, false, true)),
     ...nullifierPdas.map((pda) => meta(pda, false, true)),
     ...(input.ownerSigners ?? []).map((signer) => meta(signer, true, false)),
+    ...(input.deposits ?? []).flatMap(depositSettlementAccounts),
     ...settlementAccounts(input.withdrawal),
     ...cacheAccountMetas(input.cache),
   ];
