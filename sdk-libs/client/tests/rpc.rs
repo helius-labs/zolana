@@ -10,7 +10,7 @@ use spr_client::rpc::{
 #[tokio::test]
 async fn blocking_transaction_proofs_use_the_custom_reader() {
     use spr_client::{
-        rpc::{Blocking, IndexerRpcConfig, Rpc},
+        rpc::{IndexerRpcConfig, OnBlockingPool, Rpc},
         AsyncWitnessReader, ClientError, InputWitnesses, WitnessReader,
     };
     use spr_transaction::utxo::SppProofInputUtxo;
@@ -38,7 +38,7 @@ async fn blocking_transaction_proofs_use_the_custom_reader() {
         }
     }
 
-    let reader = Blocking::new(CustomReader {
+    let reader = OnBlockingPool::new(CustomReader {
         caller: thread::current().id(),
     });
     let inputs = [

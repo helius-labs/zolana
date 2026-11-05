@@ -69,14 +69,14 @@ fn from_urls_requires_https_off_loopback() {
     ] {
         assert!(
             matches!(
-                SprClient::<(), SprIndexer>::from_urls((), indexer, prover, None),
+                SprClient::<()>::from_urls((), indexer, prover, None),
                 Err(ClientError::InsecureServiceUrl { field: rejected, .. }) if rejected == field
             ),
             "expected {indexer} / {prover} to be rejected for {field}"
         );
     }
 
-    assert!(SprClient::<(), SprIndexer>::from_urls(
+    assert!(SprClient::<()>::from_urls(
         (),
         "https://indexer.example.com",
         "https://prover.example.com",
@@ -96,7 +96,7 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
         "http://svc.localhost:8784",
     ] {
         assert!(
-            SprClient::<(), SprIndexer>::from_urls((), url, url, None).is_ok(),
+            SprClient::<()>::from_urls((), url, url, None).is_ok(),
             "expected {url} to be allowed"
         );
     }
@@ -106,7 +106,7 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
         "http://notlocalhost:8784",
     ] {
         assert!(
-            SprClient::<(), SprIndexer>::from_urls((), url, url, None).is_err(),
+            SprClient::<()>::from_urls((), url, url, None).is_err(),
             "expected {url} to be rejected"
         );
     }
@@ -119,12 +119,11 @@ fn the_insecure_escape_hatch_is_explicit() {
     let indexer = "http://indexer.internal:8784";
     let prover = "http://prover.internal:3001";
     assert!(matches!(
-        SprClient::<(), SprIndexer>::from_urls((), indexer, prover, None),
+        SprClient::<()>::from_urls((), indexer, prover, None),
         Err(ClientError::InsecureServiceUrl { .. })
     ));
 
-    let client =
-        SprClient::<(), SprIndexer>::from_urls_allowing_insecure_http((), indexer, prover, None);
+    let client = SprClient::<()>::from_urls_allowing_insecure_http((), indexer, prover, None);
     assert_eq!(client.indexer().api().base_path(), indexer);
 }
 
@@ -134,7 +133,7 @@ fn the_insecure_escape_hatch_is_explicit() {
 async fn clients_of_either_mode_are_built_inside_an_async_runtime() {
     let (indexer, prover) = ("http://127.0.0.1:8784", "http://127.0.0.1:3001");
     drop(AsyncSprClient::from_urls((), indexer, prover, None).expect("loopback http is allowed"));
-    drop(SprClient::<(), SprIndexer>::from_urls((), indexer, prover, None).expect("loopback"));
+    drop(SprClient::<()>::from_urls((), indexer, prover, None).expect("loopback"));
 }
 
 #[test]

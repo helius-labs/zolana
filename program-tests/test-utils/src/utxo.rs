@@ -333,3 +333,24 @@ pub fn indexed<I: spr_client::Rpc>(
     );
     wallet(utxo, key, tree_id, proof.leaf_index, None, None)
 }
+
+/// Prove `proof_inputs` through the local prover, with the witnesses read
+/// from `indexer`.
+pub fn prove_transact_locally(
+    indexer: &(impl spr_client::Rpc + spr_client::WitnessReader),
+    proof_inputs: SppProofInputs,
+    authority: &dyn spr_client::ProofAuthority,
+) -> std::result::Result<
+    spr_interface::instruction::instruction_data::transact::TransactIxData,
+    spr_client::ClientError,
+> {
+    use spr_client::ProverExt;
+
+    let witnesses = indexer.transaction_proofs(&proof_inputs.input_utxos, None)?;
+    spr_client::ProverClient::local().prove_transact(
+        proof_inputs,
+        &witnesses.spend_proofs,
+        &witnesses.dummy_nullifier_proofs,
+        authority,
+    )
+}

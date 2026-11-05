@@ -6,9 +6,12 @@ RPC (`R`), the indexer (`I`) and the prover.
 ## Blocking and async
 
 `AsyncSprClient<R, I>` is the client; `SprClient<R, I>` is the same
-client for blocking callers, run on a Tokio runtime it owns, over a blocking
-`R` and `I` lifted onto the blocking pool by `Blocking`. There is one
-implementation of everything; the blocking client runs it to completion.
+client for blocking callers: `Blocking<AsyncSprClient<OnBlockingPool<R>, I>>`,
+run on a Tokio runtime, over a blocking `R` lifted onto the blocking pool by
+`OnBlockingPool` and an `async` indexer `I`. `SprIndexer` is
+`Blocking<AsyncSprIndexer>`. `Blocking` answers `Rpc` and `WitnessReader`
+over any `AsyncRpc`, so every method is written once, `async`, and the
+blocking types run it to completion.
 
 ```rust
 let policy = TeePolicy::from_file_json(&std::fs::read_to_string(policy_path)?)?;
@@ -17,7 +20,7 @@ let client = SprClient::from_urls(rpc, indexer_url, prover_url, Some(policy))?;
 ```
 
 or from the services: `SprClient::new(rpc, indexer, prover)` with a
-`SprIndexer` and a `ProverClient`, `AsyncSprClient::new` with their
+`SprIndexer` (or an `AsyncSprIndexer`) and a `ProverClient`, `AsyncSprClient::new` with their
 `async` counterparts. `from_urls` accepts https, or http to loopback only;
 `check_service_url` is that check for a caller building its own services.
 The fourth argument to both URL constructors (including
@@ -29,7 +32,7 @@ as `solana_rpc_client`'s blocking client. Inside a `current_thread` runtime
 (a default `#[tokio::main]` or `#[tokio::test]`) every call fails with
 `ClientError::BlockingInsideRuntime`; use the `async` client there. A
 generic helper over the blocking client bounds its RPC with `BlockingRpc`
-and its indexer with `BlockingIndexer`.
+and its indexer with `AsyncIndexer`.
 
 ## Your own HTTP client
 
@@ -139,8 +142,8 @@ every merged amount; `MergeSubmission::with_prover` keeps it in process.
 
 Any indexer serves a client. A blocking one answers the indexer half of
 `Rpc` and implements `WitnessReader`, which has a default over `Rpc`:
-`impl WitnessReader for MyIndexer {}`. `spr_program_test::SprProgramTest`
-is one: `harness.into_client(ProverClient::local())
+`impl WitnessReader for MyIndexer {}`; `OnBlockingPool::new(indexer)` lifts
+it for the client. `spr_program_test::SprProgramTest` is one: `harness.into_client(ProverClient::local())
 .with_proof_data_source(ProofDataSource::Client)` is a client whose RPC and
 indexer are the litesvm harness, so a transfer proves, sends and confirms in
 one process beside a prover server.

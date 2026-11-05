@@ -15,7 +15,7 @@ use spr_transaction::utxo::SppProofInputUtxo;
 
 use crate::{
     error::ClientError,
-    indexer::{AsyncSprIndexer, SprIndexer},
+    indexer::AsyncSprIndexer,
     prover::transact::witness::SpendProof,
     rpc::{
         AsyncRpc, GetMerkleProofsResponse, GetNonInclusionProofsResponse, IndexerRpcConfig,
@@ -49,8 +49,11 @@ pub struct InputWitnesses {
 ///
 /// The default reads through [`Rpc`], one tree after another, so an
 /// in-process indexer that answers [`Rpc`] needs only
-/// `impl WitnessReader for MyIndexer {}`. [`SprIndexer`] overrides it to
-/// run the round trips together.
+/// `impl WitnessReader for MyIndexer {}`. A [`Blocking`] indexer, such as
+/// `SprIndexer`, runs the `async` reader, which makes the round trips
+/// together.
+///
+/// [`Blocking`]: crate::rpc::Blocking
 pub trait WitnessReader {
     /// Fetch proofs for complete transaction slots, including address-only
     /// transactions. Each non-inclusion proof comes from its slot's own tree.
@@ -241,34 +244,6 @@ fn padding_tree_id(groups: &[TreeGroup]) -> Result<u16, ClientError> {
 fn scatter(mut placed: Vec<(usize, SpendProof)>) -> Vec<SpendProof> {
     placed.sort_by_key(|(position, _)| *position);
     placed.into_iter().map(|(_, proof)| proof).collect()
-}
-
-impl WitnessReader for SprIndexer {
-    fn transaction_proofs(
-        &self,
-        inputs: &[SppProofInputUtxo],
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<InputWitnesses, ClientError> {
-        self.block_on(AsyncWitnessReader::transaction_proofs(
-            self.async_indexer(),
-            inputs,
-            config,
-        ))
-    }
-
-    fn input_witnesses(
-        &self,
-        inputs: &[&SppProofInputUtxo],
-        dummy_nullifiers: &[[u8; 32]],
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<InputWitnesses, ClientError> {
-        self.block_on(AsyncWitnessReader::input_witnesses(
-            self.async_indexer(),
-            inputs,
-            dummy_nullifiers,
-            config,
-        ))
-    }
 }
 
 impl AsyncWitnessReader for AsyncSprIndexer {

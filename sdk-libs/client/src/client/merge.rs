@@ -30,7 +30,7 @@ use crate::{
 
 use super::{
     prove_on_blocking_pool, transaction::prove_with_blockhash, AsyncIndexer, AsyncSprClient,
-    BlockingIndexer, BlockingRpc, SprClient, UnsignedMessage,
+    BlockingRpc, SprClient, UnsignedMessage,
 };
 
 /// Compute-unit ceiling of a `merge_transact`. The widest shape, "Merge 52x1"
@@ -206,29 +206,29 @@ impl<'a> MergeSubmission<'a> {
     }
 
     /// See [`Self::prove`].
-    pub fn prove_sync<R: BlockingRpc, I: BlockingIndexer>(
+    pub fn prove_sync<R: BlockingRpc, I: AsyncIndexer>(
         &self,
         client: &SprClient<R, I>,
     ) -> Result<ProvedMerge, ClientError> {
-        client.block_on(self.prove(&client.client))
+        client.block_on(self.prove(client.get_ref()))
     }
 
     /// See [`Self::finish_unsigned`].
-    pub fn finish_unsigned_sync<R: BlockingRpc, I: BlockingIndexer>(
+    pub fn finish_unsigned_sync<R: BlockingRpc, I: AsyncIndexer>(
         &self,
         client: &SprClient<R, I>,
         fee_payer: Address,
     ) -> Result<UnsignedMessage, ClientError> {
-        client.block_on(self.finish_unsigned(&client.client, fee_payer))
+        client.block_on(self.finish_unsigned(client.get_ref(), fee_payer))
     }
 
     /// See [`Self::send`].
-    pub fn send_sync<R: BlockingRpc, I: BlockingIndexer>(
+    pub fn send_sync<R: BlockingRpc, I: AsyncIndexer>(
         &self,
         client: &SprClient<R, I>,
         fee_payer: &dyn Signer,
     ) -> Result<Signature, ClientError> {
-        client.block_on(self.send(&client.client, fee_payer))
+        client.block_on(self.send(client.get_ref(), fee_payer))
     }
 }
 

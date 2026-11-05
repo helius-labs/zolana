@@ -20,7 +20,8 @@ use spr_client::{
         GetShieldedTransactionsBySignatureResponse, IndexedShieldedTransaction, IndexerRpcConfig,
         MerkleContext, MerkleProof, NonInclusionProof,
     },
-    ClientError, ProverClient, Rpc, RpcSendTransactionConfig, SprClient, WitnessReader,
+    ClientError, OnBlockingPool, ProverClient, Rpc, RpcSendTransactionConfig, SprClient,
+    WitnessReader,
 };
 use spr_tree::TreeAccount;
 
@@ -43,13 +44,14 @@ impl SprProgramTest {
 
     /// A client whose RPC and indexer are this harness, proving through
     /// `prover`. [`SprClient::with_prover`] over two clones of
-    /// [`Self::into_handle`] gives one with a custom prover.
+    /// [`Self::into_handle`], the indexer lifted by [`OnBlockingPool`], gives
+    /// one with a custom prover.
     pub fn into_client(
         self,
         prover: ProverClient,
-    ) -> SprClient<ProgramTestHandle, ProgramTestHandle> {
+    ) -> SprClient<ProgramTestHandle, OnBlockingPool<ProgramTestHandle>> {
         let handle = self.into_handle();
-        SprClient::new(handle.clone(), handle, prover)
+        SprClient::new(handle.clone(), OnBlockingPool::new(handle), prover)
     }
 }
 

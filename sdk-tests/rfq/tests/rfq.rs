@@ -130,10 +130,18 @@ fn cosigned_rfq_settlement() -> Result<()> {
         )
         .map_err(|e| anyhow!("settlement outputs index: {e}"))?;
 
-    sync_wallet(&mut maker.wallet, &maker.keypair, localnet.client.indexer())
-        .map_err(|e| anyhow!("resync maker: {e:?}"))?;
-    sync_wallet(&mut taker.wallet, &taker.keypair, localnet.client.indexer())
-        .map_err(|e| anyhow!("resync taker: {e:?}"))?;
+    sync_wallet(
+        &mut maker.wallet,
+        &maker.keypair,
+        &localnet.client.indexer(),
+    )
+    .map_err(|e| anyhow!("resync maker: {e:?}"))?;
+    sync_wallet(
+        &mut taker.wallet,
+        &taker.keypair,
+        &localnet.client.indexer(),
+    )
+    .map_err(|e| anyhow!("resync taker: {e:?}"))?;
 
     let usdc_asset_id = maker.registry.asset_id(&usdc_mint)?;
     assert_eq!(

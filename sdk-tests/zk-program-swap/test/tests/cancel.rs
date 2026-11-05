@@ -139,14 +139,12 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             cache_accounts: Default::default(),
         };
 
-        let spp_proof = localnet
-            .client
-            .indexer()
-            .prove_transact(
-                spp_proof_inputs.clone(),
-                &spr_keypair::NullifierKey::from_secret([0; 31]),
-            )
-            .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
+        let spp_proof = spr_test_utils::utxo::prove_transact_locally(
+            &localnet.client.indexer(),
+            spp_proof_inputs.clone(),
+            &spr_keypair::NullifierKey::from_secret([0; 31]),
+        )
+        .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
         let make_proof_inputs = MakeProofInputParams {
             order_utxo,
@@ -179,7 +177,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let order = index_maker(
             &maker.keypair,
             &maker.registry,
-            localnet.client.indexer(),
+            &localnet.client.indexer(),
             Duration::from_secs(60),
         )?
         .pop()
@@ -193,7 +191,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             .output_utxo(maker_address.viewing_pubkey)?
             .hash(localnet.tree_id)?;
         let order_state = spr_test_utils::test_validator_asserts::wait_for_merkle_proof(
-            localnet.client.indexer(),
+            &localnet.client.indexer(),
             localnet.tree,
             order_hash,
         );
@@ -235,14 +233,12 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             output_tree_id: localnet.tree_id,
         };
 
-        let spp_proof = localnet
-            .client
-            .indexer()
-            .prove_transact(
-                cancel_spp_proof_inputs,
-                &spr_keypair::NullifierKey::from_secret([0; 31]),
-            )
-            .map_err(|e| anyhow!("cancel transact proof: {e:?}"))?;
+        let spp_proof = spr_test_utils::utxo::prove_transact_locally(
+            &localnet.client.indexer(),
+            cancel_spp_proof_inputs,
+            &spr_keypair::NullifierKey::from_secret([0; 31]),
+        )
+        .map_err(|e| anyhow!("cancel transact proof: {e:?}"))?;
 
         let cancel_proof = swap_prover_client
             .prove_cancel(&cancel_proof_inputs.to_proof_inputs()?)

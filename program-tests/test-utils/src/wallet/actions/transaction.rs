@@ -25,7 +25,7 @@ use spr_client::user_registry::{
     try_resolve_registered_address, try_resolve_registered_address_async, ResolvedAddress,
 };
 use spr_client::{
-    client::{AsyncIndexer, AsyncSprClient, BlockingIndexer, BlockingRpc, SprClient, Submission},
+    client::{AsyncIndexer, AsyncSprClient, BlockingRpc, SprClient, Submission},
     error::ClientError,
     rpc::{sign_transaction, AsyncRpc, Rpc},
     SignedPrivateTransaction, UnsignedMessage,
@@ -598,7 +598,7 @@ pub async fn sign_private_transaction_with_signers<
 pub fn build_private_transaction_sync<
     A: SyncWalletAuthority + ?Sized,
     R: BlockingRpc,
-    I: BlockingIndexer,
+    I: AsyncIndexer,
 >(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
@@ -614,7 +614,7 @@ pub fn build_private_transaction_sync<
 pub fn sign_private_transaction_sync<
     A: SyncWalletAuthority + ?Sized,
     R: BlockingRpc,
-    I: BlockingIndexer,
+    I: AsyncIndexer,
 >(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
@@ -636,7 +636,7 @@ pub fn sign_private_transaction_sync<
 pub fn sign_private_transaction_sync_with_signers<
     A: SyncWalletAuthority + ?Sized,
     R: BlockingRpc,
-    I: BlockingIndexer,
+    I: AsyncIndexer,
 >(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
