@@ -116,12 +116,14 @@ impl PublicKey {
         )?)
     }
 
-    /// A PDA or unknown encoding verifies nothing.
+    /// Ed25519 `verify_strict`, the rule Solana applies to transaction
+    /// signatures: the cofactorless equation, with a small-order key or R
+    /// refused, so a signature that holds only under the cofactored equation
+    /// fails. The eddsa circuits are stricter still and also refuse a key or R
+    /// with any torsion component. A PDA or unknown encoding verifies nothing.
     pub fn verify_message(&self, message: &[u8], sig: &[u8; 64]) -> bool {
         match self.curve() {
             Ok(Curve::Ed25519) => {
-                use ed25519_dalek::Verifier;
-
                 let Ok(bytes) = self.as_ed25519() else {
                     return false;
                 };
@@ -129,7 +131,7 @@ impl PublicKey {
                     return false;
                 };
                 match ed25519_dalek::Signature::try_from(sig.as_slice()) {
-                    Ok(parsed) => vk.verify(message, &parsed).is_ok(),
+                    Ok(parsed) => vk.verify_strict(message, &parsed).is_ok(),
                     Err(_) => false,
                 }
             }

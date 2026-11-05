@@ -1,4 +1,4 @@
-use spr_keypair::{hash::sha256, Curve, SigningKey};
+use spr_keypair::{hash::sha256, Curve, PublicKey, SigningKey};
 
 use crate::KeypairWorld;
 
@@ -81,5 +81,69 @@ pub(crate) fn new_ed25519_is_a_working_ed25519_key() {
     assert_eq!(
         pubkey.confidential_view_tag().unwrap(),
         pubkey.as_ed25519().unwrap()
+    );
+}
+
+#[derive(serde::Deserialize)]
+struct StrictVectors {
+    signing_secret: String,
+    public_key: String,
+    message: String,
+    honest_signature: String,
+    cofactored_only: CofactoredOnly,
+    small_order: SmallOrder,
+}
+
+#[derive(serde::Deserialize)]
+struct CofactoredOnly {
+    signature: String,
+}
+
+#[derive(serde::Deserialize)]
+struct SmallOrder {
+    public_key: String,
+    signature: String,
+}
+
+fn hex_array<const N: usize>(value: &str) -> [u8; N] {
+    hex::decode(value)
+        .expect("hex")
+        .try_into()
+        .expect("vector width")
+}
+
+/// `test-vectors/ed25519_strict.json`, the cross-SDK vectors: a signature
+/// whose R carries a torsion component (valid only under the cofactored
+/// equation) and a small-order key that ed25519-dalek's non-strict `verify`
+/// accepts. `verify_message` refuses both, as Solana and the eddsa circuits do.
+pub(crate) fn verify_message_is_strict() {
+    let vectors: StrictVectors =
+        serde_json::from_str(include_str!("../../../../test-vectors/ed25519_strict.json"))
+            .expect("ed25519_strict.json");
+    let message = hex::decode(&vectors.message).expect("hex");
+
+    let signer = SigningKey::from_ed25519_bytes(&hex_array(&vectors.signing_secret));
+    let public_key = signer.pubkey();
+    assert_eq!(
+        public_key.as_ed25519().unwrap(),
+        hex_array::<32>(&vectors.public_key)
+    );
+    let honest = hex_array(&vectors.honest_signature);
+    assert_eq!(signer.sign_message(&message).unwrap(), honest);
+    assert!(public_key.verify_message(&message, &honest));
+
+    let cofactored_only = hex_array(&vectors.cofactored_only.signature);
+    assert!(!public_key.verify_message(&message, &cofactored_only));
+
+    let small_order_key = hex_array(&vectors.small_order.public_key);
+    let small_order_signature = hex_array(&vectors.small_order.signature);
+    let dalek_key = ed25519_dalek::VerifyingKey::from_bytes(&small_order_key).unwrap();
+    let parsed = ed25519_dalek::Signature::from_bytes(&small_order_signature);
+    assert!(
+        ed25519_dalek::Verifier::verify(&dalek_key, &message, &parsed).is_ok(),
+        "the non-strict equation accepts a small-order key"
+    );
+    assert!(
+        !PublicKey::from_ed25519(&small_order_key).verify_message(&message, &small_order_signature)
     );
 }
