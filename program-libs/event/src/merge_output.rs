@@ -5,7 +5,7 @@ use crate::OutputDataEncoding;
 /// Scheme byte of a PoseidonCtrV1 merge output body. A `merge_transact` output
 /// publishes it inside [`OutputDataEncoding::VerifiablyEncrypted`] (the merge
 /// proof binds the ciphertext); a `merge_ring` output inside
-/// [`OutputDataEncoding::Encrypted`] (the ring merge proof does not).
+/// [`OutputDataEncoding::Encrypted`].
 pub const MERGE_OUTPUT_SCHEME: u8 = 6;
 
 /// Bytes of the per-proof salt the merge output ciphertext is padded under.
@@ -25,8 +25,7 @@ pub struct MergeOutputDataRef<'a> {
     pub ciphertext: &'a [[u8; 32]],
     /// Elements written before the salt: the output `ring_data_hash` a
     /// `merge_ring` binds, empty on `merge_transact`. A non-empty prefix
-    /// publishes the output as `Encrypted`, since the ring merge proof does
-    /// not bind the ciphertext.
+    /// publishes the output as `Encrypted`.
     pub prefix: &'a [[u8; 32]],
 }
 

@@ -98,6 +98,20 @@ fn accessors_and_behavior_match_variants() {
     assert!(!authority.requires_input_signatures());
     assert_eq!(authority.output_owner_mode(), OutputOwnerMode::None);
 
+    let exit = CircuitId::RingAuthorityExit(4, 4, 3);
+    assert_eq!(exit.shape(), (4, 4, 3));
+    assert!(exit.is_ring());
+    assert!(exit.is_authority());
+    assert!(!exit.is_anonymous());
+    assert!(!exit.requires_input_signatures());
+    assert!(!exit.has_message_hash());
+    assert_eq!(exit.cache_access(), None);
+    assert_eq!(exit.uncached(), exit);
+    assert_eq!(
+        exit.output_owner_mode(),
+        OutputOwnerMode::ConfidentialMarked
+    );
+
     let anonymous = CircuitId::AnonymousRingEddsa(2, 3, 3, PROOF_DATA);
     assert_eq!(anonymous.shape(), (2, 3, 3));
     assert!(anonymous.is_ring());
@@ -136,7 +150,15 @@ fn supported_shapes_are_fail_closed() {
     }
     for n in [1, 3] {
         assert!(!CircuitId::RingAuthority(n, n, 3).is_supported(), "{n}x{n}");
+        assert!(
+            !CircuitId::RingAuthorityExit(n, n, 3).is_supported(),
+            "{n}x{n}"
+        );
     }
+    assert!(CircuitId::RingAuthorityExit(2, 2, 3).is_supported());
+    assert!(CircuitId::RingAuthorityExit(4, 4, 3).is_supported());
+    assert!(!CircuitId::RingAuthorityExit(2, 4, 3).is_supported());
+    assert!(!CircuitId::RingAuthorityExit(2, 2, 2).is_supported());
 }
 
 #[test]
@@ -191,6 +213,10 @@ fn every_supported_shape_resolves_exactly_one_key() {
         let circuit = CircuitId::RingAuthority(n, n, PUBLIC_ASSET_SLOTS);
         assert!(circuit.is_supported());
         assert!(circuit.verifying_key().is_some());
+        // SPP refuses an exit without pinned keys.
+        assert!(CircuitId::RingAuthorityExit(n, n, PUBLIC_ASSET_SLOTS)
+            .verifying_key()
+            .is_none());
     }
     assert!(CircuitId::ConfidentialSigner(2, 3, PUBLIC_ASSET_SLOTS - 1)
         .verifying_key()

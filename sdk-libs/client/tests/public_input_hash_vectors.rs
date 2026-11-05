@@ -190,8 +190,8 @@ impl TransferCase<'_> {
     }
 }
 
-/// A policy-ring merge: the shared prefix, then the output ring data hash and
-/// the ring program id. The ring merge proof binds no ciphertext.
+/// A policy-ring merge hashes the shared prefix, then the output ring data hash,
+/// the ring program id, the published owner and the ciphertext.
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 struct RingMergeVector {
     name: String,
@@ -202,17 +202,26 @@ struct RingMergeVector {
     external_data_hash: String,
     output_ring_data_hash: String,
     ring_program_id: String,
+    published_owner: String,
+    output_ciphertext_salt: String,
+    output_ciphertext: Vec<String>,
     tree_slots: Vec<TreeSlotVector>,
     public_input_hash: String,
 }
 
-fn ring_merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> RingMergeVector {
+fn ring_merge_vector(
+    name: &str,
+    nullifiers: Vec<[u8; 32]>,
+    published_owner: [u8; 32],
+) -> RingMergeVector {
     let output_hash = field(91);
     let output_tree_id = 1u16;
     let private_tx = field(92);
     let external_data_hash = field(93);
     let output_ring_data_hash = field(94);
     let ring_program_id = field(95);
+    let salt = [0x5au8; 16];
+    let output_ciphertext = [field(96), field(97), field(98)];
     let public_input_hash = MergePublicInputs {
         nullifiers: &nullifiers,
         output_hash,
@@ -223,6 +232,11 @@ fn ring_merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> RingMergeVector {
         binding: MergePublicInputBinding::Ring {
             output_data_hash: output_ring_data_hash,
             program_id_hash: ring_program_id,
+            published_owner,
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt,
+                ciphertext: output_ciphertext,
+            },
         },
     }
     .hash(tree_slots_hash_chain(&tree_slots()).unwrap())
@@ -236,6 +250,9 @@ fn ring_merge_vector(name: &str, nullifiers: Vec<[u8; 32]>) -> RingMergeVector {
         external_data_hash: hex(&external_data_hash),
         output_ring_data_hash: hex(&output_ring_data_hash),
         ring_program_id: hex(&ring_program_id),
+        published_owner: hex(&published_owner),
+        output_ciphertext_salt: salt.iter().map(|byte| format!("{byte:02x}")).collect(),
+        output_ciphertext: hexes(&output_ciphertext),
         tree_slots: tree_slot_vectors(),
         public_input_hash: hex(&public_input_hash),
     }
@@ -323,6 +340,13 @@ fn compute_vectors() -> PublicInputHashVectors {
             output_owner_pk_hashes: None,
             signer_pk_hashes: fields(&[41, 0, 0, 0, 0, 0]),
         },
+        TransferCase {
+            name: "ring_authority_exit_2x2",
+            nullifiers: fields(&[11, 12]),
+            output_hashes: fields(&[21, 22]),
+            output_owner_pk_hashes: Some(padded(&[31], 2)),
+            signer_pk_hashes: fields(&[41]),
+        },
     ]
     .into_iter()
     .map(TransferCase::vector)
@@ -340,8 +364,14 @@ fn compute_vectors() -> PublicInputHashVectors {
         ring_merge_vector(
             "ring_full_8",
             fields(&[401, 402, 403, 404, 405, 406, 407, 408]),
+            [0; 32],
         ),
-        ring_merge_vector("ring_compact_24", padded(&[401, 402, 403], 24)),
+        ring_merge_vector("ring_compact_24", padded(&[401, 402, 403], 24), [0; 32]),
+        ring_merge_vector(
+            "ring_full_8_owner_signed",
+            fields(&[401, 402, 403, 404, 405, 406, 407, 408]),
+            field(99),
+        ),
     ];
     PublicInputHashVectors {
         description: "Known-answer vectors for the transfer and merge public input hashes. \
@@ -349,7 +379,8 @@ fn compute_vectors() -> PublicInputHashVectors {
                       owner lists span the circuit width, with 0 for compact padding, and a \
                       published owner list shorter than the outputs is padded with 0. Transfers \
                       are spr_client::PublicInputs::hash; merges and ring_merges hash the \
-                      MergeProver::build element order, ring_merges without the ciphertext. Produced by sdk-libs/client/tests/public_input_hash_vectors.rs \
+                      MergeProver::build element order. Produced by \
+                      sdk-libs/client/tests/public_input_hash_vectors.rs \
                       print_public_input_hash_vectors: cargo test -p spr-client --test \
                       public_input_hash_vectors print_public_input_hash_vectors -- --ignored \
                       --nocapture"

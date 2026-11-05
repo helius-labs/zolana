@@ -166,8 +166,8 @@ fn settlement_transfers(
 
 /// Rebuild a `merge_transact` or `merge_ring` event. The single output carries
 /// the emitted view tag, the instruction's `output_utxo_hash`, and as its data
-/// the output ciphertext: proof-bound on `merge_transact`, unverified and led
-/// by the output `ring_data_hash` on `merge_ring`.
+/// the output ciphertext, proof-bound on both and led by the output
+/// `ring_data_hash` on `merge_ring`.
 pub fn merge_general_event(
     source: &ParsedInstruction,
     event: &MergeEvent,

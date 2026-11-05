@@ -8,12 +8,11 @@ use super::merge_transact::{MergeTransactIxData, MergeTransactIxDataRef, RefConf
 /// ring program selected. The merge proof asserts it against
 /// `Output.Utxo.RingDataHash` and folds it into the public-input hash; the
 /// wallet reads it from the event to reconstruct the merged ring output. The
-/// ring merge proof does not bind `merge.output_encryption`: SPP publishes it
-/// unverified, and a ring that needs it recoverable enforces it in its own
-/// program.
+/// proof binds `merge.output_encryption`.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeRingIxData {
     pub output_ring_data_hash: [u8; 32],
+    pub authority: MergeRingAuthority,
     pub merge: MergeTransactIxData,
 }
 
@@ -32,6 +31,7 @@ impl MergeRingIxData {
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
 pub struct MergeRingIxDataRef<'a> {
     pub output_ring_data_hash: &'a [u8; 32],
+    pub authority: MergeRingAuthority,
     pub merge: MergeTransactIxDataRef<'a>,
 }
 
@@ -41,4 +41,16 @@ impl<'a> MergeRingIxDataRef<'a> {
         parsed.merge.validate_shape()?;
         Ok(parsed)
     }
+}
+
+/// A proof in the other nullifier key mode fails under the chosen authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[wincode(tag_encoding = "u8")]
+pub enum MergeRingAuthority {
+    /// A nonzero nullifier key.
+    #[wincode(tag = 0)]
+    Ring,
+    /// Zero nullifier key under a signer whose hashed key the proof publishes.
+    #[wincode(tag = 1)]
+    OwnerSigned,
 }

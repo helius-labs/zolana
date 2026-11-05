@@ -87,7 +87,7 @@ fn a_key_outside_the_set_is_refused() {
     let merge = ExpectedProvingKey::merge(8).unwrap();
     assert_eq!(keys.expected(&merge).unwrap(), merge);
     for key in [
-        ExpectedProvingKey::merge_ring(8).unwrap(),
+        ExpectedProvingKey::transfer_ring_authority(2, 2).unwrap(),
         ExpectedProvingKey {
             name: "transfer_confidential_eddsa_2_2.key".into(),
             sha256: [0; 32],
@@ -147,7 +147,7 @@ fn the_prover_check_under_a_set_compares_only_its_keys() {
             .collect(),
     };
     // A rotation also changes keys outside the set, which the set refuses anyway.
-    let outside = report("merge_ring_8_1.key", "cd".repeat(32));
+    let outside = report("transfer_ring_authority_2_2.key", "cd".repeat(32));
     assert!(outside.check_with_keys(Some(&keys)).is_ok());
     assert!(matches!(
         outside.check(),
@@ -278,7 +278,7 @@ fn the_set_verifies_a_real_proof_against_its_own_verifying_key() {
     assert!(keys.verify(name, other_statement, &proof).is_err());
     assert!(keys.verify("merge_8_1.key", public_input, &proof).is_err());
     assert!(matches!(
-        keys.verify("merge_ring_8_1.key", public_input, &proof),
+        keys.verify("transfer_ring_authority_2_2.key", public_input, &proof),
         Err(ClientError::ProvingKeySet("unsupported_circuit"))
     ));
 

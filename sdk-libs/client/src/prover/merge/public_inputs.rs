@@ -17,6 +17,9 @@ pub enum MergePublicInputBinding {
     Ring {
         output_data_hash: [u8; 32],
         program_id_hash: [u8; 32],
+        /// The signer's hashed key under a zero nullifier secret, else zero.
+        published_owner: [u8; 32],
+        output_encryption: MergeOutputEncryption,
     },
 }
 
@@ -48,12 +51,15 @@ impl MergePublicInputs<'_> {
             self.external_data_hash,
             right_align(&[u8::from(self.allow_dummy_inputs)]),
         ]);
-        match &self.binding {
+        let output_encryption = match &self.binding {
             MergePublicInputBinding::Ring {
                 output_data_hash,
                 program_id_hash,
+                published_owner,
+                output_encryption,
             } => {
-                elements.extend([*output_data_hash, *program_id_hash]);
+                elements.extend([*output_data_hash, *program_id_hash, *published_owner]);
+                output_encryption
             }
             MergePublicInputBinding::Owner {
                 signing_key_hash,
@@ -61,12 +67,13 @@ impl MergePublicInputs<'_> {
                 output_encryption,
             } => {
                 elements.extend([*signing_key_hash, *nullifier_public_key]);
-                match output_encryption {
-                    MergeOutputEncryption::PoseidonCtrV1 { salt, ciphertext } => {
-                        elements.push(right_align(salt));
-                        elements.extend(ciphertext);
-                    }
-                }
+                output_encryption
+            }
+        };
+        match output_encryption {
+            MergeOutputEncryption::PoseidonCtrV1 { salt, ciphertext } => {
+                elements.push(right_align(salt));
+                elements.extend(ciphertext);
             }
         }
         Ok(elements)

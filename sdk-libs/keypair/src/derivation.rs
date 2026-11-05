@@ -100,6 +100,8 @@ pub const INFO_RECIPIENT_VIEW_TAG_SECRET: &[u8] = b"TSPP/recipient_view_tag";
 
 pub const INFO_TX_VIEWING_X25519: &[u8] = b"TSPP/tx_viewing/x25519/v1";
 
+pub const INFO_MERGE_SEED: &[u8] = b"CRING/mrg_seed/v1";
+
 pub const INFO_SENDER_VIEW_TAG_PREFIX: &[u8] = b"TSPP/sender_view_tag/";
 
 pub const INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX: &[u8] = b"TSPP/recipient_request_view_tag/";

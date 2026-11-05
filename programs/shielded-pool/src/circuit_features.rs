@@ -19,7 +19,7 @@ pub static CONFIDENTIAL_EDDSA_METADATA: [u8; CONFIDENTIAL_EDDSA.encoded_len()] =
 
 pub fn circuit_enabled(circuit: CircuitId) -> bool {
     if circuit.eddsa_owner_pk().is_none() {
-        return true;
+        return circuit.verifying_key().is_some();
     }
     circuit
         .proving_key_sha256()
