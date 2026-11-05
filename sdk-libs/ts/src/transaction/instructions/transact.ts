@@ -999,9 +999,10 @@ interface Recipient {
 }
 
 const ZERO_ADDRESS = address("11111111111111111111111111111111");
-const NO_SPEND: unique symbol = Symbol("noSpend");
 
 export class ConfidentialTransfer {
+  /** Set only while `newDeposit` constructs its dummy input. */
+  static #deposit = false;
   readonly #owner: ShieldedAddress;
   readonly #inputs: readonly ProofInputUtxo[];
   readonly #payer: Address;
@@ -1038,22 +1039,21 @@ export class ConfidentialTransfer {
     outputTreeId: TreeId,
     feePayer: Address,
   ): ConfidentialTransfer {
-    return new ConfidentialTransfer(
-      owner,
-      [ProofInputUtxo.dummy(undefined, outputTreeId)],
-      feePayer,
-      NO_SPEND,
-    ).withOutputTreeId(outputTreeId);
+    ConfidentialTransfer.#deposit = true;
+    try {
+      return new ConfidentialTransfer(
+        owner,
+        [ProofInputUtxo.dummy(undefined, outputTreeId)],
+        feePayer,
+      ).withOutputTreeId(outputTreeId);
+    } finally {
+      ConfidentialTransfer.#deposit = false;
+    }
   }
 
-  constructor(
-    owner: ShieldedAddress,
-    inputs: readonly ProofInputUtxo[],
-    feePayer: Address,
-    noSpend?: typeof NO_SPEND,
-  ) {
+  constructor(owner: ShieldedAddress, inputs: readonly ProofInputUtxo[], feePayer: Address) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    if (noSpend !== NO_SPEND)
+    if (!ConfidentialTransfer.#deposit)
       inputs.forEach((input, index) => {
         if (input.isDummy()) {
           throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
