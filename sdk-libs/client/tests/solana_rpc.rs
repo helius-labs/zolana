@@ -17,6 +17,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::{Keypair, Signer};
 use solana_pubkey::Pubkey;
 use solana_rpc_client::{
+    mock_sender::MocksMap,
     nonblocking::rpc_client::RpcClient as NonblockingRpcClient,
     rpc_client::{Mocks, RpcClient},
 };
@@ -373,6 +374,104 @@ fn a_v1_send_encodes_the_message_ahead_of_its_signatures() {
     let decoded: VersionedTransaction =
         wincode::deserialize(&bytes).expect("v1 wire bytes deserialize");
     assert_eq!(decoded, transaction);
+}
+
+/// A signed v1 transfer-shaped transaction for the send tests.
+fn signed_transaction() -> VersionedTransaction {
+    let payer = Keypair::new();
+    let instruction = Instruction::new_with_bytes(
+        Pubkey::new_unique(),
+        &[1, 2, 3],
+        vec![AccountMeta::new(payer.pubkey(), true)],
+    );
+    let message = compile_message(
+        &payer.pubkey(),
+        core::slice::from_ref(&instruction),
+        Hash::default(),
+        ComputeBudgetConfig::new(200_000),
+    )
+    .expect("compile");
+    sign_transaction(message, &[&payer]).expect("sign")
+}
+
+/// A status the transaction reached; the mock client's commitment is
+/// finalized.
+fn landed(confirmation_status: &str) -> Value {
+    json!({
+        "slot": 1,
+        "confirmations": if confirmation_status == "finalized" { Value::Null } else { json!(0) },
+        "status": { "Ok": null },
+        "err": null,
+        "confirmationStatus": confirmation_status,
+    })
+}
+
+/// A mock RPC whose blockhash has expired after the first status read: it
+/// answers `getSignatureStatuses` with `statuses` in order and finds no
+/// status after them (`sig_not_found`).
+fn expiring_mocks(statuses: Vec<Value>) -> (&'static str, MocksMap) {
+    let mut mocks = MocksMap::default();
+    for status in statuses {
+        mocks.insert(
+            RpcRequest::GetSignatureStatuses,
+            json!({ "context": { "slot": 1 }, "value": [status] }),
+        );
+    }
+    mocks.insert(
+        RpcRequest::IsBlockhashValid,
+        json!({ "context": { "slot": 1 }, "value": false }),
+    );
+    ("sig_not_found", mocks)
+}
+
+/// A transaction can land in the last slots of its blockhash's window, after
+/// a status read that missed it. Reporting the expiry then would have the
+/// caller prove and send again, to fail on the spent nullifiers.
+#[test]
+fn process_transaction_reads_the_status_again_once_the_blockhash_expires() {
+    let transaction = signed_transaction();
+    let (url, mocks) = expiring_mocks(vec![Value::Null, landed("finalized")]);
+    let rpc = SolanaRpc::with_client(RpcClient::new_mock_with_mocks_map(url, mocks))
+        .with_poll_interval(Duration::ZERO);
+
+    let signature = rpc
+        .process_transaction(transaction.clone())
+        .expect("landed as its blockhash expired");
+
+    assert_eq!(signature, transaction.signatures[0]);
+}
+
+/// Once the transaction is seen at all, the blockhash no longer bounds the
+/// wait for the client's commitment.
+#[tokio::test]
+async fn async_process_transaction_waits_for_a_transaction_that_landed_at_expiry() {
+    let transaction = signed_transaction();
+    let (url, mocks) = expiring_mocks(vec![Value::Null, landed("processed"), landed("finalized")]);
+    let rpc =
+        AsyncSolanaRpc::with_client(NonblockingRpcClient::new_mock_with_mocks_map(url, mocks))
+            .with_poll_interval(Duration::ZERO);
+
+    let signature = AsyncRpc::process_transaction(&rpc, transaction.clone())
+        .await
+        .expect("finalized after its blockhash expired");
+
+    assert_eq!(signature, transaction.signatures[0]);
+}
+
+#[test]
+fn process_transaction_reports_an_expired_transaction_that_never_landed() {
+    let (url, mocks) = expiring_mocks(vec![Value::Null]);
+    let rpc = SolanaRpc::with_client(RpcClient::new_mock_with_mocks_map(url, mocks))
+        .with_poll_interval(Duration::ZERO);
+
+    let error = rpc
+        .process_transaction(signed_transaction())
+        .expect_err("never landed");
+
+    assert!(
+        matches!(&error, ClientError::Rpc(message) if message.contains("blockhash expired")),
+        "expected the expiry, got {error:?}"
+    );
 }
 
 #[test]

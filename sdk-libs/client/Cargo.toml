@@ -89,6 +89,7 @@ spr-hasher = { path = "../../program-libs/hasher", default-features = false, fea
 spr-merkle-tree = { workspace = true }
 rand = { workspace = true }
 serial_test = { workspace = true }
+solana-transaction-error = { workspace = true }
 wincode = { workspace = true }
 
 [[test]]

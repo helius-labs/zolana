@@ -433,6 +433,17 @@ pub enum ClientError {
     #[error("indexer did not observe the transaction before the poll timeout")]
     IndexerTimeout,
 
+    /// Solana confirmed the transaction, but the indexer did not report it:
+    /// `source` says why, such as [`Self::IndexerTimeout`]. The transaction
+    /// landed, so sending it again would pay twice; wait for the indexer to
+    /// catch up with `signature` instead.
+    #[error("transaction {signature} is confirmed but not indexed: {source}")]
+    TransactionNotIndexed {
+        signature: solana_signature::Signature,
+        #[source]
+        source: Box<ClientError>,
+    },
+
     /// The indexer answered with a pagination token that does not advance
     /// past the one it was given, so paging on would never end.
     #[error("indexer returned a pagination token that does not advance; paging would not end")]

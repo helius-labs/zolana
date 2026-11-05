@@ -3,7 +3,9 @@
 //! indexed.
 
 use solana_keypair::Keypair;
+use solana_signature::Signature;
 use solana_signer::Signer;
+use solana_transaction_status_client_types::TransactionConfirmationStatus;
 use spr_client::Rpc;
 use spr_keypair::{hash::owner_hash, ShieldedKeypair};
 use spr_program_test::SprProgramTest;
@@ -70,6 +72,17 @@ fn the_handle_serves_the_proofs_the_chain_verifies() {
             .expect("nullifier root")
     );
     assert!(handle.confirm_transaction(signature).expect("confirm"));
+    let statuses = handle
+        .get_signature_statuses(vec![signature, Signature::from([7u8; 64])])
+        .expect("statuses");
+    let [Some(status), None] = statuses.as_slice() else {
+        panic!("a status for the deposit only, got {statuses:?}");
+    };
+    assert_eq!(status.err, None);
+    assert_eq!(
+        status.confirmation_status(),
+        TransactionConfirmationStatus::Finalized
+    );
     assert_eq!(
         handle
             .get_shielded_transactions_by_signature(signature, None)

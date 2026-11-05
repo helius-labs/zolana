@@ -279,8 +279,8 @@ impl Rpc for SolanaRpc {
 
     /// `RpcClient::send_and_confirm_transaction` with the status polled every
     /// `poll_interval` instead of every 500ms: send with preflight at the
-    /// client's commitment, then poll until the transaction confirms, fails,
-    /// or its blockhash expires.
+    /// client's commitment, then poll until the transaction reaches that
+    /// commitment, fails, or its blockhash expires before it landed.
     fn process_transaction(
         &self,
         transaction: VersionedTransaction,
@@ -302,27 +302,45 @@ impl Rpc for SolanaRpc {
             )
             .map_err(error)?;
         let blockhash = transaction.message.recent_blockhash();
+        let mut expired = false;
         loop {
-            match self
+            let status = self
                 .client
-                .get_signature_status_with_commitment(&signature, commitment)
+                .get_signature_statuses(&[signature])
                 .map_err(error)?
-            {
-                Some(Ok(())) => return Ok(signature),
-                Some(Err(failure)) => return Err(error(failure.into())),
+                .value
+                .into_iter()
+                .next()
+                .flatten();
+            match status {
+                Some(status) if status.satisfies_commitment(commitment) => {
+                    return match status.err {
+                        None => Ok(signature),
+                        Some(failure) => Err(error(failure.into())),
+                    };
+                }
+                // Landed, not yet at the client's commitment: the blockhash
+                // no longer bounds the wait.
+                Some(_) => {}
+                None if expired => {
+                    return Err(ClientError::Rpc(format!(
+                        "transaction {signature} was not confirmed before its blockhash expired"
+                    )));
+                }
                 None => {
-                    if !self
+                    expired = !self
                         .client
                         .is_blockhash_valid(blockhash, CommitmentConfig::processed())
-                        .map_err(error)?
-                    {
-                        return Err(ClientError::Rpc(format!(
-                            "transaction {signature} was not confirmed before its blockhash expired"
-                        )));
+                        .map_err(error)?;
+                    // The transaction can land in the window's last slots,
+                    // after the read above: read its status once more
+                    // before reporting the expiry.
+                    if expired {
+                        continue;
                     }
-                    sleep(self.poll_interval);
                 }
             }
+            sleep(self.poll_interval);
         }
     }
 
