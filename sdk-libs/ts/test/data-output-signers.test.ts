@@ -21,6 +21,10 @@ import { intentHash, type TransactionIntent } from "../src/transaction/wallet/in
 import { BLOCKHASH } from "./helpers/clients.js";
 import { proofFor } from "./helpers/proofs.js";
 
+// The fake provers here answer with a zero proof, which proves nothing; the
+// check itself runs against real proofs in proof-verification.test.ts.
+vi.mock("../src/client/prover/verify.js", () => ({ verifyProofStatement: vi.fn() }));
+
 const TREE = treeAddress(0);
 /** Pays without owning anything the transaction spends or creates. */
 const SPONSOR = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");

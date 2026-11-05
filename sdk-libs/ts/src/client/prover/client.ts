@@ -244,21 +244,13 @@ export class ProverClient {
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
     const body = JSON.stringify(proverRequest(inputs, completeSecret));
-    const key = this.#expected(
-      provingKeyFor({
-        circuit: transferCircuit(inputs),
-        nInputs: inputs.payload.inputs.length,
-        nOutputs: inputs.payload.outputs.length,
-      }),
-    );
+    const key = this.#expected(transferProvingKey(inputs));
     return parseCheckedProof(await this.send(body, "sync", key, context), key);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
     const body = JSON.stringify(mergeProverRequest(inputs, completeSecret));
-    const key = this.#expected(
-      provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length }),
-    );
+    const key = this.#expected(mergeProvingKey(inputs));
     return parseCheckedProof(await this.send(body, "sync", key, context), key);
   }
 
@@ -272,15 +264,8 @@ export class ProverClient {
       inputs.circuit === "merge"
         ? mergeProverRequest(inputs.payload, completeSecret)
         : proverRequest(inputs, completeSecret);
-    const key = provingKeyFor(
-      inputs.circuit === "merge"
-        ? { circuit: mergeCircuit(inputs.payload), nInputs: inputs.payload.inputs.length }
-        : {
-            circuit: transferCircuit(inputs),
-            nInputs: inputs.payload.inputs.length,
-            nOutputs: inputs.payload.outputs.length,
-          },
-    );
+    const key =
+      inputs.circuit === "merge" ? mergeProvingKey(inputs.payload) : transferProvingKey(inputs);
     const body = JSON.stringify(indexedRequestEnvelope(inputs, prepared));
     const result = parseIndexedResponse(await this.send(body, "indexed", key, context), key);
     resolvedTrees(inputs, result.resolution);
@@ -656,6 +641,20 @@ function provingKeyFor(request: ProvingKeyCircuit): ExpectedProvingKey {
     if (error instanceof InterfaceError) throw new ClientError("CLIENT_PROVER_INPUT");
     throw error;
   }
+}
+
+/** The pinned proving key a proof of the transfer `inputs` comes from. */
+export function transferProvingKey(inputs: TransferRequest): ExpectedProvingKey {
+  return provingKeyFor({
+    circuit: transferCircuit(inputs),
+    nInputs: inputs.payload.inputs.length,
+    nOutputs: inputs.payload.outputs.length,
+  });
+}
+
+/** The pinned proving key a proof of the merge `inputs` comes from. */
+export function mergeProvingKey(inputs: MergeInputs | PreparedMergeInputs): ExpectedProvingKey {
+  return provingKeyFor({ circuit: mergeCircuit(inputs), nInputs: inputs.inputs.length });
 }
 
 /** The JSON body the prover accepts; every field a hex string but the slot counts. */

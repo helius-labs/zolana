@@ -4,6 +4,7 @@ import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { wireDecoder } from "../../interface/decode.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../../interface/program.js";
 import { PROVING_KEY_SHA256S, type ExpectedProvingKey } from "../../interface/proving-keys.js";
+import type { Groth16VerifyingKey } from "../../interface/verifying-keys.js";
 import { isLoopbackHost } from "../../services/transport.js";
 
 import { ClientError } from "../error.js";
@@ -36,6 +37,8 @@ export type ProvingKeySetKey = Readonly<{
 const CREATE = Symbol("ProvingKeySet");
 /** Every set the parser issued, with its keys; nothing else is a `ProvingKeySet`. */
 const issued = new WeakMap<ProvingKeySet, ReadonlyMap<string, ProvingKeySetKey>>();
+/** The verifying key of each key of an issued set, which its proofs are checked against. */
+const verifiers = new WeakMap<ProvingKeySet, ReadonlyMap<string, Groth16VerifyingKey>>();
 let issue: ((keys: ReadonlyMap<string, ProvingKeySetKey>) => ProvingKeySet) | undefined;
 
 /**
@@ -102,6 +105,19 @@ export function setPins(set: ProvingKeySet): Readonly<Record<string, string>> {
 }
 
 /**
+ * The verifying key of `set` a proof of key `name` must satisfy, as Rust
+ * `ProvingKeySet::verify` takes it. A name outside the set throws
+ * `CLIENT_PROVING_KEY_SET`.
+ */
+export function setVerifyingKey(set: ProvingKeySet, name: string): Groth16VerifyingKey {
+  const keys = verifiers.get(set);
+  if (keys === undefined) throw new ClientError("CLIENT_INVALID_CONFIG");
+  const key = keys.get(name);
+  if (key === undefined) throw refused("unsupported_circuit");
+  return key;
+}
+
+/**
  * The keys a runtime set replaces: every confidential signer transfer and
  * merge key the SDK pins, as Rust `runtime_names`.
  */
@@ -158,6 +174,7 @@ export function provingKeySetFromCatalog(value: unknown): ProvingKeySet {
     throw refused("incompatible");
   }
   const set = new Map<string, ProvingKeySetKey>();
+  const verifying = new Map<string, Groth16VerifyingKey>();
   for (const name of RUNTIME_NAMES) {
     const verifier = runtime.verifyingKeys.get(name);
     if (verifier === undefined) throw refused("incompatible");
@@ -187,9 +204,21 @@ export function provingKeySetFromCatalog(value: unknown): ProvingKeySet {
         url: zopro.url,
       }),
     );
+    verifying.set(
+      name,
+      Object.freeze({
+        alphaG1: verifier.alphaG1,
+        betaG2: verifier.betaG2,
+        gammaG2: verifier.gammaG2,
+        deltaG2: verifier.deltaG2,
+        ic: verifier.ic,
+      }),
+    );
   }
   if (issue === undefined) throw new ClientError("CLIENT_UNEXPECTED");
-  return issue(set);
+  const issuedSet = issue(set);
+  verifiers.set(issuedSet, verifying);
+  return issuedSet;
 }
 
 /** The lowercase hex SHA-256 of the JSON rows `[name, keySha256, zoproSha256, zoproSize]`, by name. */

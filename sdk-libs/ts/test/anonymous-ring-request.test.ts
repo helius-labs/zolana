@@ -1,6 +1,7 @@
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { getAddressDecoder } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
+import { verifyProofStatement } from "../src/client/prover/verify.js";
 
 import vector from "../../../test-vectors/anonymous_ring_eddsa_request.json" with { type: "json" };
 import { LocalKeys, SprClient, signTransactMessage } from "../src/client/index.js";
@@ -24,6 +25,10 @@ import {
   transactOutputBlinding,
 } from "../src/transaction/index.js";
 import { proofFor } from "./helpers/proofs.js";
+
+// The fake provers here answer with a zero proof, which proves nothing; the
+// check itself runs against real proofs in proof-verification.test.ts.
+vi.mock("../src/client/prover/verify.js", () => ({ verifyProofStatement: vi.fn() }));
 
 // Mirrors the fixture of sdk-libs/client/tests/anonymous_ring_eddsa_request.rs.
 const TREE_ID = 0;
@@ -206,6 +211,17 @@ describe("SprClient.proveAnonymousRingTransact", () => {
         });
         expect(posted).toEqual([request]);
         expect(proven.ownerSigners).toEqual([]);
+        // The BSB22 rail's proof is checked with its commitment.
+        expect(verifyProofStatement).toHaveBeenLastCalledWith(
+          expect.objectContaining({ commitment: new Uint8Array(64) }),
+          BigInt(
+            spent === "ring"
+              ? vector.request.publicInputHash
+              : vector.defaultRing.request.publicInputHash,
+          ),
+          expect.objectContaining({ name: "transfer_eddsa_ring_1_2.key" }),
+          undefined,
+        );
         const { circuit } = proven.data;
         if (circuit.kind !== "anonymousRingEddsa") throw new Error(circuit.kind);
         const unproven = {

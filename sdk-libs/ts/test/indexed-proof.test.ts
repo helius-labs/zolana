@@ -15,6 +15,10 @@ import { BN254_MODULUS, bigintToBytes, checkedBytes } from "../src/client/intern
 import { asField, resolvedPublicInputHash } from "../src/client/prover/assembly.js";
 import { bytesToBigInt } from "../src/interface/bytes.js";
 
+// The fake provers here answer with a zero proof, which proves nothing; the
+// check itself runs against real proofs in proof-verification.test.ts.
+vi.mock("../src/client/prover/verify.js", () => ({ verifyProofStatement: vi.fn() }));
+
 const ONE_INPUT_MERGE_WIDTH = 8;
 const STANDARD_PROOF = proofFor({ circuitType: "merge", inputs: Array(ONE_INPUT_MERGE_WIDTH) });
 
