@@ -54,6 +54,11 @@ type mergeFixtureOptions struct {
 	inputSlot int
 	// outputNullifierPk publishes the merged output under another nullifier key.
 	outputNullifierPk *big.Int
+	// nullifierSecret at zero selects zero-key mode.
+	nullifierSecret *big.Int
+	mergeSeed       *big.Int
+	ownerKeyHash    *big.Int
+	publishedOwner  *big.Int
 }
 
 // Slot 0's tree id is fixtureInputTreeID; fixtureOutputTreeID differs from
@@ -127,10 +132,11 @@ type mergeWitnessFixture struct {
 	userSigningPkHash   *big.Int
 	outputRingDataHash  *big.Int
 	ringProgramID       *big.Int
-	// outputCiphertextSalt and outputCiphertext are the default rail's
-	// public-input-hash tail; the ring rail binds neither.
+	// outputCiphertextSalt and outputCiphertext end the public-input-hash preimage.
 	outputCiphertextSalt *big.Int
 	outputCiphertext     []*big.Int
+	mergeSeed            *big.Int
+	publishedOwner       *big.Int
 	publicInputPreimage  []*big.Int
 	publicInputHash      *big.Int
 }
@@ -139,16 +145,6 @@ func buildDefaultWitness(t testing.TB, options mergeFixtureOptions) *merge.Circu
 	t.Helper()
 	options.rail = defaultFixtureRail
 	return buildMergeFixture(t, options).defaultCircuit()
-}
-
-func buildRingWitness(t testing.TB, ringProgramID *big.Int) *merge.RingCircuit {
-	t.Helper()
-	return buildMergeFixture(t, mergeFixtureOptions{
-		rail:           ringFixtureRail,
-		ringProgramID:  ringProgramID,
-		inputRingData:  []*big.Int{big.NewInt(0xD0), big.NewInt(0xD1)},
-		outputRingData: big.NewInt(0xD2),
-	}).ringCircuit()
 }
 
 func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessFixture {
@@ -164,7 +160,17 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	if err != nil {
 		t.Fatal(err)
 	}
+	if options.ownerKeyHash != nil {
+		ownerKeyHash = options.ownerKeyHash
+	}
 	nullifierSecret := big.NewInt(19)
+	if options.nullifierSecret != nil {
+		nullifierSecret = options.nullifierSecret
+	}
+	seed := nullifierSecret
+	if options.mergeSeed != nil {
+		seed = options.mergeSeed
+	}
 	userNullifierPk, err := protocol.NullifierPk(nullifierSecret)
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +306,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	// and the first real nullifier, mirroring the in-circuit derivation.
 	outAmount := new(big.Int).Add(amounts[0], amounts[1])
 	outBlinding, err := poseidon.Hash([]*big.Int{
-		big.NewInt(mergeshared.MergeOutputBlindingDomainV1), nullifierSecret, nullifiers[0],
+		big.NewInt(mergeshared.MergeOutputBlindingDomainV1), seed, nullifiers[0],
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -342,7 +348,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	for i := range addressNullifiers {
 		addressNullifiers[i] = big.NewInt(0)
 	}
-	privateTxBlinding, err := protocol.PrivateTxBlinding(nullifiers[0], nullifierSecret)
+	privateTxBlinding, err := protocol.PrivateTxBlinding(nullifiers[0], seed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +373,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	dummyNullifier := func(slot int) *big.Int {
 		nf, err := poseidon.Hash([]*big.Int{
 			big.NewInt(mergeshared.MergeDummyNullifierDomain),
-			nullifierSecret,
+			seed,
 			nullifiers[0],
 			big.NewInt(int64(slot)),
 		})
@@ -412,6 +418,7 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 	}
 	var outputCiphertextSalt *big.Int
 	var outputCiphertext []*big.Int
+	var publishedOwner *big.Int
 	switch options.rail {
 	case defaultFixtureRail:
 		outputCiphertextSalt = fixtureCiphertextSalt
@@ -429,11 +436,28 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		)
 		publicInputPreimage = append(publicInputPreimage, outputCiphertext...)
 	case ringFixtureRail:
+		outputCiphertextSalt = fixtureCiphertextSalt
+		outputCiphertext, err = protocol.MergeOutputCiphertext(
+			seed, nullifiers[0], outputCiphertextSalt, outAmount, fixtureMint,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		publishedOwner = big.NewInt(0)
+		if nullifierSecret.Sign() == 0 {
+			publishedOwner = ownerKeyHash
+		}
+		if options.publishedOwner != nil {
+			publishedOwner = options.publishedOwner
+		}
 		publicInputPreimage = append(
 			publicInputPreimage,
 			outputRingData,
 			ringProgramID,
+			publishedOwner,
+			outputCiphertextSalt,
 		)
+		publicInputPreimage = append(publicInputPreimage, outputCiphertext...)
 	default:
 		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
 	}
@@ -502,6 +526,8 @@ func buildMergeFixture(t testing.TB, options mergeFixtureOptions) *mergeWitnessF
 		ringProgramID:        ringProgramID,
 		outputCiphertextSalt: outputCiphertextSalt,
 		outputCiphertext:     outputCiphertext,
+		mergeSeed:            seed,
+		publishedOwner:       publishedOwner,
 		publicInputPreimage:  publicInputPreimage,
 		publicInputHash:      publicInputHash,
 	}
@@ -534,9 +560,12 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	assignment.OwnerPkHash = f.ownerPkHash
 	assignment.UserNullifierPk = f.userNullifierPk
 	assignment.UserNullifierSecret = f.userNullifierSecret
+	assignment.MergeSeed = f.mergeSeed
 	assignment.CommonPublicInputs = f.public
 	assignment.OutputRingDataHash = f.outputRingDataHash
 	assignment.RingProgramID = f.ringProgramID
+	assignment.PublishedOwner = f.publishedOwner
+	assignment.OutputCiphertextSalt = f.outputCiphertextSalt
 	assignment.PublicInputHash = f.publicInputHash
 	return assignment
 }

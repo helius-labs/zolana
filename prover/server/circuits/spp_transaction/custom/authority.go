@@ -87,21 +87,31 @@ func (c *CustomRingAuthorityCircuit) transaction(api frontend.API) shared.Transa
 	}
 }
 
+func (c *CustomRingAuthorityCircuit) lengthChecks() []shared.LengthCheck {
+	return []shared.LengthCheck{
+		{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: 1},
+		{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
+	}
+}
+
 func (c *CustomRingAuthorityCircuit) Define(api frontend.API) error {
 	tx := c.transaction(api)
-	if err := tx.ValidateLayout(
-		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: 1},
-		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
-	); err != nil {
+	if err := tx.ValidateLayout(c.lengthChecks()...); err != nil {
 		return err
 	}
+	return c.constrain(api, tx, func() {
+		shared.AssertRingMember(api, tx.Inputs, tx.Outputs, c.Public.RingProgramID)
+	})
+}
 
+// constrain proves the authority statement under the rail's ring membership rule.
+func (c *CustomRingAuthorityCircuit) constrain(api frontend.API, tx shared.Transaction, assertRingMembership func()) error {
 	// Ring authority cannot create addresses.
 	for _, input := range tx.Inputs {
 		api.AssertIsDifferent(input.Utxo.Domain, shared.AddressDomain)
 	}
 
-	shared.AssertRingMember(api, tx.Inputs, tx.Outputs, c.Public.RingProgramID)
+	assertRingMembership()
 	api.AssertIsDifferent(c.Public.RingProgramID, 0)
 
 	signers := shared.ConfidentialEddsaSigners(api, tx.Inputs, c.Private.InputOwnerPkHashes)

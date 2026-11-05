@@ -13,8 +13,7 @@ import (
 )
 
 // ciphertextTail is the salt followed by the ciphertext, the last elements of
-// the default rail's public-input-hash preimage. The ring rail binds neither
-// (see ring_test.go).
+// the default rail's public-input-hash preimage.
 const ciphertextTail = 1 + mergeshared.MergeOutputCiphertextLen
 
 func defaultCiphertextFixture(t *testing.T) *mergeWitnessFixture {

@@ -24,11 +24,13 @@ const (
 	// pk_fields kept private.
 	TransferRingAuthorityCircuitType CircuitType = "transfer-ring-authority"
 
+	TransferRingAuthorityExitCircuitType CircuitType = "transfer-ring-authority-exit"
+
 	MergeCircuitType CircuitType = "merge"
 
 	// MergeRingCircuitType is the policy-ring analog of the merge proof used by
 	// merge_ring: every input and the output share ring_program_id (matching the
-	// CPI-calling ring), which is committed as a public input. Otherwise identical
-	// to the default merge.
+	// CPI-calling ring), which is committed as a public input. It admits a zero
+	// nullifier secret under a published owner.
 	MergeRingCircuitType CircuitType = "merge-ring"
 )

@@ -207,6 +207,8 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 	} {
 		t.Run(string(circuitType), func(t *testing.T) {
 			params.CircuitType = circuitType
+			params.MergeSeed = big.NewInt(0)
+			params.PublishedOwner = big.NewInt(0)
 			assignment, err := params.CreateWitness()
 			if err != nil {
 				t.Fatalf("create assignment: %v", err)
@@ -218,10 +220,52 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 	}
 }
 
-// The output ciphertext salt is a default-rail input only: the merge-ring
-// circuit has no ciphertext, so a merge-ring request omits the salt and one
-// carrying it is refused, while a default request without it is refused.
-func TestOutputCiphertextSaltIsDefaultRailOnly(t *testing.T) {
+func TestMergeRingSeedInputs(t *testing.T) {
+	encode := func(secret, seed int64) []byte {
+		t.Helper()
+		params := sampleParams()
+		params.CircuitType = common.MergeRingCircuitType
+		params.UserNullifierSecret = big.NewInt(secret)
+		params.MergeSeed = big.NewInt(seed)
+		params.PublishedOwner = big.NewInt(0)
+		data, err := json.Marshal(params)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		return data
+	}
+	var params MergeParameters
+	if err := json.Unmarshal(encode(7, 0), &params); err != nil {
+		t.Fatalf("nonzero secret: %v", err)
+	}
+	if err := json.Unmarshal(encode(0, 7), &params); err != nil {
+		t.Fatalf("zero secret and a seed: %v", err)
+	}
+	if err := json.Unmarshal(encode(0, 0), &params); err == nil {
+		t.Fatal("a zero secret without a seed must be refused")
+	}
+
+	defaultMerge := sampleParams()
+	defaultMerge.CircuitType = common.MergeCircuitType
+	data, err := json.Marshal(defaultMerge)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("unmarshal to map: %v", err)
+	}
+	fields["mergeSeed"] = json.RawMessage(`"0x1"`)
+	data, err = json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("marshal fields: %v", err)
+	}
+	if err := json.Unmarshal(data, &params); err == nil {
+		t.Fatal("a merge request carrying a seed must be refused")
+	}
+}
+
+func TestOutputCiphertextSaltIsRequiredOnEveryRail(t *testing.T) {
 	encode := func(circuitType common.CircuitType) map[string]json.RawMessage {
 		t.Helper()
 		params := sampleParams()
@@ -246,25 +290,15 @@ func TestOutputCiphertextSaltIsDefaultRailOnly(t *testing.T) {
 		return json.Unmarshal(data, &params)
 	}
 
-	ring := encode(common.MergeRingCircuitType)
-	if _, ok := ring["outputCiphertextSalt"]; ok {
-		t.Fatal("a merge-ring request must not carry the output ciphertext salt")
-	}
-	if err := decode(ring); err != nil {
-		t.Fatalf("merge-ring request without a salt: %v", err)
-	}
-	ring["outputCiphertextSalt"] = json.RawMessage(`"0x1"`)
-	if err := decode(ring); err == nil {
-		t.Fatal("a merge-ring request carrying a salt must be refused")
-	}
-
-	merge := encode(common.MergeCircuitType)
-	if err := decode(merge); err != nil {
-		t.Fatalf("merge request with a salt: %v", err)
-	}
-	delete(merge, "outputCiphertextSalt")
-	if err := decode(merge); err == nil {
-		t.Fatal("a merge request without a salt must be refused")
+	for _, circuitType := range []common.CircuitType{common.MergeCircuitType, common.MergeRingCircuitType} {
+		fields := encode(circuitType)
+		if err := decode(fields); err != nil {
+			t.Fatalf("%s request with a salt: %v", circuitType, err)
+		}
+		delete(fields, "outputCiphertextSalt")
+		if err := decode(fields); err == nil {
+			t.Fatalf("a %s request without a salt must be refused", circuitType)
+		}
 	}
 }
 

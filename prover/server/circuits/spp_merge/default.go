@@ -90,7 +90,7 @@ func (c *Circuit) Define(api frontend.API) error {
 	}
 
 	assertDefaultRing(api, tx.Inputs, tx.Output)
-	derived, err := tx.Constrain(api)
+	derived, err := tx.Constrain(api, c.UserNullifierSecret)
 	if err != nil {
 		return err
 	}
