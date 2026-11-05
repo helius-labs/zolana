@@ -91,15 +91,21 @@ export interface SplAssetRegistration {
   readonly mint: Address;
 }
 
-/** Every on-chain SPL asset registration, an unsupported or partial scan fails, never reads as empty. */
+/**
+ * Every on-chain SPL asset registration, an unsupported or partial scan fails,
+ * never reads as empty. With `minContextSlot`, a node behind that slot fails
+ * instead of answering with an older listing.
+ */
 export async function fetchSplAssetRegistrations(
   registryRpc: KitRpcAccess,
   context?: RequestContext,
+  minContextSlot?: bigint,
 ): Promise<readonly SplAssetRegistration[]> {
   const accounts = await runKitRpc("getProgramAccounts", context, (abortSignal) =>
     registryRpc.solanaRpc
       .getProgramAccounts(SHIELDED_POOL_PROGRAM_ID, {
         commitment: registryRpc.commitment,
+        ...(minContextSlot === undefined ? {} : { minContextSlot }),
         encoding: "base64",
         filters: [
           { dataSize: 48n },
@@ -614,30 +620,40 @@ async function runWalletSync(
       ...[...deposits.values()].sort(compareDeposits),
     ];
     let ordered = orderedTransactions();
-    let report = await decryptTransactions({
-      wallet: session.staging,
-      keys,
-      transactions: ordered,
-      config: decryptConfig,
-      context,
-    });
-    let registryRefreshed = false;
-    if (
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(session.staging)
-    ) {
-      registryRefreshed = true;
-      if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
-        report = await decryptTransactions({
-          wallet: session.staging,
-          keys,
-          transactions: ordered,
-          config: decryptConfig,
-          context,
-        });
+    const decrypt = (): Promise<SyncReport> =>
+      decryptTransactions({
+        wallet: session.staging,
+        keys,
+        transactions: ordered,
+        config: decryptConfig,
+        context,
+      });
+    let report = await decrypt();
+    // An output names its asset by an id its sender wrote. Value enters the
+    // pool only in a registered asset and a registration is permanent, so a
+    // registry read at or past the slot of every fetched transaction names
+    // every asset an output there can hold. An id it still lacks names none:
+    // the output is not the wallet's, and the id is only reported.
+    let registryReadAt: bigint | undefined;
+    const resolveAssets = async (): Promise<void> => {
+      if (
+        report.unknownAssetIds.length === 0 &&
+        report.unknownAssetFields.length === 0 &&
+        !walletHasUnknownMint(session.staging)
+      ) {
+        return;
       }
-    }
+      const slot = ordered.reduce(
+        (latest, transaction) => (transaction.slot > latest ? transaction.slot : latest),
+        requireSlot ?? 0n,
+      );
+      if (registryReadAt !== undefined && slot <= registryReadAt) return;
+      registryReadAt = slot;
+      if ((await backfillSessionRegistry(session, input.client, slot, context)) > 0) {
+        report = await decrypt();
+      }
+    };
+    await resolveAssets();
 
     // A transaction found by a stable tag can create a UTXO that another
     // device already spent. Query each newly discovered nullifier once, then
@@ -650,40 +666,14 @@ async function runWalletSync(
     await scanNullifiers(followUpNullifiers);
     if (transactions.size !== beforeFollowUp) {
       ordered = orderedTransactions();
-      report = await decryptTransactions({
-        wallet: session.staging,
-        keys,
-        transactions: ordered,
-        config: decryptConfig,
-        context,
-      });
-      if (
-        !registryRefreshed &&
-        (report.unknownAssetIds.length > 0 ||
-          report.unknownAssetFields.length > 0 ||
-          walletHasUnknownMint(session.staging))
-      ) {
-        if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
-          report = await decryptTransactions({
-            wallet: session.staging,
-            keys,
-            transactions: ordered,
-            config: decryptConfig,
-            context,
-          });
-        }
-      }
+      report = await decrypt();
+      await resolveAssets();
     }
-    // An unresolved asset means a fetched UTXO was not stored. A commit would
-    // advance the checkpoints past it and lose the UTXO until a full rescan.
-    if (
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(session.staging)
-    ) {
-      throw new WalletError("WALLET_UNRESOLVED_ASSET", {
-        details: { unknownAssetIds: report.unknownAssetIds.map(String) },
-      });
+    // A held UTXO whose mint the registry cannot name leaves the wallet's
+    // balances unreadable, so the sync commits only once a registry read
+    // names it.
+    if (walletHasUnknownMint(session.staging)) {
+      throw new WalletError("WALLET_UNRESOLVED_ASSET");
     }
     input.wallet._commitSync(sealSyncDelta(session), session.baseRevision);
     return report;
@@ -695,6 +685,7 @@ async function runWalletSync(
 async function backfillSessionRegistry(
   session: WalletSyncSession,
   client: SyncClient,
+  minContextSlot: bigint,
   context?: RequestContext,
 ): Promise<number> {
   if (client.solanaRpc === undefined || client.commitment === undefined) {
@@ -704,7 +695,11 @@ async function backfillSessionRegistry(
   }
   const registryRpc: KitRpcAccess = { solanaRpc: client.solanaRpc, commitment: client.commitment };
   let inserted = 0;
-  for (const { assetId, mint } of await fetchSplAssetRegistrations(registryRpc, context)) {
+  for (const { assetId, mint } of await fetchSplAssetRegistrations(
+    registryRpc,
+    context,
+    minContextSlot,
+  )) {
     if (ensureSessionAsset(session, assetId, mint)) inserted++;
   }
   return inserted;
