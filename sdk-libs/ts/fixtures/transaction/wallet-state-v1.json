@@ -61,7 +61,7 @@
     "lastSynced": "0",
     "viewingKeyHistoryCount": "1"
   },
-  "id": "fx-p00-transaction-wallet-state-v1",
+  "id": "transaction-wallet-state-v1",
   "inputs": {
     "mintBytes": "2525252525252525252525252525252525252525252525252525252525252525",
     "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
@@ -112,11 +112,7 @@
       }
     ]
   },
-  "inventoryRow": "sdk-libs/transaction/tests/wallet_history.rs",
-  "owningPacket": "P00",
   "responsibility": "wallet UTXOs, spent state, filtered balances, compact balances, and history ordering",
-  "rustPath": "sdk-libs/transaction/src/wallet/state.rs",
-  "rustSymbol": "Wallet; WalletUtxo; balances; history",
   "schema": "zolana-ts-fixtures-v1",
   "version": "1"
 }

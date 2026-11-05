@@ -26,7 +26,7 @@
       "sBytes": "f4f018583f743b2f0f4a78fd06266bb5eb3573cdaf3fd58797fa56f9dd0cd506"
     }
   },
-  "id": "fx-p00-transaction-authority-v1",
+  "id": "transaction-authority-v1",
   "inputs": {
     "messageHashBytes": "2424242424242424242424242424242424242424242424242424242424242424",
     "signingSecretBytes": "0000000000000000000000000000000000000000000000000000000000000007",
@@ -35,11 +35,7 @@
     "txViewingSecretBytes": "254808cf4b7b6038a964696dacee10159e00a8ff1a3f8cf15452e375454a2bf2",
     "viewingSecretBytes": "79f23ff3d69caf61bb2434d3a439e8894e8a19d6fce30ba5fcb22a160162e52d"
   },
-  "inventoryRow": "sdk-libs/transaction/src/wallet/authority.rs",
-  "owningPacket": "P00",
   "responsibility": "authority material, approval input, deterministic Ed25519 signature, and envelope fields",
-  "rustPath": "sdk-libs/transaction/src/wallet/authority.rs",
-  "rustSymbol": "WalletAuthority; SyncWalletAuthority; KeypairWalletAuthority; envelopes",
   "schema": "zolana-ts-fixtures-v1",
   "version": "1"
 }
