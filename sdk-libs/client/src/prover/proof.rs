@@ -16,9 +16,10 @@ use crate::{
 };
 
 /// The single BSB22 Pedersen commitment a proof carries: the commitment point and
-/// its proof-of-knowledge (uncompressed G1, big-endian, not negated). Present only
-/// for the anonymous EdDSA rail. The confidential rail is vanilla
-/// Groth16 with no commitment.
+/// its proof-of-knowledge (uncompressed G1, big-endian, not negated). The
+/// circuits that verify an Ed25519 signature in the proof carry one: the
+/// anonymous ring EdDSA and the confidential EdDSA transfers. Every other
+/// circuit is vanilla Groth16 with none.
 #[derive(Debug, Clone, Copy)]
 pub struct Commitments {
     pub commitment: [u8; 64],
@@ -26,8 +27,9 @@ pub struct Commitments {
 }
 
 /// Uncompressed Groth16 proof with `proof_a` already negated. `commitment` is
-/// `Some` for the anonymous EdDSA rail (verify with `Groth16Verifier::new_with_commitment`)
-/// and `None` for the confidential rail (verify with `Groth16Verifier::new`).
+/// `Some` for the EdDSA circuits (verify with `Groth16Verifier::new_with_commitment`)
+/// and `None` for the vanilla ones (verify with `Groth16Verifier::new`); see
+/// [`Commitments`].
 #[derive(Debug, Clone, Copy)]
 pub struct Proof {
     pub a: [u8; 64],
@@ -46,7 +48,7 @@ pub struct CompressedCommitments {
 /// The Groth16 proof as the SPP instructions carry it: the G1 points of
 /// [`Proof`] compressed to 32 bytes, `b` kept as the raw 128-byte G2 point so
 /// the program skips the G2 decompression syscall. Mirrors [`Proof`]:
-/// `commitment` is `Some` for the anonymous EdDSA rail.
+/// `commitment` is `Some` for the EdDSA circuits.
 #[derive(Debug, Clone, Copy)]
 pub struct ProofCompressed {
     pub a: [u8; 32],
@@ -94,7 +96,8 @@ impl ProofCompressed {
     }
 
     /// Split a committed proof into the unchanged transact proof triple and
-    /// the BSB22 payload embedded in `CircuitId::AnonymousRingEddsa`.
+    /// the BSB22 payload embedded in the `CircuitId::AnonymousRingEddsa` or
+    /// `CircuitId::ConfidentialEddsa` selector.
     pub fn into_committed_transact_parts(
         self,
     ) -> Result<(TransactProof, Bsb22Commitment), ClientError> {

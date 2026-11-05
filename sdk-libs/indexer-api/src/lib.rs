@@ -1281,13 +1281,18 @@ mod tests {
         assert!(value.get("hasMore").is_none());
         assert!(value.get("cursor").is_none());
 
-        // A missing token is not the end of the history, so a response from
-        // before `paginationToken` existed is refused.
-        let mut legacy = value;
-        legacy.as_object_mut().unwrap().remove("paginationToken");
-        legacy["cursor"] = serde_json::Value::Null;
-        legacy["hasMore"] = false.into();
-        assert!(serde_json::from_value::<GetShieldedTransactionsByTagsResponse>(legacy).is_err());
+        // A missing token is not the end of the history, so a page without
+        // `paginationToken` is refused, whatever other fields it carries.
+        let mut without_token = value;
+        without_token
+            .as_object_mut()
+            .unwrap()
+            .remove("paginationToken");
+        without_token["cursor"] = serde_json::Value::Null;
+        without_token["hasMore"] = false.into();
+        assert!(
+            serde_json::from_value::<GetShieldedTransactionsByTagsResponse>(without_token).is_err()
+        );
     }
 
     #[test]

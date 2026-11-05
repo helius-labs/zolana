@@ -1,4 +1,4 @@
-//! Client keypairs for the TSPP shielded protocol. They sign spends, derive
+//! Client keypairs for the SPR shielded pool. They sign spends, derive
 //! nullifiers, encrypt UTXOs, derive view tags, and hash shielded addresses.
 //!
 //! A shielded address is the triple `(signing_pk, nullifier_pk, viewing_pk)`,

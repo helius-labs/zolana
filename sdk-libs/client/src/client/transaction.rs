@@ -34,10 +34,12 @@ use super::{
 };
 use crate::prover::indexed::{IndexedTransferPreparation, IndexedTransferRail};
 
-/// A signed shielded transaction ready for proof assembly and submission.
+/// An encrypted shielded transaction and the settlement accounts of its
+/// interface transfers, ready to prove and submit.
 ///
-/// Produced by signing a `ConfidentialTransaction`; consumed by
-/// [`SprClient`]'s submission helpers.
+/// `transaction` comes from `ConfidentialTransaction::encrypt`. It holds no
+/// signature yet: [`Submission`] proves it and builds the message its signers
+/// sign.
 pub struct SignedPrivateTransaction {
     pub transaction: SppProofInputs,
     pub settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
@@ -254,13 +256,9 @@ impl<'a> Submission<'a> {
     /// Fetches the blockhash beside the proof and retries after proving if
     /// that request is still pending, failed, or began more than ten seconds
     /// ago, including RPC latency. Proof errors return without waiting for
-    /// the blockhash request.
-    /// Callers used to fetch one and hand it in,
-    /// which put a multi-second proof between the blockhash and the send.
-    /// Under load that window exceeded the blockhash lifetime and the
-    /// transaction was rejected at submission, having already paid for the
-    /// sync and the proof: an 80-worker run lost 297 of 337 transfers to
-    /// "Blockhash not found".
+    /// the blockhash request. The caller hands in no blockhash: one fetched
+    /// before a multi-second proof can expire before the send, after the sync
+    /// and the proof are paid for.
     pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncSprClient<R, I>,

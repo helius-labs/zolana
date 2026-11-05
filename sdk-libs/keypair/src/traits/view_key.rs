@@ -11,9 +11,9 @@ use crate::{
 /// in-memory [`ViewingKey`], or an HSM / embedded viewing key) rather than a
 /// concrete type.
 ///
-/// DRAFT: mirrors the current [`ViewingKey`] operational surface. Constructors
-/// and `secret_bytes` (raw key export) are intentionally excluded — a backend
-/// keeps the secret material and exposes only operations over it.
+/// It mirrors the [`ViewingKey`] operations. Constructors and `secret_bytes`
+/// (raw key export) are left out: a backend keeps the secret material and
+/// exposes only operations over it.
 pub trait ViewingKeyTrait {
     // --- identity / key agreement ---
 

@@ -4,9 +4,7 @@
 //! HKDF/ECDH invocation funnels through the free functions below, so the full
 //! derivation tree is auditable in one file and no two derivations can
 //! silently share a tag or diverge in KDF construction. The key types keep
-//! their public constructors and delegate to these pub(crate) free functions;
-//! this thin-wrapper layering is intentional design and overrides the
-//! no-thin-wrapper directive.
+//! their public constructors and delegate to these pub(crate) free functions.
 
 use hkdf::Hkdf;
 use sha2::Sha256;

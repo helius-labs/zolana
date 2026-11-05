@@ -12,7 +12,9 @@ pub enum EncryptedScheme {
     RingConfidential = 4,
     Merge = 6,
     PlaintextTransfer = 7,
-    /// Reserved; ring deposit encryption is not implemented in this repository.
+    /// A `ring_deposit` output: a ciphertext for the ring program, which
+    /// wraps the recipient's. Wallet decryption skips it; the ring's client
+    /// unwraps it with `ShieldedTransaction::unwrap_ring_deposit`.
     RingDeposit = 8,
 }
 
