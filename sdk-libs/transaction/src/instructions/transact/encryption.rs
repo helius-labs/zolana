@@ -22,71 +22,29 @@ pub struct ResolvedOwnerTag {
     pub resolved: [u8; 32],
 }
 
-pub trait OutputEncoder {
-    /// One tag per output slot, in slot order.
-    fn owner_tags(
-        &self,
-        transaction: &ConfidentialTransaction,
-        sender: &ShieldedAddress,
-    ) -> Result<Vec<ResolvedOwnerTag>, TransactionError>;
-
-    fn encode_slot(
-        &self,
-        plaintext: &ConfidentialOutputPlaintext,
-        view_tag: [u8; 32],
-        cx: &ConfidentialEncode,
-    ) -> Result<MessageData, TransactionError>;
-}
-
-impl OutputEncoder for Confidential {
-    fn owner_tags(
-        &self,
-        transaction: &ConfidentialTransaction,
-        sender: &ShieldedAddress,
-    ) -> Result<Vec<ResolvedOwnerTag>, TransactionError> {
-        transaction.owner_tags(&sender.signing_pubkey)
+/// Encrypt one output slot. A ring-bound output takes the ring confidential
+/// scheme byte in place of the confidential one.
+fn encode_slot(
+    plaintext: &ConfidentialOutputPlaintext,
+    view_tag: [u8; 32],
+    cx: &ConfidentialEncode,
+) -> Result<MessageData, TransactionError> {
+    let mut message = Confidential::encode_plaintext(plaintext, view_tag, cx)?;
+    if plaintext.ring_program_id.is_some() {
+        let OutputDataEncoding::Encrypted(mut blob) =
+            OutputDataEncoding::try_from_slice(&message.data)
+                .map_err(|error| TransactionError::Deserialize(error.to_string()))?
+        else {
+            return Err(TransactionError::BadDiscriminator(
+                EncryptedScheme::Confidential.as_byte(),
+            ));
+        };
+        *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
+            EncryptedScheme::RingConfidential.as_byte();
+        message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
+            .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
     }
-
-    fn encode_slot(
-        &self,
-        plaintext: &ConfidentialOutputPlaintext,
-        view_tag: [u8; 32],
-        cx: &ConfidentialEncode,
-    ) -> Result<MessageData, TransactionError> {
-        let mut message = Confidential::encode_plaintext(plaintext, view_tag, cx)?;
-        if plaintext.ring_program_id.is_some() {
-            let OutputDataEncoding::Encrypted(mut blob) =
-                OutputDataEncoding::try_from_slice(&message.data)
-                    .map_err(|error| TransactionError::Deserialize(error.to_string()))?
-            else {
-                return Err(TransactionError::BadDiscriminator(
-                    EncryptedScheme::Confidential.as_byte(),
-                ));
-            };
-            *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
-                EncryptedScheme::RingConfidential.as_byte();
-            message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
-                .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
-        }
-        Ok(message)
-    }
-}
-
-pub struct OutputEncryption<'a, E> {
-    pub sender: &'a ShieldedAddress,
-    pub tx_viewing_key: &'a ViewingKey,
-    pub encoder: &'a E,
-}
-
-impl<E: OutputEncoder> OutputEncryption<'_, E> {
-    pub fn encrypt(
-        self,
-        transaction: ConfidentialTransaction,
-    ) -> Result<SppProofInputs, TransactionError> {
-        transaction
-            .finalize_with(self.sender, self.encoder)?
-            .encrypt_with(self.tx_viewing_key, self.encoder)
-    }
+    Ok(message)
 }
 
 impl ConfidentialTransaction {
@@ -215,14 +173,6 @@ impl FinalizedTransaction {
         self,
         tx_viewing_key: &ViewingKey,
     ) -> Result<SppProofInputs, TransactionError> {
-        self.encrypt_with(tx_viewing_key, &Confidential)
-    }
-
-    fn encrypt_with<E: OutputEncoder>(
-        self,
-        tx_viewing_key: &ViewingKey,
-        encoder: &E,
-    ) -> Result<SppProofInputs, TransactionError> {
         // 1. Require one owner tag per output slot.
         if self.owner_tags.len() != self.output_utxos.len() {
             return Err(TransactionError::OwnerTagCountMismatch {
@@ -255,9 +205,7 @@ impl FinalizedTransaction {
                     salt,
                     slot_index: slot_index as u32,
                 };
-                encoder
-                    .encode_slot(&plaintext, owner_tag.resolved, &cx)
-                    .map(Some)
+                encode_slot(&plaintext, owner_tag.resolved, &cx).map(Some)
             })
             .collect::<Result<Vec<_>, TransactionError>>()?;
         let dummy_len = if self
@@ -265,7 +213,7 @@ impl FinalizedTransaction {
             .iter()
             .any(|output| output.is_dummy() && !output.is_compact())
         {
-            dummy_ciphertext_len(encoder, self.ring_program_id, salt)?
+            dummy_ciphertext_len(self.ring_program_id, salt)?
         } else {
             0
         };
@@ -325,29 +273,27 @@ impl FinalizedTransaction {
     }
 }
 
-fn dummy_ciphertext_len<E: OutputEncoder>(
-    encoder: &E,
+fn dummy_ciphertext_len(
     ring_program_id: Option<Address>,
     salt: [u8; SALT_LEN],
 ) -> Result<usize, TransactionError> {
     let throwaway = ViewingKey::new();
-    Ok(encoder
-        .encode_slot(
-            &ConfidentialOutputPlaintext {
-                asset_id: SOL_ASSET_ID,
-                amount: 0,
-                blinding: [0u8; 32],
-                ring_program_id,
-                data: Data::default(),
-            },
-            [0u8; 32],
-            &ConfidentialEncode {
-                recipient_pubkey: throwaway.pubkey(),
-                tx: throwaway,
-                salt,
-                slot_index: 0,
-            },
-        )?
-        .data
-        .len())
+    Ok(encode_slot(
+        &ConfidentialOutputPlaintext {
+            asset_id: SOL_ASSET_ID,
+            amount: 0,
+            blinding: [0u8; 32],
+            ring_program_id,
+            data: Data::default(),
+        },
+        [0u8; 32],
+        &ConfidentialEncode {
+            recipient_pubkey: throwaway.pubkey(),
+            tx: throwaway,
+            salt,
+            slot_index: 0,
+        },
+    )?
+    .data
+    .len())
 }

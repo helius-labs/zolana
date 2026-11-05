@@ -76,13 +76,6 @@ impl SolanaRpc {
         filtered_program_accounts(&program_id, filter, accounts)
     }
 
-    pub fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
-        self.client
-            .get_genesis_hash()
-            .map(|hash| hash.to_bytes())
-            .map_err(|_| ClientError::Rpc("genesis hash request failed".to_owned()))
-    }
-
     pub fn assert_executable(&self, program_id: &Pubkey) -> Result<(), ClientError> {
         let account = self
             .client

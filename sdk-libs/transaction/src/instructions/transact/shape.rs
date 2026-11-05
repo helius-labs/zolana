@@ -68,16 +68,11 @@ pub(crate) fn is_transact_shape(shape: Shape) -> bool {
 /// does not. A wider balance merges first.
 pub const MAX_SPEND_INPUTS: usize = 40;
 
-/// Shapes automatic selection may pick: every supported shape, in proving
-/// cost order, so the first one that fits is the cheapest.
-pub fn auto_shapes() -> impl Iterator<Item = Shape> {
-    SPP_SUPPORTED_SHAPES.into_iter()
-}
-
-/// The first of [`auto_shapes`] that holds `n_in` inputs and `n_out` outputs,
-/// which is the cheapest to prove.
+/// The first of [`SPP_SUPPORTED_SHAPES`] that holds `n_in` inputs and `n_out`
+/// outputs, which is the cheapest to prove.
 pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, TransactionError> {
-    auto_shapes()
+    SPP_SUPPORTED_SHAPES
+        .into_iter()
         .find(|s| n_in <= s.n_inputs() && n_out <= s.n_outputs())
         .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
 }

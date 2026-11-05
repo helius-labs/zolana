@@ -1,7 +1,7 @@
 [package]
 name = "spr-indexer-api"
 version = "0.8.0"
-description = "Shared JSON-RPC contract for the Zolana indexer."
+description = "Shared JSON-RPC contract for the SPR indexer."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

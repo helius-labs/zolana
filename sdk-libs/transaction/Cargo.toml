@@ -1,7 +1,7 @@
 [package]
-name = "spr-transaction" # TODO: rename as zolana-sdk
+name = "spr-transaction"
 version = "0.8.0"
-description = "TSPP output UTXO serialization: plaintext and encrypted UTXO layouts for transfer and split, encrypted and decrypted via spr-keypair."
+description = "Wallet-side SPR transaction logic: UTXOs, note encryption and decryption, spend selection, and transact and merge proof inputs."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

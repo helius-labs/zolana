@@ -12,7 +12,7 @@ pub use blinding::{
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
 };
 pub(crate) use hash::dummy_utxo_hash;
-pub use hash::{owner_utxo_hash, program_id_proof_input_hash, ring_program_id_proof_input_hash};
+pub use hash::{owner_utxo_hash, program_id_proof_input_hash};
 pub use input::SppProofInputUtxo;
 pub(crate) use note::resolve_ring_program_id;
 // TODO: rename Utxo to CircuitUtxo, then WalletUtxo to Utxo, in its own PR (TS SDK too)

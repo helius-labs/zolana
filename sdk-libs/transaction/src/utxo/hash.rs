@@ -8,12 +8,6 @@ use spr_interface::tree_slot::tree_id_field;
 use super::{Blinding, DUMMY_DOMAIN};
 use crate::error::TransactionError;
 
-pub fn ring_program_id_proof_input_hash(
-    ring_program_id: &Option<Address>,
-) -> Result<[u8; 32], TransactionError> {
-    program_id_proof_input_hash(ring_program_id)
-}
-
 pub fn program_id_proof_input_hash(
     program_id: &Option<Address>,
 ) -> Result<[u8; 32], TransactionError> {

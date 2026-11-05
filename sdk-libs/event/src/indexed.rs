@@ -9,8 +9,6 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexedEvent {
-    /// SPP instruction tag: always [`tag::EMIT_EVENT`] for logged events.
-    pub tag: u8,
     /// Bytes after `EMIT_EVENT`: `[EventKind, borsh(body)]`.
     pub payload: Vec<u8>,
     /// The `GeneralEvent` view, rebuilt from `payload` and the instruction that
@@ -19,8 +17,7 @@ pub struct IndexedEvent {
 }
 
 /// Returns the [`EventKind`] carried by an indexed `EMIT_EVENT` self-CPI payload
-/// (`payload` is everything after the `EMIT_EVENT` tag byte). Do not read
-/// [`IndexedEvent::tag`], which is always [`tag::EMIT_EVENT`].
+/// (`payload` is everything after the `EMIT_EVENT` tag byte).
 pub fn event_kind_from_indexed(event: &IndexedEvent) -> Option<EventKind> {
     event
         .payload
@@ -67,7 +64,6 @@ pub fn instruction_may_emit_events(
 
 fn indexed_event(source: &ParsedInstruction, data: &[u8]) -> IndexedEvent {
     IndexedEvent {
-        tag: tag::EMIT_EVENT,
         payload: data.get(1..).unwrap_or_default().to_vec(),
         decoded: reconstruct_general_event(source, data),
     }
