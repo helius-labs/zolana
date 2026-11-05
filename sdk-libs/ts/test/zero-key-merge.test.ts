@@ -4,7 +4,13 @@ import { mergeProverRequestBody } from "../src/client/index.js";
 import { prepareMerge } from "../src/client/prover/merge.js";
 import { bytesToBigInt } from "../src/interface/bytes.js";
 import { treeAddress } from "../src/interface/pda/index.js";
-import { ShieldedKeypair, randomBlinding } from "../src/keypair/index.js";
+import {
+  NullifierKey,
+  ShieldedAddress,
+  ShieldedKeypair,
+  randomBlinding,
+  type Bytes31,
+} from "../src/keypair/index.js";
 import { Merge, ProofInputUtxo, SOL_MINT, Utxo } from "../src/transaction/index.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 
@@ -13,24 +19,26 @@ const fill = (value: number): Bytes32 => new Uint8Array(32).fill(value) as Bytes
 describe("a zero-key ring merge", () => {
   it("proves under its seed and publishes the signer's hashed key", () => {
     const owner = ShieldedKeypair.generate();
+    const zeroNullifierKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
     try {
       const ring = owner.shieldedAddress().solanaAddress();
-      const inputs = [
-        ProofInputUtxo.fromKeypair(
-          new Utxo({
-            owner: owner.signingPublicKey(),
-            asset: SOL_MINT,
-            amount: 5n,
-            blinding: randomBlinding(),
-            ringProgramId: ring,
-          }),
-          owner,
-        ),
-      ];
-      const merge = (mergeSeed?: Bytes32) =>
+      const utxo = new Utxo({
+        owner: owner.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: randomBlinding(),
+        ringProgramId: ring,
+      });
+      const zeroKeyOwner = ShieldedAddress.fromPublicKeys(
+        owner.signingPublicKey(),
+        zeroNullifierKey.publicKey(),
+        owner.viewingPublicKey(),
+      );
+      const inputs = [ProofInputUtxo.fromNullifierKey(utxo, zeroNullifierKey)];
+      const merge = (mergeSeed?: Bytes32, address = zeroKeyOwner, spends = inputs) =>
         new Merge({
-          address: owner.shieldedAddress(),
-          inputs,
+          address,
+          inputs: spends,
           outputBlinding: fill(1),
           privateTxBlinding: fill(2),
           dummyNullifiers: Array.from({ length: 7 }, (_, slot) => fill(slot + 3)),
@@ -63,7 +71,12 @@ describe("a zero-key ring merge", () => {
         mergeSeed: `0x${bytesToBigInt(seed).toString(16)}`,
         publishedOwner: `0x${ownerHash.toString(16)}`,
       });
+      expect(() => merge(new Uint8Array(32) as Bytes32)).toThrow("TRANSACTION_INVALID_MERGE_SEED");
+      expect(() =>
+        merge(seed, owner.shieldedAddress(), [ProofInputUtxo.fromKeypair(utxo, owner)]),
+      ).toThrow("TRANSACTION_MERGE_SEED_WITH_NULLIFIER_KEY");
     } finally {
+      zeroNullifierKey.destroy();
       owner.destroy();
     }
   });
