@@ -184,6 +184,14 @@ impl IndexedProofRequest {
         {
             return Err(invalid());
         }
+        // A deposit holds only dummies, its first dummy opens their tree.
+        let deposit = metadata.inputs.iter().all(|input| {
+            input
+                .is_dummy
+                .as_deref()
+                .and_then(|flag| decode_field(flag).ok())
+                == Some(scalar_one())
+        });
         let mut next_tree = 0usize;
         for (index, (lookup, input)) in data.inputs.iter().zip(metadata.inputs.iter()).enumerate() {
             let slot = usize::from(lookup.tree_slot);
@@ -259,7 +267,7 @@ impl IndexedProofRequest {
             // Inputs from different trees may interleave. A real input opens
             // trees in first-use order, and a dummy only joins an open tree.
             if slot == next_tree {
-                if dummy {
+                if dummy && !deposit {
                     return Err(invalid());
                 }
                 next_tree += 1;
@@ -696,6 +704,35 @@ mod tests {
         let body: serde_json::Value = serde_json::from_str(&request.body().unwrap()).unwrap();
         assert_eq!(body["minContextSlot"], 42);
         assert!(body["prepared"].get("treeSlots").is_none());
+    }
+
+    /// A dummy opens a tree only when every input is a dummy.
+    #[test]
+    fn only_a_frame_of_dummies_opens_a_tree_with_one() {
+        let request = |dummies: &[bool]| {
+            let mut data = request_data();
+            let inputs: Vec<_> = dummies
+                .iter()
+                .map(|dummy| json!({"treeSlot":"0x0", "isDummy": if *dummy { "0x1" } else { "0x0" }}))
+                .collect();
+            *data.witness = json!({"circuitType":"transfer-confidential", "nInputs": dummies.len(),
+                "nOutputs":2, "inputs": inputs, "outputs":[{}, {}]})
+            .to_string();
+            data.inputs = dummies
+                .iter()
+                .map(|dummy| IndexedLookup {
+                    tree_slot: 0,
+                    commitment: (!dummy).then(scalar_one),
+                    nullifier: None,
+                })
+                .collect();
+            IndexedProofRequest::new(data)
+        };
+        request(&[true, true]).expect("a deposit opens its tree");
+        assert!(matches!(
+            request(&[true, false]),
+            Err(ClientError::InvalidIndexedRequest)
+        ));
     }
 
     /// A ring merge proof binds no ciphertext, so its request carries the

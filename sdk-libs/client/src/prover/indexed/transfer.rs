@@ -154,6 +154,8 @@ impl IndexedTransferPreparation<'_> {
         {
             return Err(super::invalid());
         }
+        // A deposit holds only dummies, its first dummy opens their tree.
+        let deposit = transaction.input_utxos.iter().all(|input| input.is_dummy());
         let mut trees: Vec<IndexedTree> = Vec::new();
         let mut lookups = Vec::new();
         let mut local_inputs = Vec::new();
@@ -172,7 +174,7 @@ impl IndexedTransferPreparation<'_> {
             let position = match trees.iter().position(|tree| tree.id == input.tree_id) {
                 Some(position) => position,
                 None => {
-                    if input.is_dummy() {
+                    if input.is_dummy() && !deposit {
                         return Err(ClientError::NoInputs);
                     }
                     if trees.len() == MAX_INPUT_TREES {
