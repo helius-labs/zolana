@@ -109,7 +109,7 @@ impl MergeProofInputs {
                     None => {
                         input_utxo.data_hash.is_some()
                             || input_utxo.ring_data_hash.is_some()
-                            || !input_utxo.utxo.data.is_empty()
+                            || input_utxo.utxo.data.has_non_memo_records()
                     }
                 };
                 if has_disqualifying_data {

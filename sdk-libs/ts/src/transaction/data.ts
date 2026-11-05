@@ -64,6 +64,11 @@ export class Data {
     return this.#records.length === 0;
   }
 
+  /** Whether any record carries application or ring data rather than a memo. */
+  hasNonMemoRecords(): boolean {
+    return this.#records.some((record) => record.kind !== "memo");
+  }
+
   #get(kind: DataRecord["kind"]): Uint8Array | undefined {
     const record = this.#records.find((candidate) => candidate.kind === kind);
     return record ? new Uint8Array(record.bytes) : undefined;

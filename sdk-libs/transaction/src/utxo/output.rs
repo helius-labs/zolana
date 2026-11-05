@@ -177,6 +177,8 @@ impl SppProofOutputUtxo {
     /// Attach a free-form memo to the output. The memo is encrypted into the
     /// recipient's note but not bound by the commitment, so unlike
     /// `with_utxo_data`/`with_ring_data` it sets no `data_hash`.
+    /// Memo-only UTXOs remain eligible for default wallet operations. Spending,
+    /// splitting or merging them does not copy the memo into the new outputs.
     pub fn with_memo(mut self, memo: Vec<u8>) -> Self {
         self.set_data_record(DataRecord::Memo(memo));
         self

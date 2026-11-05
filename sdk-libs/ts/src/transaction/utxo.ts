@@ -712,6 +712,8 @@ export interface ProofOutputUtxo {
   /**
    * A memo rides in the recipient's UTXO but no commitment covers it, so unlike
    * the data setter above it leaves `dataHash` alone.
+   * Memo-only UTXOs remain eligible for default wallet operations. Spending,
+   * splitting or merging them does not copy the memo into the new outputs.
    */
   withMemo(memo: Uint8Array): ProofOutputUtxo;
   /** Binds the UTXO to a ring, only that ring's transact can spend it. */

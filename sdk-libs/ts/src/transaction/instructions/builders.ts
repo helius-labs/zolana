@@ -234,10 +234,12 @@ function paddedInputCount(realInputs: number): number {
   return count;
 }
 
-/** An input carrying program or ring data, which the plain merge rail never consolidates. */
+/** An input carrying program or ring data, which plain splits and merges reject. */
 function hasData(input: ProofInputUtxo): boolean {
   return (
-    input.dataHash !== undefined || input.ringDataHash !== undefined || !input.utxo.data.isEmpty()
+    input.dataHash !== undefined ||
+    input.ringDataHash !== undefined ||
+    input.utxo.data.hasNonMemoRecords()
   );
 }
 
@@ -491,11 +493,7 @@ export class ConfidentialSplit {
     if (input.input.utxo.ringProgramId !== undefined) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_RING_MISMATCH");
     }
-    if (
-      input.input.dataHash !== undefined ||
-      input.input.ringDataHash !== undefined ||
-      !input.input.utxo.data.isEmpty()
-    ) {
+    if (hasData(input.input)) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_HAS_DATA");
     }
     const perOutputAmount = checkedU64(input.perOutputAmount, "perOutputAmount");

@@ -41,10 +41,7 @@ impl MergeTransaction {
             if input_utxo.utxo.ring_program_id.is_some() {
                 return Err(TransactionError::MergeInputRingMismatch { index });
             }
-            if input_utxo.data_hash.is_some()
-                || input_utxo.ring_data_hash.is_some()
-                || !input_utxo.utxo.data.is_empty()
-            {
+            if !input_utxo.is_plain() {
                 return Err(TransactionError::MergeInputHasData { index });
             }
             Ok(())

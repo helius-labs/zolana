@@ -32,7 +32,7 @@ export function isPlainUtxo(entry: WalletUtxo): boolean {
     entry.utxo.ringProgramId === undefined &&
     entry.ringDataHash === undefined &&
     entry.dataHash === undefined &&
-    entry.utxo.data.isEmpty()
+    !entry.utxo.data.hasNonMemoRecords()
   );
 }
 
