@@ -1,12 +1,8 @@
 use solana_address::Address;
-use spr_hasher::{
-    primitives::{hash_bytes, right_align},
-    Hasher, Poseidon,
-};
-use spr_interface::{state::cache::CACHE_CAPACITY, tree_slot::tree_id_field};
+use spr_interface::state::cache::CACHE_CAPACITY;
 use spr_keypair::{random_blinding, shielded::ShieldedAddress};
 
-use super::{dummy_utxo_hash, owner_utxo_hash, program_id_proof_input_hash, Blinding, UTXO_DOMAIN};
+use super::{Blinding, ProofInputUtxo};
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
@@ -205,24 +201,7 @@ impl SppProofOutputUtxo {
         if self.is_compact() {
             return Ok([0u8; 32]);
         }
-        if self.is_dummy() {
-            return dummy_utxo_hash(&self.blinding, tree_id);
-        }
-        let owner_hash = self.owner_hash()?;
-        let asset = hash_bytes(self.asset.asset.as_array())?;
-        let ring_program_id = program_id_proof_input_hash(&self.ring_program_id)?;
-        let ring_hash =
-            Poseidon::hashv(&[&self.ring_data_hash.unwrap_or_default(), &ring_program_id])?;
-        let owner_hash = owner_utxo_hash(&owner_hash, &self.blinding)?;
-        Ok(Poseidon::hashv(&[
-            &right_align(&UTXO_DOMAIN.to_be_bytes()),
-            &tree_id_field(tree_id),
-            &asset,
-            &right_align(&self.amount.to_be_bytes()),
-            &self.data_hash.unwrap_or_default(),
-            &ring_hash,
-            &owner_hash,
-        ])?)
+        ProofInputUtxo::try_from((self, tree_id))?.hash()
     }
 
     pub fn is_dummy(&self) -> bool {

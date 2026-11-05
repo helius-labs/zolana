@@ -3,7 +3,7 @@ use spr_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use spr_interface::tree_slot::tree_id_field;
+use spr_interface::{tree_slot::tree_id_field, utxo_hash::UtxoHashFields};
 
 use super::{
     program_id_proof_input_hash, Blinding, SppProofInputUtxo, SppProofOutputUtxo, DUMMY_DOMAIN,
@@ -53,7 +53,7 @@ impl ProofInputUtxo {
     /// tag and blinding to be zero, so dummy hashes are indistinguishable from
     /// real ones while the slot provably carries nothing. The tree id is not a
     /// UTXO field, so a dummy is hashed under its slot's tree id like any other.
-    fn dummy_fields(blinding: &Blinding, tree_id: u16) -> Self {
+    pub(crate) fn dummy_fields(blinding: &Blinding, tree_id: u16) -> Self {
         Self {
             domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
             tree_id: tree_id_field(tree_id),
@@ -78,17 +78,16 @@ impl ProofInputUtxo {
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        let ring_hash = Poseidon::hashv(&[&self.ring_data_hash, &self.ring_program_id])?;
-        let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, &self.blinding])?;
-        Ok(Poseidon::hashv(&[
-            &self.domain,
-            &self.tree_id,
-            &self.asset,
-            &self.amount,
-            &self.data_hash,
-            &ring_hash,
-            &owner_utxo_hash,
-        ])?)
+        Ok(UtxoHashFields {
+            domain: &self.domain,
+            tree_id: &self.tree_id,
+            asset: &self.asset,
+            amount: &self.amount,
+            data_hash: &self.data_hash,
+            ring_hash: &Poseidon::hashv(&[&self.ring_data_hash, &self.ring_program_id])?,
+            owner_utxo_hash: &Poseidon::hashv(&[&self.owner_hash, &self.blinding])?,
+        }
+        .hash()?)
     }
 }
 

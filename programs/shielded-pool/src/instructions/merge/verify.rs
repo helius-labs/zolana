@@ -13,9 +13,7 @@ use spr_interface::{
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
-    verifying_keys::{
-        merge_24_1, merge_52_1, merge_8_1, merge_ring_24_1, merge_ring_52_1, merge_ring_8_1,
-    },
+    verifying_keys::merge_verifying_key,
 };
 
 use crate::instructions::verifier;
@@ -108,26 +106,15 @@ impl<'a> MergeProof<'a> {
     }
 
     fn verifying_key(&self) -> Result<&'static Groth16Verifyingkey<'static>, ProgramError> {
-        let vk = match (&self.derived.owner_binding, self.circuit_width()?) {
-            (
-                MergeOwnerBinding::Default {
-                    output_encryption, ..
-                },
-                width,
-            ) => match output_encryption {
-                MergeOutputEncryption::PoseidonCtrV1 { .. } => match width {
-                    8 => &merge_8_1::VERIFYINGKEY,
-                    24 => &merge_24_1::VERIFYINGKEY,
-                    52 => &merge_52_1::VERIFYINGKEY,
-                    _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
-                },
-            },
-            (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Ring { .. }, 24) => &merge_ring_24_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Ring { .. }, 52) => &merge_ring_52_1::VERIFYINGKEY,
-            _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
+        let ring = match &self.derived.owner_binding {
+            MergeOwnerBinding::Default {
+                output_encryption: MergeOutputEncryption::PoseidonCtrV1 { .. },
+                ..
+            } => false,
+            MergeOwnerBinding::Ring { .. } => true,
         };
-        Ok(vk)
+        merge_verifying_key(self.circuit_width()?, ring)
+            .ok_or(ShieldedPoolError::InvalidMergeShape.into())
     }
 
     /// The 4-input Poseidon hash chain the circuit folds into its single public

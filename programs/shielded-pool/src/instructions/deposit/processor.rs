@@ -15,6 +15,7 @@ use spr_interface::{
         RingDepositIxDataRef, MAX_DEPOSIT_ASSETS,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+    utxo_hash::UtxoHashFields,
 };
 use spr_tree::TreeAccount;
 
@@ -160,15 +161,16 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             ),
         };
         // Deposits carry no application data, so the data hash is always zero.
-        let utxo_hash = Poseidon::hashv(&[
-            UTXO_DOMAIN_FIELD.as_slice(),
-            tree_id.as_slice(),
-            group.asset_field.as_slice(),
-            field_from_u64(amount).as_slice(),
-            zero.as_slice(),
-            ring_hash.as_slice(),
-            owner_utxo_hash.as_slice(),
-        ])
+        let utxo_hash = UtxoHashFields {
+            domain: &UTXO_DOMAIN_FIELD,
+            tree_id: &tree_id,
+            asset: &group.asset_field,
+            amount: &field_from_u64(amount),
+            data_hash: &zero,
+            ring_hash: &ring_hash,
+            owner_utxo_hash: &owner_utxo_hash,
+        }
+        .hash()
         .map_err(caused_by(
             ShieldedPoolError::TransactProofVerificationFailed,
         ))?;

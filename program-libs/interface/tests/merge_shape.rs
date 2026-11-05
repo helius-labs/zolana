@@ -226,3 +226,17 @@ fn print_merge_encoding_vector() {
         serde_json::to_string_pretty(&compute_merge_encoding_vector()).unwrap()
     );
 }
+
+#[test]
+fn every_merge_width_has_a_key_per_rail() {
+    use spr_interface::verifying_keys::merge_verifying_key;
+    for width in MERGE_SUPPORTED_INPUT_COUNTS {
+        let default = merge_verifying_key(width, false).expect("default merge key");
+        let ring = merge_verifying_key(width, true).expect("ring merge key");
+        assert_ne!(default.vk_ic, ring.vk_ic, "{width}");
+    }
+    for width in [0, 1, 7, 9, 23, 25, 51, MAX_MERGE_INPUTS + 1] {
+        assert!(merge_verifying_key(width, false).is_none(), "{width}");
+        assert!(merge_verifying_key(width, true).is_none(), "{width}");
+    }
+}

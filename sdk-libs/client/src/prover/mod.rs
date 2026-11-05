@@ -26,7 +26,6 @@ pub use client::{
     AsyncPollConfig, AsyncProverClient, Delivery, IndexerRequirement, ProveRequest, ProverClient,
     PROVER_INDEXER_URL_ENV, PROVE_PATH, PROVING_KEYS_PATH, SERVER_ADDRESS,
 };
-pub use endpoint::redact_api_key;
 pub use inputs::{
     BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
     TransferOutput, TreeSlotFields,
@@ -39,6 +38,7 @@ pub use proving_key::{
     ProvingKeyCheck, ProvingKeyFormat, ProvingKeyReport,
 };
 pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver};
+pub use spr_api::redact_api_key;
 pub use spr_transaction::instructions::transact::{
     Shape, TransactRail, CONFIDENTIAL_EDDSA_SHAPES, SPP_SUPPORTED_SHAPES,
 };

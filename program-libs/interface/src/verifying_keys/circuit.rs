@@ -510,3 +510,29 @@ impl CircuitId {
         ))
     }
 }
+
+/// The committed verifying key of the merge circuit `circuit_width` inputs
+/// wide, as [`merge_circuit_width`] selects it: the policy-ring merge's when
+/// `ring`, the default merge's otherwise. `None` for a width no merge circuit
+/// has.
+///
+/// [`merge_circuit_width`]: crate::instruction::instruction_data::merge_circuit_width
+#[cfg(feature = "verifying-keys")]
+#[inline(always)]
+pub fn merge_verifying_key(
+    circuit_width: usize,
+    ring: bool,
+) -> Option<&'static groth16_solana::groth16::Groth16Verifyingkey<'static>> {
+    use super::{
+        merge_24_1, merge_52_1, merge_8_1, merge_ring_24_1, merge_ring_52_1, merge_ring_8_1,
+    };
+    Some(match (circuit_width, ring) {
+        (8, false) => &merge_8_1::VERIFYINGKEY,
+        (24, false) => &merge_24_1::VERIFYINGKEY,
+        (52, false) => &merge_52_1::VERIFYINGKEY,
+        (8, true) => &merge_ring_8_1::VERIFYINGKEY,
+        (24, true) => &merge_ring_24_1::VERIFYINGKEY,
+        (52, true) => &merge_ring_52_1::VERIFYINGKEY,
+        _ => return None,
+    })
+}

@@ -1,5 +1,7 @@
 use spr_hasher::{primitives::right_align, Hasher, Poseidon};
-use spr_interface::{tree_slot::tree_id_field, SOL_ASSET_FIELD, UTXO_DOMAIN};
+use spr_interface::{
+    tree_slot::tree_id_field, utxo_hash::UtxoHashFields, SOL_ASSET_FIELD, UTXO_DOMAIN,
+};
 
 use super::{CompressedAccountError, PdaOwner};
 
@@ -22,15 +24,18 @@ impl DataUtxo<'_> {
             return Err(CompressedAccountError::ZeroDataHash);
         }
         let owner_utxo_hash = Poseidon::hashv(&[self.owner.owner_hash(), &self.blinding])?;
-        Ok(Poseidon::hashv(&[
-            &right_align(&UTXO_DOMAIN.to_be_bytes()),
-            &tree_id_field(tree_id),
-            &SOL_ASSET_FIELD,
-            &[0u8; 32],
-            &self.data_hash,
-            &SOL_ASSET_FIELD,
-            &owner_utxo_hash,
-        ])?)
+        Ok(UtxoHashFields {
+            domain: &right_align(&UTXO_DOMAIN.to_be_bytes()),
+            tree_id: &tree_id_field(tree_id),
+            asset: &SOL_ASSET_FIELD,
+            amount: &[0u8; 32],
+            data_hash: &self.data_hash,
+            // `Poseidon(0, 0)`, the ring hash outside every ring, equals the
+            // SOL asset field.
+            ring_hash: &SOL_ASSET_FIELD,
+            owner_utxo_hash: &owner_utxo_hash,
+        }
+        .hash()?)
     }
 
     /// The UTXO hash and the nullifier that spends it.
