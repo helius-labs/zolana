@@ -121,13 +121,15 @@ it("sizes a merge statement by its rail", () => {
     const { inputs } = prepareMerge(prepared, treeAddress(prepared.inputTreeId));
     if (inputs.circuit !== "merge") throw new Error("merge fixture prepared another circuit");
     // A default merge publishes 12 elements before the tree slots, a ring merge
-    // 8: it binds the output ring data hash and ring program id, no ciphertext.
+    // 13: the owner pair gives way to the ring data hash, ring program id and
+    // published owner.
     expect(inputs.publicInputs).toHaveLength(12);
     const ring = { ...inputs, payload: { ...inputs.payload, ringProgramId: asField(7n) } };
-    const ringStatement = { ...ring, publicInputs: inputs.publicInputs.slice(0, 8) };
+    const thirteen = [...inputs.publicInputs, asField(0n)];
+    const ringStatement = { ...ring, publicInputs: thirteen };
     expect(decodeIndexedInputs(inputs).publicInputs).toHaveLength(12);
-    expect(decodeIndexedInputs(ringStatement).publicInputs).toHaveLength(8);
-    for (const request of [ring, { ...inputs, publicInputs: inputs.publicInputs.slice(0, 8) }]) {
+    expect(decodeIndexedInputs(ringStatement).publicInputs).toHaveLength(13);
+    for (const request of [ring, { ...inputs, publicInputs: thirteen }]) {
       expect(() => decodeIndexedInputs(request)).toThrow(
         expect.objectContaining({ code: "CLIENT_INVALID_PROOF_INPUTS" }),
       );

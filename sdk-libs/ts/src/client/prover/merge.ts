@@ -465,6 +465,7 @@ export function prepareMerge(
       : {
           mergeSeed: asField(bytesToBigInt(prepared.mergeSeed)),
           publishedOwner: asField(publishedOwner),
+          userNullifierSecret: asField(0n),
         }),
   });
   return Object.freeze({

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { mergeProverRequestBody } from "../src/client/index.js";
+import { LocalKeys, mergeProverRequestBody } from "../src/client/index.js";
 import { prepareMerge } from "../src/client/prover/merge.js";
 import { bytesToBigInt } from "../src/interface/bytes.js";
 import { treeAddress } from "../src/interface/pda/index.js";
@@ -17,7 +17,7 @@ import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 const fill = (value: number): Bytes32 => new Uint8Array(32).fill(value) as Bytes32;
 
 describe("a zero-key ring merge", () => {
-  it("proves under its seed and publishes the signer's hashed key", () => {
+  it("proves under its seed and publishes the signer's hashed key", async () => {
     const owner = ShieldedKeypair.generate();
     const zeroNullifierKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
     try {
@@ -60,6 +60,19 @@ describe("a zero-key ring merge", () => {
       expect(nonzero.publicInputs[8]).toBe(0n);
       expect(zeroKey.payload.mergeSeed).toBe(bytesToBigInt(seed));
       expect(zeroKey.payload.publishedOwner).toBe(ownerHash);
+      const proveIndexed = vi.fn(async () => ({}) as never);
+      const keys = LocalKeys.fromKeypair(owner, {
+        prove: vi.fn(),
+        proveMerge: vi.fn(),
+        proveIndexed,
+      } as never);
+      await keys.proveIndexed(zeroKey);
+      expect(proveIndexed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ userNullifierSecret: 0n }),
+        }),
+        undefined,
+      );
       const body = mergeProverRequestBody({
         ...zeroKey.payload,
         inputs: [],
@@ -70,6 +83,7 @@ describe("a zero-key ring merge", () => {
         circuitType: "merge-ring",
         mergeSeed: `0x${bytesToBigInt(seed).toString(16)}`,
         publishedOwner: `0x${ownerHash.toString(16)}`,
+        userNullifierSecret: "0x0",
       });
       expect(() => merge(new Uint8Array(32) as Bytes32)).toThrow("TRANSACTION_INVALID_MERGE_SEED");
       expect(() =>

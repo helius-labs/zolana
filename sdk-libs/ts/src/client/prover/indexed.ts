@@ -334,10 +334,11 @@ function requestField(value: unknown): Field {
 /**
  * Public inputs before the tree slots are folded in. A default merge ends with
  * the owner binding and its four ciphertext elements, a ring merge with the
- * output ring data hash and the ring program id only.
+ * output ring data hash, the ring program id, the published owner and the same
+ * four ciphertext elements.
  */
 function statementLength(inputs: IndexedProofInputs): number {
-  if (inputs.circuit === "merge") return BigInt(inputs.payload.ringProgramId) === 0n ? 12 : 8;
+  if (inputs.circuit === "merge") return BigInt(inputs.payload.ringProgramId) === 0n ? 12 : 13;
   if (inputs.circuit === "transferRingAuthority") return 14;
   // The confidential layout plus the message hash and the verified owner.
   return inputs.circuit === "transferConfidentialEddsa" ||
