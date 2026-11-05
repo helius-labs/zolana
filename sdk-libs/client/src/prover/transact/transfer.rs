@@ -222,7 +222,12 @@ pub(crate) mod rail {
             }
         }
 
-        pub(crate) fn check_shape(&self, shape: Shape, n_in: usize, n_out: usize) -> Result<(), ClientError> {
+        pub(crate) fn check_shape(
+            &self,
+            shape: Shape,
+            n_in: usize,
+            n_out: usize,
+        ) -> Result<(), ClientError> {
             match self {
                 Self::ConfidentialEddsa { .. } => {
                     if !shape.is_confidential_eddsa()
@@ -240,7 +245,9 @@ pub(crate) mod rail {
         pub(crate) fn owner_mode(&self) -> OwnerMode {
             match self {
                 Self::RingAuthority { .. } => OwnerMode::RingAuthority,
-                Self::AnonymousRingEddsa { owner, .. } => OwnerMode::AnonymousEddsa(owner.public_key()),
+                Self::AnonymousRingEddsa { owner, .. } => {
+                    OwnerMode::AnonymousEddsa(owner.public_key())
+                }
                 _ => OwnerMode::SolanaEddsa,
             }
         }
@@ -295,7 +302,9 @@ pub(crate) mod rail {
         /// The public signer vector the statement binds.
         pub(crate) fn signers(&self, given: Vec<[u8; 32]>) -> Result<Vec<[u8; 32]>, ClientError> {
             match self {
-                Self::RingAuthority { payer, .. } => Ok(vec![solana_owner_identity(payer.as_array())?]),
+                Self::RingAuthority { payer, .. } => {
+                    Ok(vec![solana_owner_identity(payer.as_array())?])
+                }
                 _ => Ok(given),
             }
         }

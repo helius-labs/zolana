@@ -13,8 +13,8 @@ use crate::{
     prover::{
         client::{Delivery, ProveRequest},
         json::to_json_signed,
-        proving_key::ExpectedProvingKey,
         json::OwnerSignatureJson,
+        proving_key::ExpectedProvingKey,
         transact::{
             assembly::TransferInputUtxo, transfer::rail::PreparedAnonymousAuthorization,
             EddsaAuthorization, OwnerAuthorization,

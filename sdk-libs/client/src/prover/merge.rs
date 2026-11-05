@@ -39,7 +39,7 @@ use crate::{
             },
             witness::{attach_input_proofs, SpendProof},
         },
-        MergeInputs, TreeSlotFields,
+        MergeInputs, ProofInputUtxo, TreeSlotFields,
     },
     rpc::NonInclusionProof,
 };
@@ -140,124 +140,185 @@ pub(crate) fn check_output_ciphertext(
     Ok(())
 }
 
-impl MergeProver {
-    pub fn build(self) -> Result<MergeProofResult, ClientError> {
-        let tx = &self.transaction;
-        let n_inputs = tx.input_utxos.len();
-        if !MERGE_SUPPORTED_INPUT_COUNTS.contains(&n_inputs) {
-            return Err(ClientError::UnsupportedShape {
-                n_in: n_inputs,
-                n_out: 1,
-            });
+/// What both merge routes take from a validated merge.
+pub(crate) struct CheckedMerge {
+    pub first_nullifier: [u8; 32],
+    pub nullifier_pubkey: [u8; 32],
+}
+
+/// The checks the complete and the indexed merge run before any witness: a
+/// supported width, compact padding at the end, a real first input, every
+/// commitment recomputed from its input, every input owned by the merging keys, in its ring and of one asset, every
+/// nullifier derived from the owner's key, and an output that pays the
+/// inputs' total back to the owner under its derived blinding and ciphertext.
+pub(crate) fn check_merge(
+    tx: &MergeProofInputs,
+    nullifier_key: &NullifierKey,
+) -> Result<CheckedMerge, ClientError> {
+    let n_inputs = tx.input_utxos.len();
+    if !MERGE_SUPPORTED_INPUT_COUNTS.contains(&n_inputs) {
+        return Err(ClientError::UnsupportedShape {
+            n_in: n_inputs,
+            n_out: 1,
+        });
+    }
+    tx.check_padding()?;
+    let first = tx
+        .input_utxos
+        .first()
+        .filter(|input| !input.is_dummy())
+        .ok_or(ClientError::NoInputs)?;
+    let first_nullifier = first.nullifier;
+    let nullifier_pubkey = nullifier_key.pubkey()?;
+    let mut total = 0u64;
+    tx.input_utxo_hashes()?;
+    for (index, input) in tx.input_utxos.iter().enumerate() {
+        if ProofInputUtxo::try_from(input)?.hash()? != input.utxo_hash {
+            return Err(
+                spr_transaction::TransactionError::InputCommitmentMismatch { index }.into(),
+            );
         }
-        tx.check_padding()?;
-        let first = tx
-            .input_utxos
-            .first()
-            .filter(|input| !input.is_dummy())
-            .ok_or(ClientError::NoInputs)?;
-        let first_nullifier = first.nullifier;
-        let nullifier_pubkey = self.nullifier_key.pubkey()?;
-        let mut total = 0u64;
-        tx.input_utxo_hashes()?;
-        for (index, input) in tx.input_utxos.iter().enumerate() {
-            if input.is_dummy() {
-                let slot = u8::try_from(index).map_err(|_| ClientError::TooManyInputs {
-                    got: n_inputs,
-                    max: usize::from(u8::MAX),
-                })?;
-                if input.nullifier
-                    != merge_dummy_nullifier(&self.nullifier_key, &first_nullifier, slot)?
-                {
-                    return Err(ClientError::InputNullifierMismatch { index });
-                }
-                continue;
-            }
-            if input.utxo.owner != tx.signing_pubkey {
-                return Err(ClientError::MergeSigningKeyMismatch);
-            }
-            if input.nullifier_pubkey != nullifier_pubkey {
-                return Err(ClientError::MergeNullifierKeyMismatch);
-            }
-            if input.utxo.ring_program_id != tx.ring_program_id {
-                return Err(ClientError::InputRingProgramMismatch { index });
-            }
-            if input.utxo.asset != first.utxo.asset {
-                return Err(ClientError::MergeInputAssetMismatch { index });
-            }
-            if input.nullifier
-                != self
-                    .nullifier_key
-                    .nullifier(&input.utxo_hash, &input.utxo.blinding)?
-            {
+        if input.is_dummy() {
+            let slot = u8::try_from(index).map_err(|_| ClientError::TooManyInputs {
+                got: n_inputs,
+                max: usize::from(u8::MAX),
+            })?;
+            if input.nullifier != merge_dummy_nullifier(nullifier_key, &first_nullifier, slot)? {
                 return Err(ClientError::InputNullifierMismatch { index });
             }
-            total = total
-                .checked_add(input.utxo.amount)
-                .ok_or(ClientError::SelectedBalanceOverflow)?;
+            continue;
         }
-        let output = &tx.output_utxo;
-        if output.is_dummy()
-            || output.asset != first.utxo.asset
-            || output.amount != total
-            || output.ring_program_id != tx.ring_program_id
-            || output.data_hash.is_some()
-            || (tx.ring_program_id.is_none() && output.ring_data_hash.is_some())
-            || !output.owner_address.is_some_and(|owner| {
-                owner.signing_pubkey == tx.signing_pubkey
-                    && owner.nullifier_pubkey == nullifier_pubkey
-            })
-        {
-            return Err(ClientError::MergeOutputMismatch);
+        if input.utxo.owner != tx.signing_pubkey {
+            return Err(ClientError::MergeSigningKeyMismatch);
         }
-        if output.blinding != merge_output_blinding(&self.nullifier_key, &first_nullifier)? {
-            return Err(ClientError::OutputBlindingMismatch { index: 0 });
+        if input.nullifier_pubkey != nullifier_pubkey {
+            return Err(ClientError::MergeNullifierKeyMismatch);
         }
-        check_output_ciphertext(tx, &self.nullifier_key, &first_nullifier)?;
-        let MergeProofInputs {
-            input_utxos,
-            output_utxo,
-            expiry_unix_ts,
-            signing_pubkey,
-            output_tree_id,
-            ring_program_id,
-            output_ciphertext_salt,
-            output_ciphertext,
-        } = self.transaction;
+        if input.utxo.ring_program_id != tx.ring_program_id {
+            return Err(ClientError::InputRingProgramMismatch { index });
+        }
+        if input.utxo.asset != first.utxo.asset {
+            return Err(ClientError::MergeInputAssetMismatch { index });
+        }
+        if input.nullifier != nullifier_key.nullifier(&input.utxo_hash, &input.utxo.blinding)? {
+            return Err(ClientError::InputNullifierMismatch { index });
+        }
+        total = total
+            .checked_add(input.utxo.amount)
+            .ok_or(ClientError::SelectedBalanceOverflow)?;
+    }
+    let output = &tx.output_utxo;
+    if output.is_dummy()
+        || output.asset != first.utxo.asset
+        || output.amount != total
+        || output.ring_program_id != tx.ring_program_id
+        || output.data_hash.is_some()
+        || (tx.ring_program_id.is_none() && output.ring_data_hash.is_some())
+        || !output.owner_address.is_some_and(|owner| {
+            owner.signing_pubkey == tx.signing_pubkey && owner.nullifier_pubkey == nullifier_pubkey
+        })
+    {
+        return Err(ClientError::MergeOutputMismatch);
+    }
+    if output.blinding != merge_output_blinding(nullifier_key, &first_nullifier)? {
+        return Err(ClientError::OutputBlindingMismatch { index: 0 });
+    }
+    check_output_ciphertext(tx, nullifier_key, &first_nullifier)?;
+    Ok(CheckedMerge {
+        first_nullifier,
+        nullifier_pubkey,
+    })
+}
+
+/// The cache slot a merge writes, which must exist.
+pub(crate) fn merge_cache_slot(
+    cache: Option<&MergeCacheTarget>,
+) -> Result<Option<u8>, ClientError> {
+    match cache {
+        Some(target) if usize::from(target.slot) < CACHE_CAPACITY => Ok(Some(target.slot)),
+        Some(_) => Err(ShieldedPoolError::InvalidCacheSlot.into()),
+        None => Ok(None),
+    }
+}
+
+/// The external data hash SPP recomputes for a merge of `tx` producing
+/// `output_hash`, bound to the cache slot it writes, if any.
+pub(crate) fn merge_external_data_hash(
+    tx: &MergeProofInputs,
+    output_hash: &[u8; 32],
+    cache: Option<&MergeCacheTarget>,
+) -> Result<[u8; 32], ClientError> {
+    Ok(MergeExternalDataHash {
+        spp_instruction_discriminator: if tx.ring_program_id.is_some() {
+            RING_MERGE_TRANSACT
+        } else {
+            MERGE_TRANSACT
+        },
+        expiry_unix_ts: tx.expiry_unix_ts,
+        output_utxo_hash: output_hash,
+        cache: cache
+            .map(|target| target.address.as_array())
+            .zip(merge_cache_slot(cache)?),
+    }
+    .hash()?)
+}
+
+/// What the merge statement binds beyond its hashes: the ring's output data
+/// and program on a ring merge, the owner's keys and output ciphertext on the
+/// default merge.
+pub(crate) fn merge_binding(
+    tx: &MergeProofInputs,
+    owner_pk_hash: [u8; 32],
+    nullifier_pubkey: [u8; 32],
+    output_ring_data_hash: [u8; 32],
+    ring_hash: [u8; 32],
+) -> MergePublicInputBinding {
+    if tx.ring_program_id.is_some() {
+        MergePublicInputBinding::Ring {
+            output_data_hash: output_ring_data_hash,
+            program_id_hash: ring_hash,
+        }
+    } else {
+        MergePublicInputBinding::Owner {
+            signing_key_hash: owner_pk_hash,
+            nullifier_public_key: nullifier_pubkey,
+            output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+                salt: tx.output_ciphertext_salt,
+                ciphertext: tx.output_ciphertext,
+            },
+        }
+    }
+}
+
+impl MergeProver {
+    pub fn build(self) -> Result<MergeProofResult, ClientError> {
+        let CheckedMerge {
+            first_nullifier,
+            nullifier_pubkey,
+        } = check_merge(&self.transaction, &self.nullifier_key)?;
+        let cache_slot = merge_cache_slot(self.cache.as_ref())?;
+        let mut tx = self.transaction;
+        // The helpers below read the rest of the transaction; only the inputs
+        // move into the witness.
+        let input_utxos = std::mem::take(&mut tx.input_utxos);
+        let output_utxo = &tx.output_utxo;
+        let output_tree_id = tx.output_tree_id;
+        let ring_program_id = tx.ring_program_id;
         let [mint_chunk_0, mint_chunk_1] = pack_be::<32, 2>(output_utxo.asset.asset.as_array());
         let inputs = attach_input_proofs(input_utxos, &self.proofs, &self.dummy_nullifier_proofs)?;
         let assembled_inputs = assemble_inputs(&inputs, &OwnerMode::Merge)?;
         let input_tree_context = assembled_inputs.single_tree_context()?;
         let assembled_outputs =
-            assemble_outputs(std::slice::from_ref(&output_utxo), output_tree_id)?;
+            assemble_outputs(std::slice::from_ref(output_utxo), output_tree_id)?;
         let output_hash = *assembled_outputs
             .output_hashes
             .first()
             .ok_or(ClientError::MissingOutput)?;
-        let cache_slot = match self.cache.as_ref() {
-            Some(target) if usize::from(target.slot) < CACHE_CAPACITY => Some(target.slot),
-            Some(_) => return Err(ShieldedPoolError::InvalidCacheSlot.into()),
-            None => None,
-        };
-        let external_data_hash = MergeExternalDataHash {
-            spp_instruction_discriminator: if ring_program_id.is_some() {
-                RING_MERGE_TRANSACT
-            } else {
-                MERGE_TRANSACT
-            },
-            expiry_unix_ts,
-            output_utxo_hash: &output_hash,
-            cache: self
-                .cache
-                .as_ref()
-                .map(|target| target.address.as_array())
-                .zip(cache_slot),
-        }
-        .hash()?;
+        let external_data_hash = merge_external_data_hash(&tx, &output_hash, self.cache.as_ref())?;
         let private_tx_blinding = merge_private_tx_blinding(&self.nullifier_key, &first_nullifier)?;
         let private_tx =
             private_tx_hash(&assembled_inputs, &assembled_outputs, &private_tx_blinding)?;
-        let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
+        let user_signing_pk_hash = tx.signing_pubkey.owner_proof_input_hash()?;
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
         let public_input_hash = MergePublicInputs {
@@ -267,21 +328,13 @@ impl MergeProver {
             private_tx_hash: private_tx,
             external_data_hash,
             allow_dummy_inputs: true,
-            binding: if ring_program_id.is_some() {
-                MergePublicInputBinding::Ring {
-                    output_data_hash: output_ring_data_hash,
-                    program_id_hash: ring_hash,
-                }
-            } else {
-                MergePublicInputBinding::Owner {
-                    signing_key_hash: user_signing_pk_hash,
-                    nullifier_public_key: nullifier_pubkey,
-                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
-                        salt: output_ciphertext_salt,
-                        ciphertext: output_ciphertext,
-                    },
-                }
-            },
+            binding: merge_binding(
+                &tx,
+                user_signing_pk_hash,
+                nullifier_pubkey,
+                output_ring_data_hash,
+                ring_hash,
+            ),
         }
         .hash(tree_slots_hash_chain(&assembled_inputs.tree_slots)?)?;
         let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
@@ -296,7 +349,7 @@ impl MergeProver {
             tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
             output_tree_id: BigUint::from(output_tree_id),
             mint_chunks: [be(&mint_chunk_0), be(&mint_chunk_1)],
-            output_ciphertext_salt: be(&right_align(&output_ciphertext_salt)),
+            output_ciphertext_salt: be(&right_align(&tx.output_ciphertext_salt)),
             owner_pk_hash: be(&user_signing_pk_hash),
             user_nullifier_pk: be(&nullifier_pubkey),
             user_nullifier_secret: be(&user_nullifier_secret),
@@ -316,12 +369,12 @@ impl MergeProver {
             output_hash,
             private_tx_hash: private_tx,
             external_data_hash,
-            expiry_unix_ts,
+            expiry_unix_ts: tx.expiry_unix_ts,
             cache_slot,
             ring_program_id,
             output_ring_data_hash,
-            output_ciphertext_salt,
-            output_ciphertext,
+            output_ciphertext_salt: tx.output_ciphertext_salt,
+            output_ciphertext: tx.output_ciphertext,
         })
     }
 }

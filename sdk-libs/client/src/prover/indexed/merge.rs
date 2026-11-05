@@ -1,21 +1,13 @@
 use serde::Serialize;
 use spr_hasher::primitives::pack_be;
-use spr_interface::instruction::{
-    instruction_data::{
-        merge_ring::MergeRingIxData,
-        merge_transact::{
-            merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof,
-            MergeTransactIxData,
-        },
-    },
-    tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
+use spr_interface::instruction::instruction_data::{
+    merge_ring::MergeRingIxData,
+    merge_transact::{merge_circuit_width, MergeOutputEncryption, MergeProof, MergeTransactIxData},
 };
 use spr_interface::tree_slot::tree_id_field;
 use spr_keypair::NullifierKey;
 use spr_transaction::instructions::{
-    merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeProofInputs,
-    },
+    merge::{merge_private_tx_blinding, MergeProofInputs},
     transact::PrivateTxHash,
 };
 use zeroize::Zeroizing;
@@ -28,7 +20,10 @@ use crate::{
     prover::{
         field::{right_align, right_align_slice},
         json::MergeOutputParamsJson,
-        merge::{check_output_ciphertext, MergePublicInputBinding, MergePublicInputs},
+        merge::{
+            check_merge, merge_binding, merge_cache_slot, merge_external_data_hash, CheckedMerge,
+            MergePublicInputs,
+        },
         transact::assembly::{assemble_outputs, without_compact_padding},
         verify::MergeProofStatement,
         ExpectedProvingKey, Proof, ProofCompressed, ProofInputUtxo,
@@ -68,76 +63,42 @@ impl IndexedMergePreparation {
         self,
         cache: Option<crate::prover::MergeCacheTarget>,
     ) -> Result<PreparedIndexedMerge, ClientError> {
-        if cache.is_some_and(|target| {
-            usize::from(target.slot) >= spr_interface::state::cache::CACHE_CAPACITY
-        }) {
-            return Err(invalid());
-        }
         let Self {
             merge,
             nullifier_key,
         } = self;
-        merge.input_utxo_hashes()?;
-        merge.check_padding()?;
+        let cache_slot = merge_cache_slot(cache.as_ref())?;
+        let CheckedMerge {
+            first_nullifier,
+            nullifier_pubkey: nullifier_pk,
+        } = check_merge(&merge, &nullifier_key)?;
         let ring_hash = spr_transaction::utxo::program_id_proof_input_hash(&merge.ring_program_id)?;
         let ring_data_hash = merge.output_utxo.ring_data_hash.unwrap_or_default();
-        let first = merge
-            .input_utxos
-            .first()
-            .filter(|input| !input.is_dummy())
-            .ok_or(ClientError::NoInputs)?;
-        let tree_id = first.tree_id;
-        let first_nullifier = first.nullifier;
-        let nullifier_pk = nullifier_key.pubkey()?;
-        if merge.output_utxo.blinding != merge_output_blinding(&nullifier_key, &first_nullifier)? {
-            return Err(invalid());
-        }
-        check_output_ciphertext(&merge, &nullifier_key, &first_nullifier)?;
+        let tree_id = merge.input_utxos[0].tree_id;
         let mut inputs = Vec::new();
         let mut lookups = Vec::new();
         let mut nullifiers = Vec::new();
         let mut input_hashes = Vec::new();
-        let mut total = 0u64;
         let mut saw_dummy = false;
         for (index, input) in merge.input_utxos.iter().enumerate() {
             let dummy = input.is_dummy();
             if input.cache_slot.is_some() {
-                return Err(invalid());
+                return Err(ClientError::CachedInputUnsupported { index });
             }
             if !dummy {
-                if saw_dummy
-                    || input.tree_id != tree_id
-                    || input.utxo.owner != merge.signing_pubkey
-                    || input.nullifier_pubkey != nullifier_pk
-                    || input.utxo.asset != first.utxo.asset
-                    || input.utxo.ring_program_id != merge.ring_program_id
-                {
+                // The prover resolves every input against one tree and one
+                // root pair, with the real inputs first.
+                if input.tree_id != tree_id {
+                    return Err(ClientError::TooManyInputTrees { got: 2, max: 1 });
+                }
+                if saw_dummy {
                     return Err(invalid());
                 }
-                total = total.checked_add(input.utxo.amount).ok_or_else(invalid)?;
             }
             saw_dummy |= dummy;
             let utxo = ProofInputUtxo::try_from(input)?;
-            let commitment = utxo.hash()?;
-            if commitment != input.utxo_hash {
-                return Err(
-                    spr_transaction::TransactionError::InputCommitmentMismatch { index }.into(),
-                );
-            }
-            let derived = if dummy {
-                merge_dummy_nullifier(
-                    &nullifier_key,
-                    &first_nullifier,
-                    u8::try_from(index).map_err(|_| invalid())?,
-                )?
-            } else {
-                nullifier_key.nullifier(&commitment, &input.utxo.blinding)?
-            };
-            if derived != input.nullifier {
-                return Err(ClientError::InputNullifierMismatch { index });
-            }
             let nullifier = input.published_nullifier();
-            let hash = if dummy { [0; 32] } else { commitment };
+            let hash = if dummy { [0; 32] } else { input.utxo_hash };
             inputs.push(PreparedMergeInputJson {
                 domain: hex_field(&utxo.domain),
                 amount: hex_field(&utxo.amount),
@@ -158,32 +119,9 @@ impl IndexedMergePreparation {
             std::slice::from_ref(&merge.output_utxo),
             merge.output_tree_id,
         )?;
-        let output = outputs.outputs.first().ok_or(ClientError::MissingOutput)?;
         let output_hash = merge.output_hash()?;
         let owner_pk_hash = merge.signing_pubkey.owner_proof_input_hash()?;
-        if merge.output_utxo.amount != total
-            || merge.output_utxo.asset != first.utxo.asset
-            || (merge.ring_program_id.is_none() && output.utxo.ring_data_hash != [0; 32])
-            || output.utxo.data_hash != [0; 32]
-            || output.utxo.ring_program_id != ring_hash
-            || output.utxo.owner_hash
-                != spr_keypair::hash::owner_hash(&merge.signing_pubkey, &nullifier_pk)?
-        {
-            return Err(invalid());
-        }
-        let external = MergeExternalDataHash {
-            spp_instruction_discriminator: if merge.ring_program_id.is_some() {
-                RING_MERGE_TRANSACT
-            } else {
-                MERGE_TRANSACT
-            },
-            expiry_unix_ts: merge.expiry_unix_ts,
-            output_utxo_hash: &output_hash,
-            cache: cache
-                .as_ref()
-                .map(|target| (target.address.as_array(), target.slot)),
-        }
-        .hash()?;
+        let external = merge_external_data_hash(&merge, &output_hash, cache.as_ref())?;
         let private = PrivateTxHash::new(
             &input_hashes,
             &outputs.private_tx_output_hashes,
@@ -198,21 +136,13 @@ impl IndexedMergePreparation {
             private_tx_hash: private,
             external_data_hash: external,
             allow_dummy_inputs: true,
-            binding: if merge.ring_program_id.is_some() {
-                MergePublicInputBinding::Ring {
-                    output_data_hash: ring_data_hash,
-                    program_id_hash: ring_hash,
-                }
-            } else {
-                MergePublicInputBinding::Owner {
-                    signing_key_hash: owner_pk_hash,
-                    nullifier_public_key: nullifier_pk,
-                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
-                        salt: merge.output_ciphertext_salt,
-                        ciphertext: merge.output_ciphertext,
-                    },
-                }
-            },
+            binding: merge_binding(
+                &merge,
+                owner_pk_hash,
+                nullifier_pk,
+                ring_data_hash,
+                ring_hash,
+            ),
         }
         .elements(None)?;
         let [mint_chunk_0, mint_chunk_1] =
@@ -267,7 +197,7 @@ impl IndexedMergePreparation {
             utxo_tree_root_index: 0,
             nullifier_tree_root_index: 0,
             private_tx_hash: private,
-            cache_slot: cache.map(|target| target.slot),
+            cache_slot,
         };
         Ok(PreparedIndexedMerge {
             request,

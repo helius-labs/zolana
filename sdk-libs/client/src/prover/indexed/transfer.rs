@@ -7,7 +7,9 @@ use crate::{
     prover::{
         cache::CacheSelection,
         field::{be, right_align_slice},
-        json::{output_to_json, utxo_to_json, OutputParamsJson, OwnerSignatureJson, UtxoParamsJson},
+        json::{
+            output_to_json, utxo_to_json, OutputParamsJson, OwnerSignatureJson, UtxoParamsJson,
+        },
         transact::{
             assembly::{
                 assemble_outputs, check_dummy_policy, check_output_blindings,
@@ -92,24 +94,24 @@ impl IndexedTransferPreparation<'_> {
             IndexedTransferRail::Confidential => {
                 preparation(IndexedCircuit::TransferConfidential).prepare(SignerRail)
             }
-            IndexedTransferRail::Ring(ring) => preparation(IndexedCircuit::TransferRing)
-                .prepare(RingSignerRail {
+            IndexedTransferRail::Ring(ring) => {
+                preparation(IndexedCircuit::TransferRing).prepare(RingSignerRail {
                     ring_program_id: Some(ring),
-                }),
+                })
+            }
             IndexedTransferRail::RingAuthority(ring) => {
                 preparation(IndexedCircuit::TransferRingAuthority).prepare(RingAuthorityRail {
                     ring_program_id: Some(ring),
                     payer,
                 })
             }
-            IndexedTransferRail::AnonymousRingEddsa { ring, owner } => {
-                preparation(IndexedCircuit::TransferAnonymousRingEddsa).prepare(
-                    AnonymousRingEddsaRail {
-                        owner,
-                        ring_program_id: Some(ring),
-                    },
-                )
-            }
+            IndexedTransferRail::AnonymousRingEddsa { ring, owner } => preparation(
+                IndexedCircuit::TransferAnonymousRingEddsa,
+            )
+            .prepare(AnonymousRingEddsaRail {
+                owner,
+                ring_program_id: Some(ring),
+            }),
             IndexedTransferRail::ConfidentialEddsa { owner } => {
                 preparation(IndexedCircuit::TransferConfidentialEddsa)
                     .prepare(ConfidentialEddsaRail { owner })
@@ -498,6 +500,7 @@ struct PreparedTransferJson {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prover::TransferProver;
     use crate::{
         MerkleContext, MerkleProof, NonInclusionProof, OwnerAuthorization, SpendProof,
         TransferInputUtxo,
@@ -505,7 +508,6 @@ mod tests {
     use solana_address::Address;
     use spr_interface::instruction::{OwnerTag, TransactOutput, TreeContext};
     use spr_keypair::ShieldedKeypair;
-    use crate::prover::TransferProver;
     use spr_transaction::{
         utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
         Data, ExternalData, Mint, SppProofOutputUtxo, Utxo, WalletUtxo,

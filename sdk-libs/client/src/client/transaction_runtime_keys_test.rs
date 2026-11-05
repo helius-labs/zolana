@@ -81,7 +81,12 @@ fn transfer_result(public_input_hash: [u8; 32]) -> TransferProofResult {
         tree_ids: Vec::new(),
         input_tree_indexes: Vec::new(),
         cache_access: None,
-        circuit: spr_interface::instruction::instruction_data::transact::CircuitId::ConfidentialSigner(2, 4, spr_interface::N_PUBLIC_SLOTS as u8),
+        circuit:
+            spr_interface::instruction::instruction_data::transact::CircuitId::ConfidentialSigner(
+                2,
+                4,
+                spr_interface::N_PUBLIC_SLOTS as u8,
+            ),
         default_owner_tag: None,
     }
 }
