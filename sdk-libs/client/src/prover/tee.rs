@@ -21,7 +21,7 @@ pub(crate) use session::TeeSession;
 #[cfg(test)]
 pub(crate) use spr_prover_tee::NitroFixture;
 
-use super::endpoint::ProverEndpoint;
+use super::endpoint;
 
 /// Each network's policy URL and signers.
 const NETWORKS: &str = include_str!("tee/signers.json");
@@ -61,7 +61,7 @@ impl SignedTeePolicy {
         let url = url.into();
         let https = url::Url::parse(&url).is_ok_and(|parsed| match parsed.scheme() {
             "https" => true,
-            "http" => ProverEndpoint::parse(&url).is_loopback(),
+            "http" => endpoint::is_loopback(&parsed),
             _ => false,
         });
         if !https {

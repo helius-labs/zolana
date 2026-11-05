@@ -14,8 +14,7 @@ use sha2::{Digest, Sha256};
 use spr_interface::PROGRAM_ID_PUBKEY;
 
 use super::{
-    endpoint::ProverEndpoint,
-    known_proving_keys,
+    endpoint, known_proving_keys,
     proving_key::{hex, parse_sha256_hex},
     verify::{confidential_verifying_key, merge_verifying_key, StatementVerification},
     ExpectedProvingKey, ProverKeyStatus, ProvingKeyArtifact, ProvingKeyFormat,
@@ -261,8 +260,8 @@ fn only<'a, T>(mut items: impl Iterator<Item = &'a T>) -> Result<&'a T, ClientEr
 fn check_download(artifact: &ProvingKeyArtifact) -> Result<(), ClientError> {
     parse_sha256_hex(&artifact.sha256).ok_or_else(|| invalid("malformed"))?;
     let url = url::Url::parse(&artifact.url).map_err(|_| invalid("malformed"))?;
-    let transport = url.scheme() == "https"
-        || (url.scheme() == "http" && ProverEndpoint::parse(&artifact.url).is_loopback());
+    let transport =
+        url.scheme() == "https" || (url.scheme() == "http" && endpoint::is_loopback(&url));
     if artifact.size == 0
         || artifact.size > u64::from(u32::MAX)
         || !transport
