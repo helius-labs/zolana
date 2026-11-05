@@ -26,11 +26,6 @@ use spr_tree::TreeAccount;
 
 use crate::{indexer::LeafProof, transaction_trace::TransactionOutcome, SprProgramTest};
 
-/// `tree_type` of a state-tree proof, as Photon reports it.
-const STATE_TREE_TYPE: u16 = 1;
-/// `tree_type` of a nullifier-tree proof, as Photon reports it.
-const NULLIFIER_TREE_TYPE: u16 = 2;
-
 /// The harness, shared by a client's RPC and indexer halves. Clones share one
 /// harness; [`Self::lock`] reaches it for anything the client does not do.
 #[derive(Clone)]
@@ -191,7 +186,7 @@ impl Rpc for ProgramTestHandle {
                 Ok(MerkleProof {
                     leaf: *leaf,
                     merkle_context: MerkleContext {
-                        tree_type: STATE_TREE_TYPE,
+                        tree_type: MerkleContext::STATE_TREE_TYPE,
                         tree: tree_account,
                     },
                     path,
@@ -242,7 +237,7 @@ impl Rpc for ProgramTestHandle {
                 Ok(NonInclusionProof {
                     leaf: *nullifier,
                     merkle_context: MerkleContext {
-                        tree_type: NULLIFIER_TREE_TYPE,
+                        tree_type: MerkleContext::NULLIFIER_TREE_TYPE,
                         tree: tree_account,
                     },
                     path: proof.merkle_proof,

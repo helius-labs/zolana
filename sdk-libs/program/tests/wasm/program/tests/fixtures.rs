@@ -11,7 +11,7 @@ use spr_program::{wasm, Groth16Prover, TxContext, UtxoOwner, ZkProgramCircuit};
 use spr_transaction::{utxo::Utxo, Data, Mint, WalletUtxo};
 use wasm_test_program::{
     escrow_authority, Escrow, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms, Withdraw,
-    WithdrawPrivateInputs, WithdrawPublicInputs, ESCROW_OUTPUT_SLOT,
+    WithdrawPrivateInputs, WithdrawPublicInputs,
 };
 
 #[cfg(feature = "snarkjs")]
@@ -19,6 +19,8 @@ mod ceremony;
 
 const TREE_ID: u16 = 3;
 const UNLOCK: u64 = 1_700_000_000;
+/// The escrow's output slot: the creator's change is slot 0.
+const ESCROW_OUTPUT_SLOT: usize = 1;
 
 struct Fixture<P> {
     name: &'static str,
@@ -121,9 +123,15 @@ fn token_input(owner: &ShieldedKeypair, amount: u64, leaf_index: u64, blinding: 
     }
 }
 
+fn creator_identity(creator: &ShieldedAddress) -> [u8; 32] {
+    solana_owner_identity(creator.solana_address().expect("creator").as_array())
+        .expect("creator identity")
+}
+
 fn escrow() -> Fixture<Escrow> {
     let creator = keypair(5);
     let address = creator.shielded_address().expect("creator address");
+    let payer = address.solana_address().expect("payer");
     Fixture {
         name: "escrow",
         program: Escrow {
@@ -137,9 +145,10 @@ fn escrow() -> Fixture<Escrow> {
                 amount: 250,
             },
             public: EscrowPublicInputs {
-                escrow_owner: escrow_authority()
+                escrow_owner: escrow_authority(&payer)
                     .address(address.viewing_pubkey)
                     .expect("escrow owner"),
+                creator_identity: creator_identity(&address),
             },
         },
         keypair: creator,
@@ -149,11 +158,12 @@ fn escrow() -> Fixture<Escrow> {
 fn withdraw() -> Fixture<Withdraw> {
     let escrow = escrow();
     let address = escrow.sender();
+    let payer = address.solana_address().expect("payer");
     let finalized = escrow
         .program
-        .create_finalized_transaction(&address, address.solana_address().expect("payer"))
+        .create_finalized_transaction(&address, payer)
         .expect("escrow transaction");
-    let mut escrow_utxo = escrow_authority()
+    let mut escrow_utxo = escrow_authority(&payer)
         .input(
             finalized
                 .output_utxos()
@@ -177,10 +187,7 @@ fn withdraw() -> Fixture<Withdraw> {
             },
             public: WithdrawPublicInputs {
                 unlock: UNLOCK,
-                owner_identity: solana_owner_identity(
-                    address.solana_address().expect("creator").as_array(),
-                )
-                .expect("owner identity"),
+                creator_identity: creator_identity(&address),
             },
         },
         keypair: escrow.keypair,

@@ -157,8 +157,7 @@ impl SprProgramTest {
 
 impl Rpc for SprProgramTest {
     fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
-        let pubkey = Pubkey::new_from_array(address.to_bytes());
-        Ok(self.svm.get_account(&pubkey))
+        Ok(self.svm.get_account(&address))
     }
 
     fn get_program_accounts(
@@ -173,15 +172,14 @@ impl Rpc for SprProgramTest {
             .accounts_db()
             .inner
             .iter()
-            .filter(|(_, account)| account.owner().to_bytes() == program_id.to_bytes())
+            .filter(|(_, account)| *account.owner() == program_id)
             .map(|(address, _)| *address)
             .collect();
         Ok(matches
             .into_iter()
             .filter_map(|address| {
-                let pubkey = Pubkey::new_from_array(address.to_bytes());
                 self.svm
-                    .get_account(&pubkey)
+                    .get_account(&address)
                     .map(|account| (address, account))
             })
             .collect())

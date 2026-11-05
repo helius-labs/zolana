@@ -7,10 +7,7 @@ use spr_program::{
 };
 use spr_transaction::{Mint, WalletUtxo};
 
-use crate::{
-    benchmark::prove,
-    shared::{keypair, token_input, USDC},
-};
+use crate::shared::{keypair, prove, token_input, USDC};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct TypedState {

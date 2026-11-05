@@ -468,12 +468,15 @@ just test-zk-program-wasm           # the wasm module in Chromium
   `FromCircuit`, the lifecycles and the slot order, the transfer rules and the conservation
   check, `ZkProgramCircuit` resolution, dropped dummies, empty output padding, owner tags and errors,
   and the circuit verifier interface. Key checksum checks and export are covered by the CLI and browser regression tests.
-- `tests/scenarios` proves and verifies whole programs, and runs `check_private_variables` on
-  every proof.
+- `sdk-libs/macros/tests/scenarios` proves and verifies whole programs written with the
+  derives, and runs `check_private_variables` on every proof (`just bench-spr-program`
+  writes their `BENCHMARK.md`).
+- `tests/scenarios` writes four programs against the circuit traits without the derives.
 - `tests/external_gadget` proves a program with a hand-written gadget.
 - `tests/compression*` cover the compressed account CPI and the read.
-- `tests/wasm` holds a test program and its Playwright suite, which prove in the browser and
-  compare against the native fixtures and snarkjs (`just bench-zk-program-wasm` measures it).
+- `tests/wasm` builds the timelock escrow circuits (`sdk-tests/timelock-escrow`) into a wasm
+  module, and its Playwright suite proves in the browser and compares against the native
+  fixtures and snarkjs (`just bench-zk-program-wasm` measures it).
 
 ## Keys for a deployment
 

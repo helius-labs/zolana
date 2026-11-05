@@ -79,7 +79,7 @@ test("every failure rejects with a named error and leaves the module proving", a
       withdrawZkey: "ProverError.KeysForAnotherCircuit",
     },
     overdraftMessage: "the transfer exceeds the balance",
-    overdraftLocation: expect.stringMatching(/program\/src\/escrow\.rs:\d+:\d+$/),
+    overdraftLocation: expect.stringMatching(/timelock-escrow\/program\/src\/circuits\/escrow\.rs:\d+:\d+$/),
     tooManyTokensMessage: "token_utxos_asset_a takes at most 5 items, 6 given",
     stillVerifies: true,
   });

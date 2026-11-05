@@ -86,3 +86,34 @@ fn spl_payment_prove_and_verify() {
         .verify(&result)
         .expect("the compressed proof verifies");
 }
+
+#[test]
+fn spl_payment_encrypts_with_the_synced_key_of_its_first_input() {
+    let sender = keypair(5);
+    let address = sender.shielded_address().expect("sender address");
+    let payer = address.solana_address().expect("payer");
+    let recipient = keypair(6).shielded_address().expect("recipient address");
+    let synced_key = keypair(7).viewing_key;
+    let mut input = token_input(&sender, USDC, 500, 0);
+    input.tx_viewing_key = Some(*synced_key.secret_bytes());
+
+    let payment = SplPayment {
+        private: SplPaymentPrivateInputs {
+            tx_context: TxContext::new(),
+            token_utxos_asset_a: [input],
+            amount: 400,
+        },
+        public: SplPaymentPublicInputs {
+            recipient,
+            mint: USDC,
+        },
+    };
+    let spp_proof_inputs = payment
+        .create_proof_inputs_and_encrypt(&address, payer)
+        .expect("spl payment proof inputs");
+
+    assert_eq!(
+        spp_proof_inputs.external_data.tx_viewing_pk,
+        *synced_key.pubkey().as_bytes()
+    );
+}

@@ -1,5 +1,3 @@
-#![cfg(feature = "compression")]
-
 use std::collections::HashSet;
 
 use borsh::BorshDeserialize;
