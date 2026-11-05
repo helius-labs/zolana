@@ -27,13 +27,14 @@ export async function fetchTransactionSlots(
     undefined,
     context,
   );
-  // One signature can carry several events. The leaf index picks the right one.
+  // One signature can carry several events. The leaf index picks the right
+  // one, and a leaf no event holds yields no slots.
   const event =
     input.leafIndex === undefined
       ? transactions[0]
-      : (transactions.find(({ transaction }) =>
+      : transactions.find(({ transaction }) =>
           transaction.outputSlots.some((slot) => slot.outputContext.leafIndex === input.leafIndex),
-        ) ?? transactions[0]);
+        );
   const ownerTags = new Map<number, Address>();
   const leaves = new Map<number, bigint>();
   event?.transaction.outputSlots.forEach((slot, slotIndex) => {

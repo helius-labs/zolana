@@ -75,6 +75,7 @@ function walletUtxo(keypair: ShieldedKeypair, amount: bigint, index: number, rin
     outputContext: {
       hash: filled(index + 1),
       tree: TREE,
+      treeId: 0,
       leafIndex: BigInt(index),
     },
     nullifier: filled(index + 20),

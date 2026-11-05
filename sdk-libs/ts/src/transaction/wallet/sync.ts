@@ -7,7 +7,7 @@ import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { initializePoseidon } from "../../hasher/index.js";
-import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
+import { treeAddress } from "../../interface/pda/index.js";
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
@@ -55,15 +55,6 @@ import {
 } from "./state.js";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
-
-/**
- * The tree id synced UTXOs are hashed under. A UTXO that lives in another tree
- * fails the recompute-and-compare against the indexed leaf and is never
- * stored, so a wrong id cannot admit a foreign commitment.
- *
- * TODO(tree-id): resolve the tree id from the tree account.
- */
-const SYNC_TREE_ID = DEFAULT_TREE_ID;
 
 /** The nullifier every seed-disclosing bundle of `tx` derives its blindings from. */
 function firstNullifierOf(tx: IndexedShieldedTransaction): Bytes32 {
@@ -357,7 +348,9 @@ class SyncPass {
         utxo,
         outputContext: Object.freeze({
           hash: copy(outputContext.hash),
-          tree: outputContext.tree,
+          // The hash check proved the id; the account follows from it.
+          tree: treeAddress(outputContext.treeId),
+          treeId: outputContext.treeId,
           leafIndex: outputContext.leafIndex,
         }),
         nullifier,
@@ -378,8 +371,12 @@ class SyncPass {
    * transaction.
    */
   #storeInTx(utxo: Utxo, tx: IndexedShieldedTransaction): void {
-    const hash = utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID);
-    const slot = tx.outputSlots.find((candidate) => equalBytes(candidate.outputContext.hash, hash));
+    const slot = tx.outputSlots.find((candidate) =>
+      equalBytes(
+        candidate.outputContext.hash,
+        utxo.hash(this.#nullifierPublicKey, candidate.outputContext.treeId),
+      ),
+    );
     if (slot === undefined) {
       this.undecryptableCandidates++;
       return;
@@ -398,7 +395,7 @@ class SyncPass {
     for (const utxo of utxos) {
       if (
         !equalBytes(
-          utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, dataHash, ringDataHash),
+          utxo.hash(this.#nullifierPublicKey, outputContext.treeId, dataHash, ringDataHash),
           outputContext.hash,
         )
       ) {
@@ -638,7 +635,7 @@ class SyncPass {
                 change.length === 1 &&
                 change[0]?.asset !== SOL_MINT)) &&
             equalBytes(
-              candidate.hash(this.#nullifierPublicKey, SYNC_TREE_ID),
+              candidate.hash(this.#nullifierPublicKey, slot.outputContext.treeId),
               slot.outputContext.hash,
             )
           ) {
@@ -907,7 +904,12 @@ class SyncPass {
         blinding: outputBlinding,
         ...(tx.ringProgramId === undefined ? {} : { ringProgramId: tx.ringProgramId }),
       });
-      const hash = utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, undefined, body.ringDataHash);
+      const hash = utxo.hash(
+        this.#nullifierPublicKey,
+        slot.outputContext.treeId,
+        undefined,
+        body.ringDataHash,
+      );
       if (!equalBytes(hash, slot.outputContext.hash)) {
         this.undecryptableCandidates++;
         return;

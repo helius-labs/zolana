@@ -369,7 +369,7 @@ describe("approval binding", () => {
             blinding: filled(1),
             data: new Data(),
           }),
-          outputContext: { hash: filled(1), tree: TREE, leafIndex: 0n },
+          outputContext: { hash: filled(1), tree: TREE, treeId: 0, leafIndex: 0n },
           nullifier: filled(20),
           spent: false,
         },

@@ -7,6 +7,7 @@ import { LocalKeys } from "../src/client/keys.js";
 import {
   AuthorizedPrivateTransaction,
   authorizedPrivateTransactionMaterial,
+  mintAuthorizedPrivateTransaction,
   type AuthorizedPrivateTransactionMaterial,
 } from "../src/client/ports.js";
 import { treeAddress } from "../src/interface/pda/index.js";
@@ -18,6 +19,7 @@ import { SppProofInputs } from "../src/transaction/instructions/transact.js";
 import { createProofOutput } from "../src/transaction/utxo.js";
 import {
   checkAuthorizedBinding,
+  intentHash,
   type TransactionIntent,
 } from "../src/transaction/wallet/intent.js";
 import {
@@ -42,7 +44,7 @@ function spendingKeypair(): ShieldedKeypair {
   return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(filled(42)));
 }
 
-function fundedWallet(keypair: ShieldedKeypair, asset: Address = SOL_MINT): Wallet {
+function fundedWallet(keypair: ShieldedKeypair, asset: Address = SOL_MINT, treeId = 0): Wallet {
   const wallet = new Wallet({
     identity: keypair.shieldedAddress(),
     registry: new AssetRegistry(asset === SOL_MINT ? [] : [[2n, asset]]),
@@ -57,7 +59,7 @@ function fundedWallet(keypair: ShieldedKeypair, asset: Address = SOL_MINT): Wall
           blinding: filled(1),
           data: new Data(),
         }),
-        outputContext: { hash: filled(1), tree: TREE, leafIndex: 0n },
+        outputContext: { hash: filled(1), tree: treeAddress(treeId), treeId, leafIndex: 0n },
         nullifier: filled(20),
         spent: false,
       },
@@ -72,10 +74,11 @@ async function authorize(
   kind: "transfer" | "withdrawal" | "split",
   amount = 25n,
   inCircuitOwner = false,
+  treeId = 0,
 ) {
   const keypair = spendingKeypair();
   const asset = kind === "withdrawal" ? SPL_MINT : SOL_MINT;
-  const wallet = fundedWallet(keypair, asset);
+  const wallet = fundedWallet(keypair, asset, treeId);
   const feePayer = keypair.shieldedAddress().solanaAddress();
   const keys = LocalKeys.fromKeypair(keypair, {
     prove: () => Promise.reject(new Error("prove must not be called")),
@@ -279,6 +282,32 @@ describe("authorized transaction binding", () => {
       ]),
     ).rejects.toMatchObject({ code: "CLIENT_INVALID_TRANSACTION" });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("spends another tree into the client's tree and refuses a tree its inputs do not open", async () => {
+    const { authorized, material, feePayer, keys } = await authorize("transfer", 25n, false, 1);
+    expect(material.tree).toBe(treeAddress(1));
+    expect(material.proofInputs.inputTreeIds()).toEqual([1]);
+    expect(material.proofInputs.outputTreeId).toBe(0);
+    const accepted = offlineClient();
+    await expect(
+      accepted.client.assembleAuthorizedPrivateTransaction({ authorized, feePayer, keys }),
+    ).rejects.toBeDefined();
+    // Past the tree check the client reads the input proofs.
+    expect(accepted.fetch).toHaveBeenCalled();
+
+    const misnamed = mintAuthorizedPrivateTransaction(
+      { ...material, tree: TREE },
+      intentHash(material.intent),
+    );
+    const refused = offlineClient();
+    await expect(
+      refused.client.assembleAuthorizedPrivateTransaction({ authorized: misnamed, feePayer, keys }),
+    ).rejects.toMatchObject({
+      code: "CLIENT_TREE_MISMATCH",
+      details: { transactionTree: TREE, clientTree: treeAddress(1) },
+    });
+    expect(refused.fetch).not.toHaveBeenCalled();
   });
 
   it("rejects caller-supplied setup instructions", async () => {
