@@ -3,6 +3,9 @@
   "recipient_seed": 2,
   "input_amount": 10,
   "outputs": 8,
+  "ring_seed": 42,
+  "slot_len": 89,
+  "ring_slot_len": 121,
   "cases": [
     {
       "name": "self-paid with change",

@@ -1295,6 +1295,9 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
         recipient_seed: u8,
         input_amount: u64,
         outputs: usize,
+        ring_seed: u8,
+        slot_len: usize,
+        ring_slot_len: usize,
         cases: Vec<Case>,
     }
     #[derive(serde::Deserialize)]
@@ -1332,7 +1335,8 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
             1
         };
         assert_eq!(proof.output_utxos.len(), vectors.outputs, "{}", case.name);
-        assert_dummies(&proof, real, resolved, encoding, None, slot_len(&proof, 0));
+        assert_eq!(slot_len(&proof, 0), vectors.slot_len, "{}", case.name);
+        assert_dummies(&proof, real, resolved, encoding, None, vectors.slot_len);
         // The participant whose tag the padding borrows has the same encoding.
         let participant = proof
             .output_utxos
@@ -1347,6 +1351,32 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
             .1;
         assert_eq!(participant.owner_tag, encoding, "{}", case.name);
     }
+
+    // Ring padding measures a ring slot, which carries the ring program id.
+    let ring = Address::new_from_array([vectors.ring_seed; 32]);
+    let relayer = Address::new_from_array([99; 32]);
+    let mut tx = ConfidentialTransaction::new_with_ring(
+        vec![wallet_utxo(&owner, Mint::SOL, vectors.input_amount, 7, 1)],
+        relayer,
+        ring,
+    )
+    .unwrap();
+    tx.transfer_sol(&recipient, 4).unwrap();
+    tx.pad_utxos(Shape::new(1, vectors.outputs), &sender)
+        .unwrap();
+    let proof = tx.encrypt(&owner).unwrap();
+    for index in 0..2 {
+        assert_eq!(slot_len(&proof, index), vectors.ring_slot_len);
+    }
+    let tag = sender.confidential_view_tag().unwrap();
+    assert_dummies(
+        &proof,
+        2,
+        tag,
+        OwnerTag::Inline(tag),
+        Some(ring),
+        vectors.ring_slot_len,
+    );
 }
 
 /// `new_compact` pads with compact slots: input slot 1 publishes nullifier 0 in

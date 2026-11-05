@@ -646,7 +646,7 @@ describe("program transaction decoding", () => {
         utxoHash: decoded.outputHashes[1],
         ownerTag: decoded.ownerTags[1],
         resolved: decoded.outputs[1]?.ownerTag,
-        length: dummyCiphertextLength(externalData.salt),
+        length: dummyCiphertextLength(externalData.salt, undefined),
       });
     } finally {
       tx.destroy();
