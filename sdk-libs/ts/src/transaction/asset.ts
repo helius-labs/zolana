@@ -5,6 +5,7 @@ import type { Address, Bytes32 } from "../interface/types.js";
 
 import { TransactionError } from "./error.js";
 import { checked, decodeAddress, hashBytes } from "./internal.js";
+import { U64_MAX } from "../interface/internal.js";
 
 export const SOL_ASSET_ID = 1n;
 export const SOL_MINT = address("11111111111111111111111111111111");
@@ -58,7 +59,7 @@ export class AssetRegistry {
   }
 
   insert(assetId: bigint, mint: Address): void {
-    if (typeof assetId !== "bigint" || assetId < 0n || assetId > 0xffff_ffff_ffff_ffffn) {
+    if (typeof assetId !== "bigint" || assetId < 0n || assetId > U64_MAX) {
       throw new TransactionError("TRANSACTION_INVALID_ASSET_ID", {
         assetId: String(assetId),
       });

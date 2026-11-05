@@ -1,8 +1,7 @@
 import { SPP_SUPPORTED_SHAPES } from "../interface/shape.js";
 import type { Address } from "../interface/types.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
-
-const U64_MAX = 0xffff_ffff_ffff_ffffn;
+import { U64_MAX } from "../interface/internal.js";
 
 /**
  * @internal Notes a wallet spend selects at most, Rust `MAX_SPEND_INPUTS`. Selection

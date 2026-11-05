@@ -1,11 +1,21 @@
-import { addressBytes, copyBytes, fail, sha256, unsigned, unsignedBigint } from "./internal.js";
+import { foldRightHashChain4 } from "../hasher/chain.js";
+
+import { isZero } from "./bytes.js";
+import {
+  U64_MAX,
+  addressBytes,
+  copyBytes,
+  fail,
+  sha256,
+  unsigned,
+  unsignedBigint,
+} from "./internal.js";
 import { poseidon } from "./merge-utils.js";
 import { MAX_TRANSACT_INPUTS } from "./shape.js";
 import { CACHE_CAPACITY } from "./state.js";
 import { treeIdField } from "./tree-slot.js";
 import type { Address, Bytes32, CacheAccess, CacheWrite } from "./types.js";
 
-const U64_MAX = (1n << 64n) - 1n;
 const CACHE_WRITE_DOMAIN = new TextEncoder().encode("cache_write");
 
 export const MAX_CACHE_WRITES = 16;
@@ -21,15 +31,7 @@ function zero(): Bytes32 {
 }
 
 function rightHashChain4(values: readonly Bytes32[]): Bytes32 {
-  const last = values.at(-1);
-  if (last === undefined) return zero();
-  let chain = last;
-  for (let end = values.length - 1; end > 0;) {
-    const start = Math.max(end - 3, 0);
-    const group = values.slice(start, end);
-    chain = poseidon([...group, ...Array.from({ length: 3 - group.length }, zero), chain]);
-    end = start;
-  }
+  const chain = foldRightHashChain4(values, { zero, isZero, hash: poseidon });
   return copyBytes(chain, 32, "cacheReadHashChain") as Bytes32;
 }
 

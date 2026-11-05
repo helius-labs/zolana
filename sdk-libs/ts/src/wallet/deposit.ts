@@ -27,6 +27,7 @@ import { resolveDepositSettlement } from "../flows/settlement.js";
 
 import { WalletError, wrapWalletError } from "./error.js";
 import { resolveShieldedRecipient } from "./registry.js";
+import { U64_MAX } from "../interface/internal.js";
 
 /** @internal */
 export interface DepositParams {
@@ -79,7 +80,7 @@ export class Deposit {
 export async function createDeposit(params: DepositParams): Promise<Deposit> {
   try {
     await initializePoseidon();
-    if (params.amount <= 0n || params.amount > 0xffff_ffff_ffff_ffffn) {
+    if (params.amount <= 0n || params.amount > U64_MAX) {
       throw new WalletError("WALLET_INVALID_AMOUNT", {
         details: { amount: params.amount.toString() },
       });

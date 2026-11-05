@@ -52,6 +52,7 @@ import {
   UTXO_SUBTREES_LEN_OFFSET,
 } from "../state.js";
 import {
+  U64_MAX,
   Reader,
   Writer,
   addressBytes,
@@ -454,7 +455,7 @@ export function mergeExternalDataHash(
     cache?: Readonly<{ address: Address; slot: number }>;
   }>,
 ): Bytes32 {
-  const expiry = unsignedBigint(input.expiryUnixTs, (1n << 64n) - 1n, "expiryUnixTs");
+  const expiry = unsignedBigint(input.expiryUnixTs, U64_MAX, "expiryUnixTs");
   const writer = new Writer()
     .u8(input.instructionTag, "instructionTag")
     .bytes(

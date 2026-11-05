@@ -1,15 +1,10 @@
+import type { Bytes16, Bytes31, Bytes32, Bytes33, Bytes64 } from "../interface/types.js";
+
 import { invalidLength } from "./error.js";
 
-type FixedBytes<Length extends number> = Uint8Array & {
-  readonly __fixedBytesLength: Length;
-};
-
-export type Bytes16 = FixedBytes<16>;
-export type Bytes31 = FixedBytes<31>;
-export type Bytes32 = FixedBytes<32>;
-export type Bytes33 = FixedBytes<33>;
-export type Bytes34 = FixedBytes<34>;
-export type Bytes64 = FixedBytes<64>;
+export type { Bytes16, Bytes31, Bytes32, Bytes33, Bytes64 };
+/** A serialized shielded public key, `interface/types.ts`'s brand at length 34. */
+export type Bytes34 = Uint8Array & { readonly __fixedBytesLength: 34 };
 
 export function copyBytes(bytes: Uint8Array): Uint8Array {
   return new Uint8Array(bytes);

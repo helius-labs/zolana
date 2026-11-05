@@ -1,5 +1,9 @@
 import { concatBytes, equalBytes } from "../../interface/bytes.js";
-import type { Reader as FieldReader } from "../../interface/internal.js";
+import {
+  type CodecFailure,
+  Reader as FieldReader,
+  Writer as FieldWriter,
+} from "../../interface/internal.js";
 import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.js";
 import type { Bytes34 } from "../../keypair/bytes.js";
 import { ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -172,111 +176,43 @@ export interface ProoflessOutput {
   readonly memo?: Uint8Array;
 }
 
-class Writer {
-  readonly parts: Uint8Array[] = [];
-
-  u8(value: number): void {
-    if (!Number.isInteger(value) || value < 0 || value > 0xff) {
-      throw new TransactionError("TRANSACTION_INVALID_INTEGER", { value, bits: 8 });
-    }
-    this.parts.push(Uint8Array.of(value));
-  }
-
-  u16(value: number): void {
-    if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
-      throw new TransactionError("TRANSACTION_INVALID_INTEGER", { value, bits: 16 });
-    }
-    const bytes = new Uint8Array(2);
-    new DataView(bytes.buffer).setUint16(0, value, true);
-    this.parts.push(bytes);
-  }
-
-  u32(value: number): void {
-    if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) {
-      throw new TransactionError("TRANSACTION_INVALID_INTEGER", { value, bits: 32 });
-    }
-    const bytes = new Uint8Array(4);
-    new DataView(bytes.buffer).setUint32(0, value, true);
-    this.parts.push(bytes);
-  }
-
-  u64(value: bigint): void {
-    if (value < 0n || value > 0xffff_ffff_ffff_ffffn) {
-      throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
-        value: value.toString(),
+/** The transaction taxonomy for a `CodecFailure`. */
+function transactionCodecError(failure: CodecFailure): TransactionError {
+  switch (failure.kind) {
+    case "notBytes":
+    case "length":
+      return new TransactionError("TRANSACTION_SERIALIZE", { field: failure.name });
+    case "integer":
+      return failure.bits === 64
+        ? new TransactionError("TRANSACTION_INVALID_AMOUNT", { value: String(failure.actual) })
+        : new TransactionError("TRANSACTION_INVALID_INTEGER", {
+            value: failure.actual,
+            bits: failure.bits,
+          });
+    case "bool":
+      return new TransactionError("TRANSACTION_DESERIALIZE", { optionTag: failure.actual });
+    case "truncated":
+      return new TransactionError("TRANSACTION_DESERIALIZE", {
+        offset: failure.offset,
+        requested: failure.expected,
+        available: failure.remaining,
       });
-    }
-    const bytes = new Uint8Array(8);
-    new DataView(bytes.buffer).setBigUint64(0, value, true);
-    this.parts.push(bytes);
-  }
-
-  bytes(value: Uint8Array): void {
-    this.parts.push(new Uint8Array(value));
-  }
-
-  option<T>(value: T | undefined, write: (value: T) => void): void {
-    this.u8(value === undefined ? 0 : 1);
-    if (value !== undefined) write(value);
-  }
-
-  finish(): Uint8Array {
-    return concatBytes(...this.parts);
+    case "trailing":
+      return new TransactionError("TRANSACTION_TRAILING_BYTES", {
+        trailing: failure.length - failure.offset,
+      });
   }
 }
 
-class Reader {
-  #offset = 0;
-
-  constructor(readonly bytes: Uint8Array) {}
-
-  take(length: number): Uint8Array {
-    if (this.#offset + length > this.bytes.length) {
-      throw new TransactionError("TRANSACTION_DESERIALIZE", {
-        offset: this.#offset,
-        requested: length,
-        available: this.bytes.length - this.#offset,
-      });
-    }
-    const result = this.bytes.slice(this.#offset, this.#offset + length);
-    this.#offset += length;
-    return result;
+class Writer extends FieldWriter {
+  constructor() {
+    super(transactionCodecError);
   }
+}
 
-  u8(): number {
-    const value = this.take(1)[0];
-    if (value === undefined) throw new TransactionError("TRANSACTION_DESERIALIZE");
-    return value;
-  }
-
-  u16(): number {
-    const bytes = this.take(2);
-    return new DataView(bytes.buffer, bytes.byteOffset, 2).getUint16(0, true);
-  }
-
-  u32(): number {
-    const bytes = this.take(4);
-    return new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
-  }
-
-  u64(): bigint {
-    const bytes = this.take(8);
-    return new DataView(bytes.buffer, bytes.byteOffset, 8).getBigUint64(0, true);
-  }
-
-  option<T>(read: () => T): T | undefined {
-    const tag = this.u8();
-    if (tag === 0) return undefined;
-    if (tag !== 1) throw new TransactionError("TRANSACTION_DESERIALIZE", { optionTag: tag });
-    return read();
-  }
-
-  exact(): void {
-    if (this.#offset !== this.bytes.length) {
-      throw new TransactionError("TRANSACTION_TRAILING_BYTES", {
-        trailing: this.bytes.length - this.#offset,
-      });
-    }
+class Reader extends FieldReader {
+  constructor(bytes: Uint8Array) {
+    super(bytes, transactionCodecError);
   }
 }
 
@@ -336,7 +272,7 @@ function readDataRecords(reader: Reader): Data {
   const records: DataRecord[] = [];
   for (let index = 0; index < count; index++) {
     const tag = reader.u8();
-    const bytes = reader.take(reader.u16());
+    const bytes = reader.bytes(reader.u16());
     records.push({ kind: dataRecordKind(tag), bytes });
   }
   return new Data(records);
@@ -364,7 +300,7 @@ export function encodeData(data: Data): Uint8Array {
 export function decodeData(bytes: Uint8Array): Data {
   const reader = new Reader(bytes);
   const data = readDataRecords(reader);
-  reader.exact();
+  reader.done();
   return data;
 }
 
@@ -373,7 +309,7 @@ export function encodeConfidential(value: ConfidentialOutputPlaintext): Uint8Arr
   writer.u64(value.assetId);
   writer.u64(value.amount);
   writer.bytes(checked<Bytes32>(value.blinding, 32, "blinding"));
-  writer.option(value.ringProgramId, (address) => {
+  writer.option(value.ringProgramId, (_, address) => {
     writer.bytes(decodeAddress(address));
   });
   writeData(writer, value.data);
@@ -384,8 +320,8 @@ export function decodeConfidential(bytes: Uint8Array): ConfidentialOutputPlainte
   const reader = new Reader(bytes);
   const assetId = reader.u64();
   const amount = reader.u64();
-  const blinding = reader.take(32) as Bytes32;
-  const ringProgramId = reader.option(() => encodeAddress(reader.take(32)));
+  const blinding = reader.bytes(32) as Bytes32;
+  const ringProgramId = reader.option("ringProgramId", () => encodeAddress(reader.bytes(32)));
   const result: ConfidentialOutputPlaintext = {
     assetId,
     amount,
@@ -393,7 +329,7 @@ export function decodeConfidential(bytes: Uint8Array): ConfidentialOutputPlainte
     ...(ringProgramId === undefined ? {} : { ringProgramId }),
     data: readDataRecords(reader),
   };
-  reader.exact();
+  reader.done();
   return result;
 }
 
@@ -439,13 +375,13 @@ export function encodePlaintextTransfer(value: TransferPlaintextUtxos): Uint8Arr
   const writer = new Writer();
   writer.u8(value.typePrefix);
   writer.bytes(checked<Bytes32>(value.blindingSeed, 32, "blinding seed"));
-  writer.option(value.sender, (sender) => {
+  writer.option(value.sender, (_, sender) => {
     writer.bytes(sender.ownerPublicKey.toBytes());
-    writer.option(sender.spl, (spl) => {
+    writer.option(sender.spl, (_, spl) => {
       writer.u64(spl.amount);
       writer.u64(spl.assetId);
     });
-    writer.option(sender.solAmount, (amount) => {
+    writer.option(sender.solAmount, (_, amount) => {
       writer.u64(amount);
     });
     writeData(writer, sender.splData);
@@ -470,14 +406,14 @@ export function decodePlaintextTransfer(
   if (typePrefix !== expectedTypePrefix) {
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { typePrefix });
   }
-  const blindingSeed = reader.take(32) as Bytes32;
-  const sender = reader.option<TransferPlaintextSender>(() => {
-    const ownerPublicKey = ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34);
-    const spl = reader.option<TransferPlaintextSplChange>(() => ({
+  const blindingSeed = reader.bytes(32) as Bytes32;
+  const sender = reader.option<TransferPlaintextSender>("sender", () => {
+    const ownerPublicKey = ShieldedPublicKey.fromBytes(reader.bytes(34) as Bytes34);
+    const spl = reader.option<TransferPlaintextSplChange>("spl", () => ({
       amount: reader.u64(),
       assetId: reader.u64(),
     }));
-    const solAmount = reader.option(() => reader.u64());
+    const solAmount = reader.option("solAmount", () => reader.u64());
     return {
       ownerPublicKey,
       ...(spl === undefined ? {} : { spl }),
@@ -487,12 +423,12 @@ export function decodePlaintextTransfer(
     };
   });
   const recipientSlots = Array.from({ length: reader.u8() }, (): TransferPlaintextRecipient => ({
-    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
+    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.bytes(34) as Bytes34),
     assetId: reader.u64(),
     amount: reader.u64(),
     data: readDataRecords(reader),
   }));
-  reader.exact();
+  reader.done();
   return {
     typePrefix,
     blindingSeed,
@@ -584,14 +520,14 @@ export function encodeSplitBundle(value: SplitBundlePlaintext): Uint8Array {
 export function decodeSplitBundle(bytes: Uint8Array): SplitBundlePlaintext {
   const reader = new Reader(bytes);
   const result: SplitBundlePlaintext = {
-    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
+    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.bytes(34) as Bytes34),
     numOutputs: reader.u8(),
     assetId: reader.u64(),
     assetAmount: reader.u64(),
-    blindingSeed: reader.take(32) as Bytes32,
+    blindingSeed: reader.bytes(32) as Bytes32,
     data: readDataRecords(reader),
   };
-  reader.exact();
+  reader.done();
   return result;
 }
 
@@ -623,10 +559,10 @@ export function decodeSplitEncrypted(bytes: Uint8Array): SplitEncryptedUtxos {
   if (typePrefix !== SPLIT) {
     throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { typePrefix });
   }
-  const txViewingPublicKey = X25519PublicKey.fromBytes(reader.take(33) as Bytes33);
-  const salt = reader.take(16) as Bytes16;
-  const ciphertext = reader.take(reader.u16());
-  reader.exact();
+  const txViewingPublicKey = X25519PublicKey.fromBytes(reader.bytes(33) as Bytes33);
+  const salt = reader.bytes(16) as Bytes16;
+  const ciphertext = reader.bytes(reader.u16());
+  reader.done();
   return { typePrefix, txViewingPublicKey, salt, ciphertext };
 }
 
@@ -714,8 +650,8 @@ export function readOutputFrame(bytes: Uint8Array): Readonly<{
 }> {
   const reader = new Reader(bytes);
   const encodingTag = reader.u8();
-  const blob = reader.take(reader.u32());
-  reader.exact();
+  const blob = reader.bytes(reader.u32());
+  reader.done();
   if (blob.length === 0) {
     throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
       field: "encryptedOutput",
@@ -778,19 +714,19 @@ export function encodeProofless(value: ProoflessOutput): Uint8Array {
   writer.bytes(decodeAddress(value.asset));
   writer.u64(value.amount);
   const optionalBytes = (bytes: Uint8Array | undefined): void => {
-    writer.option(bytes, (present) => {
+    writer.option(bytes, (_, present) => {
       writer.u32(present.length);
       writer.bytes(present);
     });
   };
-  writer.option(value.dataHash, (hash) => {
+  writer.option(value.dataHash, (_, hash) => {
     writer.bytes(checked<Bytes32>(hash, 32, "data hash"));
   });
   optionalBytes(value.utxoData);
-  writer.option(value.ringProgramId, (address) => {
+  writer.option(value.ringProgramId, (_, address) => {
     writer.bytes(decodeAddress(address));
   });
-  writer.option(value.ringDataHash, (hash) => {
+  writer.option(value.ringDataHash, (_, hash) => {
     writer.bytes(checked<Bytes32>(hash, 32, "ring data hash"));
   });
   optionalBytes(value.ringData);
@@ -800,19 +736,19 @@ export function encodeProofless(value: ProoflessOutput): Uint8Array {
 
 export function decodeProofless(bytes: Uint8Array): ProoflessOutput {
   const reader = new Reader(bytes);
-  const owner = reader.take(32) as Bytes32;
-  const blinding = reader.take(32) as Bytes32;
-  const asset = encodeAddress(reader.take(32));
+  const owner = reader.bytes(32) as Bytes32;
+  const blinding = reader.bytes(32) as Bytes32;
+  const asset = encodeAddress(reader.bytes(32));
   const amount = reader.u64();
-  const dataHash = reader.option(() => reader.take(32) as Bytes32);
+  const dataHash = reader.option("dataHash", () => reader.bytes(32) as Bytes32);
   const optionalBytes = (): Uint8Array | undefined =>
-    reader.option(() => reader.take(reader.u32()));
+    reader.option("bytes", () => reader.bytes(reader.u32()));
   const utxoData = optionalBytes();
-  const ringProgramId = reader.option(() => encodeAddress(reader.take(32)));
-  const ringDataHash = reader.option(() => reader.take(32) as Bytes32);
+  const ringProgramId = reader.option("ringProgramId", () => encodeAddress(reader.bytes(32)));
+  const ringDataHash = reader.option("ringDataHash", () => reader.bytes(32) as Bytes32);
   const ringData = optionalBytes();
   const memo = optionalBytes();
-  reader.exact();
+  reader.done();
   return {
     owner,
     blinding,

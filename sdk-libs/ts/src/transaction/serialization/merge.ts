@@ -11,6 +11,7 @@ import {
   encodeOutputData,
   mergeOutputDataEncoding,
 } from "./codecs.js";
+import { U64_MAX } from "../../interface/internal.js";
 
 /** The two output fields a merge proof encrypts for the owner. Rust `MergeOutputPlaintext`. */
 export interface MergeOutputPlaintext {
@@ -28,7 +29,7 @@ export const MERGE_OUTPUT_BODY_LENGTH = SALT_LENGTH + 32 * MERGE_OUTPUT_CIPHERTE
 
 /** `[amount, mint chunk 0, mint chunk 1]`: the `hash_bytes_32` chunks of the mint. */
 function plaintextFields(plaintext: MergeOutputPlaintext): readonly [bigint, bigint, bigint] {
-  if (plaintext.amount < 0n || plaintext.amount > 0xffff_ffff_ffff_ffffn) {
+  if (plaintext.amount < 0n || plaintext.amount > U64_MAX) {
     throw new TransactionError("TRANSACTION_INVALID_AMOUNT", {
       field: "merge output amount",
       value: String(plaintext.amount),

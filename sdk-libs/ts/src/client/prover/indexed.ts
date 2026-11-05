@@ -22,14 +22,8 @@ import type {
   ProofResolution,
 } from "../ports.js";
 import { ClientError } from "../error.js";
-import { solanaOwnerIdentity } from "../../hasher/index.js";
-import {
-  BN254_MODULUS,
-  bigintToBytes,
-  bytesField,
-  checkedBytes,
-  hasIndexedMethod,
-} from "../internal.js";
+import { BN254_SCALAR_ORDER, solanaOwnerIdentity } from "../../hasher/index.js";
+import { bigintToBytes, bytesField, checkedBytes, hasIndexedMethod } from "../internal.js";
 import {
   anonymousPublicFields,
   asField,
@@ -324,7 +318,7 @@ function decodeOutput(value: unknown): TransferOutput {
 }
 
 function requestField(value: unknown): Field {
-  if (typeof value !== "bigint" || value < 0n || value >= BN254_MODULUS) throw invalid();
+  if (typeof value !== "bigint" || value < 0n || value >= BN254_SCALAR_ORDER) throw invalid();
   return asField(value);
 }
 
@@ -545,7 +539,7 @@ function authorityField(value: unknown): Bytes32 {
 
 /** A value at or above the modulus aliases a smaller field element. */
 function canonicalField(value: bigint): Bytes32 {
-  if (value >= BN254_MODULUS) throw unparsable();
+  if (value >= BN254_SCALAR_ORDER) throw unparsable();
   return checkedBytes(bigintToBytes(value, "root"), 32, "root");
 }
 
