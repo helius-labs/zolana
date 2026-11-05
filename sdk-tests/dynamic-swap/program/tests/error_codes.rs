@@ -2,6 +2,7 @@ use dynamic_swap_program::error::DynamicSwapError::*;
 
 #[test]
 fn error_codes_are_stable() {
+    // 9009-9011, 9013, 9014, 9018, 9019 and 9024 are retired; see error.rs.
     let table = [
         (Expired as u32, 9000),
         (NotYetExpired as u32, 9001),
@@ -12,22 +13,14 @@ fn error_codes_are_stable() {
         (MissingEscrowAuthority as u32, 9006),
         (HashingFailed as u32, 9007),
         (InvalidPda as u32, 9008),
-        (NotCommitted as u32, 9009),
-        (OutOfOrderSettlement as u32, 9010),
-        (LiquidityHashMismatch as u32, 9011),
         (Unauthorized as u32, 9012),
-        // 9013 retired (was EscrowOutputMismatch) -- see error.rs.
-        (CreatedAtOutOfTolerance as u32, 9014),
         (PairMismatch as u32, 9015),
         (InvalidPrice as u32, 9016),
         (RentRecipientMismatch as u32, 9017),
-        (InvalidNullifierPubkey as u32, 9018),
-        (MaxPriceExceeded as u32, 9019),
         (InvalidEncryptionPubkey as u32, 9020),
         (InvalidExpiry as u32, 9021),
         (InsufficientLiquidity as u32, 9022),
         (InvalidMaxOrderSize as u32, 9023),
-        (AssetMismatch as u32, 9024),
         (InvalidDepositAmount as u32, 9025),
         (InterfaceTransferMismatch as u32, 9026),
         (InvalidWithdrawalAmount as u32, 9027),

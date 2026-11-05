@@ -19,10 +19,9 @@ pub enum DynamicSwapError {
     InvalidInstructionData = 9003,
     #[error("shielded-pool program account is invalid")]
     InvalidShieldedPoolProgram = 9004,
-    /// A pool-spending instruction (`withdraw_liquidity`,
-    /// `rebalance_liquidity`, `settle`) whose forwarded transact account list
-    /// does not contain the pair's `pool_authority` PDA, so the CPI could not
-    /// sign for the pool notes.
+    /// An instruction that signs for the pair's `pool_authority` PDA
+    /// (`deposit_liquidity`, `withdraw_liquidity`, `rebalance_liquidity`,
+    /// `settle`) whose forwarded transact account list does not contain it.
     #[error("pool-authority account is missing from the transact account list")]
     MissingPoolAuthority = 9005,
     #[error("escrow-authority account is missing from the transact account list")]
@@ -31,45 +30,20 @@ pub enum DynamicSwapError {
     HashingFailed = 9007,
     #[error("account address does not match the derived PDA")]
     InvalidPda = 9008,
-    // 9009 retired (was NotCommitted): every escrow is priced at creation, so an
-    // uncommitted escrow can no longer exist. Kept as a pinned, stable code.
-    #[error("escrow has not yet been committed to a swap")]
-    NotCommitted = 9009,
-    // 9010 retired (was OutOfOrderSettlement): the strict fill queue is removed --
-    // each escrow is self-contained, so there is no shared pool to order
-    // settlements against. Kept as a pinned, stable code.
-    #[error("settlement is out of order with the fill queue")]
-    OutOfOrderSettlement = 9010,
-    // 9011 retired (was LiquidityHashMismatch): there is no shared pool, so no
-    // `Liquidity.available_hash` binding remains. Kept as a pinned, stable code.
-    #[error("liquidity commitment hash does not match the spent pool UTXO")]
-    LiquidityHashMismatch = 9011,
+    // 9009-9011 are retired (were NotCommitted, OutOfOrderSettlement and
+    // LiquidityHashMismatch). The codes stay reserved.
     #[error("signer is not the pair's authority")]
     Unauthorized = 9012,
-    // 9013 is retired (was EscrowOutputMismatch): the order output hash is read
-    // directly from the transact outputs, so no client claim can diverge. The
-    // code is left as an unused gap rather than renumbering the stable codes
-    // around it.
-    // 9014 retired (was CreatedAtOutOfTolerance): created_at is program-stamped
-    // from the Clock sysvar, so there is no client-supplied slot to bound. Kept
-    // as a pinned, stable code.
-    #[error("client-supplied created_at slot is too far from the current on-chain slot")]
-    CreatedAtOutOfTolerance = 9014,
+    // 9013 and 9014 are retired (were EscrowOutputMismatch and
+    // CreatedAtOutOfTolerance). The codes stay reserved.
     #[error("account does not belong to the pair passed in")]
     PairMismatch = 9015,
     #[error("price must be nonzero")]
     InvalidPrice = 9016,
     #[error("rent recipient must be the escrow owner")]
     RentRecipientMismatch = 9017,
-    // 9018 retired (was InvalidNullifierPubkey): the escrow-authority nullifier
-    // pubkey is no longer maker-supplied -- it is the hardcoded zero-secret
-    // constant `ESCROW_NULLIFIER_PUBKEY`. Kept as a pinned, stable code.
-    #[error("escrow-authority nullifier pubkey must be nonzero")]
-    InvalidNullifierPubkey = 9018,
-    // 9019 retired (was MaxPriceExceeded): the taker's exact minimum price is
-    // now private and evaluated by settlement. Kept as a stable code.
-    #[error("pair price exceeds the taker's max_price")]
-    MaxPriceExceeded = 9019,
+    // 9018 and 9019 are retired (were InvalidNullifierPubkey and
+    // MaxPriceExceeded). The codes stay reserved.
     /// `create_pair` with a maker encryption pubkey that is not a
     /// tagged X25519 key with a canonical coordinate (first byte 0x04).
     #[error("maker encryption pubkey is not a canonical tagged X25519 key")]
@@ -87,11 +61,7 @@ pub enum DynamicSwapError {
     /// escrow unprovable (owed is nonzero) and every reservation empty.
     #[error("max_order_size must be nonzero")]
     InvalidMaxOrderSize = 9023,
-    // 9024 retired (was AssetMismatch): deposit_liquidity no longer reads a
-    // mint. It is a proven transact whose proof binds the spent note and the
-    // pool note to the pair's destination asset. Kept as a pinned, stable code.
-    #[error("deposit mint does not match the pair's destination asset")]
-    AssetMismatch = 9024,
+    // 9024 is retired (was AssetMismatch). The code stays reserved.
     #[error("deposit amount must be nonzero")]
     InvalidDepositAmount = 9025,
     /// `withdraw_liquidity` whose transact interface transfers do not consist

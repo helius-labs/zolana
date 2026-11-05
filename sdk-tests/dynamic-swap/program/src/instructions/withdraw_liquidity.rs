@@ -10,13 +10,11 @@ use crate::{
         shared::{cpi_spp_transact_signed, pool_authority_owner_hash},
         verifier::Groth16ProofBytes,
     },
-    state::load_pair_mut,
+    state::{load_pair_mut, load_token_account_owner},
 };
 
 const WITHDRAWAL_GROUP_LEN: usize = 5;
 const USER_TOKEN_FROM_END: usize = 2;
-
-const TOKEN_ACCOUNT_OWNER_RANGE: core::ops::Range<usize> = 32..64;
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct WithdrawLiquidityIxData {
@@ -47,7 +45,8 @@ pub struct WithdrawLiquidityIxData {
 // 13. Check that the account list is long enough for the five-account SPL
 //     withdrawal group.
 // 14. Locate the destination token account in that group.
-// 15. Read the destination token account's owner field.
+// 15. Load the destination token account's owner, verifying that the account
+//     is owned by the SPL Token or Token-2022 program.
 // 16. Check that the destination token account belongs to the pair authority.
 // 17. Subtract the amount from `pair.available_liquidity` with underflow
 //     checking.
@@ -71,7 +70,7 @@ pub fn process_withdraw_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) 
     } = wincode::deserialize_exact(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
 
     // Step 4: Load and validate the pair account.
-    let pair = *load_pair_mut(pair_account)?;
+    let mut pair = load_pair_mut(pair_account)?;
     // Step 5: Check that the signer is the pair authority.
     if !address_eq(&pair.authority, authority.address()) {
         return Err(DynamicSwapError::Unauthorized.into());
@@ -121,29 +120,18 @@ pub fn process_withdraw_liquidity_ix(accounts: &mut [AccountView], data: &[u8]) 
     let user_token = spp_accounts
         .get(spp_accounts.len() - USER_TOKEN_FROM_END)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
-    // Step 15: Read the destination token account's owner field.
-    let token_data = user_token
-        .try_borrow()
-        .map_err(|_| DynamicSwapError::InterfaceTransferMismatch)?;
-    let token_owner = token_data
-        .get(TOKEN_ACCOUNT_OWNER_RANGE)
-        .ok_or(DynamicSwapError::InterfaceTransferMismatch)?;
+    // Step 15: Load the destination token account's owner.
     // Step 16: Check that the token account belongs to the pair authority.
-    if token_owner != pair.authority.as_array() {
+    if !address_eq(&load_token_account_owner(user_token)?, &pair.authority) {
         return Err(DynamicSwapError::InterfaceTransferMismatch.into());
     }
-    // The token account is forwarded writable to the SPP CPI. Release our
-    // validation borrow before invoking it.
-    drop(token_data);
 
-    {
-        // Step 17: Subtract the amount from available liquidity.
-        let mut pair = load_pair_mut(pair_account)?;
-        pair.available_liquidity = pair
-            .available_liquidity
-            .checked_sub(amount)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-    }
+    // Step 17: Subtract the amount from available liquidity.
+    pair.available_liquidity = pair
+        .available_liquidity
+        .checked_sub(amount)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    drop(pair);
 
     // Step 18: Serialize the shielded-pool transaction.
     let transact_bytes = transact

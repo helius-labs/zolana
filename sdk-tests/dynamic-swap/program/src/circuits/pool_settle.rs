@@ -1,11 +1,14 @@
 use spr_program::{
-    circuit::{constant, poseidon, zero, Assert, Circuit, PublicInputs, U64},
+    circuit::{poseidon, zero, Assert, Circuit, PublicInputs, U64},
     conversion::ProofInput,
     CircuitError, ZkProgramCircuit,
 };
 
 use super::{
-    shared::{check_private_tx_hash, check_transaction_blindings},
+    shared::{
+        check_private_tx_hash, check_transaction_blindings, order_blinding_seed,
+        SETTLE_BLINDING_DOMAIN,
+    },
     Commitment, ProofInputUtxo,
 };
 
@@ -80,7 +83,7 @@ impl Circuit for PoolSettleCircuit {
         )?;
         let booked = U64::from_var(&pool.data_hash, "the pool booked amount overflows u64")?;
 
-        let blinding_seed = poseidon(&[constant(0x4453_5458u64), order.blinding.clone()])?;
+        let blinding_seed = order_blinding_seed(SETTLE_BLINDING_DOMAIN, &order.blinding)?;
         check_transaction_blindings(
             &public.first_nullifier,
             &blinding_seed,

@@ -44,7 +44,7 @@ pub fn process_rebalance_liquidity_ix(accounts: &mut [AccountView], data: &[u8])
         transact,
     } = wincode::deserialize_exact(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
 
-    let pair = *load_pair_mut(pair_account)?;
+    let mut pair = load_pair_mut(pair_account)?;
     if !address_eq(&pair.authority, authority.address()) {
         return Err(DynamicSwapError::Unauthorized.into());
     }
@@ -68,13 +68,11 @@ pub fn process_rebalance_liquidity_ix(accounts: &mut [AccountView], data: &[u8])
     .verify()
     .map_err(|_| DynamicSwapError::ProofVerificationFailed)?;
 
-    {
-        let mut pair = load_pair_mut(pair_account)?;
-        pair.available_liquidity = pair
-            .available_liquidity
-            .checked_add(credit)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-    }
+    pair.available_liquidity = pair
+        .available_liquidity
+        .checked_add(credit)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    drop(pair);
 
     let transact_bytes = transact
         .serialize()

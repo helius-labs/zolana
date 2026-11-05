@@ -25,4 +25,7 @@ pub use pool_settle::{
 pub use pool_withdraw::{
     PoolWithdraw, PoolWithdrawCircuit, PoolWithdrawPrivateInputs, PoolWithdrawPublicInputs,
 };
-pub use shared::{Commitment, ProofInputUtxo, ProofInputUtxoCircuit};
+pub use shared::{
+    Commitment, ProofInputUtxo, ProofInputUtxoCircuit, CANCEL_BLINDING_DOMAIN,
+    SETTLE_BLINDING_DOMAIN,
+};

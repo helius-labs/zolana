@@ -50,14 +50,11 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let CancelIxData { proof, transact } =
         wincode::deserialize_exact(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
 
-    let pair = *load_pair_mut(pair_account)?;
     let pair_address = *pair_account.address();
-
-    // Snapshot the escrow's fields and immediately drop the borrow so
-    // `escrow_account` is free to be closed later in this same call.
-    let escrow = *load_escrow_mut(escrow_account)?;
+    let mut pair = load_pair_mut(pair_account)?;
+    let mut escrow = load_escrow_mut(escrow_account)?;
     // Bind escrow to this pair before changing its reservation counters.
-    if !address_eq(&escrow.pair, pair_account.address()) {
+    if !address_eq(&escrow.pair, &pair_address) {
         return Err(DynamicSwapError::PairMismatch.into());
     }
     // `rent_recipient` must be the escrow's `owner` (the taker, who paid the
@@ -93,23 +90,28 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
 
     // Release the reservation in full: the order was never filled, so the
     // exact `max_order_size` taken at create_escrow returns to the bound.
-    {
-        let mut pair_mut = load_pair_mut(pair_account)?;
-        pair_mut.available_liquidity = pair_mut
-            .available_liquidity
-            .checked_add(pair_mut.max_order_size)
+    pair.available_liquidity = pair
+        .available_liquidity
+        .checked_add(pair.max_order_size)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    pair.open_reservations = pair
+        .open_reservations
+        .checked_sub(1)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    // An order at or behind the head closes; cancelling the head advances it.
+    // An order ahead of the head stays as a marker for `skip_expired`.
+    let closes = escrow.order_id <= pair.head_order_id;
+    if escrow.order_id == pair.head_order_id {
+        pair.head_order_id = escrow
+            .order_id
+            .checked_add(1)
             .ok_or(ProgramError::ArithmeticOverflow)?;
-        pair_mut.open_reservations = pair_mut
-            .open_reservations
-            .checked_sub(1)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-        if escrow.order_id == pair.head_order_id {
-            pair_mut.head_order_id = escrow
-                .order_id
-                .checked_add(1)
-                .ok_or(ProgramError::ArithmeticOverflow)?;
-        }
     }
+    if !closes {
+        escrow.cancelled = 1;
+    }
+    drop(escrow);
+    drop(pair);
 
     let transact_bytes = transact
         .serialize()
@@ -125,10 +127,8 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         &transact_bytes,
     )?;
 
-    if escrow.order_id <= pair.head_order_id {
-        close_escrow_account(escrow_account, rent_recipient)
-    } else {
-        load_escrow_mut(escrow_account)?.cancelled = 1;
-        Ok(())
+    if closes {
+        close_escrow_account(escrow_account, rent_recipient)?;
     }
+    Ok(())
 }

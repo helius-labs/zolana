@@ -5,6 +5,27 @@ use spr_program::{
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
 };
 
+/// Domain of a settle transaction's blinding seed,
+/// `Poseidon(domain, order_blinding)`, as a big-endian tag in the last bytes
+/// of the field element. The order opening fixes the seed, so the taker
+/// recomputes its payout note without a ciphertext.
+pub const SETTLE_BLINDING_DOMAIN: [u8; 4] = *b"DSTX";
+/// Domain of a cancel transaction's blinding seed, see
+/// [`SETTLE_BLINDING_DOMAIN`].
+pub const CANCEL_BLINDING_DOMAIN: [u8; 4] = *b"DCNL";
+
+/// `Poseidon(domain, order_blinding)`: the blinding seed of a transaction that
+/// spends the order.
+pub(super) fn order_blinding_seed(
+    domain: [u8; 4],
+    order_blinding: &CircuitVar,
+) -> Result<CircuitVar, CircuitError> {
+    poseidon(&[
+        constant(u64::from(u32::from_be_bytes(domain))),
+        order_blinding.clone(),
+    ])
+}
+
 /// A utxo opening with already committed owner and asset identities. The
 /// shielded pool proves ownership and inclusion of the same utxo hashes.
 #[derive(Clone, Debug, Default, PartialEq, Eq, ProofInput)]

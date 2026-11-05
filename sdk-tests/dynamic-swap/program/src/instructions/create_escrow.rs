@@ -61,8 +61,8 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
         transact,
     } = wincode::deserialize_exact(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
 
-    let pair = *load_pair_mut(pair_account)?;
     let pair_address = *pair_account.address();
+    let mut pair = load_pair_mut(pair_account)?;
     let source_asset = pair.source_asset;
     // The escrow is priced at creation: snapshot the current pair price as
     // `execution_price`. A zero price would leave the escrow unpriced and
@@ -187,18 +187,16 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // into this escrow's reservation, released by settle or cancel. The early
     // `available_liquidity < max_order_size` check makes the subtraction safe;
     // checked ops keep it explicit.
-    {
-        let mut pair_mut = load_pair_mut(pair_account)?;
-        pair_mut.available_liquidity = pair_mut
-            .available_liquidity
-            .checked_sub(pair_mut.max_order_size)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-        pair_mut.open_reservations = pair_mut
-            .open_reservations
-            .checked_add(1)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-        pair_mut.next_order_id = next_order_id;
-    }
+    pair.available_liquidity = pair
+        .available_liquidity
+        .checked_sub(pair.max_order_size)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    pair.open_reservations = pair
+        .open_reservations
+        .checked_add(1)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    pair.next_order_id = next_order_id;
+    drop(pair);
 
     let transact_bytes = transact
         .serialize()

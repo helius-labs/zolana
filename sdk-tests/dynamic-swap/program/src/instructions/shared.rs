@@ -287,10 +287,9 @@ pub fn cpi_spp_transact_signed_multi(
     unimplemented!("cpi_spp_transact_signed_multi requires Solana runtime syscalls")
 }
 
-/// Thin wrapper over [`cpi_spp_transact_signed_multi`] for the common single-PDA
-/// case (`deposit_liquidity`, `withdraw_liquidity`): derives `pool_authority`
-/// (or another named PDA) from `[seed_label, pair]` and flips only it to a
-/// signer.
+/// Thin wrapper over [`cpi_spp_transact_signed_multi`] for every instruction
+/// that signs for a single authority PDA (all but `settle`): derives the
+/// named PDA from `[seed_label, pair]` and flips only it to a signer.
 #[inline(never)]
 pub fn cpi_spp_transact_signed(
     pair: &Address,

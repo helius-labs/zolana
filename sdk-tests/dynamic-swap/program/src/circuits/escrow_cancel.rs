@@ -1,11 +1,14 @@
 use spr_program::{
-    circuit::{constant, poseidon, zero, Assert, Circuit, PublicInputs},
+    circuit::{poseidon, zero, Assert, Circuit, PublicInputs},
     conversion::ProofInput,
     CircuitError, ZkProgramCircuit,
 };
 
 use super::{
-    shared::{check_private_tx_hash, check_transaction_blindings},
+    shared::{
+        check_private_tx_hash, check_transaction_blindings, order_blinding_seed,
+        CANCEL_BLINDING_DOMAIN,
+    },
     Commitment, ProofInputUtxo,
 };
 
@@ -74,7 +77,7 @@ impl Circuit for EscrowCancelCircuit {
             "the refund belongs to another recipient",
         )?;
 
-        let blinding_seed = poseidon(&[constant(0x4443_4e4cu64), order.blinding.clone()])?;
+        let blinding_seed = order_blinding_seed(CANCEL_BLINDING_DOMAIN, &order.blinding)?;
         check_transaction_blindings(
             &public.first_nullifier,
             &blinding_seed,

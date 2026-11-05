@@ -50,8 +50,8 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let SettleIxData { proof, transact } =
         wincode::deserialize_exact(data).map_err(|_| DynamicSwapError::InvalidInstructionData)?;
 
-    let pair = *load_pair_mut(pair_account)?;
     let pair_address = *pair_account.address();
+    let mut pair = load_pair_mut(pair_account)?;
     // Only the maker fills: the taker's paths are settle-by-maker before
     // expiry or unilateral cancel after.
     if !address_eq(&pair.authority, authority.address()) {
@@ -64,7 +64,7 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     // Bind escrow to this pair: the expiry window, the reservation counters,
     // and the destination-asset public input are pair fields, so a mismatched
     // pair account must be rejected.
-    if !address_eq(&escrow.pair, pair_account.address()) {
+    if !address_eq(&escrow.pair, &pair_address) {
         return Err(DynamicSwapError::PairMismatch.into());
     }
     // `rent_recipient` must be the escrow's `owner` (the taker, who paid the
@@ -118,17 +118,15 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     // stays untouched: the pool dropped by owed while the bound already
     // dropped by max_order_size at creation, so the invariant holds with the
     // slack accumulating in the change note.
-    {
-        let mut pair_mut = load_pair_mut(pair_account)?;
-        pair_mut.open_reservations = pair_mut
-            .open_reservations
-            .checked_sub(1)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-        pair_mut.head_order_id = escrow
-            .order_id
-            .checked_add(1)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-    }
+    pair.open_reservations = pair
+        .open_reservations
+        .checked_sub(1)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    pair.head_order_id = escrow
+        .order_id
+        .checked_add(1)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    drop(pair);
 
     let transact_bytes = transact
         .serialize()

@@ -48,10 +48,11 @@ pub fn process_skip_expired_ix(accounts: &mut [AccountView], data: &[u8]) -> Pro
     }
 
     // Step 3: Load the pair and the escrow.
-    let pair = *load_pair_mut(pair_account)?;
+    let pair_address = *pair_account.address();
+    let mut pair = load_pair_mut(pair_account)?;
     let escrow = *load_escrow_mut(escrow_account)?;
     // Step 4: Check that the escrow belongs to the pair.
-    if !address_eq(&escrow.pair, pair_account.address()) {
+    if !address_eq(&escrow.pair, &pair_address) {
         return Err(DynamicSwapError::PairMismatch.into());
     }
     // Step 5: Check that the escrow is the queue head.
@@ -70,10 +71,11 @@ pub fn process_skip_expired_ix(accounts: &mut [AccountView], data: &[u8]) -> Pro
     }
 
     // Step 8: Advance the queue head.
-    load_pair_mut(pair_account)?.head_order_id = escrow
+    pair.head_order_id = escrow
         .order_id
         .checked_add(1)
         .ok_or(ProgramError::ArithmeticOverflow)?;
+    drop(pair);
 
     // Step 9: Close a cancellation marker to the rent recipient.
     if cancelled {
