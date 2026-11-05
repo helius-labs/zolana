@@ -37,6 +37,7 @@ fn rejected_registry_insertions_are_atomic() {
             b,
             TransactionError::ReservedAssetId(SOL_ASSET_ID),
         ),
+        (0, b, TransactionError::ReservedAssetId(0)),
         (2, b, TransactionError::DuplicateAssetId(2)),
         (3, a, TransactionError::DuplicateMint(a)),
         (3, SOL_MINT, TransactionError::DuplicateMint(SOL_MINT)),
