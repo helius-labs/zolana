@@ -131,7 +131,7 @@ export function encodeRingDepositInstructionData(value: RingDepositInstructionDa
   return encoded(value, writeRingDepositData);
 }
 
-/** Decodes the unchanged SPP deposit wire, including its u16 ciphertext lengths. */
+/** Decodes a ring deposit, which uses the SPP deposit wire with its u16 ciphertext lengths. */
 export function decodeRingDepositInstructionData(bytes: Uint8Array): RingDepositInstructionData {
   const reader = new Reader(bytes);
   const assets = Array.from({ length: reader.u8("assets.length") }, (): DepositAssetKind => {

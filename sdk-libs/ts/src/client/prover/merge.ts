@@ -57,8 +57,10 @@ export interface MergeAssembly {
   readonly nullifierTreeRootIndex: number;
   readonly privateTxHash: Bytes32;
   readonly publicInputHash: Bytes32;
-  /// Recomputed on-chain from the instruction; surfaced so the caller need not
-  /// re-derive it.
+  /**
+   * Recomputed on-chain from the instruction; surfaced so the caller need not
+   * re-derive it.
+   */
   readonly externalDataHash: Bytes32;
   readonly cacheSlot?: number;
   instructionData(proof: MergeTransactInstructionData["proof"]): MergeTransactInstructionData;

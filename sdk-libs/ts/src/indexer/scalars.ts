@@ -90,10 +90,9 @@ export function base64String(value: string | Uint8Array): Base64String {
 /**
  * Byte view of a wire payload, the counterpart of `base64String`.
  *
- * Rust's `Base64String` holds `Vec<u8>` and encodes only at the serde boundary,
- * so `From<Base64String> for Vec<u8>` is free there. The port brands the wire
- * string instead, which left callers no way back to the bytes except a decoder
- * that does not enforce the canonical form this package requires.
+ * Rust's `Base64String` holds `Vec<u8>` and encodes only at the serde boundary.
+ * This package brands the wire string instead, and this function is the way back
+ * to its bytes, enforcing the canonical form.
  */
 export function base64Bytes(value: Base64String): Uint8Array {
   if (typeof value !== "string") {

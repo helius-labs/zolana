@@ -337,8 +337,10 @@ export class SprClient
     this.#indexerConfig = indexerConfig;
   }
 
-  /// Mirrors Rust's `SprClient::indexer_config`: the config every indexer
-  /// call falls back to and the schedule confirmation polls.
+  /**
+   * Mirrors Rust's `SprClient::indexer_config`: the config every indexer
+   * call falls back to and the schedule confirmation polls.
+   */
   get indexerConfig(): IndexerRpcConfig {
     return this.#indexerConfig;
   }
@@ -588,8 +590,10 @@ export class SprClient
     return this.#indexer.getUserRecords(owners, this.#configOr(config), context);
   }
 
-  /// `Some(config.unwrap_or(self.indexer_config))` in Rust: a caller who passes
-  /// nothing gets the client's config, not the indexer's own default.
+  /**
+   * `Some(config.unwrap_or(self.indexer_config))` in Rust: a caller who passes
+   * nothing gets the client's config, not the indexer's own default.
+   */
   #configOr(config: IndexerRpcConfig | undefined): IndexerRpcConfig {
     return config ?? this.#indexerConfig;
   }

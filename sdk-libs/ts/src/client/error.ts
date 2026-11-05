@@ -312,7 +312,7 @@ const CLIENT_ERROR_CODE_SET: ReadonlySet<string> = new Set([
   ...TYPESCRIPT_CLIENT_ERROR_CODES,
 ]);
 
-/** The three transient causes Rust's `RetryErrorCause` can hold. */
+/** The category of a transient failure a poll retries: an RPC failure, an indexer failure, or an indexer timeout. */
 export type RetryErrorCause = Readonly<{ category: "rpc" | "indexer" | "indexerTimeout" }>;
 
 export type ClientErrorCause =

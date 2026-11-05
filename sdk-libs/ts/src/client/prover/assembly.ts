@@ -785,8 +785,8 @@ function hiddenOwnerSpend(
 }
 
 /**
- * Mirrors Rust `validate_output_blindings`: the circuit asserts every output
- * blinding, padding included, equals the derivation from the first nullifier,
+ * The output blinding check of Rust `assemble_transaction`: the circuit asserts
+ * every output blinding, padding included, equals the derivation from the first nullifier,
  * the derived seed, and the slot index, so a proof request with any other
  * blinding would be rejected after the expensive round trip.
  */
