@@ -1,5 +1,5 @@
 use serde::Serialize;
-use spr_hasher::primitives::pack_be;
+use spr_hasher::primitives::{pack_be, right_align};
 use spr_interface::instruction::{
     instruction_data::{
         merge_ring::MergeRingIxData,
@@ -26,7 +26,7 @@ use super::{
 };
 use crate::{
     prover::{
-        field::{right_align, right_align_slice},
+        field::right_align_slice,
         json::MergeOutputParamsJson,
         merge::{check_output_ciphertext, MergePublicInputBinding, MergePublicInputs},
         transact::assembly::{assemble_outputs, without_compact_padding},
@@ -302,16 +302,13 @@ impl Request for PreparedIndexedMerge {
         resolution: serde_json::Value,
     ) -> Result<ProvenIndexedMerge, ClientError> {
         let IndexedProof { proof, resolution } = self.request.finish(proof, resolution)?;
-        let statement = MergeProofStatement {
+        MergeProofStatement {
             n_inputs: merge_circuit_width(self.data.nullifiers.len())
                 .ok_or_else(invalid_resolution)?,
+            ring: self.ring_data_hash.is_some(),
             public_input_hash: resolution.public_input_hash,
-        };
-        if self.ring_data_hash.is_some() {
-            statement.verify_ring(&proof)?;
-        } else {
-            statement.verify(&proof)?;
         }
+        .verify(&proof)?;
         let context = resolution
             .trees
             .first()

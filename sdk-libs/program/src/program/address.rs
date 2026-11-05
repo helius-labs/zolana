@@ -3,7 +3,9 @@ use spr_hasher::{
     Hasher, Poseidon,
 };
 use spr_instruction::ADDRESS_TREE_ID;
-use spr_interface::{tree_slot::tree_id_field, ADDRESS_DOMAIN, SOL_ASSET_FIELD};
+use spr_interface::{
+    tree_slot::tree_id_field, utxo_hash::UtxoHashFields, ADDRESS_DOMAIN, SOL_ASSET_FIELD,
+};
 
 use super::{CompressedAccountError, PdaOwner};
 
@@ -62,15 +64,16 @@ impl NewAddress {
     ) -> Result<Self, CompressedAccountError> {
         let zero = [0u8; 32];
         let owner_utxo_hash = Poseidon::hashv(&[owner.owner_hash(), seed.as_bytes()])?;
-        let utxo_hash = Poseidon::hashv(&[
-            &right_align(&ADDRESS_DOMAIN.to_be_bytes()),
-            &tree_id_field(tree_id),
-            &zero,
-            &zero,
-            &zero,
-            &SOL_ASSET_FIELD,
-            &owner_utxo_hash,
-        ])?;
+        let utxo_hash = UtxoHashFields {
+            domain: &right_align(&ADDRESS_DOMAIN.to_be_bytes()),
+            tree_id: &tree_id_field(tree_id),
+            asset: &zero,
+            amount: &zero,
+            data_hash: &zero,
+            ring_hash: &SOL_ASSET_FIELD,
+            owner_utxo_hash: &owner_utxo_hash,
+        }
+        .hash()?;
         let address = Poseidon::hashv(&[&utxo_hash, seed.as_bytes(), &zero])?;
         Ok(Self {
             address,

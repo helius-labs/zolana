@@ -126,9 +126,12 @@ pub const DOM_SEP_KEY: u32 = 0x544d_534b; // "TMSK" (key_1 = DOM_SEP_KEY + 1 = "
 pub const DOM_SEP_NONCE: u32 = 0x544d_534e; // "TMSN"
 
 /// Domain separators (32-bit ASCII tags) for the deterministic merge-output
-/// recovery scheme, mirroring `circuits/spp_merge/shared/derivation.go`.
+/// recovery scheme and the merge output ciphertext, mirroring
+/// `circuits/spp_merge/shared/derivation.go`.
 pub const DOMAIN_MERGE_OUTPUT_BLINDING_V1: u32 = 0x544d_4f42; // "TMOB"
 pub const DOMAIN_MERGE_DUMMY_NULLIFIER: u32 = 0x544d_444e; // "TMDN"
+pub const DOMAIN_MERGE_OUTPUT_KEY: u32 = 0x544d_4f4b; // "TMOK"
+pub const DOMAIN_MERGE_OUTPUT_CIPHERTEXT: u32 = 0x544d_4f43; // "TMOC"
 
 pub(crate) fn hkdf_expand(
     salt: Option<&[u8]>,

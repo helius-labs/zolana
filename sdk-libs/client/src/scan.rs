@@ -38,12 +38,15 @@ use spr_transaction::{
 use crate::{
     error::ClientError,
     rpc::{
-        EncryptedUtxoMatch, HistoryFilters, IndexerRpcConfig, ProgramAccountsFilter, Rpc,
-        ShieldedTransaction,
+        EncryptedUtxoMatch, HistoryFilters, IndexerRpcConfig, Page, PaginationToken,
+        ProgramAccountsFilter, Rpc, ShieldedTransaction,
     },
 };
 
-const PAGE_LIMIT: u32 = 1_000;
+const PAGE_LIMIT: u32 = {
+    assert!(spr_indexer_api::PAGE_LIMIT <= u32::MAX as u64);
+    spr_indexer_api::PAGE_LIMIT as u32
+};
 
 /// What [`UtxoScan::fetch`] read. Outputs in unresolved assets are omitted
 /// from the UTXOs and reported in `spendable` and `history` through their
@@ -309,55 +312,33 @@ fn tagged_transactions<I: Rpc + ?Sized>(
     config: Option<IndexerRpcConfig>,
     output_tree_id: &mut Option<u16>,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
-    let mut transactions = Vec::new();
-    let mut token = None;
-    loop {
-        let page = indexer.get_shielded_transactions_by_tags(
+    let mut transactions: Vec<_> = all_pages(output_tree_id, |token| {
+        indexer.get_shielded_transactions_by_tags(
             tags.to_vec(),
             token,
             Some(PAGE_LIMIT),
             HistoryFilters::default(),
             config,
-        )?;
-        let next = page
-            .continuation(token)
-            .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
-        *output_tree_id = page.output_tree_id;
-        transactions.extend(
-            page.data
-                .into_iter()
-                .flat_map(|item| item.events)
-                .filter(|tx| !tx.proofless),
-        );
-        match next {
-            Some(next) => token = Some(next),
-            None => break,
-        }
-    }
-    let mut token = None;
-    loop {
-        let page = indexer.get_encrypted_utxos_by_tags(
-            tags.to_vec(),
-            token,
-            Some(PAGE_LIMIT),
-            HistoryFilters::default(),
-            config,
-        )?;
-        let next = page
-            .continuation(token)
-            .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
-        *output_tree_id = page.output_tree_id;
-        transactions.extend(
-            page.data
-                .into_iter()
-                .flat_map(|item| item.outputs)
-                .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
-        );
-        match next {
-            Some(next) => token = Some(next),
-            None => break,
-        }
-    }
+        )
+    })?
+    .into_iter()
+    .flat_map(|item| item.events)
+    .filter(|tx| !tx.proofless)
+    .collect();
+    transactions.extend(
+        all_pages(output_tree_id, |token| {
+            indexer.get_encrypted_utxos_by_tags(
+                tags.to_vec(),
+                token,
+                Some(PAGE_LIMIT),
+                HistoryFilters::default(),
+                config,
+            )
+        })?
+        .into_iter()
+        .flat_map(|item| item.outputs)
+        .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
+    );
     Ok(transactions)
 }
 
@@ -371,25 +352,42 @@ fn spending_transactions<I: Rpc + ?Sized>(
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     for chunk in nullifiers.chunks(PAGE_LIMIT as usize) {
-        let mut token = None;
-        loop {
-            let page = indexer.get_shielded_transactions_by_nullifiers(
-                chunk.to_vec(),
-                token,
-                Some(PAGE_LIMIT),
-                HistoryFilters::default(),
-                config,
-            )?;
-            let next = page
-                .continuation(token)
-                .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
-            *output_tree_id = page.output_tree_id;
-            transactions.extend(page.data.into_iter().flat_map(|item| item.events));
-            match next {
-                Some(next) => token = Some(next),
-                None => break,
-            }
-        }
+        transactions.extend(
+            all_pages(output_tree_id, |token| {
+                indexer.get_shielded_transactions_by_nullifiers(
+                    chunk.to_vec(),
+                    token,
+                    Some(PAGE_LIMIT),
+                    HistoryFilters::default(),
+                    config,
+                )
+            })?
+            .into_iter()
+            .flat_map(|item| item.events),
+        );
     }
     Ok(transactions)
+}
+
+/// The items of every page `read_page` returns, from the first page until one
+/// names no next page. Each page sets `output_tree_id` to the output tree it
+/// names; a page whose cursor does not advance fails the read.
+fn all_pages<T>(
+    output_tree_id: &mut Option<u16>,
+    mut read_page: impl FnMut(Option<PaginationToken>) -> Result<Page<T>, ClientError>,
+) -> Result<Vec<T>, ClientError> {
+    let mut items = Vec::new();
+    let mut token = None;
+    loop {
+        let page = read_page(token)?;
+        let next = page
+            .continuation(token)
+            .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
+        *output_tree_id = page.output_tree_id;
+        items.extend(page.data);
+        match next {
+            Some(next) => token = Some(next),
+            None => return Ok(items),
+        }
+    }
 }

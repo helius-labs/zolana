@@ -247,7 +247,7 @@ fn compiled_verifying_key(name: &str) -> Option<&'static Groth16Verifyingkey<'st
         return confidential_verifying_key(inputs, outputs).ok();
     }
     let inputs = stem.strip_prefix("merge_")?.strip_suffix("_1")?;
-    merge_verifying_key(inputs.parse().ok()?).ok()
+    merge_verifying_key(inputs.parse().ok()?, false).ok()
 }
 
 fn only<'a, T>(mut items: impl Iterator<Item = &'a T>) -> Result<&'a T, ClientError> {

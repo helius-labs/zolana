@@ -1,12 +1,7 @@
 use solana_address::Address;
-use spr_hasher::{
-    primitives::{hash_bytes, right_align},
-    Hasher, Poseidon,
-};
-use spr_interface::tree_slot::tree_id_field;
 use spr_keypair::{NullifierKey, PublicKey};
 
-use super::{owner_utxo_hash, program_id_proof_input_hash, Blinding, UTXO_DOMAIN};
+use super::{Blinding, ProofInputUtxo};
 use crate::{
     data::Data, error::TransactionError, serialization::confidential::ConfidentialOutputPlaintext,
     Mint,
@@ -68,19 +63,16 @@ impl Utxo {
         tree_id: u16,
     ) -> Result<[u8; 32], TransactionError> {
         let owner_hash = spr_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
-        let asset = hash_bytes(self.asset.asset.as_array())?;
-        let ring_program_id = program_id_proof_input_hash(&self.ring_program_id)?;
-        let ring_hash = Poseidon::hashv(&[ring_data_hash, &ring_program_id])?;
-        let owner_utxo_hash = owner_utxo_hash(&owner_hash, &self.blinding)?;
-        Ok(Poseidon::hashv(&[
-            &right_align(&UTXO_DOMAIN.to_be_bytes()),
-            &tree_id_field(tree_id),
-            &asset,
-            &right_align(&self.amount.to_be_bytes()),
-            data_hash,
-            &ring_hash,
-            &owner_utxo_hash,
-        ])?)
+        ProofInputUtxo::new(
+            owner_hash,
+            &self.asset.asset,
+            self.amount,
+            &self.blinding,
+            tree_id,
+        )?
+        .with_data_hash(*data_hash)
+        .with_ring(*ring_data_hash, &self.ring_program_id)?
+        .hash()
     }
 
     pub fn nullifier(

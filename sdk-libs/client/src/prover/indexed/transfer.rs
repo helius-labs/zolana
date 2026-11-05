@@ -5,7 +5,7 @@ use super::{
 use crate::{
     authority::ProofAuthority,
     prover::{
-        field::{be, right_align_slice},
+        field::{be, hex_biguint, right_align_slice},
         json::{output_to_json, utxo_to_json, OutputParamsJson, UtxoParamsJson},
         transact::assembly::{assemble_outputs, input_utxos_from_nullifiers, PublicInputs},
         verify::TransferProofStatement,
@@ -335,7 +335,7 @@ impl IndexedTransferPreparation<'_> {
                 .map(PreparedInputJson::try_from)
                 .collect::<Result<_, _>>()?,
             outputs: outputs.outputs.iter().map(output_to_json).collect(),
-            output_tree_id: format!("0x{:x}", transaction.output_tree_id),
+            output_tree_id: hex_biguint(&transaction.output_tree_id.into()),
             blinding_seed: SecretField(Zeroizing::new(transaction.blinding_seed)),
             external_data_hash: hex_field(&external_hash),
             private_tx_hash: hex_field(&private_tx),
@@ -538,9 +538,9 @@ impl TryFrom<&TransferInput> for PreparedInputJson {
             } else {
                 "0x1"
             },
-            tree_slot: format!("0x{:x}", input.tree_slot),
-            nullifier: format!("0x{:x}", input.nullifier),
-            owner_pk_hash: format!("0x{:x}", input.owner_pk_hash),
+            tree_slot: hex_biguint(&input.tree_slot),
+            nullifier: hex_biguint(&input.nullifier),
+            owner_pk_hash: hex_biguint(&input.owner_pk_hash),
             nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
                 &secret.to_bytes_be(),
             )?)),

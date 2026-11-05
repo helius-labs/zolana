@@ -111,52 +111,33 @@ impl TransferProofStatement {
 
 pub(crate) struct MergeProofStatement {
     pub n_inputs: usize,
+    /// A policy-ring merge, verified against `merge_ring_<n>_1`.
+    pub ring: bool,
     pub public_input_hash: [u8; 32],
 }
 
 impl MergeProofStatement {
-    pub fn verify_ring(self, proof: &Proof) -> Result<(), ClientError> {
-        use spr_interface::verifying_keys::{merge_ring_24_1, merge_ring_52_1, merge_ring_8_1};
-        let verifying_key = match self.n_inputs {
-            8 => &merge_ring_8_1::VERIFYINGKEY,
-            24 => &merge_ring_24_1::VERIFYINGKEY,
-            52 => &merge_ring_52_1::VERIFYINGKEY,
-            _ => {
-                return Err(ClientError::UnsupportedShape {
-                    n_in: self.n_inputs,
-                    n_out: 1,
-                })
-            }
-        };
-        StatementVerification {
-            verifying_key,
-            public_input_hash: self.public_input_hash,
-        }
-        .verify(proof)
-    }
-
     pub fn verify(self, proof: &Proof) -> Result<(), ClientError> {
         StatementVerification {
-            verifying_key: merge_verifying_key(self.n_inputs)?,
+            verifying_key: merge_verifying_key(self.n_inputs, self.ring)?,
             public_input_hash: self.public_input_hash,
         }
         .verify(proof)
     }
 }
 
+/// Resolved through [`spr_interface::verifying_keys::merge_verifying_key`],
+/// the table the on-chain verifier selects from.
 pub(crate) fn merge_verifying_key(
     n_inputs: usize,
+    ring: bool,
 ) -> Result<&'static Groth16Verifyingkey<'static>, ClientError> {
-    use spr_interface::verifying_keys::{merge_24_1, merge_52_1, merge_8_1};
-    match n_inputs {
-        8 => Ok(&merge_8_1::VERIFYINGKEY),
-        24 => Ok(&merge_24_1::VERIFYINGKEY),
-        52 => Ok(&merge_52_1::VERIFYINGKEY),
-        _ => Err(ClientError::UnsupportedShape {
+    spr_interface::verifying_keys::merge_verifying_key(n_inputs, ring).ok_or(
+        ClientError::UnsupportedShape {
             n_in: n_inputs,
             n_out: 1,
-        }),
-    }
+        },
+    )
 }
 
 pub(crate) struct StatementVerification<'a> {

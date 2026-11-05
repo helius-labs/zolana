@@ -62,7 +62,9 @@ const REQUEST_ID: &str = "test-account";
 #[derive(Clone, Debug)]
 pub struct SprApi {
     base_path: String,
-    api_key: Option<String>,
+    /// The URL's query, `api-key` and every other parameter, which every
+    /// request carries.
+    query: Option<String>,
     client: Arc<dyn HttpClient>,
     trace_http: bool,
     /// Bound on each request, kept here whatever the transport does.
@@ -519,10 +521,10 @@ impl SprApi {
     }
 
     pub fn with_client(url: impl AsRef<str>, client: impl HttpClient + 'static) -> Self {
-        let (base_path, api_key) = parse_url(url.as_ref());
+        let (base_path, query) = parse_url(url.as_ref());
         Self {
             base_path,
-            api_key,
+            query,
             client: Arc::new(client),
             trace_http: false,
             request_timeout: None,
@@ -555,7 +557,10 @@ impl SprApi {
     }
 
     pub fn api_key(&self) -> Option<&str> {
-        self.api_key.as_deref()
+        self.query
+            .as_deref()?
+            .split('&')
+            .find_map(|parameter| parameter.strip_prefix("api-key="))
     }
 
     pub fn with_http_trace(mut self) -> Self {
@@ -752,7 +757,7 @@ impl SprApi {
     }
 
     fn url(&self, method: &str) -> String {
-        api_url(&self.base_path, self.api_key.as_deref(), method)
+        api_url(&self.base_path, self.query.as_deref(), method)
     }
 }
 
@@ -917,9 +922,12 @@ impl BlockingSprApi {
 
 const API_KEY_PARAMETER: &str = "api-key=";
 
-/// `text` with the value after every `api-key=` replaced by `redacted`. The
-/// value ends at the first character a query value does not use unencoded.
-fn redact_api_key(text: &str) -> Cow<'_, str> {
+/// `text` with the value after every `api-key=` replaced by `redacted`, in a
+/// URL or in text that names one, such as an error message. The name matches
+/// in any case. The value ends at `&`, `#`, whitespace, a control character, or
+/// a quote, angle bracket, closing parenthesis or comma, which end a URL in
+/// printed text, so the other query parameters stay as given.
+pub fn redact_api_key(text: &str) -> Cow<'_, str> {
     let lowercase = text.to_ascii_lowercase();
     if !lowercase.contains(API_KEY_PARAMETER) {
         return Cow::Borrowed(text);
@@ -933,7 +941,7 @@ fn redact_api_key(text: &str) -> Cow<'_, str> {
         let value_start = start + found + API_KEY_PARAMETER.len();
         let rest = text.get(value_start..).unwrap_or_default();
         let value_len = rest
-            .find(|c: char| !(c.is_ascii_alphanumeric() || "-._~%+/=".contains(c)))
+            .find(|c: char| c.is_whitespace() || c.is_control() || "&#\"'<>),".contains(c))
             .unwrap_or(rest.len());
         redacted.push_str(text.get(start..value_start).unwrap_or_default());
         redacted.push_str("redacted");
@@ -1012,25 +1020,20 @@ where
     response.result.ok_or(ApiError::MissingResult(M::NAME))
 }
 
+/// `url` split into the base the method names are appended to and its query.
 fn parse_url(url: &str) -> (String, Option<String>) {
-    let Some(query_start) = url.find('?') else {
-        return (url.to_string(), None);
-    };
-    let base = &url[..query_start];
-    let query = &url[query_start + 1..];
-    for parameter in query.split('&') {
-        if let Some(value) = parameter.strip_prefix("api-key=") {
-            return (base.to_string(), Some(value.to_string()));
-        }
+    match url.split_once('?') {
+        Some((base, "")) => (base.to_string(), None),
+        Some((base, query)) => (base.to_string(), Some(query.to_string())),
+        None => (url.to_string(), None),
     }
-    (url.to_string(), None)
 }
 
-fn api_url(base_path: &str, api_key: Option<&str>, method: &str) -> String {
+fn api_url(base_path: &str, query: Option<&str>, method: &str) -> String {
     let mut url = format!("{}/{}", base_path.trim_end_matches('/'), method);
-    if let Some(api_key) = api_key {
-        url.push_str("?api-key=");
-        url.push_str(api_key);
+    if let Some(query) = query {
+        url.push('?');
+        url.push_str(query);
     }
     url
 }
@@ -1409,6 +1412,48 @@ mod tests {
             api.url(GET_MERKLE_PROOFS),
             "https://rpc.example.test/getMerkleProofs?api-key=secret"
         );
+    }
+
+    #[test]
+    fn keeps_every_query_parameter() {
+        let api = SprApi::new("https://rpc.example.test/v1?region=eu&api-key=secret&x=1");
+        assert_eq!(api.base_path(), "https://rpc.example.test/v1");
+        assert_eq!(api.api_key(), Some("secret"));
+        assert_eq!(
+            api.url(GET_MERKLE_PROOFS),
+            "https://rpc.example.test/v1/getMerkleProofs?region=eu&api-key=secret&x=1"
+        );
+        let api = SprApi::new("https://rpc.example.test/v1/?region=eu");
+        assert_eq!(api.api_key(), None);
+        assert_eq!(
+            api.url(GET_MERKLE_PROOFS),
+            "https://rpc.example.test/v1/getMerkleProofs?region=eu"
+        );
+    }
+
+    #[test]
+    fn redaction_masks_only_the_key_value() {
+        for (text, expected) in [
+            (
+                "https://gateway.invalid/v1/spr?a=%20x&api-key=secret&b=2",
+                "https://gateway.invalid/v1/spr?a=%20x&api-key=redacted&b=2",
+            ),
+            (
+                "error for url (https://h/?Api-Key=k!*:@1#frag): refused",
+                "error for url (https://h/?Api-Key=redacted#frag): refused",
+            ),
+            (
+                "\u{1b}[3murl\u{1b}[0m=https://h/?api-key=k\u{1b}[0m, \"https://h/?api-key=k2\"",
+                "\u{1b}[3murl\u{1b}[0m=https://h/?api-key=redacted\u{1b}[0m, \"https://h/?api-key=redacted\"",
+            ),
+            (
+                "https://prover.invalid/?api-keys=not-the-key",
+                "https://prover.invalid/?api-keys=not-the-key",
+            ),
+            ("http://127.0.0.1:3001", "http://127.0.0.1:3001"),
+        ] {
+            assert_eq!(redact_api_key(text), expected, "{text}");
+        }
     }
 
     #[test]

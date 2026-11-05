@@ -3,10 +3,10 @@ use spr_keypair::NullifierKey;
 
 use crate::{error::TransactionError, utxo::derive_private_tx_blinding};
 
-pub const DOMAIN_MERGE_OUTPUT_BLINDING_V1: u32 = 0x544d_4f42;
-pub const DOMAIN_MERGE_DUMMY_NULLIFIER: u32 = 0x544d_444e;
-pub const DOMAIN_MERGE_OUTPUT_KEY: u32 = 0x544d_4f4b;
-pub const DOMAIN_MERGE_OUTPUT_CIPHERTEXT: u32 = 0x544d_4f43;
+pub use spr_keypair::derivation::{
+    DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1, DOMAIN_MERGE_OUTPUT_CIPHERTEXT,
+    DOMAIN_MERGE_OUTPUT_KEY,
+};
 
 /// Per-merge key of the output ciphertext, separated by the first nullifier so
 /// no two merges share a key and the nullifier secret is never a cipher key.
