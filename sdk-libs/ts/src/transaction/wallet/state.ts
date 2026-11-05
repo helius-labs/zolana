@@ -230,9 +230,6 @@ export class Wallet {
    * A tag learned late must be scanned from the beginning even though other
    * tags have advanced far past those slots, so a single checkpoint would skip
    * those transactions permanently.
-   *
-   * Serialized in snapshot version 5, an older snapshot restores with no
-   * checkpoints and rescans history once.
    */
   #syncCheckpoints = new Map<string, bigint>();
   #revision = 0;
@@ -464,10 +461,10 @@ export class Wallet {
       const key = bytesKey(utxoHash);
       const entry = known.get(key);
       if (entry === undefined || entry.spent) {
-        throw new TransactionError("TRANSACTION_RESERVED_NOTE_UNAVAILABLE", { hash: key });
+        throw new TransactionError("TRANSACTION_RESERVED_UTXO_UNAVAILABLE", { hash: key });
       }
       if (reserved.has(key)) {
-        throw new TransactionError("TRANSACTION_NOTE_RESERVED", { hash: key });
+        throw new TransactionError("TRANSACTION_UTXO_RESERVED", { hash: key });
       }
     }
     const reservation: UtxoReservation = Object.freeze({

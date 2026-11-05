@@ -137,7 +137,7 @@ describe("persisted wallet sync", () => {
     expect(store.save).toHaveBeenCalledTimes(1);
     expect(store.saved).toBe(snapshot);
     expect(snapshot).toBe(serializeWallet(wallet));
-    expect((JSON.parse(snapshot) as { version: number }).version).toBe(5);
+    expect((JSON.parse(snapshot) as { version: number }).version).toBe(6);
     expect(wallet.lastSynced).toBeGreaterThan(0n);
     expect(report.storedUtxos).toBe(0);
   });
@@ -321,30 +321,6 @@ describe("persisted wallet sync", () => {
     };
     expect(saved.syncCheckpoints.transactions).not.toHaveLength(0);
   });
-
-  it("upgrades a version 2 snapshot on its first persisted sync", async () => {
-    const { wallet, keys } = newWallet();
-    const v2 = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
-    v2["version"] = 2;
-    delete v2["syncCheckpoints"];
-    const restored = deserializeWallet(JSON.stringify(v2));
-    const store = memoryStore();
-
-    await syncPersistedWallet({
-      wallet: restored,
-      keys,
-      client: syncReads(checkpointPages()),
-      store,
-      cipher: plainCipher,
-    });
-
-    const saved = JSON.parse(store.saved ?? "") as {
-      version: number;
-      syncCheckpoints: { transactions: readonly unknown[] };
-    };
-    expect(saved.version).toBe(5);
-    expect(saved.syncCheckpoints.transactions).not.toHaveLength(0);
-  });
 });
 
 describe("sealed wallet snapshots", () => {
@@ -403,6 +379,17 @@ describe("sealed wallet snapshots", () => {
     store.saved = JSON.stringify({ ...envelope, data: bytes.toString("base64") });
     await expect(loadPersistedWallet({ store, cipher })).rejects.toMatchObject({
       code: "WALLET_SNAPSHOT",
+    });
+  });
+
+  it("refuses a snapshot of another version", async () => {
+    const { wallet } = newWallet();
+    const snapshot = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
+    snapshot["version"] = 5;
+    const store = memoryStore(JSON.stringify(snapshot));
+    await expect(loadPersistedWallet({ store, cipher: plainCipher })).rejects.toMatchObject({
+      code: "WALLET_SNAPSHOT",
+      causeCode: "TRANSACTION_DESERIALIZE",
     });
   });
 

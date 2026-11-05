@@ -73,7 +73,7 @@ export type {
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/spr/wallet";
 export type {
   SerializedSyncCheckpoint,
-  SerializedNoteReservation,
+  SerializedUtxoReservation,
   SerializedSyncCheckpoints,
 } from "@heliuslabs/spr/transaction";
 export type { SettlementTransfer } from "@heliuslabs/spr/transaction";
@@ -107,7 +107,7 @@ export {
 } from "@heliuslabs/spr/program";
 export type {
   SerializedSyncCheckpoint as RootSerializedSyncCheckpoint,
-  SerializedNoteReservation as RootSerializedNoteReservation,
+  SerializedUtxoReservation as RootSerializedUtxoReservation,
   SerializedSyncCheckpoints as RootSerializedSyncCheckpoints,
   SyncPersistedWalletResult as RootSyncPersistedWalletResult,
   SyncWalletInput as RootSyncWalletInput,

@@ -465,9 +465,9 @@ contract requires `save` to replace the stored snapshot atomically or leave
 it unchanged, never write it partially. Overlapping calls on one live wallet
 run one after the other on the wallet's sync queue, so a slow save cannot
 store a stale snapshot. The store is still single-writer across processes,
-give each live wallet its own stored snapshot. Snapshots saved before cursors
-were serialized still load, the first sync rescans history once and then
-saves the current format.
+give each live wallet its own stored snapshot. A snapshot of another version
+is refused with `WALLET_SNAPSHOT`, start from a new `Wallet` instead and its
+first sync rescans history.
 
 ## Public API
 

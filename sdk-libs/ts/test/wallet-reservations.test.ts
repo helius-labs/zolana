@@ -221,8 +221,9 @@ describe("UTXO reservations", () => {
       unknown
     >;
     expect(reservations).toHaveLength(1);
-    const accepted = deserializeWallet(JSON.stringify(withoutReservations));
-    await expect(createTransfer(transferParams(accepted, 3n))).resolves.toBeDefined();
+    expect(() => deserializeWallet(JSON.stringify(withoutReservations))).toThrow(
+      expect.objectContaining({ details: { field: "reservations" } }),
+    );
   });
 
   it("releases at once when merge preparation refuses the UTXOs", async () => {
@@ -245,11 +246,11 @@ describe("UTXO reservations", () => {
     await createTransfer(transferParams(wallet, 5n));
     expect(() =>
       createSplit({ wallet, payer: PAYER, asset: SOL_MINT, parts: 2, input: filled(1) }),
-    ).toThrowError(expect.objectContaining({ code: "WALLET_NOTE_RESERVED" }));
+    ).toThrowError(expect.objectContaining({ code: "WALLET_UTXO_RESERVED" }));
     const keys = LocalShieldedKeys.fromKeypair(keypair);
     await expect(
       createMerge({ wallet, keys, asset: SOL_MINT, inputs: [filled(1), filled(2)] }),
-    ).rejects.toMatchObject({ code: "WALLET_NOTE_RESERVED" });
+    ).rejects.toMatchObject({ code: "WALLET_UTXO_RESERVED" });
     await expect(createMerge({ wallet, keys, asset: SOL_MINT })).rejects.toMatchObject({
       code: "WALLET_NOTHING_TO_MERGE",
     });

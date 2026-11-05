@@ -57,8 +57,6 @@ export {
   type ViewingKeyLike,
 } from "./shielded.js";
 
-/** Mirrors Rust's `Signature` alias: 64 raw bytes. */
-export type Signature = import("./bytes.js").Bytes64;
 export type { ErrorEnvelope } from "../errors/internal.js";
 
 export { X25519PublicKey, X25519Keypair } from "./x25519.js";
