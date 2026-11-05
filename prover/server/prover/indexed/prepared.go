@@ -150,7 +150,12 @@ func decodePrepared(request Request) (*Prepared, error) {
 		return nil, fmt.Errorf("invalid prepared shape")
 	}
 	// Inputs from different trees may interleave, so a dummy only needs an
-	// earlier input to have opened the tree it names.
+	// earlier input to have opened the tree it names. A frame of only dummies
+	// lets any dummy open a tree.
+	deposit := true
+	for _, input := range prepared.inputs {
+		deposit = deposit && input.dummy
+	}
 	opened := make([]bool, len(request.Trees))
 	for index, input := range prepared.inputs {
 		lookup := request.Inputs[index]
@@ -158,7 +163,7 @@ func decodePrepared(request Request) (*Prepared, error) {
 			request.CircuitType == common.TransferRingAuthorityExitCircuitType) {
 			return nil, fmt.Errorf("invalid cached input")
 		}
-		if input.dummy && (int(lookup.TreeSlot) >= len(opened) || !opened[lookup.TreeSlot]) {
+		if input.dummy && !deposit && (int(lookup.TreeSlot) >= len(opened) || !opened[lookup.TreeSlot]) {
 			return nil, fmt.Errorf("input tree starts with a dummy")
 		}
 		if input.slot == nil || !input.slot.IsUint64() || input.slot.Uint64() != uint64(lookup.TreeSlot) || int(lookup.TreeSlot) >= len(request.Trees) || (input.dummy || input.cached || input.address) != (lookup.Commitment == nil) {
