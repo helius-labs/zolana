@@ -343,6 +343,8 @@ Leave the payment UTXO's data empty. Message bytes are published as supplied;
 the application must encrypt private content and decode it when reading the
 transaction. The high-level `buildTransferTransaction` and
 `buildMultiTransferTransaction` helpers do not expose a messages parameter.
+See the [payment memo unit test](transaction/test/payment-memo.test.ts) for a
+complete encryption and recipient decryption example using the low-level API.
 
 ### Several recipients in one transfer
 
