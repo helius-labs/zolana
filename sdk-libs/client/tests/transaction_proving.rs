@@ -2,6 +2,8 @@
 
 mod harness;
 mod prover;
+#[path = "prover_bootstrap.rs"]
+mod prover_bootstrap;
 mod proving;
 mod test_indexer;
 

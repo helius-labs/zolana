@@ -10,11 +10,13 @@
 //! Solana-only eddsa rail (`transfer_confidential`). The proof is produced on the
 //! prover server and verified against the committed verifying key.
 //!
-//! Requires a reachable prover server (started via `spawn_prover`) with the
-//! `transfer_confidential_2_4.key` proving key available.
+//! Starts the prover server through `prover_bootstrap`, which needs the `zolana`
+//! CLI built and serves keys from `prover/server/proving-keys`.
 //!
 //! Run with: `cargo test -p spr-client --test transfer_dummy`
 
+#[path = "prover_bootstrap.rs"]
+mod prover_bootstrap;
 mod test_indexer;
 
 #[path = "common/authority.rs"]
@@ -27,8 +29,8 @@ mod output_blindings;
 use rand::RngCore;
 use spr_client::prover::SERVER_ADDRESS;
 use spr_client::{
-    spawn_prover, verify_confidential_transfer_proof, ProverClient, ProverExt, PublicTransfers,
-    Rpc, Shape, TransferInputUtxo, TransferProver,
+    verify_confidential_transfer_proof, ProverClient, ProverExt, PublicTransfers, Rpc, Shape,
+    TransferInputUtxo, TransferProver,
 };
 use spr_hasher::primitives::solana_owner_identity;
 use spr_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
@@ -39,28 +41,13 @@ use spr_transaction::{
 
 use crate::{
     authority_fixture::complete_inputs, input_fixture::wallet_utxo,
-    output_blindings::assign_output_blindings, test_indexer::TestIndexer,
+    output_blindings::assign_output_blindings, prover_bootstrap::start_prover,
+    test_indexer::TestIndexer,
 };
 
-/// Test fixtures live in the first localnet tree.
-// TODO(tree-id): resolve the tree id from the tree account.
+/// The tree id these fixtures commit to. They prove against the in-memory
+/// `TestIndexer`, so there is no tree account to read it from.
 const TEST_TREE_ID: u16 = 0;
-
-fn start_prover() {
-    static INIT: std::sync::Once = std::sync::Once::new();
-    INIT.call_once(|| {
-        if std::env::var_os("ZOLANA_PROVER_KEYS_DIR").is_none() {
-            std::env::set_var(
-                "ZOLANA_PROVER_KEYS_DIR",
-                concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/../../prover/server/proving-keys"
-                ),
-            );
-        }
-    });
-    spawn_prover().expect("start prover");
-}
 
 fn async_queue_result_count() -> Option<u64> {
     if std::env::var("ZOLANA_EXPECT_ASYNC_PROVER").as_deref() != Ok("true") {

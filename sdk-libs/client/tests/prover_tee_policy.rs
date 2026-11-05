@@ -1,5 +1,6 @@
-//! The default deployment must accept its measured AWS-signed evidence without
-//! a caller-supplied policy. The live test also exercises encrypted proving.
+//! A supplied TEE policy accepts its deployment's measured AWS-signed evidence
+//! and refuses any other. The ignored tests also prove one encrypted fixture
+//! through a live enclave.
 
 use std::time::Duration;
 
@@ -33,7 +34,7 @@ struct RecordedAttestation {
 }
 
 #[test]
-fn the_release_policy_accepts_the_measured_devnet_e_tee_1_attestation() {
+fn a_supplied_pin_accepts_its_deployments_attestation() {
     let fixture: RecordedAttestation = serde_json::from_str(RECORDED_ATTESTATION).unwrap();
     let nonce: [u8; 32] = hex::decode(fixture.nonce).unwrap().try_into().unwrap();
     let policy = TeePolicy::from_file_json(include_str!(
@@ -41,14 +42,14 @@ fn the_release_policy_accepts_the_measured_devnet_e_tee_1_attestation() {
     ))
     .unwrap();
     let attested = verify(fixture.attestation, &policy, &nonce, fixture.captured_at)
-        .expect("the release pin must accept the AWS-signed measured deployment");
+        .expect("the pin must accept the AWS-signed measured deployment");
     assert_eq!(attested.platform, Platform::AwsNitro);
 }
 
 #[test]
-fn the_release_policy_refuses_the_retired_devnet_d_deployment() {
+fn another_deployments_attestation_is_refused_under_a_supplied_pin() {
     let fixture: RecordedAttestation = serde_json::from_str(include_str!(
-        "../../../prover/tee/testdata/devnet_d_tee_3_attestation.json"
+        "../../../prover/tee/testdata/mainnet_tee_2_attestation.json"
     ))
     .unwrap();
     let nonce: [u8; 32] = hex::decode(fixture.nonce).unwrap().try_into().unwrap();
@@ -86,7 +87,7 @@ fn an_archived_quote_cannot_be_replayed_for_a_new_session_nonce() {
 }
 
 #[test]
-fn the_new_deployment_refuses_the_retired_hpke_key_pin() {
+fn a_pin_with_another_hpke_key_refuses_the_attestation() {
     let fixture: RecordedAttestation = serde_json::from_str(RECORDED_ATTESTATION).unwrap();
     let nonce: [u8; 32] = hex::decode(fixture.nonce).unwrap().try_into().unwrap();
     let PlatformPolicy::AwsNitro(mut pins) = TeePolicy::from_file_json(include_str!(
@@ -95,7 +96,7 @@ fn the_new_deployment_refuses_the_retired_hpke_key_pin() {
     .unwrap()
     .pins()
     .clone() else {
-        panic!("the default deployment must remain Nitro");
+        panic!("the devnet-e pin is Nitro");
     };
     pins.hpke_public_key = Some(
         hex::decode("270e90208e7f79a8fe1ca1b2eb6670421a3ae95b4119928a915cbd8977c2e055")
@@ -115,7 +116,7 @@ fn the_new_deployment_refuses_the_retired_hpke_key_pin() {
 }
 
 #[test]
-fn the_default_endpoint_requires_attestation_and_prover_proof_data() {
+fn a_supplied_policy_requires_attestation_and_prover_proof_data() {
     let prover = ProverClient::new("https://prover.example".into()).with_tee(
         TeePolicy::from_file_json(include_str!(
             "../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json"
@@ -150,11 +151,12 @@ impl ProveRequest for TransferFixture {
     }
 }
 
-/// No chain access or wallet data: this asks the release-pinned enclave to prove
-/// the committed synthetic witness and checks the proof against the on-chain VK.
+/// No chain access or wallet data: this asks the enclave the supplied policy pins
+/// to prove the committed synthetic witness and checks the proof against the
+/// on-chain VK.
 #[test]
-#[ignore = "contacts the default devnet TEE and generates one synthetic transfer proof"]
-fn the_default_deployment_attests_and_verifies_an_encrypted_fixture_proof() {
+#[ignore = "contacts the devnet TEE and generates one synthetic transfer proof"]
+fn the_devnet_deployment_attests_and_verifies_an_encrypted_fixture_proof() {
     assert_encrypted_fixture_proof(
         "ZOLANA_DEVNET_PROVER_URL",
         "ZOLANA_DEVNET_PROVER_TEE_POLICY",
@@ -199,10 +201,8 @@ fn assert_encrypted_fixture_proof(url_env: &str, policy_env: &str) {
 fn assert_proves(prover: ProverClient) {
     let prover = prover.with_proof_timeout(Duration::from_secs(180));
     assert!(prover.has_tee());
-    let attested = prover
-        .attest()
-        .expect("attest using the bundled release policy");
-    println!("attested default deployment: {attested}");
+    let attested = prover.attest().expect("attest under the supplied policy");
+    println!("attested: {attested}");
 
     let proof = prover
         .prove(&TransferFixture)
