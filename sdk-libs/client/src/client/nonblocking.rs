@@ -298,9 +298,12 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncSprClient<R, I> {
                 circuit_id: 0,
             });
         }
-        let witnesses =
-            AsyncWitnessReader::transaction_proofs(&self.indexer, &transaction.input_utxos, None)
-                .await?;
+        let witnesses = AsyncWitnessReader::transaction_proofs(
+            &self.indexer,
+            &transaction.input_utxos,
+            Some(self.indexer_config),
+        )
+        .await?;
         let mut assembled = assemble(
             transaction,
             &witnesses.spend_proofs,

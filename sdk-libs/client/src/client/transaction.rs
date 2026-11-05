@@ -92,7 +92,10 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncSprClient<R, I> {
         }
         let witnesses = self
             .indexer
-            .transaction_proofs(&proof_inputs.input_utxos, config)
+            .transaction_proofs(
+                &proof_inputs.input_utxos,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
             .await?;
         let mut assembled = assemble(
             proof_inputs,
@@ -129,7 +132,10 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncSprClient<R, I> {
         }
         let witnesses = self
             .indexer
-            .transaction_proofs(&proof_inputs.input_utxos, config)
+            .transaction_proofs(
+                &proof_inputs.input_utxos,
+                Some(config.unwrap_or(self.indexer_config)),
+            )
             .await?;
         let mut assembled = assemble_confidential_eddsa(
             proof_inputs,
@@ -298,7 +304,10 @@ impl<'a> Submission<'a> {
                 (prover, _) => {
                     let witnesses = client
                         .indexer
-                        .transaction_proofs(&self.signed.transaction.input_utxos, None)
+                        .transaction_proofs(
+                            &self.signed.transaction.input_utxos,
+                            Some(client.indexer_config),
+                        )
                         .await?;
                     let mut assembled = match self.confidential_eddsa_owner {
                         Some(owner) => assemble_confidential_eddsa(
