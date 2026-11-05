@@ -1,9 +1,9 @@
 //! Output payload encoding and the scheme markers an indexer dispatches on.
 
 use spr_event::{
-    encode_output_data, is_confidential_encrypted_output, ring_confidential_encrypted_output_body,
-    OutputDataEncoding, ProoflessOutput, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
-    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    encode_output_data, encode_plaintext_output_data, is_confidential_encrypted_output,
+    ring_confidential_encrypted_output_body, OutputDataEncoding, ProoflessOutput,
+    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 use spr_event_parser::decode_output_data;
 
@@ -17,6 +17,23 @@ fn encoded_output_decodes_back() {
         let encoded = encode_output_data(data.clone());
         assert_eq!(decode_output_data(&encoded).expect("decode"), data);
     }
+}
+
+#[test]
+fn plaintext_output_data_is_the_borsh_plaintext_encoding() {
+    for body in [Vec::new(), vec![7u8; 37]] {
+        let encoded = encode_plaintext_output_data(0, |out| {
+            out.extend_from_slice(&body);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            encoded,
+            borsh::to_vec(&OutputDataEncoding::Plaintext(body)).unwrap()
+        );
+    }
+    let failed = encode_plaintext_output_data(0, |_| Err(borsh::io::ErrorKind::InvalidData.into()));
+    assert!(failed.is_err());
 }
 
 #[test]

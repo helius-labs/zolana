@@ -14,6 +14,10 @@ pub(crate) fn public_inputs() -> TokenStream {
     quote!(::spr_program::circuit::PublicInputs)
 }
 
+pub(crate) fn encryption_codec() -> TokenStream {
+    quote!(::spr_program::EncryptionCodec)
+}
+
 pub(crate) fn public_hash_field() -> TokenStream {
     quote!(::spr_program::PublicHashField)
 }

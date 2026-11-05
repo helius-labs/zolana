@@ -5,7 +5,7 @@ use super::{CompressedAccountError, PdaOwner};
 
 /// A compressed account's UTXO: owned by a program PDA, zero SOL, outside
 /// every ring, and carrying the hash of the program's state.
-pub(super) struct DataUtxo<'a> {
+pub(super) struct AccountUtxo<'a> {
     pub owner: &'a PdaOwner,
     /// Commits to the program's state. It must commit to a type tag and to
     /// the account's address, so that two state types, or two accounts, of one
@@ -14,7 +14,7 @@ pub(super) struct DataUtxo<'a> {
     pub blinding: [u8; 32],
 }
 
-impl DataUtxo<'_> {
+impl AccountUtxo<'_> {
     /// The UTXO hash in the tree with the raw id `tree_id`. The tree id is the
     /// second Poseidon element, so a UTXO hash names the tree it lives in.
     pub fn hash(&self, tree_id: u16) -> Result<[u8; 32], CompressedAccountError> {
