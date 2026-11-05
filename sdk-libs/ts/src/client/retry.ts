@@ -302,7 +302,8 @@ function transportCause(error: ClientError): RetryErrorCause {
   return cause.code?.startsWith("API_") === true ? INDEXER_CAUSE : RPC_CAUSE;
 }
 
-async function sleep(delayMs: bigint, context?: RequestContext): Promise<void> {
+/** Waits `delayMs`, in timer-sized chunks past 2^31-1 ms, rejecting with `CLIENT_ABORTED` on abort. */
+export async function sleep(delayMs: bigint, context?: RequestContext): Promise<void> {
   let remaining = delayMs;
   do {
     assertNotAborted(context);

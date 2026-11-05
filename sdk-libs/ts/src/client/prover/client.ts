@@ -29,9 +29,9 @@ import {
   checkedServiceUrl,
   composeSignal,
   requestError,
-  sleep,
   type ComposedSignal,
 } from "../internal.js";
+import { sleep } from "../retry.js";
 import {
   TransportFailure,
   checkedApiKey,
@@ -44,6 +44,7 @@ import {
 } from "../../services/transport.js";
 import {
   checkedProvingKeySet,
+  decodeCatalogKey,
   expectedFromSet,
   provingKeySetFromCatalog,
   refused,
@@ -600,28 +601,9 @@ const proverJsonDecoder = wireDecoder(invalidProverJson);
 /** Decode the catalog's field types; downloads retain their supplied metadata. */
 function decodeProverKeys(value: unknown): ProvingKeyReport {
   const body = proverJsonDecoder.record(value, "$");
-  const keys = proverJsonDecoder.list(body["keys"], "$.keys").map((raw) => {
-    const entry = proverJsonDecoder.record(raw, "$.keys[]");
-    const name = proverJsonDecoder.string(entry["name"], "$.keys[].name");
-    const artifacts = proverJsonDecoder
-      .list(entry["artifacts"], "$.keys[].artifacts")
-      .map((rawArtifact): ProvingKeyArtifact => {
-        const artifact = proverJsonDecoder.record(rawArtifact, "$.keys[].artifacts[]");
-        const format = proverJsonDecoder.string(artifact["format"], "$.artifacts[].format");
-        if (format !== "gnark" && format !== "zopro") throw invalidProverJson();
-        const size = artifact["size"];
-        if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
-          throw invalidProverJson();
-        }
-        return Object.freeze({
-          format,
-          sha256: proverJsonDecoder.string(artifact["sha256"], "$.artifacts[].sha256"),
-          size,
-          url: proverJsonDecoder.string(artifact["url"], "$.artifacts[].url"),
-        });
-      });
-    return Object.freeze({ name, artifacts: Object.freeze(artifacts) });
-  });
+  const keys = proverJsonDecoder
+    .list(body["keys"], "$.keys")
+    .map((key) => decodeCatalogKey(key, proverJsonDecoder, invalidProverJson));
   return Object.freeze({ keys: Object.freeze(keys) });
 }
 

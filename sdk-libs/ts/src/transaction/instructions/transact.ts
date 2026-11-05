@@ -562,14 +562,30 @@ export function privateTxAddressChain(
 }
 
 export function sppPrivateTxHashInput(proofInputs: SppProofInputs): PrivateTxHashInput {
-  const slots = proofInputs.inputUtxos.map(privateTxInputSlot);
+  return privateTxHashInput(
+    proofInputs.inputUtxos,
+    proofInputs.outputs,
+    proofInputs.outputTreeId,
+    proofInputs.privateTxBlinding(),
+  );
+}
+
+// An unused slot contributes a zero hash, matching the circuit and
+// `SppProofInputs.messageHash`.
+function privateTxHashInput(
+  inputs: readonly InputUtxo[],
+  outputs: readonly ProofOutputUtxo[],
+  outputTreeId: TreeId,
+  blinding: Bytes32,
+): PrivateTxHashInput {
+  const slots = inputs.map(privateTxInputSlot);
   return Object.freeze({
     inputHashes: slots.map((slot) => slot.inputHash),
-    outputHashes: proofInputs.outputs.map((output) =>
-      output.isDummy() ? copy(ZERO_32) : output.hash(proofInputs.outputTreeId),
+    outputHashes: outputs.map((output) =>
+      output.isDummy() ? copy(ZERO_32) : output.hash(outputTreeId),
     ),
     addressNullifiers: slots.map((slot) => slot.address),
-    blinding: proofInputs.privateTxBlinding(),
+    blinding,
   });
 }
 
@@ -601,18 +617,8 @@ export function createEncryptedTransaction(
     inputs,
     outputs,
     privateTxBlinding: blinding,
-    // An unused slot contributes a zero hash, matching the circuit and
-    // `SppProofInputs.messageHash`.
     hash(): Bytes32 {
-      const slots = inputs.map(privateTxInputSlot);
-      return privateTxHash({
-        inputHashes: slots.map((slot) => slot.inputHash),
-        addressNullifiers: slots.map((slot) => slot.address),
-        outputHashes: outputs.map((entry) =>
-          entry.isDummy() ? copy(ZERO_32) : entry.hash(input.outputTreeId),
-        ),
-        blinding,
-      });
+      return privateTxHash(privateTxHashInput(inputs, outputs, input.outputTreeId, blinding));
     },
   });
 }

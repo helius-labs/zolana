@@ -4,9 +4,10 @@ import { ClientError } from "../client/error.js";
 import type { Address } from "../interface/types.js";
 import { U64_MAX } from "../interface/internal.js";
 
-/** @internal */
-export function checkedAddress(value: Address, field: string): void {
+/** @internal An address, else `CLIENT_INVALID_BASE58` naming `field`. */
+export function checkedAddress(value: unknown, field: string): asserts value is Address {
   try {
+    if (typeof value !== "string") throw new TypeError(field);
     assertIsAddress(value);
   } catch {
     throw new ClientError("CLIENT_INVALID_BASE58", { details: { field } });

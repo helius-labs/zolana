@@ -511,7 +511,7 @@ function readAddress(reader: Reader, name: string): Address {
   return encodeBase58(reader.bytes(32, name));
 }
 
-export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAccount {
+export function decodeProtocolConfig(bytes: Uint8Array): ProtocolConfigAccount {
   return decodeAccount(
     bytes,
     PROTOCOL_CONFIG_SIZE,
@@ -617,21 +617,21 @@ function historyRoot(bytes: Uint8Array, offset: number, index: number, field: st
   return root;
 }
 
-export function decodeSplAssetCounterAccount(bytes: Uint8Array): SplAssetCounterAccount {
+export function decodeSplAssetCounter(bytes: Uint8Array): SplAssetCounterAccount {
   return decodeAccount(bytes, 16, StateDiscriminator.splAssetCounter, (reader) => {
     reader.bytes(7, "reserved");
     return { nextId: reader.u64("nextId") };
   });
 }
 
-export function decodeSplAssetRegistryAccount(bytes: Uint8Array): SplAssetRegistryAccount {
+export function decodeSplAssetRegistry(bytes: Uint8Array): SplAssetRegistryAccount {
   return decodeAccount(bytes, 48, StateDiscriminator.splAssetRegistry, (reader) => {
     reader.bytes(7, "reserved");
     return { mint: readAddress(reader, "mint"), assetId: reader.u64("assetId") };
   });
 }
 
-export function decodeCacheAccount(bytes: Uint8Array): CacheAccount {
+export function decodeCache(bytes: Uint8Array): CacheAccount {
   return decodeAccount(bytes, CACHE_ACCOUNT_SIZE, StateDiscriminator.cache, (reader) =>
     Object.freeze({
       bump: reader.u8("bump"),
@@ -649,7 +649,7 @@ export function decodeCacheAccount(bytes: Uint8Array): CacheAccount {
   );
 }
 
-export function decodeRingConfigAccount(bytes: Uint8Array): RingConfigAccount {
+export function decodeRingConfig(bytes: Uint8Array): RingConfigAccount {
   // 1 + 32 + 32 + 1 + 1 + 1 + 1. The program asserts the same size; the three
   // flags run enabled, paused, activated, and the bump is last.
   return decodeAccount(bytes, 69, StateDiscriminator.ringConfig, (reader) => ({

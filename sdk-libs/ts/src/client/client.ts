@@ -2,7 +2,6 @@ import { prepareMerge } from "./prover/merge.js";
 import { prepareTransfer, checkedTransferCache } from "./prover/assembly.js";
 import { checkedContextSlot, proveThroughAuthority } from "./prover/indexed.js";
 import {
-  assertIsAddress,
   assertIsSignature,
   getBase64Encoder,
   type Address,
@@ -35,7 +34,7 @@ import type { ProofInputUtxo } from "../transaction/utxo.js";
 import { checkAuthorizedBinding, checkTransactData } from "../transaction/wallet/intent.js";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
-import { checkedComputeUnitLimit, checkedPriorityFee } from "../flows/internal.js";
+import { checkedAddress, checkedComputeUnitLimit, checkedPriorityFee } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
 import { checkedServiceUrl, hasProofMethods, inputTreeAddress } from "./internal.js";
 import { SprIndexer } from "./indexer.js";
@@ -1287,17 +1286,6 @@ export async function buildUnsignedMergeTransaction(
       }),
     ],
   });
-}
-
-function checkedAddress(value: unknown, field: string): asserts value is Address {
-  if (typeof value !== "string") {
-    throw new ClientError("CLIENT_INVALID_BASE58", { details: { field } });
-  }
-  try {
-    assertIsAddress(value);
-  } catch {
-    throw new ClientError("CLIENT_INVALID_BASE58", { details: { field } });
-  }
 }
 
 function checkedSignature(value: Signature): void {

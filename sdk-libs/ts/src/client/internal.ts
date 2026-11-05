@@ -274,31 +274,6 @@ export function requestError(method: string, signal: ComposedSignal): ClientErro
   );
 }
 
-export function sleep(delayMs: bigint, context?: RequestContext): Promise<void> {
-  if (delayMs < 0n || delayMs > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new ClientError("CLIENT_INVALID_POLL_CONFIG", {
-      details: { field: "delayMs", value: delayMs.toString() },
-    });
-  }
-  return new Promise((resolve, reject) => {
-    if (context?.signal?.aborted === true) {
-      reject(new ClientError("CLIENT_ABORTED"));
-      return;
-    }
-    const finish = (): void => {
-      context?.signal?.removeEventListener("abort", abort);
-      resolve();
-    };
-    const timeout = setTimeout(finish, Number(delayMs));
-    const abort = (): void => {
-      clearTimeout(timeout);
-      context?.signal?.removeEventListener("abort", abort);
-      reject(new ClientError("CLIENT_ABORTED"));
-    };
-    context?.signal?.addEventListener("abort", abort, { once: true });
-  });
-}
-
 /** Whether `candidate` answers indexed requests, callers name the error. */
 export function hasIndexedMethod(candidate: unknown): candidate is IndexedProofAuthority {
   return (

@@ -9,15 +9,13 @@ import {
   DOM_SEP_KEY,
   DOM_SEP_NONCE,
   DOM_SEP_SILO,
-  MERGE_INFO as MERGE_INFO_BYTES,
+  MERGE_INFO,
 } from "../derivation.js";
 import { invalidLength } from "../error.js";
 import type { NullifierKey } from "../nullifier-key.js";
 import { poseidon } from "../poseidon.js";
 import { privateTxBlinding } from "../transact/index.js";
 import { bytesToBigInt, concatBytes, rightAlign } from "../../interface/bytes.js";
-
-export const MERGE_INFO = copyBytes(MERGE_INFO_BYTES);
 
 function keySchedule(
   sharedSecret: Uint8Array,
@@ -51,8 +49,8 @@ export function symmetricApply(
   info: Uint8Array,
   data: Uint8Array,
 ): Uint8Array {
-  if (info.length !== MERGE_INFO_BYTES.length) {
-    throw invalidLength("key schedule info", MERGE_INFO_BYTES.length, info.length);
+  if (info.length !== MERGE_INFO.length) {
+    throw invalidLength("key schedule info", MERGE_INFO.length, info.length);
   }
   const secret = checkedBytes<Bytes32>(sharedSecret, 32, "shared secret");
   let key: Uint8Array | undefined;

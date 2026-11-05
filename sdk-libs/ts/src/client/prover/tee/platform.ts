@@ -1,6 +1,6 @@
 import { hexToBytes } from "@noble/hashes/utils.js";
 
-import { wireDecoder } from "../../../interface/decode.js";
+import { isLowercaseHex, wireDecoder } from "../../../interface/decode.js";
 import { ClientError } from "../../error.js";
 
 export type GpuRequirement = "optional" | "required";
@@ -107,7 +107,6 @@ export function evidenceBytes(value: unknown, path: string, length?: number): Ui
 /** Lowercase hex, of exactly `bytes` bytes when given. */
 function policyHex(value: unknown, path: string, bytes?: number): string {
   const hex = policyDecode.string(value, path);
-  if (!/^(?:[0-9a-f]{2})*$/u.test(hex)) throw invalidPolicy(path);
-  if (bytes !== undefined && hex.length !== bytes * 2) throw invalidPolicy(path);
+  if (!isLowercaseHex(hex, bytes)) throw invalidPolicy(path);
   return hex;
 }

@@ -1,7 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
-import { wireDecoder } from "../../interface/decode.js";
+import { isLowercaseHex, wireDecoder, type WireDecoder } from "../../interface/decode.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../../interface/program.js";
 import { PROVING_KEY_SHA256S, type ExpectedProvingKey } from "../../interface/proving-keys.js";
 import { isLoopbackHost } from "../../services/transport.js";
@@ -16,9 +16,9 @@ import { ClientError } from "../error.js";
 const PROVING_KEY_ABI = "spr-confidential-v1";
 
 const MAX_DOWNLOAD_SIZE = 0xffff_ffff;
-const G1_HEX = 128;
-const G2_HEX = 256;
-const SHA256_HEX = 64;
+const G1_BYTES = 64;
+const G2_BYTES = 128;
+const SHA256_BYTES = 32;
 
 /** One key of a `ProvingKeySet`, with the download of its zopro conversion. */
 export type ProvingKeySetKey = Readonly<{
@@ -126,7 +126,7 @@ export function refused(check: string): ClientError {
 const decode = wireDecoder(() => refused("malformed"));
 
 type Artifact = Readonly<{ format: "gnark" | "zopro"; sha256: string; size: number; url: string }>;
-type CatalogKey = Readonly<{ name: string; artifacts: readonly Artifact[] }>;
+export type CatalogKey = Readonly<{ name: string; artifacts: readonly Artifact[] }>;
 type VerifyingKey = Readonly<{
   provingKeySha256: string;
   alphaG1: string;
@@ -149,7 +149,9 @@ type Runtime = Readonly<{
  */
 export function provingKeySetFromCatalog(value: unknown): ProvingKeySet {
   const body = decode.record(value, "$");
-  const keys = decode.list(body["keys"], "$.keys").map(catalogKey);
+  const keys = decode
+    .list(body["keys"], "$.keys")
+    .map((key) => decodeCatalogKey(key, decode, () => refused("malformed")));
   const rawRuntime = body["runtime"];
   const runtime =
     rawRuntime === undefined || rawRuntime === null ? undefined : runtimeBlock(rawRuntime);
@@ -167,13 +169,13 @@ export function provingKeySetFromCatalog(value: unknown): ProvingKeySet {
     if (gnark.sha256 !== verifier.provingKeySha256) throw refused("source_mismatch");
     checkDownload(zopro);
     for (const [point, length] of [
-      [verifier.provingKeySha256, SHA256_HEX],
-      [verifier.alphaG1, G1_HEX],
-      [verifier.betaG2, G2_HEX],
-      [verifier.gammaG2, G2_HEX],
-      [verifier.deltaG2, G2_HEX],
-      [verifier.ic[0], G1_HEX],
-      [verifier.ic[1], G1_HEX],
+      [verifier.provingKeySha256, SHA256_BYTES],
+      [verifier.alphaG1, G1_BYTES],
+      [verifier.betaG2, G2_BYTES],
+      [verifier.gammaG2, G2_BYTES],
+      [verifier.deltaG2, G2_BYTES],
+      [verifier.ic[0], G1_BYTES],
+      [verifier.ic[1], G1_BYTES],
     ] as const) {
       lowercaseHex(point, length);
     }
@@ -202,27 +204,37 @@ function cacheKey(keys: ReadonlyMap<string, ProvingKeySetKey>): string {
   return bytesToHex(sha256(utf8ToBytes(JSON.stringify(rows))));
 }
 
-function catalogKey(raw: unknown): CatalogKey {
-  const entry = decode.record(raw, "$.keys[]");
+/**
+ * One `keys[]` entry of a `/proving-keys` answer, its downloads with the
+ * metadata the prover supplied. `decode` and `fail` raise the caller's error.
+ */
+export function decodeCatalogKey(
+  raw: unknown,
+  decoder: WireDecoder,
+  fail: () => Error,
+): CatalogKey {
+  const entry = decoder.record(raw, "$.keys[]");
   return Object.freeze({
-    name: decode.string(entry["name"], "$.keys[].name"),
-    artifacts: Object.freeze(decode.list(entry["artifacts"], "$.keys[].artifacts").map(artifact)),
+    name: decoder.string(entry["name"], "$.keys[].name"),
+    artifacts: Object.freeze(
+      decoder
+        .list(entry["artifacts"], "$.keys[].artifacts")
+        .map((artifact) => decodeArtifact(artifact, decoder, fail)),
+    ),
   });
 }
 
-function artifact(raw: unknown): Artifact {
-  const value = decode.record(raw, "$.keys[].artifacts[]");
+function decodeArtifact(raw: unknown, decoder: WireDecoder, fail: () => Error): Artifact {
+  const value = decoder.record(raw, "$.keys[].artifacts[]");
   const format = value["format"];
   const size = value["size"];
-  if (format !== "gnark" && format !== "zopro") throw refused("malformed");
-  if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) {
-    throw refused("malformed");
-  }
+  if (format !== "gnark" && format !== "zopro") throw fail();
+  if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) throw fail();
   return Object.freeze({
     format,
-    sha256: decode.string(value["sha256"], "sha256"),
+    sha256: decoder.string(value["sha256"], "$.keys[].artifacts[].sha256"),
     size,
-    url: decode.string(value["url"], "url"),
+    url: decoder.string(value["url"], "$.keys[].artifacts[].url"),
   });
 }
 
@@ -238,7 +250,7 @@ const VERIFYING_KEY_FIELDS = [
 
 /** The `runtime` block, every field present and none unknown, as Rust `deny_unknown_fields`. */
 function runtimeBlock(raw: unknown): Runtime {
-  const value = exactRecord(raw, RUNTIME_FIELDS);
+  const value = decode.exactRecord(raw, "runtime", RUNTIME_FIELDS);
   const verifyingKeys = new Map<string, VerifyingKey>();
   for (const [name, entry] of Object.entries(decode.record(value["verifyingKeys"], "keys"))) {
     verifyingKeys.set(name, verifyingKey(entry));
@@ -251,7 +263,7 @@ function runtimeBlock(raw: unknown): Runtime {
 }
 
 function verifyingKey(raw: unknown): VerifyingKey {
-  const value = exactRecord(raw, VERIFYING_KEY_FIELDS);
+  const value = decode.exactRecord(raw, "runtime", VERIFYING_KEY_FIELDS);
   const ic = decode.list(value["ic"], "ic");
   if (ic.length !== 2) throw refused("malformed");
   return Object.freeze({
@@ -264,15 +276,6 @@ function verifyingKey(raw: unknown): VerifyingKey {
   });
 }
 
-function exactRecord(raw: unknown, fields: readonly string[]): Record<string, unknown> {
-  const value = decode.record(raw, "runtime");
-  const keys = Object.keys(value);
-  if (keys.length !== fields.length || !fields.every((field) => Object.hasOwn(value, field))) {
-    throw refused("malformed");
-  }
-  return value;
-}
-
 function only<T>(items: readonly T[]): T {
   const [item] = items;
   if (item === undefined || items.length !== 1) throw refused("malformed");
@@ -281,7 +284,7 @@ function only<T>(items: readonly T[]): T {
 
 /** A download the prover fetches and checks against `sha256` and `size`. */
 function checkDownload(artifact: Artifact): void {
-  lowercaseHex(artifact.sha256, SHA256_HEX);
+  lowercaseHex(artifact.sha256, SHA256_BYTES);
   let url: URL;
   try {
     url = new URL(artifact.url);
@@ -303,7 +306,7 @@ function checkDownload(artifact: Artifact): void {
   }
 }
 
-/** Exactly `length` lowercase hex digits. */
-function lowercaseHex(value: string, length: number): void {
-  if (value.length !== length || !/^[0-9a-f]*$/u.test(value)) throw refused("malformed");
+/** Exactly `bytes` bytes of lowercase hex. */
+function lowercaseHex(value: string, bytes: number): void {
+  if (!isLowercaseHex(value, bytes)) throw refused("malformed");
 }

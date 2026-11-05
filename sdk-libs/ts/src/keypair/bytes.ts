@@ -6,9 +6,7 @@ export type { Bytes16, Bytes31, Bytes32, Bytes33, Bytes64 };
 /** A serialized shielded public key, `interface/types.ts`'s brand at length 34. */
 export type Bytes34 = Uint8Array & { readonly __fixedBytesLength: 34 };
 
-export function copyBytes(bytes: Uint8Array): Uint8Array {
-  return new Uint8Array(bytes);
-}
+export { copyBytes } from "../interface/internal.js";
 
 export function checkedBytes<T extends Uint8Array>(
   bytes: Uint8Array | T,

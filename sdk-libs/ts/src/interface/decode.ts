@@ -33,6 +33,8 @@ export function decodeBatch<T>(
 /** Decoders over `unknown` wire values, every failure throws the boundary's own error. */
 export interface WireDecoder {
   record(value: unknown, path: string): Record<string, unknown>;
+  /** `record` with exactly `keys`, every one present and none other, as Rust `deny_unknown_fields`. */
+  exactRecord(value: unknown, path: string, keys: readonly string[]): Record<string, unknown>;
   list(value: unknown, path: string): readonly unknown[];
   string(value: unknown, path: string): string;
   boolean(value: unknown, path: string): boolean;
@@ -48,6 +50,15 @@ export interface WireDecoder {
   base58(value: unknown, path: string): Uint8Array;
   /** `base64` pinned to an exact byte length. */
   fixedBytes(value: unknown, length: number, path: string): Uint8Array;
+}
+
+/** Whether `value` is lowercase hex digit pairs, exactly `bytes` bytes of them when given. */
+export function isLowercaseHex(value: unknown, bytes?: number): value is string {
+  return (
+    typeof value === "string" &&
+    /^(?:[0-9a-f]{2})*$/u.test(value) &&
+    (bytes === undefined || value.length === 2 * bytes)
+  );
 }
 
 export function wireDecoder(invalid: (path: string) => Error): WireDecoder {
@@ -71,10 +82,19 @@ export function wireDecoder(invalid: (path: string) => Error): WireDecoder {
     if (base64Decoder.decode(bytes) !== text) throw invalid(path);
     return bytes;
   };
+  const record = (value: unknown, path: string): Record<string, unknown> => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) throw invalid(path);
+    return value as Record<string, unknown>;
+  };
   return Object.freeze({
-    record(value: unknown, path: string): Record<string, unknown> {
-      if (typeof value !== "object" || value === null || Array.isArray(value)) throw invalid(path);
-      return value as Record<string, unknown>;
+    record,
+    exactRecord(value: unknown, path: string, keys: readonly string[]): Record<string, unknown> {
+      const result = record(value, path);
+      const present = Object.keys(result);
+      if (present.length !== keys.length || !keys.every((key) => Object.hasOwn(result, key))) {
+        throw invalid(path);
+      }
+      return result;
     },
     list(value: unknown, path: string): readonly unknown[] {
       if (!Array.isArray(value)) throw invalid(path);

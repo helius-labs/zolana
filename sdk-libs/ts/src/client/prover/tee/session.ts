@@ -8,13 +8,8 @@ import {
   setUrlQuery,
 } from "../../../services/transport.js";
 import { ClientError } from "../../error.js";
-import {
-  composeSignal,
-  requestError,
-  sleep,
-  untilAborted,
-  type ComposedSignal,
-} from "../../internal.js";
+import { composeSignal, requestError, untilAborted, type ComposedSignal } from "../../internal.js";
+import { sleep } from "../../retry.js";
 import {
   ATTESTATION_TIMEOUT_MS,
   MAX_ATTEMPTS,
