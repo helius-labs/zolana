@@ -471,7 +471,7 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
     plan.authority &&
     (shape.inputs !== shape.outputs ||
       !RING_AUTHORITY_WIDTHS.includes(shape.inputs) ||
-      proofInputs.externalData.interfaceTransfers.length !== 0 ||
+      proofInputs.externalData.interfaceTransfers.some((transfer) => transfer.isDeposit) ||
       proofInputs.inputUtxos.some(
         (input) => !input.isDummy() && input.utxo.ringProgramId !== plan.ring,
       ) ||

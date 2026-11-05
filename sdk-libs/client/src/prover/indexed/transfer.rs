@@ -131,7 +131,11 @@ impl IndexedTransferPreparation<'_> {
         if authority_rail
             && (shape.n_inputs() != shape.n_outputs()
                 || cache.access.is_some()
-                || !transaction.external_data.interface_transfers.is_empty()
+                || transaction
+                    .external_data
+                    .interface_transfers
+                    .iter()
+                    .any(|transfer| transfer.is_deposit())
                 || transaction
                     .input_utxos
                     .iter()
@@ -1067,6 +1071,36 @@ mod tests {
             .inputs
             .iter()
             .all(|input| input.tree_index == 0));
+    }
+
+    #[test]
+    fn the_ring_authority_rail_withdraws_and_refuses_a_deposit() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let ring = Address::new_from_array([5; 32]);
+        let with_leg = |is_deposit| {
+            let mut transaction = fixture(&owner, Some(ring), 2);
+            transaction.external_data.interface_transfers.push(
+                spr_transaction::instructions::transact::SettlementTransfer::Sol {
+                    is_deposit,
+                    amount: 1,
+                    user_sol_account: Address::new_from_array([6; 32]),
+                },
+            );
+            IndexedTransferPreparation {
+                transaction,
+                rail: IndexedTransferRail::RingAuthority(ring),
+            }
+            .prepare(&owner)
+        };
+        let withdrawal = with_leg(false).unwrap();
+        assert!(matches!(
+            withdrawal.data.interface_transfers.as_slice(),
+            [spr_interface::instruction::InterfaceTransfer::SolWithdrawal { amount: 1 }]
+        ));
+        assert!(matches!(
+            with_leg(true),
+            Err(ClientError::InvalidIndexedRequest)
+        ));
     }
 
     /// The ring authority rail has no address slot; the owner-signed ring rail
