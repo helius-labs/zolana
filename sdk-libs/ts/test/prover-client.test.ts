@@ -314,34 +314,13 @@ describe("prover request routing", () => {
     }
   });
 
-  it("expects the merge-ring key for a merge inside a custom ring", async () => {
-    const json = { "content-type": "application/json" };
+  it("refuses a ring merge before posting while no ring merge key is pinned", async () => {
     const ringMerge = { ...mergeInputs(), ringProgramId: asField(7n) };
-    let posted: unknown;
-    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
-      posted = JSON.parse(String(init?.body));
-      return new Response(JSON.stringify(proofFor(posted)), { headers: json });
-    }) as typeof globalThis.fetch;
-    await new ProverClient({ url: "http://127.0.0.1:3001", fetch }).proveMerge(ringMerge);
-    expect(posted).toMatchObject({ circuitType: "merge-ring" });
-
-    // A proof from the plain merge key is refused.
-    const plainProof = proofFor({
-      ...(posted as Record<string, unknown>),
-      circuitType: "merge",
-    });
-    const plain = vi.fn(
-      async () => new Response(JSON.stringify(plainProof), { headers: json }),
-    ) as typeof globalThis.fetch;
+    const fetch = vi.fn() as typeof globalThis.fetch;
     await expect(
-      new ProverClient({
-        url: "http://127.0.0.1:3001",
-        fetch: plain,
-      }).proveMerge(ringMerge),
-    ).rejects.toMatchObject({
-      code: "CLIENT_PROVING_KEY_MISMATCH",
-      details: { keyName: "merge_ring_24_1.key" },
-    });
+      new ProverClient({ url: "http://127.0.0.1:3001", fetch }).proveMerge(ringMerge),
+    ).rejects.toMatchObject({ code: "CLIENT_PROVER_INPUT" });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("routes merge through its canonical circuit type", async () => {

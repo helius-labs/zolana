@@ -38,6 +38,7 @@ describe("public input hash known-answer vectors", () => {
       "full_36x2",
       "compact_36x2",
       "compact_5x4_without_owner_chain",
+      "ring_authority_exit_2x2",
     ]);
     expect(vectors.merges.map((vector) => vector.name)).toEqual([
       "full_8",
@@ -48,6 +49,7 @@ describe("public input hash known-answer vectors", () => {
     expect(vectors.ring_merges.map((vector) => vector.name)).toEqual([
       "ring_full_8",
       "ring_compact_24",
+      "ring_full_8_owner_signed",
     ]);
   });
 
@@ -109,6 +111,15 @@ describe("public input hash known-answer vectors", () => {
   });
 
   it.each(vectors.ring_merges)("ring merge $name hashes to the committed value", (vector) => {
+    const [ciphertext0, ciphertext1, ciphertext2, ...rest] = vector.output_ciphertext.map(field);
+    if (
+      ciphertext0 === undefined ||
+      ciphertext1 === undefined ||
+      ciphertext2 === undefined ||
+      rest.length !== 0
+    ) {
+      throw new Error(`ring merge vector ${vector.name} must carry three ciphertext elements`);
+    }
     const publicInputs = mergePublicInputs({
       nullifiers: vector.nullifiers.map(field),
       outputHash: field(vector.output_hash),
@@ -119,6 +130,9 @@ describe("public input hash known-answer vectors", () => {
         kind: "ring",
         outputRingDataHash: field(vector.output_ring_data_hash),
         ringProgramId: field(vector.ring_program_id),
+        publishedOwner: field(vector.published_owner),
+        outputCiphertextSalt: field(vector.output_ciphertext_salt),
+        outputCiphertext: [ciphertext0, ciphertext1, ciphertext2],
       },
     });
     expect(hex(resolvedPublicInputHash(publicInputs, treeSlots(vector.tree_slots)))).toBe(

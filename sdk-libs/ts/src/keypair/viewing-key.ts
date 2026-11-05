@@ -4,6 +4,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { type Bytes16, type Bytes32, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
 import {
   ENC_INFO_RING_DEPOSIT,
+  INFO_MERGE_SEED,
   INFO_PAIR_HINT_PREFIX,
   INFO_RECIPIENT_REQUEST_VIEW_TAG_PREFIX,
   INFO_RECIPIENT_VIEW_TAG_SECRET,
@@ -275,6 +276,30 @@ export class ViewingKey implements ViewingKeyLike {
     this.#secret.fill(0);
     this.#viewRoot?.fill(0);
     this.#destroyed = true;
+  }
+
+  /**
+   * Canonical by its zero top byte, nonzero by its low bit, and underivable
+   * by the note's sender.
+   */
+  mergeSeed(ringProgramId: Bytes32, firstNullifier: Bytes32): Bytes32 {
+    this.#assertUsable();
+    this.#viewRoot ??= viewRoot(this.#secret);
+    const info = new Uint8Array(INFO_MERGE_SEED.length + 64);
+    info.set(encoder.encode(INFO_MERGE_SEED));
+    info.set(checkedBytes<Bytes32>(ringProgramId, 32, "ring program id"), INFO_MERGE_SEED.length);
+    info.set(
+      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+      INFO_MERGE_SEED.length + 32,
+    );
+    try {
+      const seed = new Uint8Array(32);
+      seed.set(expand(sha256, this.#viewRoot, info, 31), 1);
+      seed[31] = (seed[31] as number) | 1;
+      return seed as Bytes32;
+    } catch (error) {
+      throw new KeypairError("KEYPAIR_HKDF", { name: INFO_MERGE_SEED }, error);
+    }
   }
 
   // Cache the role root on first use. Encryption does not need this root.

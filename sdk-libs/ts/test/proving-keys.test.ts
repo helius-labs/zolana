@@ -49,7 +49,6 @@ describe("expectedProvingKey", () => {
       expectedProvingKey({ circuit: "transfer-eddsa-ring", nInputs: 1, nOutputs: 2 }),
       expectedProvingKey({ circuit: "transfer-ring-authority", nInputs: 2, nOutputs: 2 }),
       expectedProvingKey({ circuit: "merge", nInputs: 24 }),
-      expectedProvingKey({ circuit: "merge-ring", nInputs: 52 }),
     ];
     expect(names).toEqual(
       [
@@ -60,7 +59,6 @@ describe("expectedProvingKey", () => {
         "transfer_eddsa_ring_1_2.key",
         "transfer_ring_authority_2_2.key",
         "merge_24_1.key",
-        "merge_ring_52_1.key",
       ].map((name) => ({ name, sha256: lock.keys[name]?.sha256 })),
     );
   });
@@ -77,6 +75,7 @@ describe("expectedProvingKey", () => {
       { circuit: "transfer-ring-authority", nInputs: 3, nOutputs: 3 },
       { circuit: "merge", nInputs: 23 },
       { circuit: "merge-ring", nInputs: 36 },
+      { circuit: "merge-ring", nInputs: 8 },
     ] as const) {
       let thrown: unknown;
       try {
