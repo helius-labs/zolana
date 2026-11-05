@@ -313,9 +313,14 @@ describe("a ring authority transfer spending from two trees", () => {
         [nonInclusionProof(padding.nullifier(), TREE_1)],
         { kind: "ringAuthority", ring: fixture.ringProgramId },
       );
-      expect(assembled.instructionData.inputs.map((input) => input.treeIndex)).toEqual([0, 1, 0, 1]);
+      expect(assembled.instructionData.inputs.map((input) => input.treeIndex)).toEqual([
+        0, 1, 0, 1,
+      ]);
       expect(assembled.proverInputs.payload.inputs.map((input) => input.treeSlot)).toEqual([
-        0n, 1n, 0n, 1n,
+        0n,
+        1n,
+        0n,
+        1n,
       ]);
       const substituted = proofs.map((proof, index) =>
         index === 1
@@ -329,12 +334,10 @@ describe("a ring authority transfer spending from two trees", () => {
           : proof,
       );
       expect(() =>
-        assemble(
-          proofInputs,
-          substituted,
-          [nonInclusionProof(padding.nullifier(), TREE_1)],
-          { kind: "ringAuthority", ring: fixture.ringProgramId },
-        ),
+        assemble(proofInputs, substituted, [nonInclusionProof(padding.nullifier(), TREE_1)], {
+          kind: "ringAuthority",
+          ring: fixture.ringProgramId,
+        }),
       ).toThrow(expect.objectContaining({ code: "CLIENT_PROOF_TREE_MISMATCH" }));
     } finally {
       fixture.keypair.destroy();

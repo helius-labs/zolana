@@ -18,6 +18,8 @@ Breaking
 
 Added
 
+- `@heliuslabs/zolana/addresses` exports `getSplAssetVaultAddressWithBump` for settlement account construction.
+- `@heliuslabs/zolana/interface` exports `SPL_ASSET_REGISTRY_ASSET_ID_OFFSET` for filtered asset registry reads.
 - `merge_ring_v2` proves its output ciphertext and admits zero-key notes: `InstructionTag.ringMergeV2`, `Merge.zeroKey`, `ViewingKey.mergeSeed`, the `seededMerge*` derivations, the `merge-ring-v2` circuit and the `rail` of `PreparedMerge`, and `expectedProvingKey` refuses the circuit until its keys are pinned, so no proof can be requested yet.
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `ZolanaClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.

@@ -1,4 +1,5 @@
 export { bindProgramTransaction } from "@heliuslabs/zolana/transaction";
+export { getSplAssetVaultAddressWithBump } from "@heliuslabs/zolana/addresses";
 export type { ProgramTransaction } from "@heliuslabs/zolana/transaction";
 export {
   ed25519DerivationMessage,
@@ -9,6 +10,7 @@ export {
 /** Named exports the changelog promises, resolved through the package exports map. */
 export {
   MAX_INPUT_TREES,
+  SPL_ASSET_REGISTRY_ASSET_ID_OFFSET,
   ShieldedPoolError,
   UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
   UTXO_ROOT_HISTORY_LEN_OFFSET,
