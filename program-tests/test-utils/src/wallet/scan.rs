@@ -10,8 +10,10 @@ use spr_transaction::{
     error::TransactionError,
     instructions::transact::{OutputContext, ShieldedTransaction},
     serialization::{
-        confidential::Confidential, plaintext::PlaintextTransfer, proofless::Proofless, DecodeCx,
-        OwnerCx, UtxoSerialization,
+        confidential::{Confidential, ConfidentialOutputPlaintext},
+        plaintext::PlaintextTransfer,
+        proofless::Proofless,
+        DecodeCx, OwnerCx, UtxoSerialization,
     },
     utxo::Utxo,
     verify_owned, AssetRegistry, EncryptedScheme, LocalShieldedKeys, WalletUtxo,
@@ -691,7 +693,16 @@ impl SyncCtx<'_> {
                 };
                 match scheme {
                     EncryptedScheme::Confidential | EncryptedScheme::RingConfidential => {
-                        let Ok(plaintext) = Confidential::decode(body, &cx) else {
+                        let Ok(bytes) = Confidential::decrypt(body, &cx) else {
+                            self.report.undecryptable_candidates += 1;
+                            return Ok(());
+                        };
+                        // A dummy under this wallet's tag opens to padding, no output.
+                        if ConfidentialOutputPlaintext::is_padding(&bytes) {
+                            self.processed_slots.insert(site);
+                            return Ok(());
+                        }
+                        let Ok(plaintext) = Confidential::deserialize(&bytes) else {
                             self.report.undecryptable_candidates += 1;
                             return Ok(());
                         };

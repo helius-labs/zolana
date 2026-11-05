@@ -6,6 +6,15 @@
   "ring_seed": 42,
   "slot_len": 89,
   "ring_slot_len": 121,
+  "frame": "015400000003",
+  "ring_frame": "017400000004",
+  "padding": {
+    "tx_key_seed": 9,
+    "salt_seed": 7,
+    "slot_index": 3,
+    "slot": "01540000000304c6964c9c891df8f976eac5fb35ffea0c0638432c1cb983560bafc800ffcc2c4452d193fa8eaebbcc23c5da9944df09c692edb22f487ab4f71c10643b5b391387a3a05747b5a97f2044e894a633b0ec8d47ff",
+    "ring_slot": "01740000000404c6964c9c891df8f976eac5fb35ffea0c0638432c1cb983560bafc800ffcc2c4452d193fa8eaebbcc23c5da9944df09c692edb22f487ab4f71c10643b5b391387a3a05747b5a97f2044e894a633b0ec8d47ff08bc22d746da260c5be8fbd5ad962ae0e6594833b7174e955d40cdbba82ecfd3"
+  },
   "cases": [
     {
       "name": "self-paid with change",

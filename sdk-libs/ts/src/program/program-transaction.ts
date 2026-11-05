@@ -3,7 +3,7 @@ import { wireDecoder } from "../interface/decode.js";
 import { BN254_SCALAR_ORDER } from "../hasher/index.js";
 import { splInterfaceWithBump, treeAddress } from "../interface/pda/index.js";
 import type { Address, Bytes32, OwnerTag } from "../interface/types.js";
-import { randomBytes, type Bytes34 } from "../keypair/bytes.js";
+import type { Bytes34 } from "../keypair/bytes.js";
 import { SHIELDED_PUBLIC_KEY_LENGTH } from "../keypair/constants.js";
 import { ShieldedPublicKey } from "../keypair/public-key.js";
 import {
@@ -19,7 +19,6 @@ import { TransactionError } from "../transaction/error.js";
 import {
   SppProofInputs,
   createExternalData,
-  dummyCiphertextLength,
   type ExternalData,
   type SettlementTransfer,
 } from "../transaction/instructions/transact.js";
@@ -340,13 +339,9 @@ export async function decodeProgramTransaction(
   const frozenHashes = Object.freeze(outputHashes);
   const frozenTransfers = Object.freeze(interfaceTransfers);
   const encrypt = (tx: ViewingKey, options?: ProgramEncryptOptions): ExternalData => {
-    const encrypted = encryptConfidentialTransfer(tx, { outputs: frozenOutputs });
-    // A dummy is never encrypted: it carries a length-matched random ciphertext
-    // under the participant tag it was padded with, like Rust `encrypt_with_viewing_key`.
-    // Program transactions are built in the default ring.
-    const dummyLength = frozenOutputs.some((output) => output.isDummy())
-      ? dummyCiphertextLength(encrypted.salt, undefined)
-      : 0;
+    // A dummy is sealed as padding to the participant whose tag it was padded
+    // with, like Rust `encrypt_with_viewing_key`.
+    const encrypted = encryptConfidentialTransfer(tx, { outputs: frozenOutputs, owner: sender });
     return createExternalData({
       ...(options?.expiryUnixTs === undefined ? {} : { expiryUnixTs: options.expiryUnixTs }),
       txViewingPublicKey: encrypted.txViewingPublicKey,
@@ -354,20 +349,15 @@ export async function decodeProgramTransaction(
       interfaceTransfers: frozenTransfers,
       outputs: tags.flatMap((entry, slotIndex) => {
         if (frozenOutputs[slotIndex]?.isCompact()) return [];
-        const output = frozenOutputs[slotIndex];
         const slot = encrypted.payload[slotIndex];
-        const data = output?.isDummy() ? randomBytes(dummyLength) : slot?.data;
-        if (
-          data === undefined ||
-          (slot !== undefined && !equalBytes(slot.viewTag, entry.resolved))
-        ) {
+        if (slot === undefined || !equalBytes(slot.viewTag, entry.resolved)) {
           throw new TransactionError("TRANSACTION_OWNER_TAG_MISMATCH", { slotIndex });
         }
         const utxoHash = frozenHashes[slotIndex];
         if (utxoHash === undefined) {
           throw new TransactionError("TRANSACTION_OUTPUT_HASH_COUNT_MISMATCH", { slotIndex });
         }
-        return [{ utxoHash, ownerTag: entry.tag, data }];
+        return [{ utxoHash, ownerTag: entry.tag, data: slot.data }];
       }),
       resolvedOwnerTags: resolvedOwnerTags.filter(
         (_, slotIndex) => !frozenOutputs[slotIndex]?.isCompact(),

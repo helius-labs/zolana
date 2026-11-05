@@ -54,6 +54,7 @@ export {
   LocalShieldedKeys,
   approveUnattended,
   encryptConfidentialTransfer,
+  isConfidentialPadding,
 } from "@heliuslabs/spr/transaction";
 export {
   LocalKeys as RootLocalKeys,

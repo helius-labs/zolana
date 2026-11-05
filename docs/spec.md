@@ -844,9 +844,16 @@ outputs present, SPL before SOL; `c + i` recipient `i`; then dummies).
 output with `data = Some` covers itself plus the immediately following `data = None`
 positions. The Transfer scheme puts the sender change bundle at `outputs[0].data`
 (covering the change positions present) and each real recipient ciphertext at its own
-position. A dummy borrows an allowed participant's resolved tag and carries random
-bytes of recipient-ciphertext length. A tag equal to the sender's tag reuses the
-sender's encoding, including `Account(0)` when the sender also pays the fee;
+position. A dummy borrows an allowed participant's resolved tag and carries a
+padding slot: the frame, scheme byte and length of a recipient slot with empty
+`data` in the transaction's ring, embedding the viewing key a real slot under
+that tag carries (the first real output's under it, else the sender's; a fresh
+key when the tag names only an input owner the sender holds no address for) and
+encrypting, like a recipient slot, `0xff` repeated to the plaintext's length.
+`0xff` is no valid `ring_program_id` option tag, so the slot decrypts to no
+output, and a reader skips a slot that decrypts to it. A tag equal to the
+sender's tag reuses the sender's encoding, including `Account(0)` when the
+sender also pays the fee;
 every other tag is `Inline`. This encoding rule applies to real and dummy outputs
 alike. The SPP allows `outputs[0].data = None`; which positions bear a ciphertext
 is a wallet concern.
@@ -857,8 +864,8 @@ owner tag.
 
 #### Sizes
 
-`R` = number of recipient slots (real recipients and dummies; a dummy slot holds
-random bytes of the same length), so an encrypted transfer's on-instruction size
+`R` = number of recipient slots (real recipients and dummies; a dummy slot has
+the same length), so an encrypted transfer's on-instruction size
 grows with `R`. The table below gives the size as a function of the slot count `R`.
 
 Total: `111 + 84·R` bytes. Example with a single recipient slot: `R = 1`, total `195`.

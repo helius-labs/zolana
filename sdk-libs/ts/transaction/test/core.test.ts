@@ -30,6 +30,7 @@ import {
   canonicalShape,
   createProofOutput,
   depositBlinding,
+  encodeConfidentialSlots,
   outputBlindingSeed,
   ownerUtxoHash,
   privateTxBlinding,
@@ -361,11 +362,21 @@ describe("transaction core", () => {
     });
     const prepared = transfer.prepare();
     const tx = keypair.viewingKey().transactionViewingKey(prepared.firstNullifier);
-    const proofInputs = prepared.finalize({
-      txViewingPublicKey: tx.publicKey(),
-      salt: new Uint8Array(16) as Bytes16,
-      payload: [],
-    });
+    const salt = new Uint8Array(16) as Bytes16;
+    const payload = encodeConfidentialSlots(
+      prepared.proofOutputs(),
+      new AssetRegistry(),
+      tx,
+      salt,
+      prepared.owner,
+    );
+    // Padding is sealed with the real slots; finalize publishes nothing unsealed.
+    expect(() =>
+      prepared.finalize({ txViewingPublicKey: tx.publicKey(), salt, payload: payload.slice(0, 1) }),
+    ).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_MISSING_OUTPUT", details: { index: 1 } }),
+    );
+    const proofInputs = prepared.finalize({ txViewingPublicKey: tx.publicKey(), salt, payload });
     const senderTag = owner.confidentialViewTag();
 
     expect(proofInputs.outputs).toHaveLength(8);

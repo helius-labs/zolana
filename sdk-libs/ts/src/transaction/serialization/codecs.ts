@@ -397,6 +397,37 @@ export function decodeConfidential(bytes: Uint8Array): ConfidentialOutputPlainte
   return result;
 }
 
+/**
+ * Every byte of a padding plaintext. Read as the option tag of `ringProgramId`
+ * it is invalid, so no reader decodes padding as an output. Mirrors Rust
+ * `PADDING_BYTE`.
+ */
+export const CONFIDENTIAL_PADDING_BYTE = 0xff;
+
+/**
+ * The plaintext a dummy slot encrypts: {@link CONFIDENTIAL_PADDING_BYTE}
+ * repeated to the length of an output in `ringProgramId` without data, so the
+ * slot is as long as a real one. Mirrors Rust `ConfidentialOutputPlaintext::padding`.
+ */
+export function confidentialPadding(ringProgramId: Address | undefined): Uint8Array {
+  const empty = encodeConfidential({
+    assetId: 0n,
+    amount: 0n,
+    blinding: new Uint8Array(32) as Bytes32,
+    ...(ringProgramId === undefined ? {} : { ringProgramId }),
+    data: new Data(),
+  });
+  return new Uint8Array(empty.length).fill(CONFIDENTIAL_PADDING_BYTE);
+}
+
+/**
+ * Whether a decrypted slot is {@link confidentialPadding} rather than an
+ * output. Mirrors Rust `ConfidentialOutputPlaintext::is_padding`.
+ */
+export function isConfidentialPadding(plaintext: Uint8Array): boolean {
+  return plaintext.length > 0 && plaintext.every((byte) => byte === CONFIDENTIAL_PADDING_BYTE);
+}
+
 export function confidentialUtxo(
   value: ConfidentialOutputPlaintext,
   owner: ShieldedPublicKey,
@@ -859,6 +890,25 @@ export function encryptConfidential(
     recipient.toBytes(),
     inTransactionCategory(() =>
       tx.encryptSlot(recipient, encodeConfidential(value), salt, slotIndex),
+    ),
+  );
+}
+
+/**
+ * The body of a dummy slot: `recipient`'s key, then {@link confidentialPadding}
+ * encrypted to it like a real output. Mirrors Rust `OutputEncoder::encode_padding`.
+ */
+export function encryptConfidentialPadding(
+  tx: ViewingKeyLike,
+  recipient: X25519PublicKey,
+  ringProgramId: Address | undefined,
+  salt: Bytes16,
+  slotIndex: number,
+): Uint8Array {
+  return concatBytes(
+    recipient.toBytes(),
+    inTransactionCategory(() =>
+      tx.encryptSlot(recipient, confidentialPadding(ringProgramId), salt, slotIndex),
     ),
   );
 }

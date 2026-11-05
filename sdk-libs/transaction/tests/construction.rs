@@ -10,16 +10,17 @@ use spr_interface::{
     instruction::instruction_data::transact::OwnerTag, MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
 use spr_keypair::{
-    NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey,
+    x25519::X25519_PUBKEY_LEN, NullifierKey, PublicKey, ShieldedAddress, ShieldedKeypair,
+    ViewingKey, X25519Pubkey,
 };
 use spr_transaction::{
     instructions::transact::{
-        canonical_shape, pad_input_utxos, resolve_shape, ConfidentialTransaction,
+        canonical_shape, pad_input_utxos, resolve_shape, ConfidentialTransaction, OutputEncoder,
         PublicTransferRequest, SettlementTarget, Shape, SppProofInputs, SppProofOutputUtxo,
         SPP_SUPPORTED_SHAPES,
     },
     keys::{DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
-    serialization::confidential::Confidential,
+    serialization::confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
     AssetRegistry, Data, DataRecord, DecodeCx, EncryptedScheme, Mint, TransactionError as E,
     UtxoSerialization, WalletUtxo,
@@ -983,6 +984,9 @@ fn slot_len(proof: &SppProofInputs, index: usize) -> usize {
         .unwrap()
 }
 
+/// The slots from `real` on are dummies under `tag`, framed like a real slot
+/// of `ring`: they embed the viewing key of `participant`, whose tag they
+/// carry, and decrypt for it to padding rather than to an output.
 fn assert_dummies(
     proof: &SppProofInputs,
     real: usize,
@@ -990,6 +994,7 @@ fn assert_dummies(
     encoding: OwnerTag,
     ring: Option<Address>,
     real_len: usize,
+    participant: &ShieldedKeypair,
 ) {
     let first = proof.first_nullifier().unwrap();
     let seed = derive_output_blinding_seed(&first, &proof.blinding_seed).unwrap();
@@ -1023,6 +1028,39 @@ fn assert_dummies(
                 Some(&tag),
                 Some(real_len)
             )
+        );
+        let OutputDataEncoding::Encrypted(blob) =
+            OutputDataEncoding::try_from_slice(published.data.as_deref().unwrap()).unwrap()
+        else {
+            panic!("a dummy is framed as an encrypted output")
+        };
+        let (scheme, body) = blob.split_first().unwrap();
+        assert_eq!(
+            *scheme,
+            if ring.is_some() {
+                EncryptedScheme::RingConfidential
+            } else {
+                EncryptedScheme::Confidential
+            }
+            .as_byte()
+        );
+        assert_eq!(
+            Confidential::embedded_viewing_pk(body).unwrap(),
+            participant.viewing_pubkey()
+        );
+        let plaintext = participant
+            .viewing_key
+            .decrypt_utxo(
+                body.get(X25519_PUBKEY_LEN..).unwrap(),
+                &X25519Pubkey::from_bytes(proof.external_data.tx_viewing_pk).unwrap(),
+                proof.external_data.salt,
+                index as u32,
+            )
+            .unwrap();
+        assert!(ConfidentialOutputPlaintext::is_padding(&plaintext));
+        assert_eq!(
+            plaintext,
+            ConfidentialOutputPlaintext::padding(ring).unwrap()
         );
     }
 }
@@ -1173,6 +1211,11 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
                 encoding,
                 None,
                 slot_len(&proof, 0),
+                if sol_change > 0 || spl_change > 0 {
+                    &owner
+                } else {
+                    &recipient
+                },
             );
         }
     }
@@ -1227,6 +1270,7 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
             },
             Some(ring),
             slot_len(&proof, 0),
+            &owner,
         );
         for output in proof.external_data.outputs.iter().take(3) {
             assert_eq!(
@@ -1280,11 +1324,27 @@ fn dummies_name_the_input_owner_and_a_self_paid_full_withdrawal_keeps_a_zero_cha
         OwnerTag::Account(0)
     );
     let real_len = slot_len(&self_paid, 0);
-    assert_dummies(&self_paid, 1, tag, OwnerTag::Account(0), None, real_len);
+    assert_dummies(
+        &self_paid,
+        1,
+        tag,
+        OwnerTag::Account(0),
+        None,
+        real_len,
+        &owner,
+    );
 
     let (relayed, _) = withdrawal(Address::new_from_array([99; 32]));
     assert_eq!(relayed.check_shape().unwrap(), Shape::IN1_OUT2);
-    assert_dummies(&relayed, 0, tag, OwnerTag::Inline(tag), None, real_len);
+    assert_dummies(
+        &relayed,
+        0,
+        tag,
+        OwnerTag::Inline(tag),
+        None,
+        real_len,
+        &owner,
+    );
 }
 
 #[test]
@@ -1298,7 +1358,18 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
         ring_seed: u8,
         slot_len: usize,
         ring_slot_len: usize,
+        frame: String,
+        ring_frame: String,
+        padding: Padding,
         cases: Vec<Case>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Padding {
+        tx_key_seed: u8,
+        salt_seed: u8,
+        slot_index: u32,
+        slot: String,
+        ring_slot: String,
     }
     #[derive(serde::Deserialize)]
     struct Case {
@@ -1312,7 +1383,49 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
         serde_json::from_str(include_str!("../../../test-vectors/dummy_owner_tags.json")).unwrap();
     let owner = keypair(vectors.sender_seed);
     let sender = owner.shielded_address().unwrap();
-    let recipient = keypair(vectors.recipient_seed).shielded_address().unwrap();
+    let recipient_keys = keypair(vectors.recipient_seed);
+    let recipient = recipient_keys.shielded_address().unwrap();
+    let ring = Address::new_from_array([vectors.ring_seed; 32]);
+    // Every slot, real or dummy, opens with the same frame: encoding, body
+    // length, scheme and the embedded key's tag.
+    let assert_frames = |proof: &SppProofInputs, frame: &str| {
+        let frame = hex::decode(frame).unwrap();
+        for published in &proof.external_data.outputs {
+            let data = published.data.as_deref().unwrap();
+            assert_eq!(data.get(..frame.len()), Some(frame.as_slice()));
+            assert_eq!(data.get(frame.len()), Some(&4));
+        }
+    };
+
+    // A dummy is padding encrypted like a real slot, byte for byte in both SDKs.
+    let cx = ConfidentialEncode {
+        tx: ViewingKey::from_bytes(&[vectors.padding.tx_key_seed; 32]),
+        recipient_pubkey: recipient_keys.viewing_pubkey(),
+        salt: [vectors.padding.salt_seed; 16],
+        slot_index: vectors.padding.slot_index,
+    };
+    for (ring_program_id, expected, len, frame) in [
+        (
+            None,
+            &vectors.padding.slot,
+            vectors.slot_len,
+            &vectors.frame,
+        ),
+        (
+            Some(ring),
+            &vectors.padding.ring_slot,
+            vectors.ring_slot_len,
+            &vectors.ring_frame,
+        ),
+    ] {
+        let padding = Confidential
+            .encode_padding(ring_program_id, [5; 32], &cx)
+            .unwrap();
+        assert_eq!(hex::encode(&padding.data), *expected);
+        assert_eq!((padding.view_tag, padding.data.len()), ([5; 32], len));
+        assert!(padding.data.starts_with(&hex::decode(frame).unwrap()));
+    }
+
     for case in vectors.cases {
         let mut tx = ConfidentialTransaction::new(
             vec![wallet_utxo(&owner, Mint::SOL, vectors.input_amount, 7, 1)],
@@ -1336,7 +1449,21 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
         };
         assert_eq!(proof.output_utxos.len(), vectors.outputs, "{}", case.name);
         assert_eq!(slot_len(&proof, 0), vectors.slot_len, "{}", case.name);
-        assert_dummies(&proof, real, resolved, encoding, None, vectors.slot_len);
+        assert_frames(&proof, &vectors.frame);
+        let participant = if resolved == sender.confidential_view_tag().unwrap() {
+            &owner
+        } else {
+            &recipient_keys
+        };
+        assert_dummies(
+            &proof,
+            real,
+            resolved,
+            encoding,
+            None,
+            vectors.slot_len,
+            participant,
+        );
         // The participant whose tag the padding borrows has the same encoding.
         let participant = proof
             .output_utxos
@@ -1353,7 +1480,6 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
     }
 
     // Ring padding measures a ring slot, which carries the ring program id.
-    let ring = Address::new_from_array([vectors.ring_seed; 32]);
     let relayer = Address::new_from_array([99; 32]);
     let mut tx = ConfidentialTransaction::new_with_ring(
         vec![wallet_utxo(&owner, Mint::SOL, vectors.input_amount, 7, 1)],
@@ -1368,6 +1494,7 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
     for index in 0..2 {
         assert_eq!(slot_len(&proof, index), vectors.ring_slot_len);
     }
+    assert_frames(&proof, &vectors.ring_frame);
     let tag = sender.confidential_view_tag().unwrap();
     assert_dummies(
         &proof,
@@ -1376,6 +1503,7 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
         OwnerTag::Inline(tag),
         Some(ring),
         vectors.ring_slot_len,
+        &owner,
     );
 }
 

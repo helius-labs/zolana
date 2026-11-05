@@ -1,11 +1,12 @@
-import { address } from "@solana/kit";
+import { address, type Signature } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import vectors from "../../../test-vectors/dummy_owner_tags.json" with { type: "json" };
-import type { Bytes32, OwnerTag } from "../src/interface/index.js";
+import type { Address, Bytes16, Bytes32, OwnerTag } from "../src/interface/index.js";
 import {
   ShieldedKeypair,
   SigningKey,
+  ViewingKey,
   poseidon,
   randomBlinding,
   sha256Bytes,
@@ -13,24 +14,35 @@ import {
 import {
   AssetRegistry,
   ConfidentialTransfer,
+  LocalShieldedKeys,
   ProofInputUtxo,
   SOL_MINT,
   TransactionError,
   Utxo,
+  Wallet,
   WithdrawalTarget,
+  createProofOutput,
+  decryptTransactions,
   encodeConfidentialSlots,
   privateTxBlinding,
   privateTxHash,
   transactOutputBlinding,
+  type IndexedShieldedTransaction,
   type PreparedTransfer,
   type SppProofInputs,
 } from "../src/transaction/index.js";
 import { encodeAddress, nonZeroHashChain } from "../src/transaction/internal.js";
-import { concatBytes } from "../src/interface/bytes.js";
+import {
+  confidentialPadding,
+  isConfidentialPadding,
+  readOutputData,
+} from "../src/transaction/serialization/codecs.js";
+import { concatBytes, equalBytes } from "../src/interface/bytes.js";
 
 // A fee sponsor that owns nothing in the transfer. The tag rule must never let
 // a padding slot attribute the transaction to it.
 const FOREIGN_PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
+const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 
 function solInput(keypair: ShieldedKeypair, amount: bigint): ProofInputUtxo {
   return ProofInputUtxo.fromKeypair(
@@ -91,6 +103,61 @@ function vectorKeypair(seed: number): ShieldedKeypair {
   return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(bytes as Bytes32));
 }
 
+/**
+ * Every slot of `signed`, real or dummy, opens with `frame` and the embedded
+ * key's tag; every dummy embeds `participant`'s viewing key, whose tag it
+ * carries, and decrypts for it to padding rather than to an output.
+ */
+function expectFramedPadding(
+  signed: SppProofInputs,
+  frame: string,
+  participant: ShieldedKeypair,
+  ringProgramId: Address | undefined,
+): void {
+  const external = signed.externalData;
+  const viewingKey = participant.viewingKey();
+  try {
+    external.outputs.forEach((published, index) => {
+      const data = published.data ?? new Uint8Array();
+      expect(Buffer.from(data.subarray(0, frame.length / 2 + 1)).toString("hex")).toBe(
+        `${frame}04`,
+      );
+      if (signed.outputs[index]?.isDummy() !== true) return;
+      const { body } = readOutputData(data);
+      expect(body.subarray(0, 33)).toEqual(participant.viewingPublicKey().toBytes());
+      const plaintext = viewingKey.decryptUtxo(
+        body.subarray(33),
+        external.txViewingPublicKey,
+        external.salt,
+        index,
+      );
+      expect(isConfidentialPadding(plaintext)).toBe(true);
+      expect(plaintext).toEqual(confidentialPadding(ringProgramId));
+    });
+  } finally {
+    viewingKey.destroy();
+  }
+}
+
+/** `signed` as the indexer returns it, every slot under its resolved owner tag. */
+function indexed(signed: SppProofInputs): IndexedShieldedTransaction {
+  const external = signed.externalData;
+  return {
+    slot: 1n,
+    txSignature: "1".repeat(64) as Signature,
+    txViewingPublicKey: external.txViewingPublicKey,
+    salt: external.salt,
+    outputSlots: external.outputs.map((output, index) => ({
+      viewTag: external.resolvedOwnerTags[index] as Bytes32,
+      outputContext: { hash: output.utxoHash, tree: TREE, leafIndex: BigInt(index) },
+      payload: output.data ?? new Uint8Array(),
+    })),
+    messages: [],
+    nullifiers: signed.inputContexts().map((input) => input.nullifier),
+    proofless: false,
+  };
+}
+
 describe("dummy output owner tags", () => {
   it.each(vectors.cases)("matches real output encoding: $name", (vector) => {
     const keypair = vectorKeypair;
@@ -127,6 +194,10 @@ describe("dummy output owner tags", () => {
       if (!output.isDummy()) return;
       expect(signed.externalData.outputs[index]?.data).toHaveLength(participantData?.length ?? 0);
     });
+    const participant = equalBytes(sender.signingPublicKey().confidentialViewTag(), resolved)
+      ? sender
+      : recipient;
+    expectFramedPadding(signed, vectors.frame, participant, undefined);
     expectDerivedBlindings(prepared, signed);
   });
 
@@ -134,9 +205,9 @@ describe("dummy output owner tags", () => {
     const sender = vectorKeypair(vectors.sender_seed);
     const recipient = vectorKeypair(vectors.recipient_seed);
     const ring = encodeAddress(new Uint8Array(32).fill(vectors.ring_seed));
-    for (const [ringProgramId, expected] of [
-      [undefined, vectors.slot_len],
-      [ring, vectors.ring_slot_len],
+    for (const [ringProgramId, expected, frame] of [
+      [undefined, vectors.slot_len, vectors.frame],
+      [ring, vectors.ring_slot_len, vectors.ring_frame],
     ] as const) {
       const transfer = new ConfidentialTransfer(
         sender.shieldedAddress(),
@@ -150,6 +221,80 @@ describe("dummy output owner tags", () => {
       expect(signed.externalData.outputs.map((output) => output.data?.length)).toEqual(
         Array.from({ length: vectors.outputs }, () => expected),
       );
+      expectFramedPadding(signed, frame, sender, ringProgramId);
+    }
+  });
+
+  it("seals padding byte for byte as the shared vector", () => {
+    const recipient = vectorKeypair(vectors.recipient_seed).shieldedAddress();
+    const ring = encodeAddress(new Uint8Array(32).fill(vectors.ring_seed));
+    const tx = ViewingKey.fromBytes(
+      new Uint8Array(32).fill(vectors.padding.tx_key_seed) as Bytes32,
+    );
+    const salt = new Uint8Array(16).fill(vectors.padding.salt_seed) as Bytes16;
+    try {
+      for (const [ringProgramId, expected] of [
+        [undefined, vectors.padding.slot],
+        [ring, vectors.padding.ring_slot],
+      ] as const) {
+        // Compact padding publishes no slot, which puts the dummy at the vector's slot index.
+        const outputs = Array.from({ length: vectors.padding.slot_index }, () =>
+          createProofOutput({
+            asset: SOL_MINT,
+            amount: 0n,
+            blinding: randomBlinding(),
+            compact: true,
+          }),
+        );
+        outputs.push(
+          createProofOutput({
+            asset: SOL_MINT,
+            amount: 0n,
+            blinding: randomBlinding(),
+            ownerTag: recipient.confidentialViewTag(),
+            ...(ringProgramId === undefined ? {} : { ringProgramId }),
+          }),
+        );
+        const slots = encodeConfidentialSlots(outputs, undefined, tx, salt, recipient);
+        expect(slots.slice(0, vectors.padding.slot_index)).toEqual(
+          Array.from({ length: vectors.padding.slot_index }, () => undefined),
+        );
+        const slot = slots[vectors.padding.slot_index];
+        expect(slot?.viewTag).toEqual(recipient.confidentialViewTag());
+        expect(Buffer.from(slot?.data ?? new Uint8Array()).toString("hex")).toBe(expected);
+      }
+    } finally {
+      tx.destroy();
+    }
+  });
+
+  it("syncs each wallet's own output from a padded transfer and reads no dummy as undecryptable", async () => {
+    const sender = vectorKeypair(vectors.sender_seed);
+    const recipient = vectorKeypair(vectors.recipient_seed);
+    // Sponsored with change pads under the sender's tag; self-paid without
+    // change under the recipient's.
+    for (const [payer, amount, kept] of [
+      [FOREIGN_PAYER, 4n, [6n, 4n]],
+      [sender.shieldedAddress().solanaAddress(), 10n, [0n, 10n]],
+    ] as const) {
+      const transfer = new ConfidentialTransfer(
+        sender.shieldedAddress(),
+        [solInput(sender, 10n)],
+        payer,
+      ).withShape({ inputs: 1, outputs: vectors.outputs });
+      transfer.send(recipient.shieldedAddress(), SOL_MINT, amount);
+      const transaction = indexed(transfer.sign(sender, new AssetRegistry()));
+      for (const [index, keypair] of [sender, recipient].entries()) {
+        const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+        const keys = LocalShieldedKeys.fromKeypair(keypair);
+        try {
+          const report = await decryptTransactions({ wallet, keys, transactions: [transaction] });
+          expect(report).toMatchObject({ undecryptableCandidates: 0, unknownAssetIds: [] });
+          expect(wallet.balance(SOL_MINT).amount).toBe(kept[index]);
+        } finally {
+          keys.destroy();
+        }
+      }
     }
   });
 

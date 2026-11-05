@@ -1,6 +1,6 @@
 import { address } from "@solana/kit";
 
-import { concatBytes, equalBytes } from "../../interface/bytes.js";
+import { bytesKey, concatBytes, equalBytes } from "../../interface/bytes.js";
 import { NO_CACHE_WRITES, bindCacheWrite } from "../../interface/cache.js";
 import {
   externalDataHash as interfaceExternalDataHash,
@@ -28,12 +28,11 @@ import {
   type Signature,
   type TransactOutput,
 } from "../../interface/types.js";
-import { randomBlinding, randomSalt, randomBytes } from "../../keypair/bytes.js";
+import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import { X25519PublicKey } from "../../keypair/x25519.js";
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
-import { Data } from "../data.js";
 import { TransactionError } from "../error.js";
 import {
   ZERO_32,
@@ -46,7 +45,12 @@ import {
   nonZeroHashChain,
   poseidon,
 } from "../internal.js";
-import { EncryptedScheme, encodeOutputData, encryptConfidential } from "../serialization/codecs.js";
+import {
+  EncryptedScheme,
+  encodeOutputData,
+  encryptConfidential,
+  encryptConfidentialPadding,
+} from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
   Utxo,
@@ -60,7 +64,7 @@ import {
   type TreeId,
 } from "../utxo.js";
 import { DEFAULT_TREE_ID, MAX_INPUT_TREES } from "../../interface/tree-slot.js";
-import { Mint, SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
+import { Mint, type AssetRegistry } from "../asset.js";
 import { sha256Bytes } from "../../keypair/hash.js";
 
 export type { Shape };
@@ -1251,9 +1255,10 @@ export class ConfidentialTransfer {
   }
 
   /**
-   * Keypair shortcut: seal every real slot under the owner's own viewing key in
-   * one step. The keys rail is `prepare`, `encryptConfidentialTransfer` over the
-   * key `ShieldedKeys.transactionKeys` returns, then `PreparedTransfer.finalize`.
+   * Keypair shortcut: seal every slot under the owner's own viewing key in one
+   * step. The keys rail is `prepare`, `encryptConfidentialTransfer` of
+   * `proofOutputs()` and `owner` over the key `ShieldedKeys.transactionKeys`
+   * returns, then `PreparedTransfer.finalize`.
    */
   sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
     const prepared = this.prepare();
@@ -1264,7 +1269,7 @@ export class ConfidentialTransfer {
       return prepared.finalize({
         txViewingPublicKey: tx.publicKey(),
         salt,
-        payload: encodeConfidentialSlots(prepared.outputs, assets, tx, salt),
+        payload: encodeConfidentialSlots(prepared.proofOutputs(), assets, tx, salt, prepared.owner),
       });
     } finally {
       tx.destroy();
@@ -1533,7 +1538,7 @@ function finalizeTransfer(
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
-  const { outputs: outputUtxos, padCount, padTag } = finalOutputPlan(prepared);
+  const { outputs: outputUtxos, padTag } = finalOutputPlan(prepared);
   // Random dummies join the last input tree, as the prover hashes them. Compact
   // padding takes the first: SPP reads its omitted tree index as 0.
   const paddingTreeId = prepared.compactPadding
@@ -1549,29 +1554,20 @@ function finalizeTransfer(
     );
   }
 
-  // Length-matched random ciphertext for every position without a real encoding:
-  // padded slots and slots the payload leaves empty.
-  const needsDummyCiphertext =
-    (padCount > 0 && prepared.compactPadding !== true) ||
-    prepared.outputs.some((_, index) => encrypted.payload[index] === undefined);
-  const dummyLength = needsDummyCiphertext
-    ? dummyCiphertextLength(encrypted.salt, prepared.ringProgramId)
-    : 0;
-  // A slot's ciphertext must be keyed to the owner its published tag names.
-  // Mirrors the Rust `OwnerTagMismatch` check.
+  // Every published slot carries the ciphertext sealed for it, keyed to the
+  // owner its published tag names. Mirrors the Rust `OwnerTagMismatch` check.
   const slotData = (index: number, tag: Bytes32): Uint8Array => {
     const slot = encrypted.payload[index];
-    if (slot === undefined) return randomBytes(dummyLength);
+    if (slot === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
     if (!equalBytes(slot.viewTag, tag)) {
       throw new TransactionError("TRANSACTION_OWNER_TAG_MISMATCH", { slotIndex: index });
     }
     return slot.data;
   };
 
-  // 1:1 output assembly. Every published slot carries its own ciphertext.
-  // Change positions keep the compact sender tag; recipient positions take
-  // their owner's inline tag; padded positions carry a length-matched random
-  // ciphertext under the pad tag.
+  // 1:1 output assembly. Change positions keep the compact sender tag;
+  // recipient positions take their owner's inline tag; padded positions carry
+  // padding under the pad tag.
   const outputs: TransactOutput[] = [];
   const resolved: Bytes32[] = [];
   const padding = prepared.recordPadding;
@@ -1588,7 +1584,7 @@ function finalizeTransfer(
         ownerTag: equalBytes(padTag, senderResolved)
           ? senderTag
           : { kind: "inline", value: padTag },
-        data: randomBytes(dummyLength),
+        data: slotData(index, padTag),
       });
       resolved.push(padTag);
     } else if (padding !== undefined && index >= padding.start && index < padding.end) {
@@ -1604,11 +1600,8 @@ function finalizeTransfer(
       outputs.push({ utxoHash, ownerTag: senderTag, data: slotData(index, senderResolved) });
       resolved.push(senderResolved);
     } else {
-      // A recipient slot must carry its encoding: random bytes would hide the UTXO from them.
       const tag = output.ownerAddress?.confidentialViewTag();
-      if (tag === undefined || encrypted.payload[index] === undefined) {
-        throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
-      }
+      if (tag === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
       outputs.push({
         utxoHash,
         ownerTag: { kind: "inline", value: tag },
@@ -1640,7 +1633,6 @@ function finalizeTransfer(
 /** Builds the commitment-bearing output prefix once for sealing and finalization. */
 function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
   outputs: ProofOutputUtxo[];
-  padCount: number;
   padTag: Bytes32;
 }> {
   const padTag = dummyOwnerTag(
@@ -1669,7 +1661,7 @@ function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
       }),
     ),
   ];
-  return { outputs, padCount, padTag };
+  return { outputs, padTag };
 }
 
 /** The same dummy slot under `ownerTag`; a dummy has no owner address, so only the tag changes. */
@@ -1694,20 +1686,47 @@ function outputInit(output: ProofOutputUtxo): ProofOutputInit {
 }
 
 /**
- * Encode each real output as its own confidential ciphertext, keyed to that
- * output's owner viewing key, at `slotIndex == output position`. Dummy outputs
- * yield `undefined`; the transfer builder fills those positions with a
- * length-matched random ciphertext under the sender's tag.
+ * Encode each published slot as its own confidential ciphertext at
+ * `slotIndex == output position`: a real output keyed to its owner's viewing
+ * key, a dummy as padding keyed to the participant its tag names, found among
+ * `outputs` and `owner`. Compact padding, and a dummy without a tag, yield
+ * `undefined`. Pass `PreparedTransfer.proofOutputs()` and
+ * `PreparedTransfer.owner` so every slot `PreparedTransfer.finalize` publishes
+ * is sealed.
  */
 export function encodeConfidentialSlots(
   outputs: readonly ProofOutputUtxo[],
   assets: AssetRegistry | undefined,
   tx: ViewingKey,
   salt: Bytes16,
+  owner?: ShieldedAddress,
 ): readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[] {
+  const paddingKey = paddingViewingKeys(outputs, owner);
   return outputs.map((output, slotIndex) => {
+    if (output.isCompact()) return undefined;
+    const scheme =
+      output.ringProgramId === undefined
+        ? EncryptedScheme.confidential
+        : EncryptedScheme.ringConfidential;
     const address = output.ownerAddress;
-    if (output.isDummy() || address === undefined) return undefined;
+    if (output.isDummy() || address === undefined) {
+      const tag = output.ownerTag;
+      if (tag === undefined) return undefined;
+      return {
+        viewTag: tag,
+        data: encodeOutputData(
+          scheme,
+          encryptConfidentialPadding(
+            tx,
+            paddingKey(tag),
+            output.ringProgramId,
+            salt,
+            slotOrdinal(slotIndex),
+          ),
+          "encrypted",
+        ),
+      };
+    }
     const mint =
       output.mint === undefined
         ? assets === undefined
@@ -1730,9 +1749,7 @@ export function encodeConfidentialSlots(
     return {
       viewTag: address.signingPublicKey.confidentialViewTag(),
       data: encodeOutputData(
-        output.ringProgramId === undefined
-          ? EncryptedScheme.confidential
-          : EncryptedScheme.ringConfidential,
+        scheme,
         encryptConfidential(
           tx,
           address.viewingPublicKey,
@@ -1753,35 +1770,40 @@ export function encodeConfidentialSlots(
 }
 
 /**
- * The exact ciphertext byte length of a real confidential slot in the ring
- * `ringProgramId` (the default ring when undefined), derived by encoding a
- * throwaway output through the same path. This keeps dummy slots
- * byte-length-indistinguishable from real ones without pinning a brittle
- * constant. Mirrors Rust `dummy_ciphertext_len`.
+ * The viewing key each dummy is encrypted to, by the tag it publishes: the key
+ * of the first real output under that tag, else `owner`'s. A real slot under
+ * that tag embeds the same key. A tag naming only an input owner, whose viewing
+ * key the transfer does not hold, takes one fresh key per transaction. Mirrors
+ * Rust `PaddingKeys`.
  */
-export function dummyCiphertextLength(salt: Bytes16, ringProgramId: Address | undefined): number {
-  const throwaway = ViewingKey.generate();
-  try {
-    return encodeOutputData(
-      ringProgramId === undefined ? EncryptedScheme.confidential : EncryptedScheme.ringConfidential,
-      encryptConfidential(
-        throwaway,
-        throwaway.publicKey(),
-        {
-          assetId: SOL_ASSET_ID,
-          amount: 0n,
-          blinding: randomBlinding(),
-          ...(ringProgramId === undefined ? {} : { ringProgramId }),
-          data: new Data(),
-        },
-        salt,
-        0,
-      ),
-      "encrypted",
-    ).length;
-  } finally {
-    throwaway.destroy();
+function paddingViewingKeys(
+  outputs: readonly ProofOutputUtxo[],
+  owner: ShieldedAddress | undefined,
+): (tag: Bytes32) => X25519PublicKey {
+  const keys = new Map<string, X25519PublicKey>();
+  const participants = [
+    ...outputs.flatMap((output) =>
+      output.isDummy() || output.ownerAddress === undefined ? [] : [output.ownerAddress],
+    ),
+    ...(owner === undefined ? [] : [owner]),
+  ];
+  for (const participant of participants) {
+    const tag = bytesKey(participant.signingPublicKey.confidentialViewTag());
+    if (!keys.has(tag)) keys.set(tag, participant.viewingPublicKey);
   }
+  return (tag) => {
+    const id = bytesKey(tag);
+    const known = keys.get(id);
+    if (known !== undefined) return known;
+    const fresh = ViewingKey.generate();
+    try {
+      const key = fresh.publicKey();
+      keys.set(id, key);
+      return key;
+    } finally {
+      fresh.destroy();
+    }
+  };
 }
 
 export interface OutputContext {

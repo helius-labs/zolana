@@ -22,6 +22,7 @@ export {
   encryptedSchemeToByte,
   encryptConfidential,
   encryptSplit,
+  isConfidentialPadding,
   outputDataEncoding,
   plaintextTransferFromUtxos,
   plaintextTransferUtxos,

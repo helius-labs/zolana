@@ -26,6 +26,7 @@ Breaking
 - `SignedTeePolicy` reads only the two-part policy file and refuses it once either part expires, when a freshness part runs longer than its release allows, or when it is issued more than a day past the device clock → upgrade before the network publishes the two-part file, which earlier releases refuse; `publicKeys` and `threshold` still pin the release signers.
 - `TreeFeeSchedule.feePerNullifier` becomes `feePerTree`, a flat fee a transact or merge payer pays once to every tree the transaction writes, and `defaultTreeFees()` takes no argument and returns 5,000 lamports per tree with forester reimbursements at cost → rename the field, drop the ZKP batch size argument, and fund payers for the per-tree fee.
 - `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` are removed → use `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS`, `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS` and `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+- `PreparedTransfer.finalize` requires the sealed ciphertext of every published slot, failing with `TRANSACTION_MISSING_OUTPUT` when one is missing and with `TRANSACTION_OWNER_TAG_MISMATCH` when its `viewTag` does not name the slot's owner, and padding, ring transfers included, now has a real slot's frame, length and embedded viewing key and decrypts to bytes `isConfidentialPadding` recognizes, so no reader tells it from an output → seal `prepared.proofOutputs()` with `encryptConfidentialTransfer(tx, { outputs, owner: prepared.owner, assets })` before `finalize`.
 
 Added
 
@@ -43,7 +44,6 @@ Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
 - `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits and failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note; it now omits those history rows and stores the note.
-- `ConfidentialTransfer.withRingProgramId` transfers padded unused slots with ciphertexts shorter than real ones, and `PreparedTransfer.finalize` published a slot without checking its `viewTag` named the output's owner; padding now matches the real slot length and a mismatched `viewTag` fails with `TRANSACTION_OWNER_TAG_MISMATCH`.
 - `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
 
 ## 0.8.0-alpha — 2026-11-03
