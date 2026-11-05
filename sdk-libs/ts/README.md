@@ -345,6 +345,9 @@ transaction. The high-level `buildTransferTransaction` and
 `buildMultiTransferTransaction` helpers do not expose a messages parameter.
 See the [payment memo unit test](transaction/test/payment-memo.test.ts) for a
 complete encryption and recipient decryption example using the low-level API.
+The [live payment memo test](test/e2e/payment-memo.live.test.ts) also proves and
+sends the transfer, fetches it from Photon, and decrypts the fetched memo and
+payment output. It uses the localnet harness provided by `just test-ts-e2e`.
 
 ### Several recipients in one transfer
 
