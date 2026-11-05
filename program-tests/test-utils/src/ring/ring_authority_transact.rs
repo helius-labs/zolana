@@ -6,7 +6,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
     input_utxos_from_nullifiers, ComputeBudgetConfig, ProofAuthority, ProverClient, ProverExt,
-    PublicTransfers, RingAuthorityProver, Shape, SpendProof, TransferInputUtxo,
+    PublicTransfers, RingAuthorityRail, Shape, SpendProof, TransferInputUtxo, TransferProver,
 };
 use spr_interface::{
     error::ShieldedPoolError,
@@ -305,17 +305,21 @@ impl RingHarness {
             messages: vec![],
         };
 
-        let mut result = RingAuthorityProver {
+        let mut result = TransferProver {
             blinding_seed,
             output_tree_id: tree_id,
             inputs: vec![transfer_input, padding_input],
             outputs: vec![output, padding_output],
             external_data: external_data.clone(),
             public_transfers: PublicTransfers::default(),
-            payer: Address::new_from_array(self.payer.pubkey().to_bytes()),
             allow_dummy_inputs: true,
-            ring_program_id: Some(ring),
             shape: Shape::IN2_OUT2,
+            signer_pk_hashes: Vec::new(),
+            cache_accounts: Default::default(),
+            rail: RingAuthorityRail {
+                ring_program_id: Some(ring),
+                payer: Address::new_from_array(self.payer.pubkey().to_bytes()),
+            },
         }
         .build()?;
         // The ring authority holds the owners' nullifier keys, so it is the

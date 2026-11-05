@@ -10,8 +10,8 @@ use solana_signer::Signer;
 use spr_client::{
     input_utxos_from_nullifiers,
     prover::transact::anonymous_ring_eddsa::anonymous_signer_pk_hashes, transaction_size,
-    AnonymousRingEddsaProver, ComputeBudgetConfig, ProofAuthority, ProofCompressed, Prover,
-    ProverClient, ProverExt, RingTransferProver, Shape, TransferInputUtxo,
+    AnonymousRingEddsaRail, ComputeBudgetConfig, ProofAuthority, ProofCompressed, Prover,
+    ProverClient, ProverExt, RingSignerRail, Shape, TransferInputUtxo, TransferProver,
 };
 use spr_interface::{
     error::ShieldedPoolError,
@@ -643,7 +643,7 @@ impl RingHarness {
 
         match rail {
             RingRail::Eddsa => {
-                let prover = RingTransferProver {
+                let prover = TransferProver {
                     blinding_seed: proof_inputs.blinding_seed,
                     output_tree_id: proof_inputs.output_tree_id,
                     inputs: input_utxos,
@@ -652,8 +652,11 @@ impl RingHarness {
                     public_transfers: proof_inputs.public_transfers()?,
                     signer_pk_hashes: proof_inputs.signer_pk_hashes(shape.signer_width())?,
                     allow_dummy_inputs: true,
-                    ring_program_id: Some(ring),
                     shape,
+                    cache_accounts: Default::default(),
+                    rail: RingSignerRail {
+                        ring_program_id: Some(ring),
+                    },
                 };
                 let mut result = prover.build()?;
                 // The assembled witness carries no nullifier secrets; the signer
@@ -697,7 +700,7 @@ impl RingHarness {
                 }
             }
             RingRail::AnonymousEddsa => {
-                let prover = AnonymousRingEddsaProver {
+                let prover = TransferProver {
                     blinding_seed: proof_inputs.blinding_seed,
                     output_tree_id: proof_inputs.output_tree_id,
                     inputs: input_utxos,
@@ -709,9 +712,12 @@ impl RingHarness {
                         &signer.signing_pubkey(),
                     )?,
                     allow_dummy_inputs: true,
-                    owner: (&signer.signing_key).into(),
-                    ring_program_id: Some(ring),
                     shape,
+                    cache_accounts: Default::default(),
+                    rail: AnonymousRingEddsaRail {
+                        owner: (&signer.signing_key).into(),
+                        ring_program_id: Some(ring),
+                    },
                 };
                 let mut result = prover.build()?;
                 signer.complete_inputs(&mut result.inputs.transfer.inputs)?;
@@ -947,7 +953,7 @@ impl RingHarness {
         // zeroed proof, so verification is the only thing that fails.
         let ring = Address::new_from_array(self.ring_program_id.to_bytes());
         let tx_shape = proof_inputs.check_shape()?;
-        let prover = RingTransferProver {
+        let prover = TransferProver {
             blinding_seed: proof_inputs.blinding_seed,
             output_tree_id: proof_inputs.output_tree_id,
             inputs: self.ring_input_utxos(&proof_inputs.input_utxos)?,
@@ -958,8 +964,11 @@ impl RingHarness {
                 Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs()).signer_width(),
             )?,
             allow_dummy_inputs: true,
-            ring_program_id: Some(ring),
             shape: Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs()),
+            cache_accounts: Default::default(),
+            rail: RingSignerRail {
+                ring_program_id: Some(ring),
+            },
         };
         let result = prover.build()?;
         let data = assemble_ix_data(

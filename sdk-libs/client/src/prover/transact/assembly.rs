@@ -6,7 +6,9 @@ use spr_hasher::{
     primitives::solana_owner_identity,
 };
 use spr_interface::{
-    instruction::instruction_data::transact::{InputUtxo, TreeContext, NO_UTXO_ROOT},
+    instruction::instruction_data::transact::{
+        CircuitId, InputUtxo, TransactIxData, TransactProof, TreeContext, NO_UTXO_ROOT,
+    },
     tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain, TreeSlot},
     INPUT_TREES, MAX_INPUT_TREES,
 };
@@ -460,10 +462,26 @@ pub(crate) fn private_tx_hash(
     outputs: &AssembledOutputs,
     private_tx_blinding: &[u8; 32],
 ) -> Result<[u8; 32], ClientError> {
+    transfer_private_tx_hash(
+        &inputs.input_hashes,
+        &inputs.address_nullifiers,
+        outputs,
+        private_tx_blinding,
+    )
+}
+
+/// [`private_tx_hash`] from the per-input vectors, for a route that assembles
+/// its inputs without Merkle proofs.
+pub(crate) fn transfer_private_tx_hash(
+    input_hashes: &[[u8; 32]],
+    address_nullifiers: &[[u8; 32]],
+    outputs: &AssembledOutputs,
+    private_tx_blinding: &[u8; 32],
+) -> Result<[u8; 32], ClientError> {
     Ok(PrivateTxHash {
-        input_hashes: &inputs.input_hashes,
+        input_hashes,
         output_hashes: &outputs.private_tx_output_hashes,
-        address_nullifiers: Some(&inputs.address_nullifiers),
+        address_nullifiers: Some(address_nullifiers),
         blinding: private_tx_blinding,
     }
     .hash()?)
@@ -693,6 +711,46 @@ pub(crate) fn validate_shape(shape: Shape, n_in: usize, n_out: usize) -> Result<
     Ok(())
 }
 
+/// Refuse a padding input that is not compact when the transaction allows
+/// none.
+pub(crate) fn check_dummy_policy<'a>(
+    inputs: impl IntoIterator<Item = &'a SppProofInputUtxo>,
+    allow_dummy_inputs: bool,
+) -> Result<(), ClientError> {
+    if allow_dummy_inputs {
+        return Ok(());
+    }
+    match inputs
+        .into_iter()
+        .position(|input| input.is_dummy() && !input.is_compact())
+    {
+        Some(index) => Err(ClientError::NonSpendInputNotAllowed { index }),
+        None => Ok(()),
+    }
+}
+
+/// Every output's blinding must be the one the circuit derives from the
+/// first nullifier and the transaction's blinding seed.
+pub(crate) fn check_output_blindings(
+    first_nullifier: &[u8; 32],
+    blinding_seed: &[u8; 32],
+    outputs: &[SppProofOutputUtxo],
+) -> Result<(), ClientError> {
+    let output_seed = derive_output_blinding_seed(first_nullifier, blinding_seed)?;
+    for (index, output) in outputs.iter().enumerate() {
+        let output_index = u32::try_from(index).map_err(|_| ClientError::TooManyOutputs {
+            got: outputs.len(),
+            max: u32::MAX as usize,
+        })?;
+        let expected =
+            derive_transact_output_blinding(first_nullifier, &output_seed, output_index)?;
+        if output.blinding != expected {
+            return Err(ClientError::OutputBlindingMismatch { index });
+        }
+    }
+    Ok(())
+}
+
 pub(crate) struct AssembledTransaction {
     pub inputs: AssembledInputs,
     pub outputs: AssembledOutputs,
@@ -710,32 +768,14 @@ pub(crate) fn assemble_transaction(
     owner_mode: &OwnerMode,
     allow_dummy_inputs: bool,
 ) -> Result<AssembledTransaction, ClientError> {
-    if !allow_dummy_inputs {
-        if let Some(index) = inputs
-            .iter()
-            .position(|input| input.utxo.is_dummy() && !input.utxo.is_compact())
-        {
-            return Err(ClientError::NonSpendInputNotAllowed { index });
-        }
-    }
+    check_dummy_policy(inputs.iter().map(|input| &input.utxo), allow_dummy_inputs)?;
     let inputs = assemble_inputs(inputs, owner_mode)?;
     let input_flags = pack_input_flags(
         allow_dummy_inputs,
         inputs.input_tree_indexes.iter().copied(),
     )?;
     let first_nullifier = inputs.nullifiers.first().ok_or(ClientError::NoInputs)?;
-    let output_seed = derive_output_blinding_seed(first_nullifier, blinding_seed)?;
-    for (index, output) in outputs.iter().enumerate() {
-        let output_index = u32::try_from(index).map_err(|_| ClientError::TooManyOutputs {
-            got: outputs.len(),
-            max: u32::MAX as usize,
-        })?;
-        let expected =
-            derive_transact_output_blinding(first_nullifier, &output_seed, output_index)?;
-        if output.blinding != expected {
-            return Err(ClientError::OutputBlindingMismatch { index });
-        }
-    }
+    check_output_blindings(first_nullifier, blinding_seed, outputs)?;
     let outputs = assemble_outputs(outputs, output_tree_id)?;
     let blinding = derive_private_tx_blinding(first_nullifier, blinding_seed)?;
     let private_tx_hash = private_tx_hash(&inputs, &outputs, &blinding)?;
@@ -746,6 +786,38 @@ pub(crate) fn assemble_transaction(
         private_tx_hash,
         input_flags,
     })
+}
+
+/// The `Transact` instruction data of a transfer, minus the proof bytes: the
+/// statement's selector, nullifiers and roots, and the external data the
+/// program recomputes the external data hash from.
+pub(crate) fn transact_ix_data(
+    external: ExternalData,
+    private_tx_hash: [u8; 32],
+    circuit: CircuitId,
+    inputs: Vec<InputUtxo>,
+    tree_contexts: Vec<TreeContext>,
+) -> TransactIxData {
+    TransactIxData {
+        proof: TransactProof::zeroed(),
+        expiry_unix_ts: external.expiry_unix_ts,
+        private_tx_hash,
+        circuit,
+        inputs,
+        tree_contexts,
+        interface_transfers: external
+            .interface_transfers
+            .iter()
+            .copied()
+            .map(spr_transaction::instructions::transact::SettlementTransfer::interface_transfer)
+            .collect(),
+        data_hash: external.data_hash,
+        ring_data_hash: external.ring_data_hash,
+        tx_viewing_pk: external.tx_viewing_pk,
+        salt: external.salt,
+        outputs: external.outputs,
+        messages: external.messages,
+    }
 }
 
 #[cfg(test)]

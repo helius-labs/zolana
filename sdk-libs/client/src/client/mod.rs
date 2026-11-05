@@ -226,13 +226,8 @@ impl<R, I> AsyncSprClient<R, I> {
 
     /// The merge proof, from the client's prover.
     async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        match &self.prover {
-            ProverBackend::Server(prover) => prover.prove_merge(inputs).await,
-            ProverBackend::Custom(prover) => {
-                prove_on_blocking_pool(Arc::clone(prover), crate::prover::requests::merge(inputs)?)
-                    .await
-            }
-        }
+        self.prove_request(crate::prover::requests::merge(inputs)?)
+            .await
     }
 }
 

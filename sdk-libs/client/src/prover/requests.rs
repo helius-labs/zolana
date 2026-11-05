@@ -1,8 +1,9 @@
 //! One request per circuit this crate proves: the body in the prover's wire
-//! format and what a backend needs to prove it. The
-//! [`ProverExt`](super::ProverExt) trait, [`AsyncProverClient`](super::AsyncProverClient) and
-//! [`SprClient`](crate::SprClient) all build their requests here, so each
-//! circuit is described once.
+//! format and what a backend needs to prove it. The typed
+//! [`ProverExt`](super::ProverExt) methods and [`SprClient`](crate::SprClient)
+//! build their requests here, so each circuit is described once. Pass one to
+//! [`AsyncProverClient::prove`](super::AsyncProverClient::prove) to prove it
+//! asynchronously.
 
 use zeroize::Zeroizing;
 
@@ -22,7 +23,7 @@ use crate::{
 
 /// A request whose body is already encoded, so an encoding error surfaces
 /// before any backend sees it.
-pub(crate) struct CircuitRequest {
+pub struct CircuitRequest {
     body: Zeroizing<String>,
     proving_key: ExpectedProvingKey,
     delivery: Delivery,
@@ -51,12 +52,15 @@ fn in_response(body: String, proving_key: ExpectedProvingKey) -> CircuitRequest 
     }
 }
 
-pub(crate) fn transfer(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
+/// A default-ring transfer every input owner signs (`transfer-confidential`).
+pub fn transfer(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
     let key = ExpectedProvingKey::transfer_confidential(inputs.inputs.len(), inputs.outputs.len())?;
     Ok(in_response(to_json(inputs)?, key))
 }
 
-pub(crate) fn transfer_confidential_eddsa(
+/// A default-ring transfer one owner authorizes in-circuit
+/// (`transfer-confidential-eddsa`).
+pub fn transfer_confidential_eddsa(
     inputs: &ConfidentialEddsaTransferInputs,
 ) -> Result<CircuitRequest, ClientError> {
     Ok(CircuitRequest {
@@ -66,30 +70,34 @@ pub(crate) fn transfer_confidential_eddsa(
     })
 }
 
-pub(crate) fn transfer_ring(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
+/// An owner-signed ring transfer (`transfer-ring`).
+pub fn transfer_ring(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
     let key = ExpectedProvingKey::transfer_ring(inputs.inputs.len(), inputs.outputs.len())?;
     Ok(in_response(to_json_ring(inputs)?, key))
 }
 
-pub(crate) fn ring_authority(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
+/// A ring-authority transfer (`transfer-ring-authority`).
+pub fn ring_authority(inputs: &TransferInputs) -> Result<CircuitRequest, ClientError> {
     let key =
         ExpectedProvingKey::transfer_ring_authority(inputs.inputs.len(), inputs.outputs.len())?;
     Ok(in_response(to_json_ring_authority(inputs)?, key))
 }
 
-pub(crate) fn merge(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
+/// A default merge (`merge`).
+pub fn merge(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
     let key = ExpectedProvingKey::merge(inputs.inputs.len())?;
     Ok(in_response(to_json_merge(inputs), key))
 }
 
-pub(crate) fn merge_ring(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
+/// A ring merge (`merge-ring`).
+pub fn merge_ring(inputs: &MergeInputs) -> Result<CircuitRequest, ClientError> {
     let key = ExpectedProvingKey::merge_ring(inputs.inputs.len())?;
     Ok(in_response(to_json_merge_ring(inputs), key))
 }
 
-/// A batch proof runs far longer than a connection should be held open, so it
-/// always queues.
-pub(crate) fn batch_address_append(
+/// A nullifier-tree batch address append. A batch proof runs far longer than a
+/// connection should be held open, so it always queues.
+pub fn batch_address_append(
     inputs: &BatchAddressAppendInputs,
 ) -> Result<CircuitRequest, ClientError> {
     Ok(CircuitRequest {

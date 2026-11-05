@@ -33,11 +33,9 @@ use crate::{
         backend::Prover,
         call::{transport_error, Answer, Call, CallError, Recipient},
         endpoint::ProverEndpoint,
-        inputs::{BatchAddressAppendInputs, MergeInputs, TransferInputs},
         key_set::ProvingKeySet,
         proof::{proof_from_value, Proof},
         proving_key::{ExpectedProvingKey, ProverKeys, ProvingKeyReport},
-        requests,
         tee::{
             AttestedProver, SignedTeePolicy, TeeError, TeePolicy, TeeSession,
             MAX_ATTESTATION_BYTES, MAX_SIGNED_POLICY_BYTES,
@@ -460,25 +458,17 @@ impl ProofRoute {
         };
         endpoint.url(&path)
     }
+}
 
-    fn failure(&self, status: StatusCode, text: &str) -> ClientError {
-        let body: Option<serde_json::Value> = serde_json::from_str(text).ok();
-        if let Some(error) = body.as_ref().and_then(typed_failure) {
-            return error;
-        }
-        match self {
-            // A 404 without an error code is the router's: the prover serves no
-            // indexed path. A coded one, such as a key the prover does not
-            // serve, is reported as it is.
-            Self::Indexed
-                if status == StatusCode::NOT_FOUND
-                    && body.as_ref().and_then(|body| body.get("code")).is_none() =>
-            {
-                ClientError::ProverIndexerUnconfigured
-            }
-            _ => ClientError::ProverServer(format!("status {status}: {text}")),
-        }
-    }
+/// A coded body is a typed failure; anything else, a bare 404 included, is
+/// the HTTP status. A prover without an indexer says so with the
+/// `indexer_unconfigured` code.
+fn proof_failure(status: StatusCode, text: &str) -> ClientError {
+    serde_json::from_str(text)
+        .ok()
+        .as_ref()
+        .and_then(typed_failure)
+        .unwrap_or_else(|| ClientError::ProverServer(format!("status {status}: {text}")))
 }
 
 /// Branches on the error body's `code`, never on its message.
@@ -839,33 +829,9 @@ impl AsyncProverClient {
         self
     }
 
-    /// Prove a Solana-only (Ed25519) transfer, returning the uncompressed negated proof.
-    /// Call [`Proof::compress`] for the wire format.
-    pub async fn prove_transfer(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::transfer(inputs)?).await
-    }
-
-    pub async fn prove_merge(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::merge(inputs)?).await
-    }
-
-    pub async fn prove_ring_authority(
-        &self,
-        inputs: &TransferInputs,
-    ) -> Result<Proof, ClientError> {
-        self.prove(&requests::ring_authority(inputs)?).await
-    }
-
-    pub async fn prove_merge_ring(&self, inputs: &MergeInputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::merge_ring(inputs)?).await
-    }
-
-    pub async fn prove_transfer_ring(&self, inputs: &TransferInputs) -> Result<Proof, ClientError> {
-        self.prove(&requests::transfer_ring(inputs)?).await
-    }
-
     /// Prove `request` on its rail; [`Prover::prove`] on [`ProverClient`] is
-    /// this, run to completion.
+    /// this, run to completion. The [`requests`](crate::prover::requests)
+    /// module builds the request of each circuit this crate proves.
     pub async fn prove(
         &self,
         request: &(impl ProveRequest + ?Sized),
@@ -892,13 +858,6 @@ impl AsyncProverClient {
             .await
             .map_err(indexed_failure)?;
         request.finish(proof, resolution)
-    }
-
-    pub async fn prove_batch_address_append(
-        &self,
-        inputs: &BatchAddressAppendInputs,
-    ) -> Result<Proof, ClientError> {
-        self.prove(&requests::batch_address_append(inputs)?).await
     }
 
     /// Async counterpart of [`ProverClient::check_proving_keys`].
@@ -1107,7 +1066,7 @@ impl AsyncProverClient {
             break (status, text);
         };
         if !status.is_success() {
-            return Err(route.failure(status, &text));
+            return Err(proof_failure(status, &text));
         }
 
         let value: serde_json::Value = serde_json::from_str(&text)
@@ -3270,21 +3229,23 @@ mod tests {
         }
     }
 
+    /// Only the `indexer_unconfigured` code means a prover without an
+    /// indexer; a bare 404 is an HTTP failure on either route.
     #[test]
-    fn a_404_on_the_indexed_route_means_no_indexer() {
+    fn a_bare_404_on_the_indexed_route_is_an_http_failure() {
         let (request, _) = indexed_fixture();
         let not_found = || vec![MockResponse::json(404, json!({}))];
         let server = MockServer::respond_with(not_found());
         assert!(matches!(
             queued_prover_client(server.url()).prove_indexed(&request),
-            Err(ClientError::ProverIndexerUnconfigured)
+            Err(ClientError::ProverServer(_))
         ));
         let server = MockServer::respond_with(not_found());
         assert!(matches!(
             tokio::runtime::Runtime::new()
                 .unwrap()
                 .block_on(async_prover_client(server.url()).prove_indexed(&request)),
-            Err(ClientError::ProverIndexerUnconfigured)
+            Err(ClientError::ProverServer(_))
         ));
         let server = MockServer::respond_with(not_found());
         assert!(matches!(
@@ -3294,7 +3255,7 @@ mod tests {
     }
 
     /// A prover that does not serve the request's key refuses it with a coded
-    /// 404, which must not read as a prover without an indexer.
+    /// 404, which is not a prover without an indexer.
     #[test]
     fn a_coded_404_on_the_indexed_route_is_reported_as_it_is() {
         let (request, _) = indexed_fixture();
