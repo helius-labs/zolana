@@ -23,12 +23,13 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
     let ident = &input.ident;
     let twin = twin_ident(ident);
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let encryption_codec_trait = paths::encryption_codec();
     let mut utxo_generics = input.generics.clone();
     utxo_generics
         .make_where_clause()
         .predicates
         .push(syn::parse_quote!(
-            #ident #ty_generics: ::spr_program::EncryptionCodec
+            #ident #ty_generics: #encryption_codec_trait
         ));
     let (utxo_impl_generics, _, utxo_where_clause) = utxo_generics.split_for_impl();
     let discriminator = spr_hasher::state_discriminator(&ident.to_string())
@@ -98,7 +99,6 @@ pub(crate) fn expand(input: &DeriveInput) -> Result<TokenStream> {
 
         impl #utxo_impl_generics #utxo_data for #twin #ty_generics #utxo_where_clause {
             type Client = #ident #ty_generics;
-
         }
     })
 }

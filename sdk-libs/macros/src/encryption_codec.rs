@@ -2,6 +2,8 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{punctuated::Punctuated, DeriveInput, Meta, Result, Token};
 
+use crate::paths;
+
 pub(crate) fn generate(input: &DeriveInput) -> Result<TokenStream> {
     let mut custom = false;
     for attr in input
@@ -52,24 +54,26 @@ pub(crate) fn generate(input: &DeriveInput) -> Result<TokenStream> {
     }
 
     let ident = &input.ident;
+    let encryption_codec = paths::encryption_codec();
+    let private = paths::private();
+    let borsh = quote!(#private::borsh);
     let (_, ty_generics, _) = input.generics.split_for_impl();
     let mut generics = input.generics.clone();
     generics
         .make_where_clause()
         .predicates
         .push(syn::parse_quote!(
-            #ident #ty_generics: ::spr_program::__private::borsh::BorshSerialize
-                + ::spr_program::__private::borsh::BorshDeserialize
+            #ident #ty_generics: #borsh::BorshSerialize + #borsh::BorshDeserialize
         ));
     let (impl_generics, _, where_clause) = generics.split_for_impl();
     Ok(quote! {
-        impl #impl_generics ::spr_program::EncryptionCodec for #ident #ty_generics #where_clause {
+        impl #impl_generics #encryption_codec for #ident #ty_generics #where_clause {
             fn serialize_for_encryption(&self) -> ::std::io::Result<::std::vec::Vec<u8>> {
-                ::spr_program::__private::borsh::to_vec(self)
+                #borsh::to_vec(self)
             }
 
             fn deserialize_after_decryption(bytes: &[u8]) -> ::std::io::Result<Self> {
-                <Self as ::spr_program::__private::borsh::BorshDeserialize>::try_from_slice(bytes)
+                <Self as #borsh::BorshDeserialize>::try_from_slice(bytes)
             }
         }
     })

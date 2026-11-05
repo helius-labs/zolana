@@ -23,13 +23,13 @@ pub use output_utxo::OutputUtxo;
 pub use proofless::{
     confidential_encrypted_output_body, encode_encrypted_ring_deposit_output,
     encode_encrypted_ring_deposit_output_ref, encode_output_data, encode_output_data_ref,
-    is_confidential_encrypted_output, ring_confidential_encrypted_output_body,
-    EncryptedRingDepositData, EncryptedRingDepositDataRef, EncryptedRingDepositOutput,
-    EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput, ProoflessOutputRef,
-    ANONYMOUS_RECIPIENT_ENCRYPTED_SCHEME_TAG, ANONYMOUS_SENDER_ENCRYPTED_SCHEME_TAG,
-    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN,
-    ENCRYPTED_RING_DEPOSIT_SCHEME, PLAINTEXT_OUTPUT_FIXED_LEN,
-    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    encode_plaintext_output_data, is_confidential_encrypted_output,
+    ring_confidential_encrypted_output_body, EncryptedRingDepositData, EncryptedRingDepositDataRef,
+    EncryptedRingDepositOutput, EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput,
+    ProoflessOutputRef, ANONYMOUS_RECIPIENT_ENCRYPTED_SCHEME_TAG,
+    ANONYMOUS_SENDER_ENCRYPTED_SCHEME_TAG, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN, ENCRYPTED_RING_DEPOSIT_SCHEME,
+    PLAINTEXT_OUTPUT_FIXED_LEN, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 
 /// The indexer-facing view of one state-changing instruction (spec: General
