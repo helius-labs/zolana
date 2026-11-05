@@ -5,7 +5,13 @@ pub use spr_event::{
     ring_confidential_encrypted_output_body, MessageData, OutputUtxo,
 };
 use spr_hasher::{sha256::Sha256BE, Hasher, HasherError};
-use wincode::{containers, len::FixIntLen, ReadError, SchemaRead, SchemaWrite};
+use wincode::{
+    config::ConfigCore,
+    containers,
+    io::Writer,
+    len::{FixIntLen, SeqLen},
+    ReadError, SchemaRead, SchemaWrite, WriteError, WriteResult,
+};
 
 pub use crate::verifying_keys::{
     AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CacheWrite, CircuitId,
@@ -278,25 +284,22 @@ type RefConfig = wincode::config::Configuration<
 >;
 
 /// Borrowed view of a [`TransactOutput`]; `data` aliases the instruction buffer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
-pub struct TransactOutputRef<'a> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct TransactOutputRef<'a, Data = &'a [u8]> {
     pub utxo_hash: &'a [u8; 32],
     pub owner_tag: OwnerTag,
-    pub data: Option<&'a [u8]>,
+    pub data: Option<Data>,
 }
 
 /// Borrowed view of a [`spr_event::MessageData`]; `data` aliases the buffer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
-pub struct OutputDataRef<'a> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct OutputDataRef<'a, Data = &'a [u8]> {
     pub view_tag: &'a [u8; 32],
-    pub data: &'a [u8],
+    pub data: Data,
 }
 
-/// Borrowed view of [`TransactIxData`], in the same serialized field order.
-/// Ciphertexts and fixed byte-array references alias the instruction buffer;
-/// the proof and small element vectors are read owned.
-#[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
-pub struct TransactIxDataRef<'a> {
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct TransactExternalDataRef<'a, Data = &'a [u8]> {
     pub expiry_unix_ts: u64,
     pub tx_viewing_pk: &'a [u8; 33],
     pub salt: &'a [u8; 16],
@@ -304,10 +307,18 @@ pub struct TransactIxDataRef<'a> {
     pub interface_transfers: Vec<InterfaceTransfer>,
     pub data_hash: Option<[u8; 32]>,
     pub ring_data_hash: Option<[u8; 32]>,
-    #[wincode(with = "containers::Vec<TransactOutputRef<'a>, FixIntLen<u8>>")]
-    pub outputs: Vec<TransactOutputRef<'a>>,
-    #[wincode(with = "containers::Vec<OutputDataRef<'a>, FixIntLen<u8>>")]
-    pub messages: Vec<OutputDataRef<'a>>,
+    #[wincode(with = "containers::Vec<TransactOutputRef<'a, Data>, FixIntLen<u8>>")]
+    pub outputs: Vec<TransactOutputRef<'a, Data>>,
+    #[wincode(with = "containers::Vec<OutputDataRef<'a, Data>, FixIntLen<u8>>")]
+    pub messages: Vec<OutputDataRef<'a, Data>>,
+}
+
+/// Borrowed view of [`TransactIxData`], in the same serialized field order.
+/// Ciphertexts and fixed byte-array references alias the instruction buffer;
+/// the proof and small element vectors are read owned.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct TransactIxDataRef<'a, Data = &'a [u8]> {
+    pub external_data: TransactExternalDataRef<'a, Data>,
     pub private_tx_hash: &'a [u8; 32],
     pub circuit: CircuitId,
     pub proof: TransactProof,
@@ -315,6 +326,92 @@ pub struct TransactIxDataRef<'a> {
     pub inputs: Vec<InputUtxo>,
     #[wincode(with = "containers::Vec<TreeContext, FixIntLen<u8>>")]
     pub tree_contexts: Vec<TreeContext>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SegmentedBytes<'a> {
+    segments: &'a [&'a [u8]],
+    len: u16,
+}
+
+pub struct EncodedTransact {
+    pub data: Vec<u8>,
+    pub external_data_prefix_len: usize,
+}
+
+impl<'a> SegmentedBytes<'a> {
+    pub fn new(segments: &'a [&'a [u8]]) -> WriteResult<Self> {
+        let len = segments.iter().try_fold(0usize, |len, segment| {
+            len.checked_add(segment.len())
+                .ok_or(WriteError::Custom("segmented byte length overflow"))
+        })?;
+        let len = u16::try_from(len)
+            .map_err(|_| WriteError::Custom("segmented bytes exceed length limit"))?;
+        Ok(Self { segments, len })
+    }
+}
+
+unsafe impl<C: ConfigCore> SchemaWrite<C> for SegmentedBytes<'_> {
+    type Src = Self;
+
+    fn size_of(src: &Self::Src) -> WriteResult<usize> {
+        let len = usize::from(src.len);
+        Ok(<FixIntLen<u16> as SeqLen<C>>::write_bytes_needed_prealloc_check::<u8>(len)? + len)
+    }
+
+    fn write(mut writer: impl Writer, src: &Self::Src) -> WriteResult<()> {
+        <FixIntLen<u16> as SeqLen<C>>::write(&mut writer, usize::from(src.len))?;
+        for segment in src.segments {
+            writer.write(segment)?;
+        }
+        Ok(())
+    }
+}
+
+impl<Data> TransactIxDataRef<'_, Data>
+where
+    Data: SchemaWrite<RefConfig, Src = Data>,
+{
+    pub fn serialized_size(&self) -> WriteResult<usize> {
+        self.validate_interface_transfers()?;
+        <Self as SchemaWrite<RefConfig>>::size_of(self)
+    }
+
+    pub fn external_data_prefix_len(&self) -> WriteResult<usize> {
+        self.validate_interface_transfers()?;
+        <TransactExternalDataRef<'_, Data> as SchemaWrite<RefConfig>>::size_of(&self.external_data)
+    }
+
+    pub fn serialize(&self) -> WriteResult<Vec<u8>> {
+        self.serialized_size()?;
+        wincode::config::serialize(self, RefConfig::new())
+    }
+
+    pub fn serialize_into(&self, destination: &mut [u8]) -> WriteResult<()> {
+        self.serialized_size()?;
+        wincode::config::serialize_into(destination, self, RefConfig::new())
+    }
+
+    pub fn serialize_with_external_data_prefix(&self) -> WriteResult<EncodedTransact> {
+        let external_data_prefix_len = self.external_data_prefix_len()?;
+        Ok(EncodedTransact {
+            data: self.serialize()?,
+            external_data_prefix_len,
+        })
+    }
+
+    fn validate_interface_transfers(&self) -> WriteResult<()> {
+        validate_interface_transfers(&self.interface_transfers)
+            .map_err(|_| WriteError::Custom("invalid interface transfers"))
+    }
+}
+
+impl<'a, Data> core::ops::Deref for TransactIxDataRef<'a, Data> {
+    type Target = TransactExternalDataRef<'a, Data>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.external_data
+    }
 }
 
 impl<'a> TransactIxDataRef<'a> {

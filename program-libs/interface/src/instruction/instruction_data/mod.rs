@@ -39,7 +39,8 @@ pub use ring_config::{CreateRingConfigData, SetRingActivationData, UpdateRingCon
 pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{
     fetch_tag, settlement_accounts, validate_input_tree_contexts, validate_interface_transfers,
-    CacheAccess, CacheWrite, CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer,
-    MessageData, OutputDataRef, OutputUtxo, OwnerTag, ResolvedOutput, TransactIxData,
-    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof, TreeContext,
+    CacheAccess, CacheWrite, CircuitId, EncodedTransact, ExternalDataPreimage, InputUtxo,
+    InterfaceTransfer, MessageData, OutputDataRef, OutputUtxo, OwnerTag, ResolvedOutput,
+    SegmentedBytes, TransactExternalDataRef, TransactIxData, TransactIxDataRef, TransactOutput,
+    TransactOutputRef, TransactProof, TreeContext,
 };
