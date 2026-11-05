@@ -120,14 +120,18 @@ func TestShapeListsMirrorTheirSources(t *testing.T) {
 }
 
 func TestRingAuthorityKeysAreTheSmallSquareShapes(t *testing.T) {
-	var files []string
-	for _, shape := range transferSupportedShapes {
-		if file := TransferKeyFile(TransferRingAuthorityCircuitType, shape[0], shape[1]); file != "" {
-			files = append(files, file)
+	for circuit, want := range map[CircuitType][]string{
+		TransferRingAuthorityCircuitType:     {"transfer_ring_authority_2_2.key", "transfer_ring_authority_4_4.key"},
+		TransferRingAuthorityExitCircuitType: {"transfer_ring_authority_exit_2_2.key", "transfer_ring_authority_exit_4_4.key"},
+	} {
+		var files []string
+		for _, shape := range transferSupportedShapes {
+			if file := TransferKeyFile(circuit, shape[0], shape[1]); file != "" {
+				files = append(files, file)
+			}
 		}
-	}
-	want := []string{"transfer_ring_authority_2_2.key", "transfer_ring_authority_4_4.key"}
-	if !slices.Equal(files, want) {
-		t.Fatalf("ring authority keys %v, want %v", files, want)
+		if !slices.Equal(files, want) {
+			t.Fatalf("%s keys %v, want %v", circuit, files, want)
+		}
 	}
 }

@@ -349,7 +349,8 @@ type ProofShape struct {
 }
 
 func (shape ProofShape) Supported() bool {
-	if shape.Circuit == TransferRingAuthorityCircuitType && (shape.Inputs != shape.Outputs || shape.Inputs > 4) {
+	if (shape.Circuit == TransferRingAuthorityCircuitType || shape.Circuit == TransferRingAuthorityExitCircuitType) &&
+		(shape.Inputs != shape.Outputs || shape.Inputs > 4) {
 		return false
 	}
 	switch shape.Circuit {
@@ -373,7 +374,8 @@ func (shape ProofShape) Supported() bool {
 // unknown circuit has none here.
 func transferShapes(circuitType CircuitType) [][2]uint32 {
 	switch circuitType {
-	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType, TransferAnonymousRingEddsaCircuitType:
+	case TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType,
+		TransferRingAuthorityExitCircuitType, TransferAnonymousRingEddsaCircuitType:
 		return transferSupportedShapes
 	case TransferConfidentialEddsaCircuitType:
 		return confidentialEddsaShapes
@@ -412,6 +414,8 @@ func TransferKeyFile(circuitType CircuitType, nInputs uint32, nOutputs uint32) s
 		prefix = "transfer_eddsa_ring"
 	case TransferRingAuthorityCircuitType:
 		prefix = "transfer_ring_authority"
+	case TransferRingAuthorityExitCircuitType:
+		prefix = "transfer_ring_authority_exit"
 	case TransferConfidentialEddsaCircuitType:
 		prefix = "transfer_confidential_eddsa"
 	case MergeCircuitType:
@@ -455,10 +459,8 @@ func keyFileCircuits() map[string]CircuitType {
 			}
 		}
 	}
-	for _, circuit := range []CircuitType{MergeCircuitType, MergeRingCircuitType} {
-		for _, inputs := range mergeSupportedInputCounts {
-			files[TransferKeyFile(circuit, inputs, 1)] = circuit
-		}
+	for _, inputs := range mergeSupportedInputCounts {
+		files[TransferKeyFile(MergeCircuitType, inputs, 1)] = MergeCircuitType
 	}
 	for _, shape := range batchAddressAppendShapes {
 		files[BatchKeyFile(BatchAddressAppendCircuitType, shape[0], shape[1])] = BatchAddressAppendCircuitType

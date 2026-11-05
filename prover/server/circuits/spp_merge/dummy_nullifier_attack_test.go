@@ -39,12 +39,12 @@ func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 // refreshRingPublicInputHash is refreshDefaultPublicInputHash for the ring rail.
 func refreshRingPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 	t.Helper()
-	refreshPublicInputHash(t, f, f.outputRingDataHash, f.ringProgramID)
+	tail := append([]*big.Int{f.outputRingDataHash, f.ringProgramID, f.publishedOwner, f.outputCiphertextSalt}, f.outputCiphertext...)
+	refreshPublicInputHash(t, f, tail...)
 }
 
 // refreshPublicInputHash hashes the common public columns, then the
-// rail-specific tail: the default rail's ends with the salt and the output
-// ciphertext, the ring rail's has neither.
+// rail-specific tail ending in the salt and the output ciphertext.
 func refreshPublicInputHash(t *testing.T, f *mergeWitnessFixture, tail ...*big.Int) {
 	t.Helper()
 	asBigInts := func(vs []frontend.Variable) []*big.Int {

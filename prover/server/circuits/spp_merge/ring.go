@@ -8,17 +8,18 @@ import (
 )
 
 // Properties:
-// 1. Anonymity - the owner of the merged UTXOs is not revealed.
+// 1. Anonymity - under a nonzero nullifier secret the owner of the merged UTXOs
+// is not revealed.
 // 2. Nonzero dummy nullifiers are indistinguishable from UTXO nullifiers;
 // compact padding publishes 0.
-// 3. No signatures are enforced in the program or circuit.
+// 3. Under a zero nullifier secret SPP requires the signer whose hashed key is
+// PublishedOwner.
 // 4. Balances are preserved.
 // 5. Input and output utxos are owned by the same owner.
 // 6. 1/many UTXOs to one UTXO
-// 7. Every output field but the amount and mint is derived from the owner's
-// keys, the first nullifier, and the public ring values. The output ciphertext
-// a ring merge carries is not bound by this proof: SPP publishes it unverified,
-// and a ring that needs it recoverable enforces it in its own program.
+// 7. Every output field but the amount and mint is derived from the seed, the
+// first nullifier, and the public ring values. The amount and mint are
+// published under a ciphertext keyed the same way.
 
 type RingCircuit struct {
 	NumInputs int `gnark:"-"`
@@ -31,6 +32,7 @@ type RingCircuit struct {
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
+	MergeSeed           frontend.Variable
 
 	mergeshared.CommonPublicInputs
 
@@ -40,6 +42,9 @@ type RingCircuit struct {
 	// ring proof; this proof only binds the hash.
 	OutputRingDataHash frontend.Variable
 	RingProgramID      frontend.Variable
+	PublishedOwner     frontend.Variable
+	// A 16-byte salt is canonical without a range check.
+	OutputCiphertextSalt frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -74,13 +79,29 @@ func (c *RingCircuit) Define(api frontend.API) error {
 		return err
 	}
 	api.AssertIsDifferent(c.RingProgramID, 0)
-	if _, err := tx.Constrain(api); err != nil {
-		return err
-	}
+
+	// Only secret zero opens Poseidon(0), absent a collision.
+	zeroKey := api.IsZero(c.UserNullifierSecret)
+	seed := api.Select(zeroKey, c.MergeSeed, c.UserNullifierSecret)
+	api.AssertIsDifferent(seed, 0)
+
+	// A zero owner under a zero key would publish zero and drop SPP's signer check.
+	api.AssertIsEqual(api.Mul(zeroKey, api.IsZero(c.OwnerPkHash)), 0)
+	api.AssertIsEqual(c.PublishedOwner, api.Mul(zeroKey, c.OwnerPkHash))
+
+	derived := tx.ConstrainSeeded(api, seed)
 	api.AssertIsEqual(c.OutputRingDataHash, c.Output.RingDataHash)
 
 	fields := c.CommonPublicInputs.Prefix(api)
-	fields = append(fields, c.OutputRingDataHash, c.RingProgramID)
+	fields = append(fields, c.OutputRingDataHash, c.RingProgramID, c.PublishedOwner, c.OutputCiphertextSalt)
+	fields = append(fields, mergeshared.MergeOutputCiphertext(
+		api,
+		seed,
+		derived.FirstNullifier,
+		c.OutputCiphertextSalt,
+		derived.OutputAmount,
+		tx.MintChunks,
+	)...)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
 }

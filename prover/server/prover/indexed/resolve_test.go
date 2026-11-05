@@ -425,9 +425,7 @@ func TestResolveCancellationReleasesPreparation(t *testing.T) {
 	}
 }
 
-// A merge-ring request carries the shared prefix and the ring tail only, since
-// the ring merge proof binds no ciphertext; the default merge's count is
-// refused for it, and the other way round.
+// Each rail refuses its sibling rail's public input count.
 func TestMergePublicInputCountFollowsTheRail(t *testing.T) {
 	request := func(circuitType common.CircuitType, count int) []byte {
 		t.Helper()
@@ -446,8 +444,10 @@ func TestMergePublicInputCountFollowsTheRail(t *testing.T) {
 		circuitType  common.CircuitType
 		right, wrong int
 	}{
-		{common.MergeCircuitType, 12, 8},
-		{common.MergeRingCircuitType, 8, 12},
+		{common.MergeCircuitType, 12, 13},
+		{common.MergeRingCircuitType, 13, 12},
+		{common.TransferRingAuthorityCircuitType, 14, 17},
+		{common.TransferRingAuthorityExitCircuitType, 17, 14},
 	} {
 		if _, _, err := decodeRequest(request(test.circuitType, test.wrong)); err == nil || err.Error() != "invalid public input count" {
 			t.Fatalf("%s with %d public inputs: got %v, want the count refused", test.circuitType, test.wrong, err)
