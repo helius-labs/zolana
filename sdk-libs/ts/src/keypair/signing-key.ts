@@ -1,45 +1,10 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { sha512 } from "@noble/hashes/sha2.js";
 
 import { type Bytes32, type Bytes64, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
 import { ed25519DerivationMessage, isDerivationInput } from "./derivation.js";
+import { verifyEd25519Strict } from "./ed25519.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
 import { ShieldedPublicKey, type SignatureType } from "./public-key.js";
-import { concatBytes } from "../interface/bytes.js";
-
-const ED25519_ORDER = ed25519.Point.Fn.ORDER;
-
-function leBytesToBigInt(bytes: Uint8Array): bigint {
-  let value = 0n;
-  for (let index = bytes.length - 1; index >= 0; index--) {
-    value = (value << 8n) | BigInt(bytes[index] as number);
-  }
-  return value;
-}
-
-function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((byte, index) => byte === right[index]);
-}
-
-// The Solana runtime accepts an Ed25519 signature exactly when `verify_strict`
-// does, so this helper answers the same question the runtime would: the
-// cofactorless equation compared over the compressed R bytes, with a
-// small-order R or public key refused and an unreduced y decoded, not rejected.
-function verifyEd25519Strict(
-  signature: Uint8Array,
-  message: Uint8Array,
-  publicKey: Uint8Array,
-): boolean {
-  const r = signature.subarray(0, 32);
-  const s = leBytesToBigInt(signature.subarray(32));
-  if (s >= ED25519_ORDER) return false;
-  const a = ed25519.Point.fromBytes(publicKey, true);
-  if (a.isSmallOrder() || ed25519.Point.fromBytes(r, true).isSmallOrder()) return false;
-  const k = leBytesToBigInt(sha512(concatBytes(r, publicKey, message))) % ED25519_ORDER;
-  const expected = ed25519.Point.BASE.multiplyUnsafe(s).subtract(a.multiplyUnsafe(k));
-  return bytesEqual(expected.toBytes(), r);
-}
 
 export class SigningKey {
   #secret: Uint8Array;
@@ -93,12 +58,7 @@ export class SigningKey {
 
   verify(message: Uint8Array, signature: Bytes64): boolean {
     this.#assertUsable();
-    if (!(signature instanceof Uint8Array) || signature.length !== 64) return false;
-    try {
-      return verifyEd25519Strict(signature, message, this.publicKey().ed25519());
-    } catch {
-      return false;
-    }
+    return verifyEd25519Strict(signature, message, this.publicKey().ed25519());
   }
 
   secretBytes(): Bytes32 {

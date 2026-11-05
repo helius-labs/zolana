@@ -1,5 +1,5 @@
 import { getAddressDecoder } from "@solana/kit";
-import { ed25519 } from "@noble/curves/ed25519.js";
+import { verifyEd25519Strict } from "../../keypair/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { bytesToBigInt, equalBytes } from "../../interface/bytes.js";
@@ -18,7 +18,7 @@ import {
   NO_CACHE_WRITES,
   type CachedInputFields,
 } from "../../interface/cache.js";
-import { CACHE_CAPACITY } from "../../interface/state.js";
+import { CACHE_CAPACITY, NULLIFIER_TREE_HEIGHT, STATE_HEIGHT } from "../../interface/state.js";
 import { ADDRESS_DOMAIN, DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import {
   RING_AUTHORITY_WIDTHS,
@@ -45,7 +45,7 @@ import {
   type CacheWriteRefusal,
   type ExternalData,
 } from "../../transaction/instructions/transact.js";
-import { EncryptedScheme } from "../../transaction/serialization/codecs.js";
+import { EncryptedScheme, readOutputFrame } from "../../transaction/serialization/codecs.js";
 import {
   ProofInputUtxo,
   transactOutputBlinding,
@@ -92,8 +92,6 @@ import type {
   TreeSlotFields,
 } from "./types.js";
 
-export const STATE_TREE_HEIGHT = 32;
-export const NULLIFIER_TREE_HEIGHT = 40;
 const ZERO_PROOF = Object.freeze({
   a: new Uint8Array(32),
   b: new Uint8Array(64),
@@ -249,7 +247,7 @@ export function checkedAuthorization(
   const digest = checkedBytes(authorization.messageDigest, 32, "message digest");
   if (
     !equalBytes(digest, expectedDigest) ||
-    !ed25519.verify(ownerSignature, digest, ownerPublicKey, { zip215: false })
+    !verifyEd25519Strict(ownerSignature, digest, ownerPublicKey)
   ) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -1023,11 +1021,16 @@ function confidentialMarkedOutputOwnerHashes(external: ExternalData, nOutputs: n
   return [...published, ...Array.from({ length: nOutputs - published.length }, () => 0n)];
 }
 
-/** Mirrors Rust `is_confidential_encrypted_output`. */
+/** Mirrors Rust `is_confidential_encrypted_output`: a malformed frame is not one. */
 function isConfidentialEncryptedOutput(data: Uint8Array): boolean {
-  if (data.length <= 5 || data[0] !== 1) return false;
-  const bodyLength = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(1, true);
-  return bodyLength === data.length - 5 && data[5] === EncryptedScheme.confidential;
+  let frame: ReturnType<typeof readOutputFrame>;
+  try {
+    frame = readOutputFrame(data);
+  } catch (error) {
+    if (error instanceof TransactionError) return false;
+    throw error;
+  }
+  return frame.encoding === "encrypted" && frame.schemeByte === EncryptedScheme.confidential;
 }
 
 /**
@@ -1408,7 +1411,7 @@ function attachPaths(
     ...local,
     statePathElements: Object.freeze(
       proofs.state?.path.map((value) => asField(bytesField(value, "state path element"))) ??
-        Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n)),
+        Array.from({ length: STATE_HEIGHT }, () => asField(0n)),
     ),
     statePathIndex: asField(proofs.state?.leafIndex ?? 0n),
     nullifierLowValue: asField(bytesField(proofs.nullifier.lowElement, "low element")),
@@ -1584,7 +1587,7 @@ function createCachedInput(
 ): TransferInput {
   return spendInput(
     input,
-    Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n)),
+    Array.from({ length: STATE_HEIGHT }, () => asField(0n)),
     0n,
     proof,
     ownerPublicKeyHash,
@@ -1727,7 +1730,7 @@ export function checkedProverInputs(inputs: TransferInputs): ProverInputs {
   }
   const malformed = inputs.inputs.some(
     (input) =>
-      input.statePathElements.length !== STATE_TREE_HEIGHT ||
+      input.statePathElements.length !== STATE_HEIGHT ||
       input.nullifierLowPathElements.length !== NULLIFIER_TREE_HEIGHT,
   );
   if (malformed) throw new ClientError("CLIENT_PROVER_INPUT");
@@ -1751,12 +1754,12 @@ export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, ind
   if (proof.state.merkleContext.tree !== proof.nullifier.merkleContext.tree) {
     throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
   }
-  if (proof.state.path.length !== STATE_TREE_HEIGHT) {
+  if (proof.state.path.length !== STATE_HEIGHT) {
     throw new ClientError("CLIENT_PROOF_PATH_LENGTH", {
       details: {
         index,
         kind: "state",
-        expected: STATE_TREE_HEIGHT,
+        expected: STATE_HEIGHT,
         got: proof.state.path.length,
       },
     });

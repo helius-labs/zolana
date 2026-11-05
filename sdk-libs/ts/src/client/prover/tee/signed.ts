@@ -1,4 +1,6 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
+import { verifyEd25519Strict } from "../../../keypair/ed25519.js";
+import { isLowercaseHex, wireDecoder } from "../../../interface/decode.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, concatBytes, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
@@ -214,12 +216,12 @@ export function verifySignedTeePolicy(
   signers: Signers,
   nowSecs: number,
 ): Omit<Current, "checkedAt"> {
-  const parts = exactRecord(file, ["release", "freshness"]);
+  const parts = policyParts.exactRecord(file, "policy", ["release", "freshness"]);
   const release = signedPart(parts["release"]);
   const fresh = signedPart(parts["freshness"]);
 
   if (!quorum(RELEASE_DOMAIN, release, signers)) throw refused("policy_signature");
-  const fields = exactRecord(json(release.bytes), [
+  const fields = policyParts.exactRecord(json(release.bytes), "policy", [
     "network",
     "version",
     "expires_at",
@@ -227,7 +229,11 @@ export function verifySignedTeePolicy(
     "policy",
   ]);
   const { network, version, expires_at: releaseExpiresAt } = fields;
-  const named = exactRecord(fields["freshness"], ["public_keys", "threshold", "max_lifetime_secs"]);
+  const named = policyParts.exactRecord(fields["freshness"], "policy", [
+    "public_keys",
+    "threshold",
+    "max_lifetime_secs",
+  ]);
   const { public_keys: freshnessKeys, max_lifetime_secs: maxLifetime } = named;
   if (
     typeof network !== "string" ||
@@ -254,7 +260,7 @@ export function verifySignedTeePolicy(
 
   const freshnessSigners = { keys: freshnessKeys, threshold: named["threshold"] };
   if (!quorum(FRESHNESS_DOMAIN, fresh, freshnessSigners)) throw refused("policy_freshness");
-  const freshness = exactRecord(json(fresh.bytes), [
+  const freshness = policyParts.exactRecord(json(fresh.bytes), "policy", [
     "network",
     "release_version",
     "release_sha256",
@@ -299,14 +305,20 @@ type Part = Readonly<{
 
 /** A payload and its signatures, with no check of the signatures. */
 function signedPart(value: unknown): Part {
-  const { payload, signatures } = exactRecord(value, ["payload", "signatures"]);
-  if (!lowerHex(payload) || !Array.isArray(signatures)) throw malformed();
+  const { payload, signatures } = policyParts.exactRecord(value, "policy", [
+    "payload",
+    "signatures",
+  ]);
+  if (!isLowercaseHex(payload) || !Array.isArray(signatures)) throw malformed();
   return {
     payload,
     bytes: hexToBytes(payload),
     signatures: signatures.map((entry: unknown) => {
-      const { public_key: key, signature } = exactRecord(entry, ["public_key", "signature"]);
-      if (!lowerHex(key, 32) || !lowerHex(signature, 64)) throw malformed();
+      const { public_key: key, signature } = policyParts.exactRecord(entry, "policy", [
+        "public_key",
+        "signature",
+      ]);
+      if (!isLowercaseHex(key, 32) || !isLowercaseHex(signature, 64)) throw malformed();
       return { key, signature };
     }),
   };
@@ -318,13 +330,7 @@ function quorum(domain: Uint8Array, part: Part, keys: Keys): boolean {
   const signed = new Set<string>();
   for (const { key, signature } of part.signatures) {
     if (!keys.keys.includes(key) || signed.has(key)) continue;
-    let valid = false;
-    try {
-      valid = ed25519.verify(hexToBytes(signature), message, hexToBytes(key), { zip215: false });
-    } catch {
-      // A signature that does not decode signs nothing.
-    }
-    if (valid) signed.add(key);
+    if (verifyEd25519Strict(hexToBytes(signature), message, hexToBytes(key))) signed.add(key);
   }
   return signed.size >= keys.threshold;
 }
@@ -350,7 +356,8 @@ function positive(value: unknown): value is number {
 /** Distinct lowercase hex Ed25519 points. */
 function distinctKeys(keys: readonly unknown[]): keys is readonly string[] {
   return (
-    keys.every((key) => lowerHex(key, 32) && onCurve(key)) && new Set(keys).size === keys.length
+    keys.every((key) => isLowercaseHex(key, 32) && onCurve(key)) &&
+    new Set(keys).size === keys.length
   );
 }
 
@@ -362,27 +369,7 @@ function meets(threshold: unknown, keys: readonly unknown[]): threshold is numbe
 }
 
 const malformed = (): Error => refused("policy_malformed");
-
-/** Lowercase hex, of exactly `bytes` bytes when given. */
-function lowerHex(value: unknown, bytes?: number): value is string {
-  return (
-    typeof value === "string" &&
-    /^(?:[0-9a-f]{2})*$/u.test(value) &&
-    (bytes === undefined || value.length === 2 * bytes)
-  );
-}
-
-function exactRecord(value: unknown, keys: readonly string[]): Readonly<Record<string, unknown>> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw malformed();
-  const record = value as Record<string, unknown>;
-  if (
-    Object.keys(record).length !== keys.length ||
-    !keys.every((key) => Object.hasOwn(record, key))
-  ) {
-    throw malformed();
-  }
-  return record;
-}
+const policyParts = wireDecoder(malformed);
 
 function onCurve(key: string): boolean {
   try {

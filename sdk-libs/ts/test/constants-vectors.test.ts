@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import vector from "../../../test-vectors/constants.json" with { type: "json" };
-import { NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT } from "../src/client/prover/assembly.js";
+import { NULLIFIER_TREE_HEIGHT, STATE_HEIGHT } from "../src/interface/state.js";
 import { MAX_SPEND_INPUTS } from "../src/flows/select.js";
 import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { InstructionTag } from "../src/interface/program.js";
@@ -13,7 +13,7 @@ describe("shared constants vector", () => {
   it("matches the Rust-pinned values", () => {
     expect(Object.keys(vector)).toHaveLength(9);
     expect(MERGE_INPUT_COUNT).toBe(vector.mergeInputs);
-    expect(STATE_TREE_HEIGHT).toBe(vector.stateTreeHeight);
+    expect(STATE_HEIGHT).toBe(vector.stateTreeHeight);
     expect(NULLIFIER_TREE_HEIGHT).toBe(vector.nullifierTreeHeight);
     expect(InstructionTag.transact).toBe(vector.transactTag);
     expect(InstructionTag.mergeTransact).toBe(vector.mergeTransactTag);

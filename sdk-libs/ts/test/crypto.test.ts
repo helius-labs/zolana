@@ -31,7 +31,7 @@ import {
   viewRoot,
   type RoleSecrets,
 } from "../src/keypair/derivation.js";
-import { MERGE_INFO } from "../src/keypair/merge/index.js";
+import { MERGE_INFO } from "../src/keypair/derivation.js";
 
 function bytes(hex: string): Uint8Array {
   return Uint8Array.from(hex.match(/../g)?.map((pair) => Number.parseInt(pair, 16)) ?? []);

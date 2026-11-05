@@ -1,6 +1,3 @@
-import { expand } from "@noble/hashes/hkdf.js";
-import { sha256 } from "@noble/hashes/sha2.js";
-
 import { type Bytes16, type Bytes32, checkedBytes, copyBytes, randomBytes } from "./bytes.js";
 import {
   ENC_INFO_RING_DEPOSIT,
@@ -13,6 +10,7 @@ import {
   clampViewingSecret,
   counterViewTag,
   hkdfExpand,
+  hkdfExpandPrk,
   pairDomain,
   roleExpansion,
   viewRoot,
@@ -281,11 +279,7 @@ export class ViewingKey implements ViewingKeyLike {
   #viewSecret(info: string): Uint8Array {
     this.#assertUsable();
     this.#viewRoot ??= viewRoot(this.#secret);
-    try {
-      return expand(sha256, this.#viewRoot, encoder.encode(info), 32);
-    } catch (error) {
-      throw new KeypairError("KEYPAIR_HKDF", { name: info }, error);
-    }
+    return hkdfExpandPrk(this.#viewRoot, encoder.encode(info), 32);
   }
 
   #counterTag(secretInfo: string, prefix: string, counter: bigint, name: string): ViewTag {

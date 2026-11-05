@@ -16,7 +16,7 @@ import {
   type IndexerRpcConfig,
 } from "../client/retry.js";
 import { bytesKey } from "../interface/bytes.js";
-import { decodeSplAssetRegistry } from "../interface/accounts.js";
+import { decodeSplAssetRegistry } from "../interface/codecs/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import { StateDiscriminator } from "../interface/state.js";
 import type {
@@ -379,16 +379,26 @@ async function collectShieldedTransactions(
       rpcConfig,
       context,
     );
-    for (const transaction of response.data.flatMap((item) => item.events)) {
-      // Photon can surface a proofless deposit here before flagging it. Those
-      // are collected from the encrypted-utxo endpoint instead, so taking them
-      // twice would store the same UTXO under two keys.
-      if (transaction.proofless) continue;
-      const key = shieldedTransactionKey(transaction);
-      if (!input.out.has(key)) input.out.set(key, transaction);
-    }
+    storeEvents(response.data, input.out);
     return response;
   });
+}
+
+/**
+ * Stores each event once, by transaction key. Photon can surface a proofless
+ * deposit among events before flagging it. Those are collected from the
+ * encrypted-utxo endpoint instead, so taking them twice would store the same
+ * UTXO under two keys.
+ */
+function storeEvents(
+  rows: readonly Readonly<{ events: readonly IndexedShieldedTransaction[] }>[],
+  out: Map<string, IndexedShieldedTransaction>,
+): void {
+  for (const transaction of rows.flatMap((item) => item.events)) {
+    if (transaction.proofless) continue;
+    const key = shieldedTransactionKey(transaction);
+    if (!out.has(key)) out.set(key, transaction);
+  }
 }
 
 async function collectProoflessDeposits(
@@ -474,11 +484,7 @@ async function collectShieldedTransactionsByNullifiers(
       rpcConfig,
       context,
     );
-    for (const transaction of response.data.flatMap((item) => item.events)) {
-      if (transaction.proofless) continue;
-      const key = shieldedTransactionKey(transaction);
-      if (!input.out.has(key)) input.out.set(key, transaction);
-    }
+    storeEvents(response.data, input.out);
     return response;
   });
 }
@@ -614,30 +620,30 @@ async function runWalletSync(
       ...[...deposits.values()].sort(compareDeposits),
     ];
     let ordered = orderedTransactions();
-    let report = await decryptTransactions({
-      wallet: session.staging,
-      keys,
-      transactions: ordered,
-      config: decryptConfig,
-      context,
-    });
+    const decrypt = (): Promise<SyncReport> =>
+      decryptTransactions({
+        wallet: session.staging,
+        keys,
+        transactions: ordered,
+        config: decryptConfig,
+        context,
+      });
+    const hasUnknownAsset = (result: SyncReport): boolean =>
+      result.unknownAssetIds.length > 0 ||
+      result.unknownAssetFields.length > 0 ||
+      walletHasUnknownMint(session.staging);
+    let report = await decrypt();
+    // The registry is read at most once per sync, and only when an asset is
+    // unknown; a backfill that adds a binding decrypts again.
     let registryRefreshed = false;
-    if (
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(session.staging)
-    ) {
+    const refreshRegistry = async (): Promise<void> => {
+      if (registryRefreshed || !hasUnknownAsset(report)) return;
       registryRefreshed = true;
       if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
-        report = await decryptTransactions({
-          wallet: session.staging,
-          keys,
-          transactions: ordered,
-          config: decryptConfig,
-          context,
-        });
+        report = await decrypt();
       }
-    }
+    };
+    await refreshRegistry();
 
     // A transaction found by a stable tag can create a UTXO that another
     // device already spent. Query each newly discovered nullifier once, then
@@ -650,37 +656,12 @@ async function runWalletSync(
     await scanNullifiers(followUpNullifiers);
     if (transactions.size !== beforeFollowUp) {
       ordered = orderedTransactions();
-      report = await decryptTransactions({
-        wallet: session.staging,
-        keys,
-        transactions: ordered,
-        config: decryptConfig,
-        context,
-      });
-      if (
-        !registryRefreshed &&
-        (report.unknownAssetIds.length > 0 ||
-          report.unknownAssetFields.length > 0 ||
-          walletHasUnknownMint(session.staging))
-      ) {
-        if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
-          report = await decryptTransactions({
-            wallet: session.staging,
-            keys,
-            transactions: ordered,
-            config: decryptConfig,
-            context,
-          });
-        }
-      }
+      report = await decrypt();
+      await refreshRegistry();
     }
     // An unresolved asset means a fetched UTXO was not stored. A commit would
     // advance the checkpoints past it and lose the UTXO until a full rescan.
-    if (
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(session.staging)
-    ) {
+    if (hasUnknownAsset(report)) {
       throw new WalletError("WALLET_UNRESOLVED_ASSET", {
         details: { unknownAssetIds: report.unknownAssetIds.map(String) },
       });

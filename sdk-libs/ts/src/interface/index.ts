@@ -1,13 +1,6 @@
 export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
 
 export {
-  decodeCache,
-  decodeProtocolConfig,
-  decodeSplAssetCounter,
-  decodeSplAssetRegistry,
-  decodeRingConfig,
-} from "./accounts.js";
-export {
   bindCacheWrite,
   CACHE_WRITE_NONE,
   cachedInputFields,
@@ -17,6 +10,11 @@ export {
 } from "./cache.js";
 export type { CachedInputFields } from "./cache.js";
 export {
+  decodeCache,
+  decodeProtocolConfig,
+  decodeRingConfig,
+  decodeSplAssetCounter,
+  decodeSplAssetRegistry,
   decodeTreeFeeSchedule,
   decodeTreeFees,
   decodeTreeHeadRoots,

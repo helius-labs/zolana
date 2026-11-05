@@ -10,10 +10,7 @@ import type {
   RequestContext,
   Transaction,
 } from "../interface/types.js";
-import {
-  decodeProtocolConfigAccount,
-  decodeSplAssetRegistryAccount,
-} from "../interface/codecs/index.js";
+import { decodeProtocolConfig, decodeSplAssetRegistry } from "../interface/codecs/index.js";
 import {
   createSplInterfaceInstruction,
   depositInstruction,
@@ -164,14 +161,14 @@ async function splInterfaceCreationNeeded(
   // leaves a data-less account the program's create path still accepts. Any
   // account with data is decoded, so a malformed one fails instead of passing.
   if (registry !== undefined && registry.data.length > 0) {
-    decodeSplAssetRegistryAccount(registry.data);
+    decodeSplAssetRegistry(registry.data);
     return false;
   }
   const configAccount = await client.getAccount(await protocolConfigAddress(), context);
   if (configAccount === undefined) {
     throw new WalletError("WALLET_PROTOCOL_CONFIG_NOT_FOUND", { details: { mint } });
   }
-  const config = decodeProtocolConfigAccount(configAccount.data);
+  const config = decodeProtocolConfig(configAccount.data);
   // The program's create_spl_interface check owns this policy.
   if (!config.splInterfaceCreationIsPermissionless && config.authority !== depositor) {
     throw new WalletError("WALLET_SPL_INTERFACE_CREATION_RESTRICTED", {

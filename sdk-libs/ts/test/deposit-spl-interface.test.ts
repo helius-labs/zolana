@@ -12,7 +12,7 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   SPL_TOKEN_2022_PROGRAM_ID,
 } from "../src/interface/index.js";
-import { decodeProtocolConfigAccount } from "../src/interface/codecs/index.js";
+import { decodeProtocolConfig } from "../src/interface/codecs/index.js";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import { PROTOCOL_CONFIG_SIZE, StateDiscriminator } from "../src/interface/state.js";
 import { protocolConfigAddress, splAssetRegistryAddress } from "../src/interface/pda/index.js";
@@ -46,7 +46,7 @@ function protocolConfig(authority: Address, permissionless: boolean): RpcAccount
   data.set(getAddressEncoder().encode(authority), AUTHORITY_OFFSET);
   data[SPL_INTERFACE_PERMISSIONLESS_OFFSET] = permissionless ? 1 : 0;
   // Pin the fixture to the decoder so a layout change fails here, not silently.
-  expect(decodeProtocolConfigAccount(data)).toMatchObject({
+  expect(decodeProtocolConfig(data)).toMatchObject({
     authority,
     splInterfaceCreationIsPermissionless: permissionless,
   });

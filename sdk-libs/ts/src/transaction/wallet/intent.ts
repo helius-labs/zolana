@@ -1,4 +1,4 @@
-import { getAddressEncoder, isAddress } from "@solana/kit";
+import { isAddress } from "@solana/kit";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { equalBytes } from "../../interface/bytes.js";
@@ -14,7 +14,7 @@ import { ShieldedAddress } from "../../keypair/shielded.js";
 import type { PreparedTransfer, WithdrawalTarget } from "../instructions/transact.js";
 import { SOL_MINT } from "../asset.js";
 import { TransactionError } from "../error.js";
-import { U64_MAX } from "../../interface/internal.js";
+import { U64_MAX, addressBytes } from "../../interface/internal.js";
 
 /** What the user approves, every field is bound into `intentHash`. */
 export type TransactionIntent =
@@ -126,8 +126,6 @@ const KIND_TAGS = {
   ringDeposit: 11,
 } as const;
 const BOUNDARY_TAGS = { entry: 0, transfer: 1, exit: 2 } as const;
-
-const addressEncoder = getAddressEncoder();
 
 /** Payments one transfer carries: the widest shape's outputs, less the change output. */
 export const MAX_TRANSFER_PAYMENTS =
@@ -745,10 +743,6 @@ function preparedDefaultFunding(prepared: PreparedTransfer): bigint {
   return prepared.inputs
     .filter((input) => !input.isDummy() && input.utxo.ringProgramId === undefined)
     .reduce((sum, input) => sum + input.utxo.amount, 0n);
-}
-
-function addressBytes(value: Address): Uint8Array {
-  return new Uint8Array(addressEncoder.encode(value));
 }
 
 function u64(value: bigint): Uint8Array {

@@ -1,4 +1,4 @@
-import { ed25519 } from "@noble/curves/ed25519.js";
+import { verifyEd25519Strict } from "../../keypair/ed25519.js";
 import { getAddressEncoder } from "@solana/kit";
 
 import { equalBytes } from "../../interface/bytes.js";
@@ -170,9 +170,7 @@ export class LocalShieldedKeys implements ShieldedKeys {
     );
     const seed = checkedDerivationSeed<Bytes64>(input.derivationSeed, "ed25519");
     try {
-      if (
-        !ed25519.verify(seed, ed25519DerivationMessage(publicKey), publicKey, { zip215: false })
-      ) {
+      if (!verifyEd25519Strict(seed, ed25519DerivationMessage(publicKey), publicKey)) {
         throw new TransactionError("TRANSACTION_INVALID_DERIVATION_SEED");
       }
       return roleExpansion(seed, "ed25519", (roles) => {
