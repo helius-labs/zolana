@@ -75,7 +75,7 @@ fn compare_two_prove_and_verify() {
         public: CompareTwoPublicInputs { total: 1_000 },
     };
     let spp_proof_inputs = compare
-        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer)
         .expect("compare proof inputs");
     assert_eq!(
         spp_proof_inputs

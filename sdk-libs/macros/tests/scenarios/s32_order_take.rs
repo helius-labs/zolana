@@ -94,7 +94,7 @@ fn order_take_prove_and_verify() {
         },
     };
     let spp_proof_inputs = take
-        .create_proof_inputs_and_encrypt_with_keys(&taker, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&taker, payer)
         .expect("take proof inputs");
     let mut another_viewer = take.clone();
     another_viewer.private.maker.viewing_pubkey = taker_address.viewing_pubkey;

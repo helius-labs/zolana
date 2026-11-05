@@ -62,7 +62,7 @@ fn top_up_prove_and_verify() {
         public: TopUpPublicInputs { amount: 50 },
     };
     let spp_proof_inputs = top_up
-        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer)
         .expect("top-up proof inputs");
     assert_eq!(
         (

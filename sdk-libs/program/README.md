@@ -35,7 +35,7 @@ No feature is on by default.
 | none | `no_std`: the `spr-instruction` re-export and `CompressedProof`. |
 | `cpi` | The SPP `transact` instruction as a signed CPI from a pinocchio program. |
 | `compression` | Compressed accounts for pinocchio programs (implies `cpi`). |
-| `shielded-pda` | Experimental: `ShieldedPda`, a shielded identity owned by a program-derived address. Needs `std`; `circuit` includes it. |
+| `shielded-pda` | Experimental: `ShieldedPda`, a shielded identity owned by a program-derived address. Needs `std`. |
 | `circuit` | The DSL, `conversion`, `hasher`, the input and UTXO types, `ConfidentialTransaction` and R1CS synthesis. Needs `std`. |
 | `client` | The native run, the SPP transaction, loading proving keys, proving, verifying and transaction encryption. |
 | `setup` | Includes `client`; adds test setup, writing proving keys and exporting the verifying key. |

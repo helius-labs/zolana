@@ -136,7 +136,7 @@ fn vesting_claim_prove_and_verify() {
         },
     };
     let spp_proof_inputs = claim
-        .create_proof_inputs_and_encrypt_with_keys(&beneficiary, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&beneficiary, payer)
         .expect("vesting claim proof inputs");
     assert_eq!(
         spp_proof_inputs

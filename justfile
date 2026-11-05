@@ -332,7 +332,7 @@ coverage *args="--summary-only":
     packages="$(python3 tools/coverage-packages.py)"
     cargo llvm-cov clean --workspace
     # Unquoted on purpose: the flags must word-split into separate arguments.
-    cargo llvm-cov --no-report $packages --features spr-client/client,spr-program/compression,spr-program/client,spr-program/setup,spr-program/parallel,spr-program/test-support
+    cargo llvm-cov --no-report $packages --features spr-client/client,spr-program/compression,spr-program/client,spr-program/setup,spr-program/parallel,spr-program/test-support,spr-program/shielded-pda
     just coverage-report {{args}}
 
 # Re-render the collected profile data. Split out so `just coverage` and the CI
@@ -572,18 +572,18 @@ test-spr-program:
 # escrow verifier modules differ from the committed ones.
 test-spr-program-release: _escrow-zk-keys
     git diff --exit-code -- sdk-tests/timelock-escrow/program/src/verifier
-    cargo test --release -p spr-program -p spr-macros -p timelock-escrow-program --features timelock-escrow-program/circuits,spr-program/compression,spr-program/test-support -- --test-threads=4
+    cargo test --release -p spr-program -p spr-macros -p timelock-escrow-program --features timelock-escrow-program/circuits,spr-program/compression,spr-program/test-support,spr-program/shielded-pda -- --test-threads=4
 
 # The ZK program SDK unit suite without the circom, snarkjs and Picus checks.
 test-spr-program-unit filter="":
-    cargo test -p spr-program --features test-support,setup,parallel --test unit "{{filter}}"
+    cargo test -p spr-program --features test-support,setup,parallel,shielded-pda --test unit "{{filter}}"
 
 # The ZK program SDK unit suite with the circom, snarkjs and Picus checks.
 # Needs circom, snarkjs, run-picus, Racket and cvc5 on PATH, plus ps/kill access.
 # CIRCOMLIB_DIR may name a clean checkout of the pinned circomlib revision.
 # An optional test filter also supports focused checks, such as harness::picus::timeout_cleanup.
 test-spr-program-external filter="":
-    cargo test --release -p spr-program --features test-support,setup,parallel,external-tools --test unit "{{filter}}" -- --test-threads=4
+    cargo test --release -p spr-program --features test-support,setup,parallel,shielded-pda,external-tools --test unit "{{filter}}" -- --test-threads=4
 
 # Checks that the ZK program SDK, the zk DSL's wasm runtime, the escrow
 # circuits and the escrow wasm module build for wasm32-unknown-unknown. Kept out of check-all, which runs

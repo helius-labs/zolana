@@ -85,7 +85,7 @@ fn allowlisted_payment_prove_and_verify() {
         },
     };
     let spp_proof_inputs = payment
-        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer)
         .expect("allowlisted payment proof inputs");
     assert_eq!(
         spp_proof_inputs

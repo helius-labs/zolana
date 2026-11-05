@@ -80,7 +80,7 @@ fn escrow_withdraw_prove_and_verify() {
         },
     };
     let spp_proof_inputs = withdraw
-        .create_proof_inputs_and_encrypt_with_keys(&creator, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&creator, payer)
         .expect("withdraw proof inputs");
     assert_eq!(
         spp_proof_inputs

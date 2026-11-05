@@ -96,7 +96,7 @@ fn two_party_swap_prove_and_verify() {
         },
     };
     let spp_proof_inputs = swap
-        .create_proof_inputs_and_encrypt_with_keys(&party_a, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&party_a, payer)
         .expect("swap proof inputs");
     assert_eq!(
         spp_proof_inputs

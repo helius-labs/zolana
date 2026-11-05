@@ -68,7 +68,7 @@ fn pay(amount: u64) -> (ShieldedAddress, ShieldedAddress, Outputs) {
         public: PaymentPublicInputs { recipient },
     };
     let spp_proof_inputs = payment
-        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer)
         .expect("payment proof inputs");
 
     let prover = Groth16Prover::<Payment>::new_with_test_setup().expect("payment setup");

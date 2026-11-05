@@ -95,7 +95,7 @@ fn issue_credential_prove_and_verify() {
         public: IssueCredentialPublicInputs { issuer: address },
     };
     let spp_proof_inputs = issue
-        .create_proof_inputs_and_encrypt_with_keys(&issuer, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&issuer, payer)
         .expect("issue credential proof inputs");
     let credential = Credential {
         issuer_hash,

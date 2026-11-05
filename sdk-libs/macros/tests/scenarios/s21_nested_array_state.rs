@@ -102,7 +102,7 @@ fn nested_array_state_prove_and_verify() {
         public: PortfolioCreatePublicInputs { owner },
     };
     let spp_proof_inputs = create
-        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer)
         .expect("portfolio create proof inputs");
     let portfolio = Portfolio {
         owner_hash: owner.address_hash().expect("address hash"),

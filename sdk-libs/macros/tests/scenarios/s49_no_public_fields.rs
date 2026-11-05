@@ -64,7 +64,7 @@ fn no_public_fields_prove_and_verify() {
         public: NoPublicInputs,
     };
     let spp_proof_inputs = sweep
-        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer)
         .expect("sweep proof inputs");
     let private_tx_hash = spp_proof_inputs
         .padding_independent_private_tx_hash()

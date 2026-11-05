@@ -73,7 +73,7 @@ fn create_two_prove_and_verify() {
         public: CreateTwoPublicInputs { owner: address },
     };
     let spp_proof_inputs = create_two
-        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer)
         .expect("create two proof inputs");
     assert_eq!(
         (

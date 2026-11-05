@@ -64,11 +64,7 @@ pub(crate) fn pool_utxo(
         },
         public: CreatePoolPublicInputs { root, airdrop_id },
     }
-    .create_proof_inputs_and_encrypt_with_keys(
-        funder,
-        address.solana_address().expect("payer"),
-        u64::MAX,
-    )
+    .create_proof_inputs_and_encrypt_with_keys(funder, address.solana_address().expect("payer"))
     .expect("pool proof inputs");
     let output = spp_proof_inputs
         .output_utxos
@@ -124,7 +120,7 @@ fn airdrop_pool_prove_and_verify() {
         },
     };
     let spp_proof_inputs = create
-        .create_proof_inputs_and_encrypt_with_keys(&funder, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&funder, payer)
         .expect("pool proof inputs");
     assert_eq!(
         spp_proof_inputs
