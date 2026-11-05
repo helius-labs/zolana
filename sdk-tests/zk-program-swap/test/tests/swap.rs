@@ -150,14 +150,12 @@ fn make_and_take_swap_inline() -> Result<()> {
 
         let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
         // 5. create spp proof.
-        let spp_proof = localnet
-            .client
-            .indexer()
-            .prove_transact(
-                spp_proof_inputs,
-                &spr_keypair::NullifierKey::from_secret([0; 31]),
-            )
-            .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
+        let spp_proof = spr_test_utils::utxo::prove_transact_locally(
+            &localnet.client.indexer(),
+            spp_proof_inputs,
+            &spr_keypair::NullifierKey::from_secret([0; 31]),
+        )
+        .map_err(|e| anyhow!("make transact proof: {e:?}"))?;
 
         let make_proof_inputs = MakeProofInputParams {
             order_utxo,
@@ -189,7 +187,7 @@ fn make_and_take_swap_inline() -> Result<()> {
         let order = index_taker(
             &taker.keypair,
             &taker.registry,
-            localnet.client.indexer(),
+            &localnet.client.indexer(),
             localnet.client.rpc(),
             Duration::from_secs(60),
         )?
@@ -221,7 +219,7 @@ fn make_and_take_swap_inline() -> Result<()> {
             .output_utxo(taker_address.viewing_pubkey)?
             .hash(localnet.tree_id)?;
         let order_state = spr_test_utils::test_validator_asserts::wait_for_merkle_proof(
-            localnet.client.indexer(),
+            &localnet.client.indexer(),
             localnet.tree,
             order_hash,
         );
@@ -300,17 +298,15 @@ fn make_and_take_swap_inline() -> Result<()> {
             output_tree_id: localnet.tree_id,
         };
 
-        let spp_proof = localnet
-            .client
-            .indexer()
-            .prove_transact(
-                take_spp_proof_inputs,
-                &spr_test_utils::utxo::ProofKeys(&[
-                    &spr_keypair::NullifierKey::from_secret([0; 31]),
-                    &taker.keypair.nullifier_key,
-                ]),
-            )
-            .map_err(|e| anyhow!("take transact proof: {e:?}"))?;
+        let spp_proof = spr_test_utils::utxo::prove_transact_locally(
+            &localnet.client.indexer(),
+            take_spp_proof_inputs,
+            &spr_test_utils::utxo::ProofKeys(&[
+                &spr_keypair::NullifierKey::from_secret([0; 31]),
+                &taker.keypair.nullifier_key,
+            ]),
+        )
+        .map_err(|e| anyhow!("take transact proof: {e:?}"))?;
 
         let take_proof = swap_prover_client
             .prove_take(&take_proof_inputs.to_proof_inputs()?)

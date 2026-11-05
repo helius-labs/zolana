@@ -2,6 +2,7 @@ mod accounts;
 mod blocking;
 mod compute_budget;
 mod constants;
+mod on_blocking_pool;
 pub mod retry;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
@@ -14,6 +15,7 @@ pub use accounts::ProgramAccountsFilter;
 pub use blocking::Blocking;
 pub use compute_budget::ComputeBudgetConfig;
 pub use constants::{MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
+pub use on_blocking_pool::OnBlockingPool;
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use traits::{AsyncRpc, Rpc};
 pub use transaction::{compile_message, sign_transaction, SettlementAccountValidation};

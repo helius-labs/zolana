@@ -1,41 +1,14 @@
-use std::sync::Arc;
+use spr_api::{BlockingSprApi, SprApi};
 
-use solana_address::Address;
-use solana_signature::Signature;
-use spr_api::{BlockingRuntime, BlockingSprApi, SprApi};
-#[cfg(feature = "reqwest")]
-use spr_interface::instruction::instruction_data::transact::TransactIxData;
-#[cfg(feature = "reqwest")]
-use spr_transaction::instructions::transact::SppProofInputs;
-
-#[cfg(feature = "reqwest")]
-use crate::{
-    authority::ProofAuthority,
-    prover::{witness::WitnessReader, ProverClient, ProverExt},
-};
-use crate::{
-    error::ClientError,
-    rpc::{
-        AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, HistoryFilters, IndexerRpcConfig, PaginationToken,
-        RingHistoryOptions, Rpc,
-    },
-};
+use crate::rpc::Blocking;
 
 use super::AsyncSprIndexer;
 
 /// Blocking client for the Zolana indexer: an [`AsyncSprIndexer`] run on a
-/// Tokio runtime of its own, as [`ProverClient`] runs its async client.
-#[derive(Clone, Debug)]
-pub struct SprIndexer {
-    indexer: AsyncSprIndexer,
-    /// Shared by clones: one runtime per indexer.
-    runtime: Arc<BlockingRuntime>,
-}
+/// Tokio runtime of its own, as `ProverClient` runs its async client.
+pub type SprIndexer = Blocking<AsyncSprIndexer>;
 
-impl SprIndexer {
+impl Blocking<AsyncSprIndexer> {
     /// An indexer whose requests are each bounded by
     /// [`BlockingSprApi::new`]'s timeout.
     #[cfg(feature = "reqwest")]
@@ -45,57 +18,15 @@ impl SprIndexer {
 
     pub fn with_api(api: BlockingSprApi) -> Self {
         let (api, runtime) = api.into_parts();
-        Self {
-            indexer: AsyncSprIndexer::with_api(api),
-            runtime,
-        }
+        Self::with_runtime(AsyncSprIndexer::with_api(api), runtime)
     }
 
-    pub fn with_http_trace(mut self) -> Self {
-        self.indexer = self.indexer.with_http_trace();
-        self
+    pub fn with_http_trace(self) -> Self {
+        self.map(AsyncSprIndexer::with_http_trace)
     }
 
     pub fn api(&self) -> &SprApi {
-        self.indexer.api()
-    }
-
-    /// The runtime this indexer's calls run on, for a prover client built
-    /// beside it.
-    pub fn runtime(&self) -> Arc<BlockingRuntime> {
-        Arc::clone(&self.runtime)
-    }
-
-    pub(crate) fn async_indexer(&self) -> &AsyncSprIndexer {
-        &self.indexer
-    }
-
-    pub(crate) fn block_on<T>(
-        &self,
-        future: impl std::future::Future<Output = Result<T, ClientError>>,
-    ) -> Result<T, ClientError> {
-        self.runtime.block_on(future)
-    }
-
-    /// Fetch the witnesses the inputs name and prove through the local prover.
-    #[cfg(feature = "reqwest")]
-    ///
-    /// The witnesses come from [`WitnessReader`], the one place that knows how
-    /// to split real inputs from padding and which tree each is proven against;
-    /// a second copy of that split here would be a second thing to keep in step
-    /// with the circuit.
-    pub fn prove_transact(
-        &self,
-        proof_inputs: SppProofInputs,
-        authority: &dyn ProofAuthority,
-    ) -> Result<TransactIxData, ClientError> {
-        let witnesses = WitnessReader::transaction_proofs(self, &proof_inputs.input_utxos, None)?;
-        ProverClient::local().prove_transact(
-            proof_inputs,
-            &witnesses.spend_proofs,
-            &witnesses.dummy_nullifier_proofs,
-            authority,
-        )
+        self.get_ref().api()
     }
 }
 
@@ -103,117 +34,6 @@ impl AsyncSprIndexer {
     /// This indexer for blocking callers, run on a Tokio runtime of its own.
     /// As with `SprApi::into_blocking`, give it an HTTP client of its own.
     pub fn into_blocking(self) -> SprIndexer {
-        SprIndexer {
-            indexer: self,
-            runtime: Arc::new(BlockingRuntime::new()),
-        }
-    }
-}
-
-impl Rpc for SprIndexer {
-    fn should_retry(&self, error: &ClientError) -> bool {
-        self.indexer.should_retry(error)
-    }
-
-    fn get_encrypted_utxos_by_tags(
-        &self,
-        tags: Vec<[u8; 32]>,
-        pagination_token: Option<PaginationToken>,
-        limit: Option<u32>,
-        filters: HistoryFilters,
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.block_on(self.indexer.get_encrypted_utxos_by_tags(
-            tags,
-            pagination_token,
-            limit,
-            filters,
-            config,
-        ))
-    }
-
-    fn get_shielded_transactions_by_tags(
-        &self,
-        tags: Vec<[u8; 32]>,
-        pagination_token: Option<PaginationToken>,
-        limit: Option<u32>,
-        filters: HistoryFilters,
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.block_on(self.indexer.get_shielded_transactions_by_tags(
-            tags,
-            pagination_token,
-            limit,
-            filters,
-            config,
-        ))
-    }
-
-    fn get_shielded_transactions_by_ring(
-        &self,
-        options: RingHistoryOptions,
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.block_on(
-            self.indexer
-                .get_shielded_transactions_by_ring(options, config),
-        )
-    }
-
-    fn get_shielded_transactions_by_signature(
-        &self,
-        signature: Signature,
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
-        self.block_on(
-            self.indexer
-                .get_shielded_transactions_by_signature(signature, config),
-        )
-    }
-
-    fn get_shielded_transactions_by_nullifiers(
-        &self,
-        nullifiers: Vec<[u8; 32]>,
-        pagination_token: Option<PaginationToken>,
-        limit: Option<u32>,
-        filters: HistoryFilters,
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-        self.block_on(self.indexer.get_shielded_transactions_by_nullifiers(
-            nullifiers,
-            pagination_token,
-            limit,
-            filters,
-            config,
-        ))
-    }
-
-    fn get_merkle_proofs(
-        &self,
-        tree_account: Address,
-        leaves: Vec<[u8; 32]>,
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<GetMerkleProofsResponse, ClientError> {
-        self.block_on(self.indexer.get_merkle_proofs(tree_account, leaves, config))
-    }
-
-    fn get_non_inclusion_proofs(
-        &self,
-        tree_account: Address,
-        leaves: Vec<[u8; 32]>,
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-        self.block_on(
-            self.indexer
-                .get_non_inclusion_proofs(tree_account, leaves, config),
-        )
-    }
-
-    fn get_user_records(
-        &self,
-        owners: Vec<Address>,
-        config: Option<IndexerRpcConfig>,
-    ) -> Result<GetUserRecordsResponse, ClientError> {
-        self.block_on(self.indexer.get_user_records(owners, config))
+        Blocking::on_new_runtime(self)
     }
 }

@@ -2,16 +2,15 @@
 //!
 //! [`AsyncSprClient`] owns the three services a private transaction
 //! needs: the Solana RPC, the indexer and the prover, and is `async`.
-//! [`SprClient`] is that client for blocking callers: the same core run on
-//! a Tokio runtime it owns, over a blocking RPC and indexer lifted by
-//! [`Blocking`], so it is built, used and dropped from plain threads or from
-//! inside a multi-thread runtime alike; only a `current_thread` runtime cannot
-//! host it. One implementation serves both.
+//! [`SprClient`] is that client for blocking callers: the same core run by
+//! [`Blocking`] on a Tokio runtime, over a blocking Solana RPC lifted by
+//! [`OnBlockingPool`] and an `async` indexer, so it is built, used and dropped
+//! from plain threads or from inside a multi-thread runtime alike; only a
+//! `current_thread` runtime cannot host it. One implementation serves both.
 //!
 //! A [`Submission`] proves a signed private transaction and builds, or sends
 //! and confirms, its native Solana transaction through either client.
 
-mod blocking;
 mod confirmation;
 mod merge;
 mod nonblocking;
@@ -29,10 +28,13 @@ use crate::{
     prover::{
         indexed::{PreparedIndexedTransfer, ProofDataSource},
         requests::CircuitRequest,
-        witness::{AsyncWitnessReader, WitnessReader},
+        witness::AsyncWitnessReader,
         AsyncProverClient, MergeInputs, Proof, Prover, ProverClient, TransferInputs,
     },
-    rpc::{AsyncRpc, Blocking, ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig, Rpc},
+    rpc::{
+        AsyncRpc, Blocking, ComputeBudgetConfig, IndexerPollConfig, IndexerRpcConfig,
+        OnBlockingPool, Rpc,
+    },
 };
 #[cfg(feature = "reqwest")]
 use crate::{indexer::SprIndexer, prover::tee::TeePolicy};
@@ -53,27 +55,53 @@ pub use validation::check_service_url;
 /// which moves with tree state rather than with the shape.
 pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 
-/// An indexer of the `async` client: it answers the indexer half of
-/// [`AsyncRpc`] and reads input witnesses. [`AsyncSprIndexer`] reads
-/// Photon; [`Blocking`] lifts a [`BlockingIndexer`]. Implemented for every
+/// An indexer of either client: it answers the indexer half of [`AsyncRpc`]
+/// and reads input witnesses. [`AsyncSprIndexer`] reads Photon;
+/// [`OnBlockingPool`] lifts an in-process blocking indexer, one that answers
+/// the indexer half of [`Rpc`] and implements [`WitnessReader`], by default
+/// over [`Rpc`]: `impl WitnessReader for MyIndexer {}`. Implemented for every
 /// such type.
+///
+/// [`WitnessReader`]: crate::WitnessReader
 pub trait AsyncIndexer: AsyncRpc + AsyncWitnessReader {}
 
 impl<I: AsyncRpc + AsyncWitnessReader> AsyncIndexer for I {}
 
-/// A Solana RPC of the blocking client: a blocking [`Rpc`] that [`Blocking`]
-/// can carry to Tokio's blocking pool. Implemented for every such type.
+/// A Solana RPC of the blocking client: a blocking [`Rpc`] that
+/// [`OnBlockingPool`] can carry to Tokio's blocking pool. Implemented for
+/// every such type.
 pub trait BlockingRpc: Rpc + Send + Sync + 'static {}
 
 impl<R: Rpc + Send + Sync + 'static> BlockingRpc for R {}
 
-/// An indexer of the blocking client: it answers the indexer half of [`Rpc`]
-/// and reads input witnesses, which [`WitnessReader`] does by default over
-/// [`Rpc`], so an in-process indexer needs only `impl WitnessReader for
-/// MyIndexer {}`. Implemented for every such type.
-pub trait BlockingIndexer: Rpc + WitnessReader + Send + Sync + 'static {}
+/// What the blocking client's indexer is built from: an [`AsyncIndexer`] as
+/// it is, or a [`Blocking`] one, such as [`SprIndexer`], unwrapped so the
+/// client calls the `async` indexer directly.
+///
+/// [`SprIndexer`]: crate::indexer::SprIndexer
+pub trait IntoAsyncIndexer {
+    type Indexer: AsyncIndexer;
 
-impl<I: Rpc + WitnessReader + Send + Sync + 'static> BlockingIndexer for I {}
+    /// The indexer, and the runtime it ran on if it had one.
+    fn into_async_indexer(self) -> (Self::Indexer, Option<Arc<BlockingRuntime>>);
+}
+
+impl<I: AsyncIndexer> IntoAsyncIndexer for I {
+    type Indexer = I;
+
+    fn into_async_indexer(self) -> (I, Option<Arc<BlockingRuntime>>) {
+        (self, None)
+    }
+}
+
+impl<I: AsyncIndexer> IntoAsyncIndexer for Blocking<I> {
+    type Indexer = I;
+
+    fn into_async_indexer(self) -> (I, Option<Arc<BlockingRuntime>>) {
+        let (indexer, runtime) = self.into_parts();
+        (indexer, Some(runtime))
+    }
+}
 
 /// What proves the client's transactions.
 enum ProverBackend {
@@ -282,85 +310,80 @@ impl<R> AsyncSprClient<R, AsyncSprIndexer> {
     }
 }
 
-/// The blocking client: an [`AsyncSprClient`] run on a Tokio runtime it
-/// owns, over a blocking Solana RPC `R` and indexer `I`, [`SprIndexer`]
-/// by default, each lifted by [`Blocking`].
-///
-/// [`SprIndexer`]: crate::indexer::SprIndexer
-pub struct SprClient<R, I = crate::indexer::SprIndexer> {
-    client: AsyncSprClient<Blocking<R>, Blocking<I>>,
-    runtime: Arc<BlockingRuntime>,
-}
+/// The blocking client: an [`AsyncSprClient`] run by [`Blocking`] on a Tokio
+/// runtime, over a blocking Solana RPC `R` lifted by [`OnBlockingPool`] and
+/// the `async` indexer `I`, [`AsyncSprIndexer`] by default. Every [`Rpc`]
+/// call is the `async` client's, run to completion.
+pub type SprClient<R, I = AsyncSprIndexer> = Blocking<AsyncSprClient<OnBlockingPool<R>, I>>;
 
-impl<R, I> SprClient<R, I> {
+impl<R, I> Blocking<AsyncSprClient<OnBlockingPool<R>, I>> {
     /// A client over `rpc`, `indexer` and the prover server `prover`, run on
     /// the prover client's runtime.
-    pub fn new(rpc: R, indexer: I, prover: ProverClient) -> Self {
+    pub fn new(rpc: R, indexer: impl IntoAsyncIndexer<Indexer = I>, prover: ProverClient) -> Self {
         let (prover, runtime) = prover.into_parts();
-        Self {
-            client: AsyncSprClient::new(Blocking::new(rpc), Blocking::new(indexer), prover),
+        let (indexer, _) = indexer.into_async_indexer();
+        Self::with_runtime(
+            AsyncSprClient::new(OnBlockingPool::new(rpc), indexer, prover),
             runtime,
-        }
+        )
     }
 
-    /// See [`AsyncSprClient::with_prover`].
-    pub fn with_prover(rpc: R, indexer: I, prover: impl Prover + 'static) -> Self {
-        Self {
-            client: AsyncSprClient::with_prover(Blocking::new(rpc), Blocking::new(indexer), prover),
-            runtime: Arc::new(BlockingRuntime::new()),
-        }
+    /// See [`AsyncSprClient::with_prover`]. Runs on the indexer's runtime
+    /// when it has one, otherwise on a runtime of its own.
+    pub fn with_prover(
+        rpc: R,
+        indexer: impl IntoAsyncIndexer<Indexer = I>,
+        prover: impl Prover + 'static,
+    ) -> Self {
+        let (indexer, runtime) = indexer.into_async_indexer();
+        Self::with_runtime(
+            AsyncSprClient::with_prover(OnBlockingPool::new(rpc), indexer, prover),
+            runtime.unwrap_or_else(|| Arc::new(BlockingRuntime::new())),
+        )
     }
 
-    pub fn with_compute_unit_limit(mut self, cu_limit: u32) -> Self {
-        self.client = self.client.with_compute_unit_limit(cu_limit);
-        self
+    pub fn with_compute_unit_limit(self, cu_limit: u32) -> Self {
+        self.map(|client| client.with_compute_unit_limit(cu_limit))
     }
 
-    pub fn with_priority_fee(mut self, lamports: u64) -> Self {
-        self.client = self.client.with_priority_fee(lamports);
-        self
+    pub fn with_priority_fee(self, lamports: u64) -> Self {
+        self.map(|client| client.with_priority_fee(lamports))
     }
 
     /// See [`AsyncSprClient::compute_budget`].
     pub fn compute_budget(&self) -> ComputeBudgetConfig {
-        self.client.compute_budget()
+        self.get_ref().compute_budget()
     }
 
-    pub fn with_indexer_poll_config(mut self, config: IndexerPollConfig) -> Self {
-        self.client = self.client.with_indexer_poll_config(config);
-        self
+    pub fn with_indexer_poll_config(self, config: IndexerPollConfig) -> Self {
+        self.map(|client| client.with_indexer_poll_config(config))
     }
 
-    pub fn with_indexer_config(mut self, config: IndexerRpcConfig) -> Self {
-        self.client = self.client.with_indexer_config(config);
-        self
+    pub fn with_indexer_config(self, config: IndexerRpcConfig) -> Self {
+        self.map(|client| client.with_indexer_config(config))
     }
 
     /// See [`AsyncSprClient::with_proof_data_source`].
     #[must_use]
-    pub fn with_proof_data_source(mut self, source: ProofDataSource) -> Self {
-        self.client = self.client.with_proof_data_source(source);
-        self
+    pub fn with_proof_data_source(self, source: ProofDataSource) -> Self {
+        self.map(|client| client.with_proof_data_source(source))
     }
 
     pub fn rpc(&self) -> &R {
-        self.client.rpc.inner()
+        self.get_ref().rpc().get_ref()
     }
 
-    pub fn indexer(&self) -> &I {
-        self.client.indexer.inner()
-    }
-
-    pub(crate) fn block_on<T>(
-        &self,
-        future: impl std::future::Future<Output = Result<T, ClientError>>,
-    ) -> Result<T, ClientError> {
-        self.runtime.block_on(future)
+    /// The indexer for blocking calls, on this client's runtime.
+    pub fn indexer(&self) -> Blocking<I>
+    where
+        I: Clone,
+    {
+        Blocking::with_runtime(self.get_ref().indexer().clone(), self.runtime())
     }
 }
 
 #[cfg(feature = "reqwest")]
-impl<R> SprClient<R, SprIndexer> {
+impl<R> SprClient<R, AsyncSprIndexer> {
     /// The blocking [`AsyncSprClient::from_urls`]: the indexer, the prover
     /// client and this client share one runtime.
     /// Supply `Some(policy)` for a remote prover; `None` permits plaintext
@@ -391,19 +414,13 @@ impl<R> SprClient<R, SprIndexer> {
         prover_url: impl Into<String>,
         prover_tee: Option<TeePolicy>,
     ) -> Self {
-        let indexer = SprIndexer::new(indexer_url.as_ref());
+        let (indexer, runtime) = SprIndexer::new(indexer_url.as_ref()).into_parts();
         let prover = AsyncProverClient::new(prover_url.into());
         let prover = match prover_tee {
             Some(policy) => prover.with_tee(policy),
             None => prover,
         };
-        // The client runs on the indexer's runtime too. A lifted indexer call
-        // then nests a `block_on` on that runtime from the blocking pool while
-        // the client's own `block_on` holds it; Tokio's current-thread
-        // scheduler polls the nested future on its own thread in that case,
-        // so the two runtimes it saves do not come with a deadlock.
-        let prover = prover.into_blocking_on(indexer.runtime());
-        Self::new(rpc, indexer, prover)
+        Self::new(rpc, indexer, prover.into_blocking_on(runtime))
     }
 }
 

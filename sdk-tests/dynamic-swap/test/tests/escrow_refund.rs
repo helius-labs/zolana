@@ -126,7 +126,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         let source_in = SppProofInputUtxo::from(spr_test_utils::utxo::indexed(
             source_utxo,
             &env.user.keypair.nullifier_key,
-            env.localnet.client.indexer(),
+            &env.localnet.client.indexer(),
             env.localnet.tree_id,
         )?);
         let remainder_amount = USER_SPL_SHIELD
@@ -174,12 +174,12 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         let owner_signers = spp_proof_inputs
             .owner_signer_pubkeys()
             .map_err(|e| anyhow!("owner signers: {e:?}"))?;
-        let split_transact = env
-            .localnet
-            .client
-            .indexer()
-            .prove_transact(spp_proof_inputs, &env.user.keypair)
-            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+        let split_transact = spr_test_utils::utxo::prove_transact_locally(
+            &env.localnet.client.indexer(),
+            spp_proof_inputs,
+            &env.user.keypair,
+        )
+        .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
 
         let split_ix = Transact {
             payer: user_solana.pubkey(),
@@ -242,7 +242,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         // proofless deposit publishes its UTXO in the clear, so the
         // depositor-chosen view tag reads it back from the indexer.
         let funding_blinding = wait_for_indexed_utxo(
-            env.localnet.client.indexer(),
+            &env.localnet.client.indexer(),
             funding_view_tag,
             funding_signature,
         )
@@ -277,13 +277,13 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         let source_in = SppProofInputUtxo::from(spr_test_utils::utxo::indexed(
             source_utxo.clone(),
             &env.user.keypair.nullifier_key,
-            env.localnet.client.indexer(),
+            &env.localnet.client.indexer(),
             env.localnet.tree_id,
         )?);
         let maker_funding_in = SppProofInputUtxo::from(spr_test_utils::utxo::indexed(
             maker_funding.clone(),
             escrow_owner.as_ref(),
-            env.localnet.client.indexer(),
+            &env.localnet.client.indexer(),
             env.localnet.tree_id,
         )?);
         let input_utxos = vec![source_in.clone(), maker_funding_in.clone()];
@@ -387,18 +387,15 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             output_tree_id: env.localnet.tree_id,
             cache_accounts: Default::default(),
         };
-        let transact = env
-            .localnet
-            .client
-            .indexer()
-            .prove_transact(
-                spp_proof_inputs,
-                &spr_test_utils::utxo::ProofKeys(&[
-                    &env.user.keypair.nullifier_key,
-                    escrow_owner.as_ref(),
-                ]),
-            )
-            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+        let transact = spr_test_utils::utxo::prove_transact_locally(
+            &env.localnet.client.indexer(),
+            spp_proof_inputs,
+            &spr_test_utils::utxo::ProofKeys(&[
+                &env.user.keypair.nullifier_key,
+                escrow_owner.as_ref(),
+            ]),
+        )
+        .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
 
         let escrow_authority_owner_hash = escrow_owner
             .shielded_address()?
@@ -495,7 +492,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
                     .map_err(|e| anyhow!("resolve recipient: {e:?}"))?
                     .address;
             let escrow_owner = escrow_authority_identity(&env.authority.keypair, &pair)?;
-            let discovered = discover_escrow_note(env.localnet.client.indexer(), &escrow_owner)?;
+            let discovered = discover_escrow_note(&env.localnet.client.indexer(), &escrow_owner)?;
             // The scan matches the shared authority tag alone, so pin the
             // discovered order UTXO to the escrow account being settled.
             if discovered.order_utxo_hash != escrow_state.escrow_utxo_hash {
@@ -543,7 +540,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             blinding: order_blinding,
         };
         let order_state = spr_test_utils::test_validator_asserts::wait_for_merkle_proof(
-            env.localnet.client.indexer(),
+            &env.localnet.client.indexer(),
             env.localnet.tree,
             order_utxo_hash,
         );
@@ -562,7 +559,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             .output_utxo(&escrow_owner, order_utxo_hash)?
             .hash(env.localnet.tree_id)?;
         let reservation_state = spr_test_utils::test_validator_asserts::wait_for_merkle_proof(
-            env.localnet.client.indexer(),
+            &env.localnet.client.indexer(),
             env.localnet.tree,
             reservation_hash,
         );
@@ -677,12 +674,12 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
             output_tree_id: env.localnet.tree_id,
             cache_accounts: Default::default(),
         };
-        let transact = env
-            .localnet
-            .client
-            .indexer()
-            .prove_transact(spp_proof_inputs, escrow_owner.as_ref())
-            .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
+        let transact = spr_test_utils::utxo::prove_transact_locally(
+            &env.localnet.client.indexer(),
+            spp_proof_inputs,
+            escrow_owner.as_ref(),
+        )
+        .map_err(|e| anyhow!("prove_transact: {e:?}"))?;
 
         let authority_owner_hash = env
             .authority

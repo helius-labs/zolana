@@ -30,7 +30,7 @@ use crate::{
 
 use super::{
     prove_on_blocking_pool, validation::validate_fee_payer_pubkey, AsyncIndexer, AsyncSprClient,
-    BlockingIndexer, BlockingRpc, SprClient, TransferPreparation,
+    BlockingRpc, SprClient, TransferPreparation,
 };
 use crate::prover::indexed::{IndexedTransferPreparation, IndexedTransferRail};
 
@@ -159,7 +159,7 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncSprClient<R, I> {
     }
 }
 
-impl<R: BlockingRpc, I: BlockingIndexer> SprClient<R, I> {
+impl<R: BlockingRpc, I: AsyncIndexer> SprClient<R, I> {
     /// See [`AsyncSprClient::prove_transact`].
     pub fn prove_transact(
         &self,
@@ -167,7 +167,10 @@ impl<R: BlockingRpc, I: BlockingIndexer> SprClient<R, I> {
         config: Option<IndexerRpcConfig>,
         authority: &dyn ProofAuthority,
     ) -> Result<TransactIxData, ClientError> {
-        self.block_on(self.client.prove_transact(proof_inputs, config, authority))
+        self.block_on(
+            self.get_ref()
+                .prove_transact(proof_inputs, config, authority),
+        )
     }
 
     /// See [`AsyncSprClient::prove_transact_confidential_eddsa`].
@@ -178,7 +181,7 @@ impl<R: BlockingRpc, I: BlockingIndexer> SprClient<R, I> {
         authority: &dyn ProofAuthority,
         owner: impl Into<OwnerAuthorization<'a>>,
     ) -> Result<TransactIxData, ClientError> {
-        self.block_on(self.client.prove_transact_confidential_eddsa(
+        self.block_on(self.get_ref().prove_transact_confidential_eddsa(
             proof_inputs,
             config,
             authority,
@@ -370,20 +373,20 @@ impl<'a> Submission<'a> {
     }
 
     /// See [`Self::finish_unsigned`].
-    pub fn finish_unsigned_sync<R: BlockingRpc, I: BlockingIndexer>(
+    pub fn finish_unsigned_sync<R: BlockingRpc, I: AsyncIndexer>(
         &self,
         client: &SprClient<R, I>,
     ) -> Result<UnsignedMessage, ClientError> {
-        client.block_on(self.finish_unsigned(&client.client))
+        client.block_on(self.finish_unsigned(client.get_ref()))
     }
 
     /// See [`Self::send`].
-    pub fn send_sync<R: BlockingRpc, I: BlockingIndexer>(
+    pub fn send_sync<R: BlockingRpc, I: AsyncIndexer>(
         &self,
         client: &SprClient<R, I>,
         signers: &[&dyn Signer],
     ) -> Result<Signature, ClientError> {
-        client.block_on(self.send(&client.client, signers))
+        client.block_on(self.send(client.get_ref(), signers))
     }
 }
 

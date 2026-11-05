@@ -1,6 +1,6 @@
 //! Async and blocking transports for the Zolana indexer JSON-RPC contract.
 //!
-//! [`SprApi`] is the implementation; [`BlockingSprApi`] runs it on a
+//! [`SprApi`] is the implementation; [`BlockingSprApi`] runs its calls on a
 //! Tokio runtime it owns, for blocking callers, the way `solana_rpc_client`'s
 //! blocking `RpcClient` drives its nonblocking one. Requests go through an
 //! [`HttpClient`]: a `reqwest` client by default (the `reqwest` feature), or the application's own
@@ -806,112 +806,13 @@ impl BlockingSprApi {
         self
     }
 
-    pub fn get_encrypted_utxos_by_tags(
+    /// Run `future`, a call on [`Self::api`], to completion on this API's
+    /// runtime: `api.block_on(api.api().get_merkle_proofs(tree, leaves))`.
+    pub fn block_on<T>(
         &self,
-        tags: Vec<Hash>,
-        pagination_token: Option<PaginationToken>,
-        limit: Option<u64>,
-        filters: HistoryFilters,
-        min_context_slot: Option<u64>,
-    ) -> Result<GetEncryptedUtxosByTagsResponse, ApiError> {
-        self.runtime.block_on(self.api.get_encrypted_utxos_by_tags(
-            tags,
-            pagination_token,
-            limit,
-            filters,
-            min_context_slot,
-        ))
-    }
-
-    pub fn get_shielded_transactions_by_tags(
-        &self,
-        tags: Vec<Hash>,
-        pagination_token: Option<PaginationToken>,
-        limit: Option<u64>,
-        filters: HistoryFilters,
-        min_context_slot: Option<u64>,
-    ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        self.runtime
-            .block_on(self.api.get_shielded_transactions_by_tags(
-                tags,
-                pagination_token,
-                limit,
-                filters,
-                min_context_slot,
-            ))
-    }
-
-    pub fn get_shielded_transactions_by_signature(
-        &self,
-        tx_signature: SerializableSignature,
-    ) -> Result<GetShieldedTransactionsBySignatureResponse, ApiError> {
-        self.runtime.block_on(
-            self.api
-                .get_shielded_transactions_by_signature(tx_signature),
-        )
-    }
-
-    pub fn get_shielded_transactions(
-        &self,
-        request: GetRingsByTagsRequest,
-    ) -> Result<GetShieldedTransactionsByTagsResponse, ApiError> {
-        self.runtime
-            .block_on(self.api.get_shielded_transactions(request))
-    }
-
-    pub fn get_shielded_transactions_by_nullifiers(
-        &self,
-        nullifiers: Vec<Hash>,
-        pagination_token: Option<PaginationToken>,
-        limit: Option<u64>,
-        filters: HistoryFilters,
-        min_context_slot: Option<u64>,
-    ) -> Result<GetShieldedTransactionsByNullifiersResponse, ApiError> {
-        self.runtime
-            .block_on(self.api.get_shielded_transactions_by_nullifiers(
-                nullifiers,
-                pagination_token,
-                limit,
-                filters,
-                min_context_slot,
-            ))
-    }
-
-    pub fn get_merkle_proofs(
-        &self,
-        tree_account: SerializablePubkey,
-        leaves: Vec<Hash>,
-    ) -> Result<GetMerkleProofsResponse, ApiError> {
-        self.runtime
-            .block_on(self.api.get_merkle_proofs(tree_account, leaves))
-    }
-
-    pub fn get_non_inclusion_proofs(
-        &self,
-        tree_account: SerializablePubkey,
-        leaves: Vec<Hash>,
-    ) -> Result<GetNonInclusionProofsResponse, ApiError> {
-        self.runtime
-            .block_on(self.api.get_non_inclusion_proofs(tree_account, leaves))
-    }
-
-    pub fn get_nullifier_queue_elements(
-        &self,
-        tree_account: SerializablePubkey,
-        start_seq: Option<u64>,
-        limit: u64,
-    ) -> Result<GetNullifierQueueElementsResponse, ApiError> {
-        self.runtime.block_on(
-            self.api
-                .get_nullifier_queue_elements(tree_account, start_seq, limit),
-        )
-    }
-
-    pub fn get_user_records(
-        &self,
-        owners: Vec<SerializablePubkey>,
-    ) -> Result<GetUserRecordsResponse, ApiError> {
-        self.runtime.block_on(self.api.get_user_records(owners))
+        future: impl Future<Output = Result<T, ApiError>>,
+    ) -> Result<T, ApiError> {
+        self.runtime.block_on(future)
     }
 }
 
@@ -1177,8 +1078,11 @@ mod tests {
             if call > 0 {
                 std::thread::sleep(Duration::from_millis(250));
             }
-            api.get_shielded_transactions_by_signature(SerializableSignature::default())
-                .unwrap_or_else(|error| panic!("call {call}: {error}"));
+            api.block_on(
+                api.api()
+                    .get_shielded_transactions_by_signature(SerializableSignature::default()),
+            )
+            .unwrap_or_else(|error| panic!("call {call}: {error}"));
         }
         assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 4);
     }
@@ -1251,7 +1155,10 @@ mod tests {
         let requests = client.requests.clone();
         let api = BlockingSprApi::with_client("https://rpc.example.test/v1?api-key=secret", client);
         let response = api
-            .get_shielded_transactions_by_signature(SerializableSignature::default())
+            .block_on(
+                api.api()
+                    .get_shielded_transactions_by_signature(SerializableSignature::default()),
+            )
             .unwrap();
         assert_eq!(response.context.slot, 7);
         assert_signature_request(&requests, Some(BLOCKING_REQUEST_TIMEOUT));
@@ -1290,7 +1197,10 @@ mod tests {
             FakeClient::answering(200, NO_TRANSACTIONS),
         );
         let error = api
-            .get_shielded_transactions_by_signature(SerializableSignature::default())
+            .block_on(
+                api.api()
+                    .get_shielded_transactions_by_signature(SerializableSignature::default()),
+            )
             .unwrap_err();
         assert!(
             matches!(error, ApiError::BlockingInsideRuntime(_)),
@@ -1305,8 +1215,11 @@ mod tests {
             "https://rpc.example.test/v1",
             FakeClient::answering(200, NO_TRANSACTIONS),
         );
-        api.get_shielded_transactions_by_signature(SerializableSignature::default())
-            .expect("the call leaves the worker and runs");
+        api.block_on(
+            api.api()
+                .get_shielded_transactions_by_signature(SerializableSignature::default()),
+        )
+        .expect("the call leaves the worker and runs");
     }
 
     #[tokio::test]
@@ -1325,11 +1238,14 @@ mod tests {
     #[test]
     fn client_answers_keep_their_errors() {
         let call = |status, body| {
-            BlockingSprApi::with_client(
+            let api = BlockingSprApi::with_client(
                 "https://rpc.example.test",
                 FakeClient::answering(status, body),
+            );
+            api.block_on(
+                api.api()
+                    .get_shielded_transactions_by_signature(SerializableSignature::default()),
             )
-            .get_shielded_transactions_by_signature(SerializableSignature::default())
         };
         assert!(matches!(
             call(429, "slow down"),

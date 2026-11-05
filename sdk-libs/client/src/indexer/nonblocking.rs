@@ -18,8 +18,8 @@ use crate::{
 
 use super::{
     conversion::{
-        convert_context, convert_encrypted_utxo_match, convert_merkle_proof,
-        convert_non_inclusion_proof, convert_shielded_transactions_by_signature_response,
+        convert_encrypted_utxo_match, convert_merkle_proof, convert_non_inclusion_proof,
+        convert_shielded_transactions_by_signature_response,
         convert_shielded_transactions_response, convert_user_records_response, encode_hash,
         encode_pubkey, ring_history_request,
     },
@@ -242,7 +242,7 @@ impl AsyncRpc for AsyncSprIndexer {
             response
                 .map_err(indexer_error)
                 .map(|response| GetMerkleProofsResponse {
-                    context: convert_context(response.context),
+                    context: response.context,
                     proofs: response
                         .proofs
                         .into_iter()
@@ -304,7 +304,7 @@ impl AsyncRpc for AsyncSprIndexer {
                     .map_err(indexer_error)?;
 
                 Ok(GetNonInclusionProofsResponse {
-                    context: convert_context(response.context),
+                    context: response.context,
                     proofs: response
                         .proofs
                         .into_iter()

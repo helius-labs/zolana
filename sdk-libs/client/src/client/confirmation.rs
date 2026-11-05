@@ -7,7 +7,7 @@ use crate::{
     rpc::{AsyncRpc, IndexerPollConfig},
 };
 
-use super::{AsyncIndexer, AsyncSprClient, BlockingIndexer, BlockingRpc, SprClient};
+use super::{AsyncIndexer, AsyncSprClient, BlockingRpc, SprClient};
 
 impl<R: AsyncRpc, I: AsyncIndexer> AsyncSprClient<R, I> {
     /// Wait until Solana confirms the transaction and Photon has indexed a
@@ -24,13 +24,13 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncSprClient<R, I> {
     }
 }
 
-impl<R: BlockingRpc, I: BlockingIndexer> SprClient<R, I> {
+impl<R: BlockingRpc, I: AsyncIndexer> SprClient<R, I> {
     /// See [`AsyncSprClient::confirm_private_transaction`].
     pub fn confirm_private_transaction_sync(
         &self,
         signature: Signature,
     ) -> Result<(), ClientError> {
-        self.block_on(self.client.confirm_private_transaction(signature))
+        self.block_on(self.get_ref().confirm_private_transaction(signature))
     }
 }
 

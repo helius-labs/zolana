@@ -28,9 +28,9 @@ pub mod user_registry;
 
 pub use authority::ProofAuthority;
 pub use client::{
-    check_merge_record, check_service_url, AsyncIndexer, AsyncSprClient, BlockingIndexer,
-    BlockingRpc, MergeSubmission, ProvedMerge, SignedPrivateTransaction, SprClient, Submission,
-    UnsignedMessage, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
+    check_merge_record, check_service_url, AsyncIndexer, AsyncSprClient, BlockingRpc,
+    IntoAsyncIndexer, MergeSubmission, ProvedMerge, SignedPrivateTransaction, SprClient,
+    Submission, UnsignedMessage, DEFAULT_TRANSACT_CU_LIMIT, MERGE_CU_LIMIT,
 };
 pub use error::ClientError;
 pub use indexer::{AsyncSprIndexer, SprIndexer};
@@ -60,7 +60,6 @@ pub use prover::{
 pub use prover::{spawn_prover, ProverLaunch};
 #[cfg(feature = "solana-rpc")]
 pub use rpc::solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
-pub use rpc::Blocking;
 pub use rpc::SettlementAccountValidation;
 pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig, ProgramAccountsFilter};
 pub use rpc::{transaction_size, TransactionSize};
@@ -74,6 +73,7 @@ pub use rpc::{
     TransactionEvents, TransactionOutputs, UserRecord, MAX_LOADED_ACCOUNTS_DATA_SIZE,
     MAX_USER_RECORD_OWNERS, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
+pub use rpc::{Blocking, OnBlockingPool};
 pub use rpc::{IndexerPollConfig, IndexerRpcConfig};
 pub use scan::{fetch_asset_id, fetch_spl_asset_registrations, UtxoScan, UtxoScanResult};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,

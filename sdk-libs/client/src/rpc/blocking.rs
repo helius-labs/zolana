@@ -1,10 +1,10 @@
-//! A blocking [`Rpc`] serving as an [`AsyncRpc`], each call run on Tokio's
-//! blocking pool, the way `spr_api::OnBlockingPool` carries a blocking HTTP
-//! client. The blocking `SprClient` runs its `async` core over this.
+//! An [`AsyncRpc`] serving as a blocking [`Rpc`]: each call runs to
+//! completion on a [`BlockingRuntime`]. The blocking indexer and client are
+//! this over their `async` counterparts, so every method is written once, as
+//! `async`. [`OnBlockingPool`](super::OnBlockingPool) is the other direction.
 
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
-use async_trait::async_trait;
 use solana_account::Account;
 use solana_address::Address;
 use solana_hash::Hash;
@@ -12,10 +12,17 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
-use spr_transaction::utxo::SppProofInputUtxo;
+use spr_api::BlockingRuntime;
+use spr_transaction::{instructions::transact::SppProofInputs, utxo::SppProofInputUtxo};
 
-use crate::prover::witness::{AsyncWitnessReader, InputWitnesses, WitnessReader};
-use crate::{error::ClientError, prover::transact::witness::SpendProof};
+use crate::{
+    authority::ProofAuthority,
+    error::ClientError,
+    prover::{
+        transact::witness::SpendProof,
+        witness::{AsyncWitnessReader, InputWitnesses, WitnessReader},
+    },
+};
 
 use super::{
     traits::{AsyncRpc, Rpc},
@@ -23,155 +30,160 @@ use super::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, HistoryFilters,
-        PaginationToken, RingHistoryOptions, ShieldedTransactionStream,
+        PaginationToken, ProveResult, RingHistoryOptions, ShieldedTransactionStream,
     },
     IndexerRpcConfig, ProgramAccountsFilter,
 };
 
-/// A blocking service as its `async` counterpart: every call runs on Tokio's
-/// blocking pool. Clones share the service.
-#[derive(Debug)]
-pub struct Blocking<T>(Arc<T>);
-
-impl<T> Clone for Blocking<T> {
-    fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0))
-    }
+/// An `async` service for blocking callers: every call runs to completion on
+/// a runtime, so it is made from plain threads or from inside a multi-thread
+/// runtime alike; only a `current_thread` runtime cannot host it. Clones share
+/// the runtime.
+#[derive(Clone, Debug)]
+pub struct Blocking<T> {
+    inner: T,
+    runtime: Arc<BlockingRuntime>,
 }
 
 impl<T> Blocking<T> {
-    pub fn new(inner: T) -> Self {
-        Self(Arc::new(inner))
+    /// `inner`, run on `runtime`.
+    pub fn with_runtime(inner: T, runtime: Arc<BlockingRuntime>) -> Self {
+        Self { inner, runtime }
     }
 
-    pub fn inner(&self) -> &T {
-        &self.0
+    /// `inner`, run on a runtime of its own.
+    pub fn on_new_runtime(inner: T) -> Self {
+        Self::with_runtime(inner, Arc::new(BlockingRuntime::new()))
     }
-}
 
-impl<T: Send + Sync + 'static> Blocking<T> {
-    async fn run<O: Send + 'static>(
+    /// The `async` service.
+    pub fn get_ref(&self) -> &T {
+        &self.inner
+    }
+
+    /// The `async` service and the runtime it runs on.
+    pub fn into_parts(self) -> (T, Arc<BlockingRuntime>) {
+        (self.inner, self.runtime)
+    }
+
+    /// The runtime this service's calls run on, for a client built beside it.
+    pub fn runtime(&self) -> Arc<BlockingRuntime> {
+        Arc::clone(&self.runtime)
+    }
+
+    /// Run `future` to completion on this service's runtime.
+    pub fn block_on<O>(
         &self,
-        call: impl FnOnce(&T) -> Result<O, ClientError> + Send + 'static,
+        future: impl Future<Output = Result<O, ClientError>>,
     ) -> Result<O, ClientError> {
-        let inner = Arc::clone(&self.0);
-        tokio::task::spawn_blocking(move || call(&inner))
-            .await
-            .map_err(|error| ClientError::Rpc(format!("blocking call failed: {error}")))?
+        self.runtime.block_on(future)
+    }
+
+    /// This service with `inner` replaced by `map(inner)`, on the same runtime.
+    pub(crate) fn map<U>(self, map: impl FnOnce(T) -> U) -> Blocking<U> {
+        Blocking {
+            inner: map(self.inner),
+            runtime: self.runtime,
+        }
     }
 }
 
-/// [`Rpc::prove`] is not lifted: it borrows an authority for the call, which
-/// cannot move to the pool. A `SprClient` proves with its own prover.
-#[async_trait]
-impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
-    async fn get_program_accounts_filtered(
+impl<T: AsyncRpc> Rpc for Blocking<T> {
+    fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
+        self.block_on(self.inner.get_account(address))
+    }
+
+    fn get_multiple_accounts(
+        &self,
+        addresses: Vec<Address>,
+    ) -> Result<Vec<Option<Account>>, ClientError> {
+        self.block_on(self.inner.get_multiple_accounts(addresses))
+    }
+
+    fn get_program_accounts(
+        &self,
+        program_id: Address,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        self.block_on(self.inner.get_program_accounts(program_id))
+    }
+
+    fn get_program_accounts_filtered(
         &self,
         program_id: Address,
         filter: &ProgramAccountsFilter,
     ) -> Result<Vec<(Address, Account)>, ClientError> {
-        let filter = filter.clone();
-        self.run(move |rpc| rpc.get_program_accounts_filtered(program_id, &filter))
-            .await
+        self.block_on(self.inner.get_program_accounts_filtered(program_id, filter))
     }
 
-    async fn get_account(&self, address: Address) -> Result<Option<Account>, ClientError> {
-        self.run(move |rpc| rpc.get_account(address)).await
+    fn get_balance(&self, address: Address) -> Result<u64, ClientError> {
+        self.block_on(self.inner.get_balance(address))
     }
 
-    async fn get_multiple_accounts(
-        &self,
-        addresses: Vec<Address>,
-    ) -> Result<Vec<Option<Account>>, ClientError> {
-        self.run(move |rpc| rpc.get_multiple_accounts(addresses))
-            .await
+    fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
+        self.block_on(self.inner.get_latest_blockhash())
     }
 
-    async fn get_program_accounts(
-        &self,
-        program_id: Address,
-    ) -> Result<Vec<(Address, Account)>, ClientError> {
-        self.run(move |rpc| rpc.get_program_accounts(program_id))
-            .await
+    fn get_block_height(&self) -> Result<u64, ClientError> {
+        self.block_on(self.inner.get_block_height())
     }
 
-    async fn get_balance(&self, address: Address) -> Result<u64, ClientError> {
-        self.run(move |rpc| rpc.get_balance(address)).await
+    fn get_slot(&self) -> Result<u64, ClientError> {
+        self.block_on(self.inner.get_slot())
     }
 
-    async fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
-        self.run(|rpc| rpc.get_latest_blockhash()).await
+    fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
+        self.block_on(self.inner.get_transaction_slot(signature))
     }
 
-    async fn get_block_height(&self) -> Result<u64, ClientError> {
-        self.run(|rpc| rpc.get_block_height()).await
-    }
-
-    async fn get_slot(&self) -> Result<u64, ClientError> {
-        self.run(|rpc| rpc.get_slot()).await
-    }
-
-    async fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
-        self.run(move |rpc| rpc.get_transaction_slot(signature))
-            .await
-    }
-
-    async fn get_signature_statuses(
+    fn get_signature_statuses(
         &self,
         signatures: Vec<Signature>,
     ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
-        self.run(move |rpc| rpc.get_signature_statuses(signatures))
-            .await
+        self.block_on(self.inner.get_signature_statuses(signatures))
     }
 
-    async fn get_minimum_balance_for_rent_exemption(
-        &self,
-        data_len: usize,
-    ) -> Result<u64, ClientError> {
-        self.run(move |rpc| rpc.get_minimum_balance_for_rent_exemption(data_len))
-            .await
+    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64, ClientError> {
+        self.block_on(self.inner.get_minimum_balance_for_rent_exemption(data_len))
     }
 
-    async fn health(&self) -> Result<(), ClientError> {
-        self.run(|rpc| rpc.health()).await
+    fn health(&self) -> Result<(), ClientError> {
+        self.block_on(self.inner.health())
     }
 
-    async fn send_transaction_with_config(
+    fn send_transaction_with_config(
         &self,
         transaction: &VersionedTransaction,
         config: RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
-        let transaction = transaction.clone();
-        self.run(move |rpc| rpc.send_transaction_with_config(&transaction, config))
-            .await
+        self.block_on(self.inner.send_transaction_with_config(transaction, config))
     }
 
-    async fn process_transaction(
+    fn process_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
-        self.run(move |rpc| rpc.process_transaction(transaction))
-            .await
+        self.block_on(self.inner.process_transaction(transaction))
     }
 
-    async fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
-        self.run(move |rpc| rpc.confirm_transaction(signature))
-            .await
+    fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
+        self.block_on(self.inner.confirm_transaction(signature))
     }
 
-    async fn transact_output_view_tags_from_signature(
+    fn transact_output_view_tags_from_signature(
         &self,
         signature: Signature,
     ) -> Result<Vec<[u8; 32]>, ClientError> {
-        self.run(move |rpc| rpc.transact_output_view_tags_from_signature(signature))
-            .await
+        self.block_on(
+            self.inner
+                .transact_output_view_tags_from_signature(signature),
+        )
     }
 
     fn should_retry(&self, error: &ClientError) -> bool {
-        self.0.should_retry(error)
+        self.inner.should_retry(error)
     }
 
-    async fn get_encrypted_utxos_by_tags(
+    fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
         pagination_token: Option<PaginationToken>,
@@ -179,13 +191,16 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
         filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.run(move |rpc| {
-            rpc.get_encrypted_utxos_by_tags(tags, pagination_token, limit, filters, config)
-        })
-        .await
+        self.block_on(self.inner.get_encrypted_utxos_by_tags(
+            tags,
+            pagination_token,
+            limit,
+            filters,
+            config,
+        ))
     }
 
-    async fn get_shielded_transactions_by_tags(
+    fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
         pagination_token: Option<PaginationToken>,
@@ -193,31 +208,38 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
         filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.run(move |rpc| {
-            rpc.get_shielded_transactions_by_tags(tags, pagination_token, limit, filters, config)
-        })
-        .await
+        self.block_on(self.inner.get_shielded_transactions_by_tags(
+            tags,
+            pagination_token,
+            limit,
+            filters,
+            config,
+        ))
     }
 
-    async fn get_shielded_transactions_by_ring(
+    fn get_shielded_transactions_by_ring(
         &self,
         options: RingHistoryOptions,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.run(move |rpc| rpc.get_shielded_transactions_by_ring(options, config))
-            .await
+        self.block_on(
+            self.inner
+                .get_shielded_transactions_by_ring(options, config),
+        )
     }
 
-    async fn get_shielded_transactions_by_signature(
+    fn get_shielded_transactions_by_signature(
         &self,
         signature: Signature,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
-        self.run(move |rpc| rpc.get_shielded_transactions_by_signature(signature, config))
-            .await
+        self.block_on(
+            self.inner
+                .get_shielded_transactions_by_signature(signature, config),
+        )
     }
 
-    async fn get_shielded_transactions_by_nullifiers(
+    fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
         pagination_token: Option<PaginationToken>,
@@ -225,78 +247,79 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
         filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-        self.run(move |rpc| {
-            rpc.get_shielded_transactions_by_nullifiers(
-                nullifiers,
-                pagination_token,
-                limit,
-                filters,
-                config,
-            )
-        })
-        .await
+        self.block_on(self.inner.get_shielded_transactions_by_nullifiers(
+            nullifiers,
+            pagination_token,
+            limit,
+            filters,
+            config,
+        ))
     }
 
-    async fn subscribe_to_shielded_transactions_by_tags(
+    fn subscribe_to_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
     ) -> Result<ShieldedTransactionStream, ClientError> {
-        self.run(move |rpc| rpc.subscribe_to_shielded_transactions_by_tags(tags))
-            .await
+        self.block_on(self.inner.subscribe_to_shielded_transactions_by_tags(tags))
     }
 
-    async fn get_merkle_proofs(
+    fn get_merkle_proofs(
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
-        self.run(move |rpc| rpc.get_merkle_proofs(tree_account, leaves, config))
-            .await
+        self.block_on(self.inner.get_merkle_proofs(tree_account, leaves, config))
     }
 
-    async fn get_non_inclusion_proofs(
+    fn get_non_inclusion_proofs(
         &self,
         tree_account: Address,
         leaves: Vec<[u8; 32]>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
-        self.run(move |rpc| rpc.get_non_inclusion_proofs(tree_account, leaves, config))
-            .await
+        self.block_on(
+            self.inner
+                .get_non_inclusion_proofs(tree_account, leaves, config),
+        )
     }
 
-    async fn get_user_records(
+    fn get_user_records(
         &self,
         owners: Vec<Address>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetUserRecordsResponse, ClientError> {
-        self.run(move |rpc| rpc.get_user_records(owners, config))
-            .await
+        self.block_on(self.inner.get_user_records(owners, config))
     }
 
-    async fn get_input_merkle_proofs(
+    fn get_input_merkle_proofs(
         &self,
         input_utxos: &[&SppProofInputUtxo],
         config: Option<IndexerRpcConfig>,
     ) -> Result<Vec<SpendProof>, ClientError> {
-        let inputs: Vec<SppProofInputUtxo> =
-            input_utxos.iter().map(|input| (*input).clone()).collect();
-        self.run(move |rpc| {
-            let inputs: Vec<&SppProofInputUtxo> = inputs.iter().collect();
-            rpc.get_input_merkle_proofs(&inputs, config)
-        })
-        .await
+        self.block_on(self.inner.get_input_merkle_proofs(input_utxos, config))
+    }
+
+    fn prove(
+        &self,
+        proof_inputs: SppProofInputs,
+        authority: &dyn ProofAuthority,
+    ) -> Result<ProveResult, ClientError> {
+        self.block_on(self.inner.prove(proof_inputs, authority))
     }
 }
 
-impl<T: Rpc + WitnessReader + Send + Sync + 'static> AsyncWitnessReader for Blocking<T> {
+impl<T: AsyncRpc + AsyncWitnessReader> WitnessReader for Blocking<T> {
     fn transaction_proofs(
         &self,
         inputs: &[SppProofInputUtxo],
         config: Option<IndexerRpcConfig>,
-    ) -> impl std::future::Future<Output = Result<InputWitnesses, ClientError>> + Send {
-        let inputs = inputs.to_vec();
-        self.run(move |reader| reader.transaction_proofs(&inputs, config))
+    ) -> Result<InputWitnesses, ClientError> {
+        self.block_on(AsyncWitnessReader::transaction_proofs(
+            &self.inner,
+            inputs,
+            config,
+        ))
     }
 
     fn input_witnesses(
@@ -304,12 +327,12 @@ impl<T: Rpc + WitnessReader + Send + Sync + 'static> AsyncWitnessReader for Bloc
         inputs: &[&SppProofInputUtxo],
         dummy_nullifiers: &[[u8; 32]],
         config: Option<IndexerRpcConfig>,
-    ) -> impl std::future::Future<Output = Result<InputWitnesses, ClientError>> + Send {
-        let inputs: Vec<SppProofInputUtxo> = inputs.iter().map(|input| (*input).clone()).collect();
-        let dummy_nullifiers = dummy_nullifiers.to_vec();
-        self.run(move |reader| {
-            let inputs: Vec<&SppProofInputUtxo> = inputs.iter().collect();
-            reader.input_witnesses(&inputs, &dummy_nullifiers, config)
-        })
+    ) -> Result<InputWitnesses, ClientError> {
+        self.block_on(AsyncWitnessReader::input_witnesses(
+            &self.inner,
+            inputs,
+            dummy_nullifiers,
+            config,
+        ))
     }
 }
