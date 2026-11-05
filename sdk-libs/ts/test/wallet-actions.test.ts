@@ -158,6 +158,7 @@ function fundedWallet(
       outputContext: {
         hash: filled(index + 1),
         tree: TREE,
+        treeId: 0,
         leafIndex: BigInt(index),
       },
       nullifier: filled(index + 20),
@@ -305,6 +306,91 @@ describe("private transaction construction", () => {
         amount: 50n,
       }),
     ).rejects.toMatchObject({ code: "WALLET_INSUFFICIENT_BALANCE" });
+  });
+
+  it("spends a data-carrying default-ring UTXO that the balance counts", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = fundedWallet(keypair, [10n, 90n]);
+    wallet._replace({
+      utxos: wallet.utxos().map((entry, index) =>
+        index === 1
+          ? {
+              ...entry,
+              utxo: new Utxo({
+                owner: entry.utxo.owner,
+                asset: entry.utxo.asset,
+                amount: entry.utxo.amount,
+                blinding: entry.utxo.blinding,
+                data: new Data([{ kind: "utxoData", bytes: Uint8Array.of(1, 2) }]),
+              }),
+              dataHash: filled(77),
+            }
+          : entry,
+      ),
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    expect(wallet.balance(SOL_MINT).amount).toBe(100n);
+    const created = await createWithdrawal({
+      wallet,
+      payer: PAYER,
+      recipient: RECIPIENT,
+      asset: SOL_MINT,
+      amount: 100n,
+    });
+    expect(created.transaction._inputs().map(({ entry }) => entry.dataHash)).toEqual([
+      filled(77),
+      undefined,
+    ]);
+    const input = proofInputFromEntry(
+      created.transaction._inputs()[0]!.entry,
+      keypair.shieldedAddress(),
+    );
+    expect(input.dataHash).toEqual(filled(77));
+  });
+
+  it("spends from the tree its UTXOs sit in and refuses a cover across two trees", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = fundedWallet(keypair, [30n, 50n]);
+    wallet._replace({
+      utxos: wallet.utxos().map((entry, index) =>
+        index === 1
+          ? {
+              ...entry,
+              outputContext: { ...entry.outputContext, tree: treeAddress(1), treeId: 1 },
+            }
+          : entry,
+      ),
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    const created = await createWithdrawal({
+      wallet,
+      payer: PAYER,
+      recipient: RECIPIENT,
+      asset: SOL_MINT,
+      amount: 50n,
+    });
+    expect(created.transaction.tree()).toBe(treeAddress(1));
+    const [only] = created.transaction._inputs();
+    expect(proofInputFromEntry(only!.entry, keypair.shieldedAddress()).treeId).toBe(1);
+    wallet._releaseReservation(created.transaction._reservationId()!);
+
+    const before = serializeWallet(wallet);
+    await expect(
+      createWithdrawal({
+        wallet,
+        payer: PAYER,
+        recipient: RECIPIENT,
+        asset: SOL_MINT,
+        amount: 80n,
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_MULTIPLE_INPUT_TREES",
+      details: { treeCount: 2 },
+    });
+    expect(wallet._reservationEntries()).toHaveLength(0);
+    expect(serializeWallet(wallet)).toBe(before);
   });
 
   it("refuses to turn an unregistered private recipient into a public withdrawal", async () => {
@@ -599,7 +685,7 @@ describe("keys at the wallet boundary", () => {
     },
   );
 
-  it("refuses non-default tree entries before deriving merge material", async () => {
+  it("refuses entries whose tree account and tree id disagree before deriving merge material", async () => {
     const owner = ShieldedKeypair.generate();
     const wallet = fundedWallet(owner, [20n, 30n]);
     const keys = localKeys(owner);
@@ -891,7 +977,7 @@ describe("wallet balances split", () => {
         data: new Data(),
         ...(ringProgramId === undefined ? {} : { ringProgramId }),
       }),
-      outputContext: { hash: filled(index + 1), tree: TREE, leafIndex: BigInt(index) },
+      outputContext: { hash: filled(index + 1), tree: TREE, treeId: 0, leafIndex: BigInt(index) },
       nullifier: filled(index + 20),
       spent: false,
     });
@@ -908,6 +994,25 @@ describe("wallet balances split", () => {
     const spendable = wallet.balances(true);
     expect(spendable.map((balance) => balance.amount)).toEqual([10n]);
     expect(wallet.balance(SOL_MINT).amount).toBe(10n);
+  });
+
+  it("counts only what a default-ring spend can select", () => {
+    const wallet = mixedWallet(spendingKeypair());
+    const [plain] = wallet.utxos();
+    wallet._replace({
+      utxos: [
+        ...wallet.utxos(),
+        {
+          ...plain!,
+          outputContext: { ...plain!.outputContext, hash: filled(9), leafIndex: 9n },
+          ringDataHash: filled(10),
+        },
+      ],
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    expect(wallet.balance(SOL_MINT).amount).toBe(10n);
+    expect(wallet.balances(true).map((balance) => balance.amount)).toEqual([10n]);
   });
 
   it("groups ring-bound UTXOs by ring in address order", () => {
@@ -1227,7 +1332,7 @@ describe("merge encryption opt-in", () => {
       0,
     );
     const unexpected = vi.fn((): never => {
-      throw new Error("a disabled record must fail before proving");
+      throw new Error("a disabled record must fail before approval and proving");
     });
     try {
       await expect(
@@ -1247,12 +1352,66 @@ describe("merge encryption opt-in", () => {
           wallet,
           keys,
           feePayer: owner,
+          approve: unexpected,
         }),
       ).rejects.toMatchObject({
         code: "WALLET_BUILD_MERGE",
         causeCode: "WALLET_MERGE_ENCRYPTION_SCHEME_UNSUPPORTED",
       });
       expect(unexpected).not.toHaveBeenCalled();
+    } finally {
+      keys.destroy();
+      keypair.destroy();
+    }
+  });
+
+  it("merges the fullest tree and refuses another tree's merge before asking approval", async () => {
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [1n, 2n, 7n, 8n, 9n]);
+    wallet._replace({
+      utxos: wallet.utxos().map((entry, index) =>
+        index >= 2
+          ? {
+              ...entry,
+              outputContext: { ...entry.outputContext, tree: treeAddress(1), treeId: 1 },
+            }
+          : entry,
+      ),
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    const keys = localKeys(keypair);
+    const unexpected = vi.fn((): never => {
+      throw new Error("a merge on another tree must fail before any read or approval");
+    });
+    try {
+      const created = await createMerge({ wallet, keys, asset: SOL_MINT });
+      expect(created.tree).toBe(treeAddress(1));
+      expect(created.numInputs).toBe(3);
+      expect(created.mergedAmount).toBe(24n);
+      wallet._releaseReservation(created.reservationId);
+
+      await expect(
+        buildMergeTransaction({
+          client: {
+            proofDataSource: "client",
+            tree: TREE,
+            treeId: 0,
+            getAccount: unexpected,
+            proveMerge: unexpected,
+            assembleAuthorizedMergeTransaction: unexpected,
+          },
+          wallet,
+          keys,
+          feePayer: keypair.shieldedAddress().solanaAddress(),
+          approve: unexpected,
+        }),
+      ).rejects.toMatchObject({
+        code: "WALLET_BUILD_MERGE",
+        causeCode: "WALLET_MERGE_TREE_MISMATCH",
+      });
+      expect(unexpected).not.toHaveBeenCalled();
+      expect(wallet._reservationEntries()).toHaveLength(0);
     } finally {
       keys.destroy();
       keypair.destroy();

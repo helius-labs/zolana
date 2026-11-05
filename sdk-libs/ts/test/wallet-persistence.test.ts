@@ -1,6 +1,7 @@
-import { address, type Signature } from "@solana/kit";
+import { type Signature } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
+import { treeAddress } from "../src/interface/pda/index.js";
 import {
   Data,
   SOL_MINT,
@@ -12,7 +13,7 @@ import {
   type Bytes32,
 } from "../src/index.js";
 
-const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
+const TREE = treeAddress(0);
 const SIGNATURE = "1".repeat(64) as Signature;
 
 function bytes(value: number): Bytes32 {
@@ -33,7 +34,7 @@ describe("wallet persistence", () => {
             blinding: new Uint8Array(32).fill(3) as Bytes32,
             data: new Data([{ kind: "memo", bytes: Uint8Array.of(4, 5) }]),
           }),
-          outputContext: { hash: bytes(6), tree: TREE, leafIndex: 7n },
+          outputContext: { hash: bytes(6), tree: TREE, treeId: 0, leafIndex: 7n },
           nullifier: bytes(8),
           spent: false,
         },
@@ -157,6 +158,64 @@ describe("wallet persistence", () => {
     };
     legacy.viewingKeyHistory[0]!["txCount"] = "0";
     expect(() => deserializeWallet(JSON.stringify(legacy))).toThrow("TRANSACTION_DESERIALIZE");
+  });
+
+  it("restores each UTXO's tree id and refuses one its tree account disagrees with", () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    wallet._replace({
+      utxos: [
+        {
+          utxo: new Utxo({
+            owner: keypair.signingPublicKey(),
+            asset: SOL_MINT,
+            amount: 42n,
+            blinding: bytes(3),
+          }),
+          outputContext: { hash: bytes(6), tree: treeAddress(1), treeId: 1, leafIndex: 7n },
+          nullifier: bytes(8),
+          spent: false,
+        },
+      ],
+      transactions: [],
+      nullifiers: new Set(),
+    });
+    const serialized = serializeWallet(wallet);
+    expect(deserializeWallet(serialized).utxos()[0]?.outputContext).toEqual(
+      wallet.utxos()[0]?.outputContext,
+    );
+
+    type Snapshot = {
+      version: number;
+      utxos: { outputContext: { tree: string; treeId?: number | undefined } }[];
+    };
+    const edited = (edit: (snapshot: Snapshot) => void): string => {
+      const snapshot = JSON.parse(serialized) as Snapshot;
+      edit(snapshot);
+      return JSON.stringify(snapshot);
+    };
+    for (const treeId of [undefined, 2, -1, 65_536, 1.5]) {
+      expect(() =>
+        deserializeWallet(
+          edited((snapshot) => {
+            snapshot.utxos[0]!.outputContext.treeId = treeId;
+          }),
+        ),
+      ).toThrow("TRANSACTION_DESERIALIZE");
+    }
+
+    // An earlier version stores no tree id, its UTXOs all opened in tree 0.
+    const earlier = (tree: string) =>
+      edited((snapshot) => {
+        snapshot.version = 4;
+        snapshot.utxos[0]!.outputContext.tree = tree;
+        delete snapshot.utxos[0]!.outputContext.treeId;
+      });
+    expect(deserializeWallet(earlier(TREE)).utxos()[0]?.outputContext).toMatchObject({
+      tree: TREE,
+      treeId: 0,
+    });
+    expect(() => deserializeWallet(earlier(treeAddress(1)))).toThrow("TRANSACTION_DESERIALIZE");
   });
 
   it("rejects a P-256 viewing snapshot", () => {

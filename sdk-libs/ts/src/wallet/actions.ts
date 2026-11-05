@@ -6,11 +6,14 @@ import {
   type RequestContext,
   TransactWithdrawal,
 } from "../interface/types.js";
-import { MAX_INPUT_TREES } from "../interface/tree-slot.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { MAX_TRANSFER_PAYMENTS } from "../transaction/wallet/intent.js";
-import { type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
+import {
+  isDefaultRingSpendable,
+  type Wallet,
+  type WalletUtxo,
+} from "../transaction/wallet/state.js";
 
 import { reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { resolveWithdrawalSettlement } from "../flows/settlement.js";
@@ -216,33 +219,14 @@ const walletSelectionErrors: SpendSelectionErrors = {
 
 function defaultSpendPolicy(): SpendPolicy {
   return {
-    eligible: isPlainUtxo,
+    eligible: isDefaultRingSpendable,
     ordering: "largestFirst",
     maxInputs: MAX_SPEND_INPUTS,
-    tree: { kind: "infer", maxTrees: MAX_INPUT_TREES },
+    // The transact instruction this SDK compiles carries one input tree
+    // account, so a spend whose inputs straddle two trees is refused here.
+    tree: { kind: "infer", maxTrees: 1 },
     errors: walletSelectionErrors,
   };
-}
-
-/** The trees holding spendable funds of `asset`, at most `MAX_INPUT_TREES` of them. */
-function spendTrees(wallet: Wallet, asset: Address): readonly Address[] {
-  const trees: Address[] = [];
-  for (const entry of wallet.utxos()) {
-    if (entry.spent || entry.utxo.asset !== asset || !isPlainUtxo(entry)) continue;
-    if (!trees.includes(entry.outputContext.tree)) trees.push(entry.outputContext.tree);
-  }
-  const first = trees[0];
-  if (first === undefined) {
-    throw new WalletError("WALLET_INSUFFICIENT_BALANCE", {
-      details: { requested: "1", available: "0" },
-    });
-  }
-  if (trees.length > MAX_INPUT_TREES) {
-    throw new WalletError("WALLET_MULTIPLE_INPUT_TREES", {
-      details: { asset, treeCount: trees.length },
-    });
-  }
-  return Object.freeze(trees);
 }
 
 function selectSpendInputs(
@@ -273,14 +257,7 @@ function selectSpendInputs(
     });
   }
   const tree = selection.trees[0];
-  // The instruction carries one input tree account, so a spend that needs two
-  // of them is refused here rather than compiled into an account list the
-  // program would reject.
-  if (tree === undefined || selection.trees.length !== 1) {
-    throw new WalletError("WALLET_MULTIPLE_INPUT_TREES", {
-      details: { asset, treeCount: selection.trees.length },
-    });
-  }
+  if (tree === undefined) throw new WalletError("WALLET_NO_INPUTS");
   const reservation = reserveWalletEntries(wallet, selection.entries);
   return {
     tree,
@@ -459,16 +436,10 @@ export function createSplit(params: SplitParams): CreatedSplit {
   if (params.input !== undefined && named === undefined) {
     throw new WalletError("WALLET_INPUT_UTXO_UNAVAILABLE");
   }
-  // A split spends one UTXO, so it takes the tree of the UTXO it picks and
-  // only needs the candidate trees bounded.
-  const trees = named ? [named.outputContext.tree] : spendTrees(params.wallet, params.asset);
+  // A split spends one UTXO, so it takes the tree of the UTXO it picks.
   const reserved = reservedUtxoKeys(params.wallet);
   const candidates = entries.filter(
-    (entry) =>
-      entry.utxo.amount > 0n &&
-      trees.includes(entry.outputContext.tree) &&
-      isPlainUtxo(entry) &&
-      unreserved(reserved)(entry),
+    (entry) => entry.utxo.amount > 0n && isPlainUtxo(entry) && unreserved(reserved)(entry),
   );
   const selected =
     named ??

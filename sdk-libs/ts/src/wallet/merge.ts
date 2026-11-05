@@ -67,7 +67,6 @@ const mergeSelectionErrors: SpendSelectionErrors = {
     new WalletError("WALLET_SELECTED_BALANCE_OVERFLOW", {
       details: { available: available.toString() },
     }),
-  multipleTrees: () => new WalletError("WALLET_MULTIPLE_INPUT_TREES"),
   tooFewUtxos: () => new WalletError("WALLET_NOTHING_TO_MERGE"),
 };
 
@@ -76,8 +75,9 @@ function mergePolicy(reserved: ReadonlySet<string>): SpendPolicy {
     eligible: (entry) => isPlainUtxo(entry) && unreserved(reserved)(entry),
     ordering: "smallestFirst",
     maxInputs: MERGE_INPUT_COUNT,
-    // Merge publishes one input tree, so its inputs may not straddle two.
-    tree: { kind: "infer", maxTrees: 1 },
+    // Merge publishes one input tree, so a balance on several trees merges
+    // one tree at a time, the fullest first.
+    tree: { kind: "fullest" },
     errors: mergeSelectionErrors,
   };
 }
@@ -201,6 +201,14 @@ async function proveAndAssembleMerge(
   created: CreatedMerge,
   context: RequestContext | undefined,
 ): Promise<Transaction> {
+  // Every check that can refuse the merge runs before the user is asked.
+  if (input.client.tree !== created.tree) {
+    throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
+      details: { proofTree: input.client.tree, submitTree: created.tree },
+    });
+  }
+  const record = await internalMergeRecord({ rpc: input.client, owner }, context);
+  validateMergeBuild(record, owner, address);
   const intent: TransactionIntent = {
     kind: "merge",
     asset: input.asset ?? SOL_MINT,
@@ -215,13 +223,6 @@ async function proveAndAssembleMerge(
   checkIntentApproval(approval, intent, (field) => {
     return new WalletError("WALLET_INTENT_MISMATCH", { details: { field } });
   });
-  const record = await internalMergeRecord({ rpc: input.client, owner }, context);
-  validateMergeBuild(record, owner, address);
-  if (input.client.tree !== created.tree) {
-    throw new WalletError("WALLET_MERGE_TREE_MISMATCH", {
-      details: { proofTree: input.client.tree, submitTree: created.tree },
-    });
-  }
   const proved = await withProofDataRetry(
     input.client.proofDataSource,
     (attempt) => input.client.proveMerge({ prepared: created.prepared, keys: input.keys }, attempt),

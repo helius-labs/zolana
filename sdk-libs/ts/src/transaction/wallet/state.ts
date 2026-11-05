@@ -164,13 +164,26 @@ export interface WalletUtxo {
   readonly utxo: Utxo;
   readonly outputContext: Readonly<{
     hash: Bytes32;
+    /** `treeAddress(treeId)`. */
     tree: Address;
+    /** The tree the UTXO was appended to, which `hash` folds in. */
+    treeId: number;
     leafIndex: bigint;
   }>;
   readonly nullifier: Bytes32;
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
   readonly spent: boolean;
+}
+
+/**
+ * Rust `WalletUtxo::is_default_ring_spendable`: the default-ring circuit can
+ * spend it. A ring-bound UTXO's commitment covers its ring, which that circuit
+ * does not. Attached data does not stop a spend.
+ * @internal
+ */
+export function isDefaultRingSpendable(entry: WalletUtxo): boolean {
+  return entry.utxo.ringProgramId === undefined && entry.ringDataHash === undefined;
 }
 
 function copyUtxo(value: Utxo): Utxo {
@@ -305,7 +318,8 @@ export class Wallet {
   }
 
   /**
-   * The spendable default-ring balance of one registered mint. A mint the
+   * The spendable default-ring balance of one registered mint: the UTXOs a
+   * transfer or withdrawal can select, data-carrying ones included. A mint the
    * wallet holds no UTXO for still has a balance of zero. Only an unknown mint
    * is a rejection.
    */
@@ -316,7 +330,7 @@ export class Wallet {
         (entry) =>
           !entry.spent &&
           entry.utxo.asset === mint &&
-          entry.utxo.ringProgramId === undefined &&
+          isDefaultRingSpendable(entry) &&
           (filter === undefined || matches(filter, entry.utxo)),
       )
       .map((entry) => copyUtxo(entry.utxo));
@@ -329,7 +343,7 @@ export class Wallet {
    * UTXO for, by asset id. Ring-bound UTXOs appear in `ringBalances`.
    */
   balances(skipUtxos = false): readonly AssetBalance[] {
-    return this.#assetBalances((entry) => entry.utxo.ringProgramId === undefined, skipUtxos);
+    return this.#assetBalances(isDefaultRingSpendable, skipUtxos);
   }
 
   ringBalances(skipUtxos = false): readonly RingBalance[] {

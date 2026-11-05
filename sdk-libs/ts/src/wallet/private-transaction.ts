@@ -8,7 +8,6 @@ import type { Address, Bytes32, Instruction, RequestContext } from "../interface
 import { treeAddress } from "../interface/pda/index.js";
 import { selectConfidentialEddsaShape } from "../interface/shape.js";
 import { randomBlinding } from "../keypair/bytes.js";
-import { DEFAULT_TREE_ID } from "../interface/tree-slot.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { ViewingKey } from "../keypair/viewing-key.js";
 import type { Data } from "../transaction/data.js";
@@ -132,16 +131,17 @@ export async function authorizePrivateTransaction(
 
 /** A stored UTXO already carries the nullifier its sync derived. */
 export function proofInputFromEntry(entry: WalletUtxo, address: ShieldedAddress): ProofInputUtxo {
-  // Wallet conversion currently opens commitments in the default tree only.
-  // A stored nullifier from another tree cannot be reused for that opening.
-  if (entry.outputContext.tree !== treeAddress(DEFAULT_TREE_ID)) {
+  // The commitment folds in the tree id, and the transaction names the tree
+  // account, so the two must agree.
+  const { tree, treeId } = entry.outputContext;
+  if (tree !== treeAddress(treeId)) {
     throw new WalletError("WALLET_INPUT_UTXO_TREE_MISMATCH");
   }
   return new ProofInputUtxo({
     utxo: entry.utxo,
     nullifierPublicKey: address.nullifierPublicKey,
     nullifier: entry.nullifier,
-    treeId: DEFAULT_TREE_ID,
+    treeId,
     ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
     ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
   });
@@ -252,7 +252,11 @@ async function authorizeWithInputs(
       proofInputs.outputs.length,
     );
     const padded = [...proofInputs.inputUtxos];
-    while (padded.length < shape.inputs) padded.push(ProofInputUtxo.dummy(randomBlinding()));
+    const treeId = proofInputs.inputUtxos[0]?.treeId;
+    if (treeId === undefined) throw new WalletError("WALLET_NO_INPUTS");
+    while (padded.length < shape.inputs) {
+      padded.push(ProofInputUtxo.dummy(randomBlinding(), treeId));
+    }
     proofInputs = new SppProofInputs({ ...proofInputs, inputUtxos: padded });
   }
   const withdrawal = transaction._withdrawal();

@@ -1140,9 +1140,20 @@ export class SprClient
     if (feePayer !== authorized.proofInputs.payer) {
       throw new ClientError("CLIENT_FEE_PAYER_MISMATCH");
     }
-    if (authorized.tree !== this.tree) {
+    // The transaction names one input tree account, the tree every input
+    // opens against, which may differ from the tree this client appends to.
+    const inputTreeIds = authorized.proofInputs.inputTreeIds();
+    const inputTreeId = inputTreeIds[0];
+    if (inputTreeId === undefined) throw new ClientError("CLIENT_NO_INPUTS");
+    if (inputTreeIds.length > 1) {
+      throw new ClientError("CLIENT_TOO_MANY_INPUT_TREES", {
+        details: { got: inputTreeIds.length, max: 1 },
+      });
+    }
+    const inputTree = inputTreeAddress(this, inputTreeId);
+    if (authorized.tree !== inputTree) {
       throw new ClientError("CLIENT_TREE_MISMATCH", {
-        details: { transactionTree: authorized.tree, clientTree: this.tree },
+        details: { transactionTree: authorized.tree, clientTree: inputTree },
       });
     }
     checkAuthorizedBinding(authorized, intentMismatch);

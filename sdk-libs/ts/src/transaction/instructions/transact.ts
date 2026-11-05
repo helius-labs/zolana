@@ -1768,9 +1768,10 @@ export function dummyCiphertextLength(salt: Bytes16): number {
 
 export interface OutputContext {
   readonly hash: Bytes32;
+  /** `treeAddress(treeId)`. */
   readonly tree: Address;
-  /** Raw id `hash` folds in, present when the indexer reported it. */
-  readonly treeId?: number;
+  /** Raw id of the tree the commitment was appended to; `hash` folds it in. */
+  readonly treeId: number;
   readonly leafIndex: bigint;
 }
 
