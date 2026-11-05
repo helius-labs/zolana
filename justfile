@@ -482,6 +482,11 @@ _regen-example-keys base package manifest circuits:
                 | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "{{base}}/{{manifest}}"
         done
     done
+    for c in $(printf '%s\n' {{circuits}} | LC_ALL=C sort); do
+        vk_hash=$(sed -n 's/.*vk_sha256\\x00\([0-9a-f]\{64\}\)\\x00.*/\1/p' "{{base}}/program/src/verifying_keys/$c.rs")
+        [ "${#vk_hash}" = 64 ] || { echo "missing VK hash for $c" >&2; exit 1; }
+        echo "# vk_sha256 $vk_hash  ${c}_pk.bin" >> "{{base}}/{{manifest}}"
+    done
 
 ensure-swap-keys: (_ensure-example-keys "sdk-tests/zk-program-swap" "swap-prover" "swap-keys.CHECKSUM" "regen-swap-keys" "make take cancel take_verifiable_encryption")
 

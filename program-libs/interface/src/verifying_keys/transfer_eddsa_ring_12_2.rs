@@ -101,10 +101,11 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
     }),
 };
 
-/// SHA-256 of the proving key file this verifying key was generated with.
+/// SHA-256 of `VERIFYINGKEY`, as encoded by
+/// `groth16_solana::vk::setup::vk_sha256`.
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [152u8, 147u8, 155u8, 243u8, 153u8, 46u8, 251u8, 41u8, 13u8, 24u8, 93u8, 133u8, 67u8, 222u8, 90u8, 243u8, 7u8, 129u8, 124u8, 211u8, 78u8, 180u8, 42u8, 191u8, 7u8, 84u8, 38u8, 26u8, 2u8, 234u8, 2u8, 123u8];
+pub const VERIFYINGKEY_VK_SHA256: [u8; 32] = [98u8, 85u8, 9u8, 70u8, 61u8, 172u8, 52u8, 136u8, 195u8, 13u8, 112u8, 112u8, 6u8, 104u8, 40u8, 195u8, 66u8, 160u8, 77u8, 63u8, 16u8, 219u8, 111u8, 101u8, 7u8, 190u8, 125u8, 83u8, 165u8, 32u8, 98u8, 123u8];
 
 /// `true` for a test setup whose secret randomness is public or untrusted:
 /// whoever knows it can make this key accept a proof for any public
@@ -116,6 +117,10 @@ pub const VERIFYINGKEY_INSECURE_TEST_SETUP: bool = false;
 /// The two consts above as a delimited string, exported so it stays in
 /// the program binary; read it back with
 /// `groth16_solana::vk::setup::find_setup_txts`.
-#[unsafe(export_name = "groth16_solana_vk_setup_3bbe889a4d3ef2d5")]
+#[unsafe(export_name = "groth16_solana_vk_setup_97d64a3090f49268")]
 #[rustfmt::skip]
-pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00proving_key_sha256\x0098939bf3992efb290d185d8543de5af307817cd34eb42abf0754261a02ea027b\x00=======END GROTH16 VK SETUP V1=======\x00";
+pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V2=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00vk_sha256\x00625509463dac3488c30d7070066828c342a04d3f10db6f6507be7d53a520627b\x00=======END GROTH16 VK SETUP V2=======\x00";
+
+/// SHA-256 of the proving key file, pinned by zolana's clients.
+#[rustfmt::skip]
+pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [152u8, 147u8, 155u8, 243u8, 153u8, 46u8, 251u8, 41u8, 13u8, 24u8, 93u8, 133u8, 67u8, 222u8, 90u8, 243u8, 7u8, 129u8, 124u8, 211u8, 78u8, 180u8, 42u8, 191u8, 7u8, 84u8, 38u8, 26u8, 2u8, 234u8, 2u8, 123u8];

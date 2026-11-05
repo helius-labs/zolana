@@ -69,10 +69,11 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
     vk_commitment: None,
 };
 
-/// SHA-256 of the proving key file this verifying key was generated with.
+/// SHA-256 of `VERIFYINGKEY`, as encoded by
+/// `groth16_solana::vk::setup::vk_sha256`.
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [206u8, 190u8, 107u8, 183u8, 97u8, 136u8, 243u8, 152u8, 157u8, 192u8, 17u8, 247u8, 131u8, 159u8, 4u8, 134u8, 122u8, 142u8, 141u8, 68u8, 139u8, 111u8, 170u8, 42u8, 21u8, 165u8, 245u8, 246u8, 230u8, 162u8, 57u8, 1u8];
+pub const VERIFYINGKEY_VK_SHA256: [u8; 32] = [3u8, 141u8, 107u8, 88u8, 76u8, 126u8, 97u8, 128u8, 113u8, 186u8, 132u8, 61u8, 20u8, 246u8, 144u8, 12u8, 47u8, 52u8, 19u8, 187u8, 42u8, 15u8, 137u8, 205u8, 131u8, 70u8, 39u8, 147u8, 65u8, 39u8, 220u8, 39u8];
 
 /// `true` for a test setup whose secret randomness is public or untrusted:
 /// whoever knows it can make this key accept a proof for any public
@@ -84,6 +85,10 @@ pub const VERIFYINGKEY_INSECURE_TEST_SETUP: bool = false;
 /// The two consts above as a delimited string, exported so it stays in
 /// the program binary; read it back with
 /// `groth16_solana::vk::setup::find_setup_txts`.
-#[unsafe(export_name = "groth16_solana_vk_setup_3f27f15ccbe41608")]
+#[unsafe(export_name = "groth16_solana_vk_setup_3b7069d8a0b223a2")]
 #[rustfmt::skip]
-pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00proving_key_sha256\x00cebe6bb76188f3989dc011f7839f04867a8e8d448b6faa2a15a5f5f6e6a23901\x00=======END GROTH16 VK SETUP V1=======\x00";
+pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V2=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00vk_sha256\x00038d6b584c7e618071ba843d14f6900c2f3413bb2a0f89cd834627934127dc27\x00=======END GROTH16 VK SETUP V2=======\x00";
+
+/// SHA-256 of the proving key file, pinned by zolana's clients.
+#[rustfmt::skip]
+pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [206u8, 190u8, 107u8, 183u8, 97u8, 136u8, 243u8, 152u8, 157u8, 192u8, 17u8, 247u8, 131u8, 159u8, 4u8, 134u8, 122u8, 142u8, 141u8, 68u8, 139u8, 111u8, 170u8, 42u8, 21u8, 165u8, 245u8, 246u8, 230u8, 162u8, 57u8, 1u8];

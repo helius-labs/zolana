@@ -6,7 +6,7 @@ fn reports_the_binary_feature_state_without_using_this_clis_compile_features() {
     const DISABLED: CircuitFeature = CircuitFeature {
         name: "confidential-eddsa",
         enabled: false,
-        proving_key_sha256s: &[[7; 32]],
+        vk_sha256s: &[[7; 32]],
     };
     const ENABLED: CircuitFeature = CircuitFeature {
         enabled: true,
@@ -17,14 +17,14 @@ fn reports_the_binary_feature_state_without_using_this_clis_compile_features() {
     assert_eq!(
         report(&disabled).unwrap(),
         format!(
-            "confidential-eddsa: disabled\n  proving_key_sha256={}\n",
+            "confidential-eddsa: disabled\n  vk_sha256={}\n",
             "07".repeat(32)
         )
     );
     assert_eq!(
         report(&enabled).unwrap(),
         format!(
-            "confidential-eddsa: enabled\n  proving_key_sha256={}\n",
+            "confidential-eddsa: enabled\n  vk_sha256={}\n",
             "07".repeat(32)
         )
     );

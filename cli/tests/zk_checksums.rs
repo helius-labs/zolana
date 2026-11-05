@@ -40,7 +40,11 @@ fn export_checks_the_pinned_key_before_writing_a_verifier() {
         h_query: Vec::new(),
         l_query: Vec::new(),
     };
-    let bytes = Groth16Keys::from(proving_key).to_bytes().unwrap();
+    let keys = Groth16Keys::from(proving_key);
+    let vk_digest = hex::encode(groth16_solana::vk::setup::vk_sha256(
+        &groth16_solana::groth16::Groth16Verifyingkey::from(keys.verifying_key()),
+    ));
+    let bytes = keys.to_bytes().unwrap();
     let digest = hex::encode(Sha256::digest(&bytes));
     let manifest = build.join("keys.sha256");
     let pinned = format!("{digest}  test.pk\n");
@@ -109,5 +113,20 @@ fn export_checks_the_pinned_key_before_writing_a_verifier() {
         String::from_utf8_lossy(&output.stderr)
     );
     let verifier = fs::read_to_string(dir.join("src/verifier/test.vk.rs")).unwrap();
-    assert!(verifier.contains(&digest));
+    let file_hash = verifier
+        .split_once("VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [")
+        .and_then(|(_, rest)| rest.split_once(']'))
+        .unwrap()
+        .0
+        .split(',')
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().trim_end_matches("u8").parse::<u8>().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        (
+            verifier.contains(&format!("vk_sha256\\x00{vk_digest}")),
+            hex::encode(file_hash)
+        ),
+        (true, digest)
+    );
 }

@@ -509,4 +509,9 @@ impl CircuitId {
             VERIFYINGKEY_PROVING_KEY_SHA256
         ))
     }
+
+    #[cfg(feature = "verifying-keys")]
+    pub fn vk_sha256(self) -> Option<&'static [u8; 32]> {
+        Some(circuit_key_item!(self.uncached(), VERIFYINGKEY_VK_SHA256))
+    }
 }

@@ -101,10 +101,11 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
     }),
 };
 
-/// SHA-256 of the proving key file this verifying key was generated with.
+/// SHA-256 of `VERIFYINGKEY`, as encoded by
+/// `groth16_solana::vk::setup::vk_sha256`.
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [206u8, 106u8, 103u8, 30u8, 154u8, 64u8, 221u8, 43u8, 111u8, 173u8, 122u8, 24u8, 240u8, 27u8, 251u8, 23u8, 243u8, 236u8, 116u8, 253u8, 222u8, 11u8, 235u8, 14u8, 185u8, 237u8, 69u8, 79u8, 58u8, 11u8, 223u8, 22u8];
+pub const VERIFYINGKEY_VK_SHA256: [u8; 32] = [182u8, 164u8, 215u8, 14u8, 189u8, 17u8, 140u8, 52u8, 143u8, 109u8, 23u8, 90u8, 225u8, 246u8, 28u8, 156u8, 131u8, 248u8, 100u8, 152u8, 12u8, 33u8, 111u8, 168u8, 56u8, 56u8, 20u8, 141u8, 0u8, 52u8, 140u8, 174u8];
 
 /// `true` for a test setup whose secret randomness is public or untrusted:
 /// whoever knows it can make this key accept a proof for any public
@@ -116,6 +117,10 @@ pub const VERIFYINGKEY_INSECURE_TEST_SETUP: bool = false;
 /// The two consts above as a delimited string, exported so it stays in
 /// the program binary; read it back with
 /// `groth16_solana::vk::setup::find_setup_txts`.
-#[unsafe(export_name = "groth16_solana_vk_setup_75113aaa3bc75281")]
+#[unsafe(export_name = "groth16_solana_vk_setup_e9522bc6e25a3359")]
 #[rustfmt::skip]
-pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00proving_key_sha256\x00ce6a671e9a40dd2b6fad7a18f01bfb17f3ec74fdde0beb0eb9ed454f3a0bdf16\x00=======END GROTH16 VK SETUP V1=======\x00";
+pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V2=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00vk_sha256\x00b6a4d70ebd118c348f6d175ae1f61c9c83f864980c216fa83838148d00348cae\x00=======END GROTH16 VK SETUP V2=======\x00";
+
+/// SHA-256 of the proving key file, pinned by zolana's clients.
+#[rustfmt::skip]
+pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [206u8, 106u8, 103u8, 30u8, 154u8, 64u8, 221u8, 43u8, 111u8, 173u8, 122u8, 24u8, 240u8, 27u8, 251u8, 23u8, 243u8, 236u8, 116u8, 253u8, 222u8, 11u8, 235u8, 14u8, 185u8, 237u8, 69u8, 79u8, 58u8, 11u8, 223u8, 22u8];

@@ -5,7 +5,13 @@
 //! (`SetupKind::Production`). `--insecure-test-keys` sets up from a fixed public
 //! seed ([`Prover::setup_insecure_test_keys`]) and emits an insecure test setup.
 
-use std::{path::PathBuf, process::ExitCode};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
+
+use sha2::{Digest, Sha256};
 
 use crate::{Circuit, Prover};
 
@@ -120,7 +126,7 @@ fn run<C: Circuit>(prover: &Prover<C>, command: Command<C>) -> Result<(), String
     // compiles with the program's `insecure-test-setup` feature. A key from
     // fresh system randomness is a production setup of whoever ran it, so a
     // deployment can drop that feature and `zolana vks check` accepts it. Both
-    // pin the sha256 of the `pk.bin` written next to `vk.bin`.
+    // pin the verifying key independently of the proving key's file format.
     let setup_kind = if insecure_test_keys {
         groth16_solana::vk::setup::SetupKind::InsecureTest
     } else {
@@ -132,9 +138,9 @@ fn run<C: Circuit>(prover: &Prover<C>, command: Command<C>) -> Result<(), String
         out_filename,
         "VERIFYINGKEY",
         setup_kind,
-        groth16_solana::vk::setup::ProvingKeySource::File(&build_dir.join("pk.bin")),
     )
     .map_err(|e| format!("failed to emit Rust verifying key source: {e:?}"))?;
+    append_proving_key_sha256(&rust_vk, &build_dir.join("pk.bin"))?;
     if insecure_test_keys {
         let source = std::fs::read_to_string(&rust_vk)
             .map_err(|e| format!("failed to read {}: {e}", rust_vk.display()))?;
@@ -151,4 +157,31 @@ fn run<C: Circuit>(prover: &Prover<C>, command: Command<C>) -> Result<(), String
     }
     println!("done");
     Ok(())
+}
+
+/// Appends `VERIFYINGKEY_PROVING_KEY_SHA256`, the SHA-256 of the proving-key
+/// file that clients and provers pin, to a generated verifying-key module.
+/// The byte list uses the `u8`-suffixed form groth16-solana emits, so a
+/// regeneration reproduces committed modules byte for byte.
+pub fn append_proving_key_sha256(rust_vk: &Path, proving_key: &Path) -> Result<(), String> {
+    let mut file = std::fs::File::open(proving_key)
+        .map_err(|e| format!("failed to open {}: {e}", proving_key.display()))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)
+        .map_err(|e| format!("failed to read {}: {e}", proving_key.display()))?;
+    let digest: [u8; 32] = hasher.finalize().into();
+    let bytes = digest
+        .iter()
+        .map(|byte| format!("{byte}u8"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut source = std::fs::OpenOptions::new()
+        .append(true)
+        .open(rust_vk)
+        .map_err(|e| format!("failed to open {}: {e}", rust_vk.display()))?;
+    writeln!(
+        source,
+        "\n/// SHA-256 of the proving key file, pinned by zolana's clients.\n#[rustfmt::skip]\npub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [{bytes}];"
+    )
+    .map_err(|e| format!("failed to append proving key digest: {e}"))
 }

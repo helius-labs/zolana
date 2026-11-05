@@ -10,6 +10,7 @@ repository.workspace = true
 groth16-solana = { workspace = true, features = ["bsb22", "gnark-vk"] }
 num-bigint = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 solana-bn254 = { workspace = true }
 thiserror = { workspace = true }
 spr-client = { workspace = true }

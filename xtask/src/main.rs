@@ -5,8 +5,9 @@ use std::{
     process::Command,
 };
 
-use groth16_solana::vk::setup::{ProvingKeySource, SetupKind};
+use groth16_solana::vk::setup::SetupKind;
 use sha2::{Digest, Sha256};
+use spr_gnark_ffi_prover::setup_cli::append_proving_key_sha256;
 use xtask::create_release;
 
 mod check_deps;
@@ -50,9 +51,13 @@ fn main() {
                 &filename,
                 "VERIFYINGKEY",
                 setup,
-                ProvingKeySource::File(Path::new(&proving_key)),
             )
             .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
+            append_proving_key_sha256(
+                &Path::new(&out_dir).join(&filename),
+                Path::new(&proving_key),
+            )
+            .unwrap_or_else(|error| panic!("{error}"));
             println!("wrote {out_dir}/{filename}");
         }
         Some("tee-check") => {
@@ -89,9 +94,10 @@ fn main() {
                 &out_dir,
                 &filename,
                 SetupKind::Production,
-                ProvingKeySource::File(Path::new(&zkey)),
             )
             .unwrap_or_else(|e| panic!("failed to emit {filename}: {e:?}"));
+            append_proving_key_sha256(&Path::new(&out_dir).join(&filename), Path::new(&zkey))
+                .unwrap_or_else(|error| panic!("{error}"));
             println!("wrote {out_dir}/{filename}");
         }
         Some("loadtest") => {

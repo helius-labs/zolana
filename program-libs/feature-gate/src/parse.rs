@@ -10,7 +10,7 @@ use crate::{BEGIN, END};
 pub struct FeatureInfo {
     pub name: String,
     pub enabled: bool,
-    pub proving_key_sha256s: Vec<[u8; 32]>,
+    pub vk_sha256s: Vec<[u8; 32]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,20 +73,20 @@ pub fn find_features(binary: &[u8]) -> Result<Vec<FeatureInfo>, ParseError> {
         loop {
             match parts.next() {
                 Some("") if parts.next().is_none() => break,
-                Some("proving_key_sha256") => {
-                    let text = parts.next().ok_or(error("missing proving key hash"))?;
+                Some("vk_sha256") => {
+                    let text = parts.next().ok_or(error("missing verifying key hash"))?;
                     if text.len() != 64 {
-                        return Err(error("invalid proving key hash"));
+                        return Err(error("invalid verifying key hash"));
                     }
                     let mut hash = [0; 32];
                     for (byte, digits) in hash.iter_mut().zip(text.as_bytes().as_chunks::<2>().0) {
                         let digits = core::str::from_utf8(digits)
-                            .map_err(|_| error("invalid proving key hash"))?;
+                            .map_err(|_| error("invalid verifying key hash"))?;
                         *byte = u8::from_str_radix(digits, 16)
-                            .map_err(|_| error("invalid proving key hash"))?;
+                            .map_err(|_| error("invalid verifying key hash"))?;
                     }
                     if hashes.contains(&hash) {
-                        return Err(error("duplicate proving key hash"));
+                        return Err(error("duplicate verifying key hash"));
                     }
                     hashes.push(hash);
                 }
@@ -99,7 +99,7 @@ pub fn find_features(binary: &[u8]) -> Result<Vec<FeatureInfo>, ParseError> {
         features.push(FeatureInfo {
             name: name.to_string(),
             enabled,
-            proving_key_sha256s: hashes,
+            vk_sha256s: hashes,
         });
         offset = body_start + length + END.len();
     }

@@ -8,7 +8,7 @@ const HASHES: [[u8; 32]; 2] = [[0x12; 32], [0xab; 32]];
 const ENABLED: CircuitFeature = CircuitFeature {
     name: "example",
     enabled: true,
-    proving_key_sha256s: &HASHES,
+    vk_sha256s: &HASHES,
 };
 const DISABLED: CircuitFeature = CircuitFeature {
     enabled: false,
@@ -37,7 +37,7 @@ fn only_enabled_features_allow_their_own_keys() {
 #[test]
 fn exported_bytes_follow_the_indexer_format() {
     let expected = format!(
-        "{}name\0example\0enabled\0true\0proving_key_sha256\0{}\0proving_key_sha256\0{}\0{}",
+        "{}name\0example\0enabled\0true\0vk_sha256\0{}\0vk_sha256\0{}\0{}",
         core::str::from_utf8(BEGIN).unwrap(),
         "12".repeat(32),
         "ab".repeat(32),
@@ -57,7 +57,7 @@ fn finds_enabled_and_disabled_features_in_binary_bytes() {
             vec![FeatureInfo {
                 name: "example".into(),
                 enabled,
-                proving_key_sha256s: HASHES.to_vec()
+                vk_sha256s: HASHES.to_vec()
             }]
         );
     }
@@ -78,7 +78,7 @@ fn rejects_truncated_ambiguous_and_malformed_markers() {
         text.replace("name\0example", "name\0BAD"),
         text.replace(&hash, "zz"),
         text.replace(&"ab".repeat(32), &hash),
-        text.replace("proving_key_sha256", "unrecognized_field"),
+        text.replace("vk_sha256", "unrecognized_field"),
         format!("{text}{text}"),
         format!(
             "{}name\0example\0enabled\0true\0{}",

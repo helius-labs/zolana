@@ -35,6 +35,7 @@ wincode = { workspace = true }
 light-program-profiler = { workspace = true, optional = true }
 
 [dev-dependencies]
+groth16-solana = { workspace = true, features = ["gnark-vk"] }
 rand = { workspace = true }
 serde_json = { workspace = true }
 spr-merkle-tree = { workspace = true }

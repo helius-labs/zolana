@@ -69,10 +69,11 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
     vk_commitment: None,
 };
 
-/// SHA-256 of the proving key file this verifying key was generated with.
+/// SHA-256 of `VERIFYINGKEY`, as encoded by
+/// `groth16_solana::vk::setup::vk_sha256`.
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [190u8, 145u8, 127u8, 0u8, 235u8, 47u8, 4u8, 54u8, 232u8, 8u8, 63u8, 245u8, 179u8, 47u8, 250u8, 181u8, 244u8, 214u8, 211u8, 96u8, 193u8, 137u8, 232u8, 78u8, 96u8, 34u8, 189u8, 173u8, 70u8, 88u8, 22u8, 125u8];
+pub const VERIFYINGKEY_VK_SHA256: [u8; 32] = [87u8, 85u8, 131u8, 152u8, 239u8, 132u8, 45u8, 10u8, 60u8, 76u8, 249u8, 25u8, 179u8, 159u8, 28u8, 62u8, 166u8, 49u8, 18u8, 234u8, 186u8, 153u8, 128u8, 235u8, 195u8, 141u8, 120u8, 130u8, 177u8, 123u8, 188u8, 34u8];
 
 /// `true` for a test setup whose secret randomness is public or untrusted:
 /// whoever knows it can make this key accept a proof for any public
@@ -84,6 +85,10 @@ pub const VERIFYINGKEY_INSECURE_TEST_SETUP: bool = false;
 /// The two consts above as a delimited string, exported so it stays in
 /// the program binary; read it back with
 /// `groth16_solana::vk::setup::find_setup_txts`.
-#[unsafe(export_name = "groth16_solana_vk_setup_9d03e648de9f6715")]
+#[unsafe(export_name = "groth16_solana_vk_setup_f66fb0755e8c1a6c")]
 #[rustfmt::skip]
-pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00proving_key_sha256\x00be917f00eb2f0436e8083ff5b32ffab5f4d6d360c189e84e6022bdad4658167d\x00=======END GROTH16 VK SETUP V1=======\x00";
+pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V2=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00vk_sha256\x0057558398ef842d0a3c4cf919b39f1c3ea63112eaba9980ebc38d7882b17bbc22\x00=======END GROTH16 VK SETUP V2=======\x00";
+
+/// SHA-256 of the proving key file, pinned by zolana's clients.
+#[rustfmt::skip]
+pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [190u8, 145u8, 127u8, 0u8, 235u8, 47u8, 4u8, 54u8, 232u8, 8u8, 63u8, 245u8, 179u8, 47u8, 250u8, 181u8, 244u8, 214u8, 211u8, 96u8, 193u8, 137u8, 232u8, 78u8, 96u8, 34u8, 189u8, 173u8, 70u8, 88u8, 22u8, 125u8];

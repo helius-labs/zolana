@@ -33,10 +33,39 @@ import argparse
 import hashlib
 import json
 import os
+import pathlib
+import re
 import subprocess
 import sys
 
 CHUNK = 1024 * 1024
+
+
+def verifying_key_hash(name: str, proving_key_hash: str) -> str:
+    """Bind each file to the VK emitted from it before writing the lock."""
+    root = pathlib.Path(__file__).resolve().parents[3]
+    module = name.removesuffix(".key").replace("-", "_") + ".rs"
+    directories = (
+        root / "program-libs/interface/src/verifying_keys",
+        root / "program-libs/tree/src/nullifier_tree/verify/verifying_keys",
+    )
+    paths = [directory / module for directory in directories if (directory / module).is_file()]
+    if len(paths) != 1:
+        raise ValueError(f"{name}: expected exactly one generated verifying-key module")
+    source = paths[0].read_text()
+
+    def digest(constant: str) -> str:
+        match = re.search(rf"pub const {constant}: \[u8; 32\] = \[([^\]]+)\];", source)
+        if match is None:
+            raise ValueError(f"{paths[0]}: missing {constant}")
+        values = [int(value.strip().removesuffix("u8")) for value in match.group(1).split(",") if value.strip()]
+        if len(values) != 32:
+            raise ValueError(f"{paths[0]}: invalid {constant}")
+        return bytes(values).hex()
+
+    if digest("VERIFYINGKEY_PROVING_KEY_SHA256") != proving_key_hash:
+        raise ValueError(f"{name}: regenerate its verifying-key module before the lockfile")
+    return digest("VERIFYINGKEY_VK_SHA256")
 
 
 def sha256_file(path: str) -> str:
@@ -118,7 +147,7 @@ def main() -> int:
         path = os.path.join(keys_dir, name)
         size = os.path.getsize(path)
         digest = sha256_file(path)
-        keys[name] = {"sha256": digest, "size": size}
+        keys[name] = {"sha256": digest, "size": size, "vk_sha256": verifying_key_hash(name, digest)}
         if name in args.release:
             keys[name]["source"] = "release"
         print(f"  {name}  {size}  {digest}", file=sys.stderr)
@@ -154,7 +183,7 @@ def pin_release_entries(keys_dir: str, out: str, names: list) -> int:
         path = os.path.join(keys_dir, name)
         size = os.path.getsize(path)
         digest = sha256_file(path)
-        manifest["keys"][name] = {"sha256": digest, "size": size, "source": "release"}
+        manifest["keys"][name] = {"sha256": digest, "size": size, "source": "release", "vk_sha256": verifying_key_hash(name, digest)}
         print(f"  {name}  {size}  {digest}", file=sys.stderr)
     with open(out, "w") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)

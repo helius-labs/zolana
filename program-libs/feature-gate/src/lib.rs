@@ -17,22 +17,22 @@ pub use parse::{find_features, FeatureInfo, ParseError};
 /// crate rather than maintaining a second set of enabled-state checks.
 pub mod features;
 
-pub const BEGIN: &[u8] = b"=======BEGIN SPR CIRCUIT FEATURE V1=======\0";
-pub const END: &[u8] = b"=======END SPR CIRCUIT FEATURE V1=======\0";
+pub const BEGIN: &[u8] = b"=======BEGIN SPR CIRCUIT FEATURE V2=======\0";
+pub const END: &[u8] = b"=======END SPR CIRCUIT FEATURE V2=======\0";
 const NAME: &[u8] = b"name\0";
 const ENABLED: &[u8] = b"enabled\0";
-const HASH: &[u8] = b"proving_key_sha256\0";
+const HASH: &[u8] = b"vk_sha256\0";
 
 #[derive(Clone, Copy, Debug)]
 pub struct CircuitFeature {
     pub name: &'static str,
     pub enabled: bool,
-    pub proving_key_sha256s: &'static [[u8; 32]],
+    pub vk_sha256s: &'static [[u8; 32]],
 }
 
 impl CircuitFeature {
-    pub fn allows(&self, proving_key_sha256: &[u8; 32]) -> bool {
-        self.enabled && self.proving_key_sha256s.contains(proving_key_sha256)
+    pub fn allows(&self, vk_sha256: &[u8; 32]) -> bool {
+        self.enabled && self.vk_sha256s.contains(vk_sha256)
     }
 
     pub const fn encoded_len(&self) -> usize {
@@ -42,7 +42,7 @@ impl CircuitFeature {
             + 1
             + ENABLED.len()
             + if self.enabled { 5 } else { 6 }
-            + self.proving_key_sha256s.len() * (HASH.len() + 65)
+            + self.vk_sha256s.len() * (HASH.len() + 65)
             + END.len()
     }
 
@@ -50,7 +50,7 @@ impl CircuitFeature {
     pub const fn encode<const N: usize>(&self) -> [u8; N] {
         assert!(N == self.encoded_len(), "incorrect feature marker length");
         assert!(!self.name.is_empty(), "empty circuit feature name");
-        assert!(!self.proving_key_sha256s.is_empty(), "feature has no keys");
+        assert!(!self.vk_sha256s.is_empty(), "feature has no keys");
         let mut encoded = [0; N];
         let mut offset = 0;
         write(&mut encoded, &mut offset, BEGIN);
@@ -63,7 +63,7 @@ impl CircuitFeature {
             &mut offset,
             if self.enabled { b"true\0" } else { b"false\0" },
         );
-        let mut keys = self.proving_key_sha256s;
+        let mut keys = self.vk_sha256s;
         while let Some((hash, rest)) = keys.split_first() {
             write(&mut encoded, &mut offset, HASH);
             let mut bytes: &[u8] = hash;

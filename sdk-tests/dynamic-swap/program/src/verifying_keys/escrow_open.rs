@@ -78,10 +78,11 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
     vk_commitment: None,
 };
 
-/// SHA-256 of the proving key file this verifying key was generated with.
+/// SHA-256 of `VERIFYINGKEY`, as encoded by
+/// `groth16_solana::vk::setup::vk_sha256`.
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [247u8, 82u8, 8u8, 160u8, 127u8, 196u8, 46u8, 86u8, 241u8, 155u8, 241u8, 127u8, 181u8, 242u8, 226u8, 116u8, 132u8, 71u8, 57u8, 157u8, 127u8, 9u8, 156u8, 22u8, 3u8, 212u8, 86u8, 162u8, 238u8, 220u8, 223u8, 147u8];
+pub const VERIFYINGKEY_VK_SHA256: [u8; 32] = [53u8, 255u8, 207u8, 13u8, 92u8, 179u8, 75u8, 179u8, 133u8, 171u8, 37u8, 75u8, 12u8, 207u8, 52u8, 194u8, 150u8, 94u8, 95u8, 184u8, 1u8, 59u8, 245u8, 180u8, 22u8, 18u8, 184u8, 250u8, 230u8, 56u8, 175u8, 220u8];
 
 /// `true` for a test setup whose secret randomness is public or untrusted:
 /// whoever knows it can make this key accept a proof for any public
@@ -93,9 +94,13 @@ pub const VERIFYINGKEY_INSECURE_TEST_SETUP: bool = true;
 /// The two consts above as a delimited string, exported so it stays in
 /// the program binary; read it back with
 /// `groth16_solana::vk::setup::find_setup_txts`.
-#[unsafe(export_name = "groth16_solana_vk_setup_c317a1601c94837b")]
+#[unsafe(export_name = "groth16_solana_vk_setup_067ad251df5fc084")]
 #[rustfmt::skip]
-pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00true\x00proving_key_sha256\x00f75208a07fc42e56f19bf17fb5f2e2748447399d7f099c1603d456a2eedcdf93\x00=======END GROTH16 VK SETUP V1=======\x00";
+pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V2=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00true\x00vk_sha256\x0035ffcf0d5cb34bb385ab254b0ccf34c2965e5fb8013bf5b41612b8fae638afdc\x00=======END GROTH16 VK SETUP V2=======\x00";
 
 #[cfg(not(feature = "insecure-test-setup"))]
 compile_error!("VERIFYINGKEY comes from an insecure test setup: whoever knows its setup randomness can make it accept a proof for any public inputs. Enable the `insecure-test-setup` feature only in test builds, not for a devnet or mainnet deployment.");
+
+/// SHA-256 of the proving key file, pinned by zolana's clients.
+#[rustfmt::skip]
+pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [247u8, 82u8, 8u8, 160u8, 127u8, 196u8, 46u8, 86u8, 241u8, 155u8, 241u8, 127u8, 181u8, 242u8, 226u8, 116u8, 132u8, 71u8, 57u8, 157u8, 127u8, 9u8, 156u8, 22u8, 3u8, 212u8, 86u8, 162u8, 238u8, 220u8, 223u8, 147u8];

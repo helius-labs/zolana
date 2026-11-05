@@ -5,14 +5,15 @@ Cargo features and their enabled-state checks live in `src/features.rs`.
 `confidential-eddsa` is off by default. Programs forward their own Cargo
 features to this crate explicitly.
 
-The program uses a `CircuitFeature` descriptor to check proving-key hashes and
+The program uses a `CircuitFeature` descriptor to check canonical verifying-key hashes and
 exports its encoded bytes as a public static with a unique `export_name`.
 Do not add `#[used]`: it sets GNU-retain ELF flags rejected by the SBF loader.
 An indexer finds records between the versioned `BEGIN` and `END` delimiters.
 The record contains NUL-terminated `name`, `enabled` and repeated
-`proving_key_sha256` fields. Hashes are 64 hexadecimal digits. Disabled gates
+`vk_sha256` fields in V2 records. Hashes are 64 hexadecimal digits. Disabled gates
 retain their associated hashes and record `enabled=false`; linked VK metadata
 alone does not mean a circuit is enabled. Missing feature metadata means unknown.
+The parser ignores V1 records, whose hashes identified proving-key files.
 
 The default build is `no_std` with no dependencies. The `std` feature enables
 binary parsing and rejects malformed or duplicate feature records. Read the

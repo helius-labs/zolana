@@ -101,10 +101,11 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
     }),
 };
 
-/// SHA-256 of the proving key file this verifying key was generated with.
+/// SHA-256 of `VERIFYINGKEY`, as encoded by
+/// `groth16_solana::vk::setup::vk_sha256`.
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [117u8, 205u8, 147u8, 31u8, 72u8, 34u8, 62u8, 99u8, 121u8, 244u8, 110u8, 27u8, 45u8, 150u8, 89u8, 157u8, 218u8, 110u8, 38u8, 128u8, 109u8, 71u8, 92u8, 3u8, 245u8, 185u8, 248u8, 108u8, 178u8, 26u8, 54u8, 155u8];
+pub const VERIFYINGKEY_VK_SHA256: [u8; 32] = [155u8, 158u8, 55u8, 2u8, 28u8, 40u8, 113u8, 78u8, 170u8, 227u8, 145u8, 251u8, 252u8, 176u8, 46u8, 166u8, 10u8, 60u8, 132u8, 44u8, 151u8, 213u8, 170u8, 38u8, 77u8, 88u8, 187u8, 0u8, 209u8, 77u8, 167u8, 228u8];
 
 /// `true` for a test setup whose secret randomness is public or untrusted:
 /// whoever knows it can make this key accept a proof for any public
@@ -116,6 +117,10 @@ pub const VERIFYINGKEY_INSECURE_TEST_SETUP: bool = false;
 /// The two consts above as a delimited string, exported so it stays in
 /// the program binary; read it back with
 /// `groth16_solana::vk::setup::find_setup_txts`.
-#[unsafe(export_name = "groth16_solana_vk_setup_6c43130094e56bc1")]
+#[unsafe(export_name = "groth16_solana_vk_setup_afa84e621cd7f5e7")]
 #[rustfmt::skip]
-pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00proving_key_sha256\x0075cd931f48223e6379f46e1b2d96599dda6e26806d475c03f5b9f86cb21a369b\x00=======END GROTH16 VK SETUP V1=======\x00";
+pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V2=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00false\x00vk_sha256\x009b9e37021c28714eaae391fbfcb02ea60a3c842c97d5aa264d58bb00d14da7e4\x00=======END GROTH16 VK SETUP V2=======\x00";
+
+/// SHA-256 of the proving key file, pinned by zolana's clients.
+#[rustfmt::skip]
+pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [117u8, 205u8, 147u8, 31u8, 72u8, 34u8, 62u8, 99u8, 121u8, 244u8, 110u8, 27u8, 45u8, 150u8, 89u8, 157u8, 218u8, 110u8, 38u8, 128u8, 109u8, 71u8, 92u8, 3u8, 245u8, 185u8, 248u8, 108u8, 178u8, 26u8, 54u8, 155u8];

@@ -93,10 +93,10 @@ spr-keypair = { path = "sdk-libs/keypair", version = "0.8.0" }
 spr-instruction = { path = "sdk-libs/instruction", version = "0.8.0" }
 spr-program = { path = "sdk-libs/program", version = "0.8.0" }
 # The ZK crates live in helius-labs/zk-tools (zk-dsl/).
-spr-zk-dsl = "0.8.0"
-spr-zk-gadgets = "0.8.0"
-spr-zk-macros = "0.8.0"
-spr-zk-macros-core = "0.8.0"
+spr-zk-dsl = { git = "https://github.com/helius-labs/zk-tools", rev = "69bbec205ac3fc2934dac4303f9c0b3fda8ca263" }
+spr-zk-gadgets = { git = "https://github.com/helius-labs/zk-tools", rev = "69bbec205ac3fc2934dac4303f9c0b3fda8ca263" }
+spr-zk-macros = { git = "https://github.com/helius-labs/zk-tools", rev = "69bbec205ac3fc2934dac4303f9c0b3fda8ca263" }
+spr-zk-macros-core = { git = "https://github.com/helius-labs/zk-tools", rev = "69bbec205ac3fc2934dac4303f9c0b3fda8ca263" }
 spr-api = { path = "sdk-libs/spr-api", version = "0.8.0", default-features = false }
 spr-program-test = { path = "sdk-libs/program-test", version = "0.8.0" }
 spr-transaction = { path = "sdk-libs/transaction", version = "0.8.0" }
@@ -111,7 +111,7 @@ spr-smart-account-client = { path = "protocol-ops/smart-account", version = "0.8
 spr-test-utils = { path = "program-tests/test-utils", version = "0.1.0" }
 shielded-pool-program = { path = "programs/shielded-pool", version = "0.1.0" }
 spr-user-registry = { path = "programs/user-registry", version = "0.1.0", default-features = false, features = ["no-entrypoint"] }
-groth16-solana = { version = "0.3.1", features = ["bsb22"] }
+groth16-solana = { git = "https://github.com/Lightprotocol/groth16-solana", rev = "c13130ad0c82dd31239ecccdf16ec18e55fb0d01", features = ["bsb22"] }
 
 # Published Light Protocol crates.
 light-array-map = "0.2.0"

@@ -25,6 +25,7 @@ solana-signer = { workspace = true }
 tar = { workspace = true }
 zeroize = { workspace = true }
 spr-client = { workspace = true, features = ["solana-rpc"] }
+spr-gnark-ffi-prover = { workspace = true }
 spr-interface = { workspace = true }
 spr-program = { workspace = true }
 spr-smart-account-client = { workspace = true }

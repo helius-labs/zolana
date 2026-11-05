@@ -372,7 +372,7 @@ pub(crate) struct VksListOptions {
     #[arg(
         long = "expect",
         value_name = "MANIFEST",
-        help = "Name keys from a sha256sum-style manifest of proving keys (*pk.bin or *.key lines)"
+        help = "Name keys from a checksum manifest with # vk_sha256 <hash> <proving-key-file> entries"
     )]
     pub(crate) expect: Option<std::path::PathBuf>,
 }
@@ -420,7 +420,7 @@ pub(crate) struct VksCheckOptions {
         long = "expect",
         value_name = "MANIFEST",
         conflicts_with = "shielded_pool",
-        help = "Also require every proving key a sha256sum-style manifest lists (*pk.bin or *.key lines), such as an example's keys CHECKSUM"
+        help = "Require the VK hashes in a checksum manifest's # vk_sha256 <hash> <proving-key-file> entries"
     )]
     pub(crate) expect: Option<std::path::PathBuf>,
 
