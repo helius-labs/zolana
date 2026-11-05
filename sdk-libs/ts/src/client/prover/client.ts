@@ -706,11 +706,9 @@ function mergeProverRequest(
       : {}),
     outputTreeId: hex(inputs.outputTreeId, "outputTreeId"),
     mintChunks: inputs.mintChunks.map((chunk) => hex(chunk, "mintChunks")),
-    // The merge-ring circuit binds no ciphertext, and the prover refuses a
-    // salt on a merge-ring request.
-    ...(circuitType === "merge"
-      ? { outputCiphertextSalt: hex(inputs.outputCiphertextSalt, "outputCiphertextSalt") }
-      : {}),
+    outputCiphertextSalt: hex(inputs.outputCiphertextSalt, "outputCiphertextSalt"),
+    // This SDK proves ring merges under a nonzero nullifier secret only.
+    ...(circuitType === "merge-ring" ? { mergeSeed: "0x0", publishedOwner: "0x0" } : {}),
     ownerPkHash: hex(inputs.ownerPublicKeyHash, "ownerPkHash"),
     userNullifierPk: hex(inputs.userNullifierPublicKey, "userNullifierPk"),
     userNullifierSecret: secret(inputs.userNullifierSecret, "userNullifierSecret"),

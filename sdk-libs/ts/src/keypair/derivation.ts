@@ -23,6 +23,8 @@ export const INFO_VIEW_KEY_ED25519_X25519 = "TSPP/view_key/ed25519/x25519/v1";
 
 export const INFO_TX_VIEWING_X25519 = "TSPP/tx_viewing/x25519/v1";
 
+export const INFO_MERGE_SEED = "CRING/mrg_seed/v1";
+
 export const INFO_SENDER_VIEW_TAG_SECRET = "TSPP/sender_view_tag";
 
 export const INFO_RECIPIENT_VIEW_TAG_SECRET = "TSPP/recipient_view_tag";

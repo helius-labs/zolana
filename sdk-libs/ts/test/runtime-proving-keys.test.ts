@@ -157,7 +157,7 @@ describe("a runtime proving key set", () => {
   it("refuses a key outside the set", () => {
     const set = provingKeySetFromCatalog(catalog());
     for (const name of [
-      "merge_ring_8_1.key",
+      "transfer_ring_authority_2_2.key",
       "transfer_confidential_eddsa_2_8.key",
       "transfer_ring_2_2.key",
       "batch_address-append_40_10.key",
@@ -648,9 +648,6 @@ describe("proving with a runtime proving key set", () => {
     await expect(client.send("{}", "sync", ring)).rejects.toMatchObject(
       refusedWith("unsupported_circuit"),
     );
-    await expect(
-      client.proveMerge({ ...mergeInputs(), ringProgramId: asField(7n) }),
-    ).rejects.toMatchObject(refusedWith("unsupported_circuit"));
     const merge = expectedProvingKey({ circuit: "merge", nInputs: 8 });
     await expect(client.send("{}", "indexed", merge)).rejects.toMatchObject(
       refusedWith("indexed_proving_unsupported"),
@@ -663,7 +660,7 @@ describe("proving with a runtime proving key set", () => {
 
   it("checks the prover's catalog against the set's digests only", async () => {
     // A rotation also changes keys outside the set, which the set refuses anyway.
-    const outside = "merge_ring_8_1.key";
+    const outside = "transfer_ring_authority_2_2.key";
     const report = (sha: string) => ({
       keys: Object.entries(PROVING_KEY_SHA256S).map(([name, pin]) => ({
         name,
