@@ -1,46 +1,28 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
+use url::Url;
 
-use crate::error::ClientError;
+use crate::{error::ClientError, prover::endpoint::is_loopback};
 
 /// Reject a service URL that would carry shielded material in plaintext:
-/// anything but https, or http to loopback. [`SprClient::from_urls`] runs
-/// it; a caller building its own indexer and prover clients runs it itself.
+/// anything but https, or http to loopback (`localhost` or a name under it,
+/// `127.0.0.0/8`, `[::1]`). [`SprClient::from_urls`] runs it; a caller
+/// building its own indexer and prover clients runs it itself.
 ///
 /// [`SprClient::from_urls`]: super::SprClient::from_urls
 pub fn check_service_url(url: &str, field: &'static str) -> Result<(), ClientError> {
-    let insecure = || ClientError::InsecureServiceUrl {
-        field,
-        url: url.to_string(),
-    };
-
-    if url.starts_with("https://") {
-        return Ok(());
-    }
-    let Some(rest) = url.strip_prefix("http://") else {
-        return Err(insecure());
-    };
-    let host = rest
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default()
-        .rsplit_once(':')
-        .map_or(
-            rest.split(['/', '?', '#']).next().unwrap_or_default(),
-            |(host, _)| host,
-        );
-    let host = host.trim_end_matches('.');
-
-    let loopback = host == "localhost"
-        || host.ends_with(".localhost")
-        || host == "[::1]"
-        || host
-            .strip_prefix("127.")
-            .is_some_and(|tail| tail.split('.').count() == 3);
-    if loopback {
+    let secure = Url::parse(url).is_ok_and(|parsed| match parsed.scheme() {
+        "https" => true,
+        "http" => is_loopback(&parsed),
+        _ => false,
+    });
+    if secure {
         Ok(())
     } else {
-        Err(insecure())
+        Err(ClientError::InsecureServiceUrl {
+            field,
+            url: url.to_string(),
+        })
     }
 }
 

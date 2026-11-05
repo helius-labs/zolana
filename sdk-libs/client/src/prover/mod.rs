@@ -2,7 +2,7 @@ mod backend;
 mod cache;
 mod call;
 mod client;
-mod endpoint;
+pub(crate) mod endpoint;
 pub mod field;
 pub mod indexed;
 mod inputs;
