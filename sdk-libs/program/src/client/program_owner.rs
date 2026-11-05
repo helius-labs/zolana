@@ -80,11 +80,9 @@ impl ProgramOwner {
             spent_nullifiers,
             ..
         } = decrypt(&keys, transactions, assets).map_err(ClientErrorKind::Transaction)?;
-        decode_data_utxos(
-            utxos
-                .into_iter()
-                .filter(|utxo| !spent_nullifiers.contains(&utxo.nullifier)),
-        )
+        Ok(decode_data_utxos(utxos.into_iter().filter(|utxo| {
+            !spent_nullifiers.contains(&utxo.nullifier)
+        })))
     }
 
     pub fn input(
@@ -134,21 +132,23 @@ impl ProgramOwner {
     }
 }
 
+/// The UTXOs whose data decodes as a `T` its hash commits to. Anyone can
+/// send the PDA an output, and a PDA can hold more than one state type, so
+/// an output that is not a `T` is skipped rather than failing the others.
 fn decode_data_utxos<T: EncryptionCodec + DataHasher>(
     utxos: impl IntoIterator<Item = WalletUtxo>,
-) -> Result<Vec<DataUtxo<T>>, ClientError> {
+) -> Vec<DataUtxo<T>> {
     let mut claimed = HashSet::new();
     let mut result = Vec::new();
     for utxo in utxos {
-        if utxo.utxo.data.utxo_data().is_none() {
+        let Ok(data) = DataUtxo::<T>::try_from(utxo) else {
             continue;
-        }
-        let data = DataUtxo::<T>::try_from(utxo)?;
+        };
         if claimed.insert(data.utxo.utxo_hash) {
             result.push(data);
         }
     }
-    Ok(result)
+    result
 }
 
 #[cfg(test)]
@@ -180,20 +180,38 @@ mod tests {
     }
 
     #[test]
-    fn malformed_state_is_reported_instead_of_disappearing() {
-        let mut utxo = WalletUtxo::dummy(0).unwrap();
-        utxo.utxo.data =
-            spr_transaction::Data::new(vec![spr_transaction::DataRecord::UtxoData(vec![1])]);
-        let error = decode_data_utxos::<State>([utxo])
-            .err()
-            .expect("malformed state");
-        assert_eq!(error.name(), "ClientError.UtxoDataEncoding");
+    fn outputs_that_are_not_the_state_are_skipped() {
+        let owner = ProgramOwner::new(Address::new_from_array([9; 32]));
+        let recipient = owner
+            .address(ViewingKey::from_bytes(&[7; 32]).pubkey())
+            .unwrap();
+        let output = |data: Vec<u8>, data_hash: [u8; 32], leaf_index: u64| {
+            let output =
+                spr_transaction::SppProofOutputUtxo::new(spr_transaction::Mint::SOL, 0, recipient)
+                    .unwrap()
+                    .with_utxo_data(data, data_hash);
+            owner.input(&output, 0, leaf_index).unwrap()
+        };
+        let state = State { value: 42 };
+        let state_hash = crate::hasher::data_hash(&state.hash().unwrap()).unwrap();
+        let utxos = [
+            // Anyone can send the PDA an output whose data is not a `State`.
+            output(vec![1], [5; 32], 0),
+            output(borsh::to_vec(&state).unwrap(), state_hash, 1),
+            // Data that decodes as a `State` its hash does not commit to, as
+            // another state type held by the same PDA can.
+            output(borsh::to_vec(&State { value: 7 }).unwrap(), [5; 32], 2),
+        ];
+        let decoded = decode_data_utxos::<State>(utxos);
+        let [only] = decoded.as_slice() else {
+            panic!("one state UTXO, got {}", decoded.len());
+        };
+        assert_eq!(only.data.value, 42);
+        assert_eq!(only.utxo.leaf_index, 1);
     }
 
     #[test]
     fn outputs_without_state_are_skipped() {
-        assert!(decode_data_utxos::<State>([WalletUtxo::dummy(0).unwrap()])
-            .unwrap()
-            .is_empty());
+        assert!(decode_data_utxos::<State>([WalletUtxo::dummy(0).unwrap()]).is_empty());
     }
 }

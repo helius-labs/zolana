@@ -560,8 +560,8 @@ fn failed_padding_is_atomic_and_repairable_without_losing_configuration() {
             Shape::IN1_OUT2,
             &sender,
             E::InsufficientBalance {
-                requested: 1,
-                available: 0,
+                requested: 6,
+                available: 5,
             },
         );
         tx.deposit_sol(2, payer(&owner)).unwrap();
@@ -587,6 +587,34 @@ fn failed_padding_is_atomic_and_repairable_without_losing_configuration() {
     assert_eq!(
         tx.outputs().iter().map(|o| o.amount).collect::<Vec<_>>(),
         [1, u64::MAX]
+    );
+}
+
+#[test]
+fn a_shortfall_reports_what_comes_in_and_what_goes_out() {
+    let owner = keypair(1);
+    let sender = owner.shielded_address().unwrap();
+    let mut tx = builder(&owner, 5);
+    tx.deposit_sol(1, payer(&owner)).unwrap();
+    tx.transfer_sol(&sender, 10).unwrap();
+    unchanged_failure(
+        &mut tx,
+        Shape::IN1_OUT2,
+        &sender,
+        E::InsufficientBalance {
+            requested: 10,
+            available: 6,
+        },
+    );
+    tx.withdraw_sol(3, payer(&owner)).unwrap();
+    unchanged_failure(
+        &mut tx,
+        Shape::IN1_OUT2,
+        &sender,
+        E::InsufficientBalance {
+            requested: 12,
+            available: 5,
+        },
     );
 }
 
@@ -1695,8 +1723,8 @@ fn another_mints_surplus_cannot_fund_private_or_public_spl_deficits() {
             Shape::IN3_OUT4,
             &sender,
             E::InsufficientBalance {
-                requested: 1,
-                available: 0,
+                requested: 5,
+                available: 4,
             },
         );
         tx.deposit(mint(2), 1, payer(&owner)).unwrap();
