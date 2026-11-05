@@ -14,6 +14,25 @@ const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
 
+const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+/** No leading zero, no sign on zero, no exponent: the spelling of a JSON integer literal. */
+const INTEGER_LITERAL = /^(?:0|-?[1-9][0-9]*)$/u;
+
+/**
+ * The one wire integer rule. Photon, the prover and the Rust SDK write every
+ * integer as a bare JSON number, the only form serde reads, and the transport
+ * quotes a literal past `Number.MAX_SAFE_INTEGER` before `JSON.parse` could round
+ * it (`httpJson`). So an integer is a safe JSON number, or the exact literal of
+ * a larger one as a string. A rounded number, a quoted safe value and a leading
+ * zero are refused. Callers bound the range of their field.
+ */
+export function jsonInteger(value: unknown): bigint | undefined {
+  if (typeof value === "number") return Number.isSafeInteger(value) ? BigInt(value) : undefined;
+  if (typeof value !== "string" || !INTEGER_LITERAL.test(value)) return undefined;
+  const integer = BigInt(value);
+  return integer > MAX_SAFE || integer < -MAX_SAFE ? integer : undefined;
+}
+
 /** Exact positional batch decoding; sparse arrays must not hide missing answers. */
 export function decodeBatch<T>(
   value: unknown,
@@ -38,7 +57,7 @@ export interface WireDecoder {
   boolean(value: unknown, path: string): boolean;
   address(value: unknown, path: string): Address;
   signature(value: unknown, path: string): Signature;
-  /** Safe integer number or a decimal string, any sign. */
+  /** `jsonInteger`, any sign. */
   signedInteger(value: unknown, path: string): bigint;
   /** `signedInteger`, rejected below zero. */
   integer(value: unknown, path: string): bigint;
@@ -56,9 +75,9 @@ export function wireDecoder(invalid: (path: string) => Error): WireDecoder {
     return value;
   };
   const signedInteger = (value: unknown, path: string): bigint => {
-    if (typeof value === "number" && Number.isSafeInteger(value)) return BigInt(value);
-    if (typeof value === "string" && /^-?\d+$/u.test(value)) return BigInt(value);
-    throw invalid(path);
+    const integer = jsonInteger(value);
+    if (integer === undefined) throw invalid(path);
+    return integer;
   };
   const base64 = (value: unknown, path: string): Uint8Array => {
     const text = string(value, path);

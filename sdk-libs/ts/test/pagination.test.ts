@@ -104,8 +104,6 @@ describe("transaction pagination", () => {
     { paginationToken: `1:6:${signature}` },
     { data: [{ ...item, slot: 4, events: [{ ...event, slot: 4 }] }] },
     { context: { ...context, slot: 99 } },
-    { cursor: token },
-    { hasMore: false },
   ])("rejects a page inconsistent with its request: %j", async (change) => {
     const { api } = apiFor({ context, data: [item], paginationToken: null, ...change });
     await expect(
@@ -117,6 +115,19 @@ describe("transaction pagination", () => {
         minContextSlot: 100n,
       }),
     ).rejects.toMatchObject({ code: "API_INVALID_RESULT" });
+  });
+
+  it("ignores page and row fields it does not know, as the Rust reader does", async () => {
+    const { api } = apiFor({
+      context: { ...context, indexerVersion: 2 },
+      data: [{ ...item, blockTime: 3 }],
+      paginationToken: null,
+      cursor: token,
+      hasMore: false,
+    });
+    const page = await api.getShieldedTransactionsByTags({ tags: [tag] });
+    expect(page.data[0]?.events).toHaveLength(2);
+    expect(page.paginationToken).toBeNull();
   });
 
   it("rejects a snapshot behind the request token or the slot filter", () => {
@@ -190,6 +201,55 @@ describe("transaction pagination", () => {
       expect(fetch).toHaveBeenCalledTimes(wait ? 2 : 1);
     },
   );
+
+  it("sends a freshness wait as minContextSlot and ends a refused wait as not caught up", async () => {
+    const minimumSlot = (contextSlot: number) =>
+      Response.json({
+        jsonrpc: "2.0",
+        id: "test-account",
+        error: {
+          code: -32016,
+          message: "Minimum context slot has not been reached",
+          data: { contextSlot },
+        },
+      });
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => minimumSlot(98));
+    fetch.mockImplementationOnce(async () => minimumSlot(97));
+    const indexer = new SprIndexer(new SprApi({ url: "https://indexer.example", fetch }));
+    const tags = [copyBytes(new Uint8Array(32), 32, "tag") as Bytes32];
+
+    await expect(
+      indexer.getShieldedTransactionsByTags(
+        { tags },
+        atSlot(100n, createIndexerPollConfig(2, 0n, 0n)),
+      ),
+    ).rejects.toMatchObject({
+      code: "CLIENT_INDEXER_NOT_CAUGHT_UP",
+      details: { target: "100", latest: "98", attempts: 3 },
+    });
+    const sent = fetch.mock.calls.map((call) => JSON.parse(String(call[1]?.body)).params);
+    expect(sent).toHaveLength(3);
+    for (const params of sent) expect(params.minContextSlot).toBe(100);
+
+    // The caller's own minContextSlot wins when it is the greater.
+    fetch.mockClear();
+    await expect(
+      indexer.getEncryptedUtxosByTags(
+        { tags, minContextSlot: 120n },
+        atSlot(100n, createIndexerPollConfig(0, 0n, 0n)),
+      ),
+    ).rejects.toMatchObject({ code: "CLIENT_INDEXER_NOT_CAUGHT_UP" });
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)).params.minContextSlot).toBe(120);
+
+    // Without a wait the refusal is a retryable indexer error that names the slot.
+    fetch.mockClear();
+    await expect(
+      indexer.getShieldedTransactionsByNullifiers({ nullifiers: tags, minContextSlot: 100n }),
+    ).rejects.toMatchObject({
+      code: "CLIENT_INDEXER",
+      details: { retryable: true, contextSlot: "98" },
+    });
+  });
 
   it("rejects malformed client filters before sending a request", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>();

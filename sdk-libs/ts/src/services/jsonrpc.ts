@@ -1,9 +1,12 @@
+import { jsonInteger } from "../interface/decode.js";
 import type { RequestContext } from "../interface/types.js";
 
 import { composeSignal } from "./signal.js";
 import { TransportFailure, httpJson } from "./transport.js";
 
 const JSON_RPC_VERSION = "2.0";
+/** Solana's "minimum context slot has not been reached", which Photon also answers. */
+export const JSON_RPC_MIN_CONTEXT_SLOT = -32016;
 
 type JsonObject = Record<string, unknown>;
 
@@ -68,7 +71,10 @@ function resultOf(envelope: JsonObject): unknown {
   return envelope["result"];
 }
 
-/** Server text never enters the facts, only its type and length. */
+/**
+ * Server text never enters the facts, only its type and length. A `-32016`
+ * keeps the slot its `data.contextSlot` reports, as `spr-api` does.
+ */
 function jsonRpcError(value: unknown): TransportFailure {
   if (!isObject(value)) return invalidEnvelopeFailure();
   const allowed = ["code", "message", "data"];
@@ -79,11 +85,22 @@ function jsonRpcError(value: unknown): TransportFailure {
     return invalidEnvelopeFailure();
   }
   if (message !== undefined && typeof message !== "string") return invalidEnvelopeFailure();
+  const contextSlot =
+    code === JSON_RPC_MIN_CONTEXT_SLOT ? minimumContextSlot(value["data"]) : undefined;
   return new TransportFailure("rpc", "server returned a JSON-RPC error", {
     retryable: false,
     ...(code === undefined ? {} : { rpcCode: code }),
+    ...(contextSlot === undefined ? {} : { contextSlot }),
     ...(message === undefined ? {} : { rpcMessage: { type: "string", length: message.length } }),
   });
+}
+
+const U64_MAX = (1n << 64n) - 1n;
+
+/** A decimal string, so the facts stay JSON-serializable like the other slot details. */
+function minimumContextSlot(data: unknown): string | undefined {
+  const slot = jsonInteger(isObject(data) ? data["contextSlot"] : undefined);
+  return slot === undefined || slot < 0n || slot > U64_MAX ? undefined : slot.toString();
 }
 
 function invalidEnvelope(): never {

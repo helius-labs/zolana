@@ -28,6 +28,7 @@ import type {
   SlotFilter,
   UserRecord,
 } from "./types.js";
+import { jsonInteger } from "../interface/decode.js";
 import { MAX_USER_RECORD_OWNERS } from "../interface/indexer-limits.js";
 import { isMergeEncryptionScheme, type MergeEncryptionScheme } from "../interface/state.js";
 import {
@@ -40,6 +41,75 @@ import {
 } from "./scalars.js";
 
 type WireObject = Record<string, unknown>;
+
+const PAGE_CONTROLS = ["paginationToken", "limit", "filters", "minContextSlot"] as const;
+
+/**
+ * Every field of the wire contract, per object. A decoder reads only the fields
+ * its entry lists (`object` types the record that way), and error paths name
+ * only these fields.
+ */
+const FIELDS = {
+  userRecordsResponse: ["context", "records"],
+  userRecord: ["owner", "nullifierPubkey", "viewingPubkey", "mergeEncryption"],
+  userRecordsRequest: ["owners"],
+  historyFilters: ["slot"],
+  slotFilter: SLOT_BOUNDS,
+  context: ["blockTime", "slot"],
+  outputContext: ["hash", "treeId", "leafIndex"],
+  outputSlot: ["viewTag", "outputContext", "payload"],
+  message: ["viewTag", "payload"],
+  encryptedUtxoMatch: ["slot", "txSignature", "outputSlot", "txViewingPk", "salt"],
+  indexedTransaction: [
+    "slot",
+    "txSignature",
+    "eventIndex",
+    "txViewingPk",
+    "salt",
+    "outputSlots",
+    "messages",
+    "nullifiers",
+    "proofless",
+    "ringConfig",
+    "ringProgramId",
+  ],
+  signatureIndexedTransaction: ["eventIndex", "transaction"],
+  merkleContext: ["treeType", "tree"],
+  merkleProof: ["leaf", "merkleContext", "path", "leafIndex", "root", "rootSeq", "rootIndex"],
+  nonInclusionProof: [
+    "leaf",
+    "merkleContext",
+    "path",
+    "lowElement",
+    "lowElementIndex",
+    "highElement",
+    "highElementIndex",
+    "root",
+    "rootSeq",
+    "rootIndex",
+  ],
+  ringsByTagsRequest: ["tags", "ringProgramId", ...PAGE_CONTROLS],
+  ringsByNullifiersRequest: ["nullifiers", ...PAGE_CONTROLS],
+  page: ["context", "data", "paginationToken", "outputTreeId"],
+  transactionEvents: ["slot", "signature", "events"],
+  transactionOutputs: ["slot", "signature", "outputs"],
+  bySignatureResponse: ["context", "transactions", "outputTreeId"],
+  leavesRequest: ["treeAccount", "leaves"],
+  proofsResponse: ["context", "proofs"],
+} as const satisfies Record<string, readonly string[]>;
+
+const FIELD_NAMES: ReadonlySet<string> = new Set(Object.values(FIELDS).flat());
+const SCHEMA_PATH = /^\$(?:\.[A-Za-z]+|\[\d+\])*$/u;
+
+/**
+ * `path` when it names only fields of this contract and array indexes, so an
+ * error detail never echoes a key the caller or the indexer chose.
+ */
+export function knownSchemaPath(path: string): string | undefined {
+  if (path.length > 256 || !SCHEMA_PATH.test(path)) return undefined;
+  const names = path.match(/[A-Za-z]+/gu) ?? [];
+  return names.every((name) => FIELD_NAMES.has(name)) ? path : undefined;
+}
 
 export function encodeUserRecordsRequest(value: GetUserRecordsRequest): WireObject {
   const owners: unknown = value.owners;
@@ -57,7 +127,7 @@ export function encodeUserRecordsRequest(value: GetUserRecordsRequest): WireObje
 }
 
 export function decodeUserRecordsResponse(value: unknown): GetUserRecordsResponse {
-  const row = object(value, "$", ["context", "records"]);
+  const row = object(value, "$", FIELDS.userRecordsResponse);
   return {
     context: context(row["context"], "$.context"),
     records: array(row["records"], "$.records", (item, path) =>
@@ -67,12 +137,7 @@ export function decodeUserRecordsResponse(value: unknown): GetUserRecordsRespons
 }
 
 function userRecord(value: unknown, path: string): UserRecord {
-  const record = object(value, path, [
-    "owner",
-    "nullifierPubkey",
-    "viewingPubkey",
-    "mergeEncryption",
-  ]);
+  const record = object(value, path, FIELDS.userRecord);
   return {
     owner: checkedAddress(record["owner"], `${path}.owner`),
     nullifierPubkey: checkedHash(record["nullifierPubkey"], `${path}.nullifierPubkey`),
@@ -86,13 +151,34 @@ const I64_MAX = (1n << 63n) - 1n;
 const U64_MAX = (1n << 64n) - 1n;
 const U16_MAX = 65_535;
 
-export function object(value: unknown, path: string, fields: readonly string[]): WireObject {
+/**
+ * A response object. A field this release does not know is ignored, as serde
+ * does in `spr-indexer-api`, so Photon can add one without breaking deployed
+ * clients; every known field is still validated in full.
+ */
+export function object<F extends string>(
+  value: unknown,
+  path: string,
+  _fields: readonly F[],
+): Readonly<Record<F, unknown>> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", path, "an object", value);
   }
-  const record = value as WireObject;
+  return value as Readonly<Record<F, unknown>>;
+}
+
+/**
+ * A request object. An unknown field is refused: a misspelled parameter would
+ * otherwise answer a different question.
+ */
+function exactObject<F extends string>(
+  value: unknown,
+  path: string,
+  fields: readonly F[],
+): Readonly<Record<F, unknown>> {
+  const record = object(value, path, fields);
   for (const key of Object.keys(record)) {
-    if (!fields.includes(key)) {
+    if (!(fields as readonly string[]).includes(key)) {
       schemaFailure("INDEXER_SCHEMA_UNKNOWN_FIELD", `${path}.${key}`, "a known field", key);
     }
   }
@@ -117,16 +203,17 @@ function boolean(value: unknown, path: string): boolean {
   return value;
 }
 
-/** No leading zero, no sign on zero, no exponent: one spelling per value. */
-const DECIMAL_INTEGER = /^(?:0|-?[1-9][0-9]*)$/;
-
-function inRange(
-  integer: bigint,
+/** A `jsonInteger` in the field's range, for every integer field of the contract. */
+export function wireInteger(
   value: unknown,
   path: string,
   minimum: bigint,
   maximum: bigint,
 ): bigint {
+  const integer = jsonInteger(value);
+  if (integer === undefined) {
+    return schemaFailure("INDEXER_SCHEMA_INVALID_INTEGER", path, "a JSON integer", value);
+  }
   if (integer < minimum || integer > maximum) {
     return schemaFailure(
       "INDEXER_SCHEMA_INVALID_INTEGER",
@@ -138,55 +225,12 @@ function inRange(
   return integer;
 }
 
-export function wireInteger(
-  value: unknown,
-  path: string,
-  minimum: bigint,
-  maximum: bigint,
-): bigint {
-  if (typeof value !== "number" || !Number.isSafeInteger(value)) {
-    return schemaFailure("INDEXER_SCHEMA_INVALID_INTEGER", path, "a safe JSON integer", value);
-  }
-  return inRange(BigInt(value), value, path, minimum, maximum);
-}
-
-/**
- * Wire form of a field whose value nothing in the protocol caps below
- * `Number.MAX_SAFE_INTEGER`: a Solana slot or block time, or a monotonic tree
- * sequence.
- *
- * Photon writes a JSON number, which stays valid. A JSON number that has
- * already lost precision is refused rather than silently truncated, so an
- * indexer with a value past the double-precision range has to send the decimal
- * string instead. The two forms are the union Light Protocol accepts
- * (`js/stateless.js/src/rpc-interface.ts:316-328`).
- */
-function unboundedWireInteger(
-  value: unknown,
-  path: string,
-  minimum: bigint,
-  maximum: bigint,
-): bigint {
-  if (typeof value !== "string") {
-    return wireInteger(value, path, minimum, maximum);
-  }
-  if (!DECIMAL_INTEGER.test(value)) {
-    return schemaFailure("INDEXER_SCHEMA_INVALID_INTEGER", path, "a decimal integer string", value);
-  }
-  return inRange(BigInt(value), value, path, minimum, maximum);
-}
-
-/** For a tree index, which the tree height caps well below `2^53`. */
 function u64(value: unknown, path: string): bigint {
   return wireInteger(value, path, 0n, U64_MAX);
 }
 
-function unboundedU64(value: unknown, path: string): bigint {
-  return unboundedWireInteger(value, path, 0n, U64_MAX);
-}
-
-function unboundedI64(value: unknown, path: string): bigint {
-  return unboundedWireInteger(value, path, I64_MIN, I64_MAX);
+function i64(value: unknown, path: string): bigint {
+  return wireInteger(value, path, I64_MIN, I64_MAX);
 }
 
 function mergeEncryptionScheme(value: unknown, path: string): MergeEncryptionScheme {
@@ -229,13 +273,8 @@ function checkedPageLimit(value: unknown, path: string) {
 }
 
 /**
- * Every integer this package writes is a JSON number, including the fields
- * `unboundedWireInteger` will read as a decimal string. `spr-indexer-api`
- * serializes with plain serde and installs no string acceptor on its `u64` and
- * `i64` fields, so a quoted integer is a body the Rust side refuses, and
- * `encodeRequest` feeds the body Photon parses. The string form is a reader's
- * tolerance, not a shape we emit, which is why a value past the safe-integer
- * bound is reported here rather than encoded.
+ * A request integer, written as a JSON number. `JSON.stringify` has no exact
+ * form past `Number.MAX_SAFE_INTEGER`, so such a value is refused, not rounded.
  */
 export function toWireInteger(
   value: bigint,
@@ -284,13 +323,13 @@ function paginationToken(value: unknown, path: string): PaginationToken {
 }
 
 function historyFilters(value: unknown, path: string): HistoryFilters {
-  const record = object(value, path, ["slot"]);
+  const record = exactObject(value, path, FIELDS.historyFilters);
   const slot = optional(record["slot"], `${path}.slot`, slotFilter);
   return slot === undefined ? {} : { slot };
 }
 
 function slotFilter(value: unknown, path: string): SlotFilter {
-  const record = object(value, path, SLOT_BOUNDS);
+  const record = exactObject(value, path, FIELDS.slotFilter);
   const filter: { -readonly [K in keyof SlotFilter]: SlotFilter[K] } = {};
   for (const bound of SLOT_BOUNDS) {
     const slot = optional(record[bound], `${path}.${bound}`, u64);
@@ -348,37 +387,27 @@ function encodePageControls(
 }
 
 export function context(value: unknown, path: string): IndexerContext {
-  // `object` rejects any key not listed here, so a new wire field must be added
-  // in the same release that starts sending it.
-  const record = object(value, path, ["blockTime", "slot"]);
+  const record = object(value, path, FIELDS.context);
   return {
-    blockTime: unboundedI64(record["blockTime"], `${path}.blockTime`),
+    blockTime: i64(record["blockTime"], `${path}.blockTime`),
     slot: u64(record["slot"], `${path}.slot`),
   };
 }
 
+/** The tree account is derived from `treeId`; a `tree` field on the wire is not read. */
 function outputContext(value: unknown, path: string): RingsOutputContext {
-  const record = object(value, path, ["hash", "tree", "treeId", "leafIndex"]);
+  const record = object(value, path, FIELDS.outputContext);
   const treeId = u16(record["treeId"], `${path}.treeId`);
-  const tree = checkedAddress(record["tree"], `${path}.tree`);
-  if (tree !== treeAddress(treeId)) {
-    return schemaFailure(
-      "INDEXER_SCHEMA_INVALID_TREE",
-      path,
-      "the address derived from treeId",
-      value,
-    );
-  }
   return {
     treeId,
     hash: checkedHash(record["hash"], `${path}.hash`),
-    tree,
+    tree: treeAddress(treeId),
     leafIndex: u64(record["leafIndex"], `${path}.leafIndex`),
   };
 }
 
 function outputSlot(value: unknown, path: string): RingsOutputSlot {
-  const record = object(value, path, ["viewTag", "outputContext", "payload"]);
+  const record = object(value, path, FIELDS.outputSlot);
   return {
     viewTag: checkedHash(record["viewTag"], `${path}.viewTag`),
     outputContext: outputContext(record["outputContext"], `${path}.outputContext`),
@@ -387,7 +416,7 @@ function outputSlot(value: unknown, path: string): RingsOutputSlot {
 }
 
 function message(value: unknown, path: string): RingsMessage {
-  const record = object(value, path, ["viewTag", "payload"]);
+  const record = object(value, path, FIELDS.message);
   return {
     viewTag: checkedHash(record["viewTag"], `${path}.viewTag`),
     payload: checkedBase64(record["payload"], `${path}.payload`),
@@ -395,11 +424,11 @@ function message(value: unknown, path: string): RingsMessage {
 }
 
 function encryptedUtxoMatch(value: unknown, path: string): EncryptedUtxoMatch {
-  const record = object(value, path, ["slot", "txSignature", "outputSlot", "txViewingPk", "salt"]);
+  const record = object(value, path, FIELDS.encryptedUtxoMatch);
   const txViewingPk = optional(record["txViewingPk"], `${path}.txViewingPk`, checkedBase64);
   const salt = optional(record["salt"], `${path}.salt`, checkedBase64);
   return {
-    slot: unboundedU64(record["slot"], `${path}.slot`),
+    slot: u64(record["slot"], `${path}.slot`),
     txSignature: checkedSignature(record["txSignature"], `${path}.txSignature`),
     outputSlot: outputSlot(record["outputSlot"], `${path}.outputSlot`),
     ...(txViewingPk === undefined ? {} : { txViewingPk }),
@@ -408,25 +437,13 @@ function encryptedUtxoMatch(value: unknown, path: string): EncryptedUtxoMatch {
 }
 
 export function indexedTransaction(value: unknown, path: string): IndexedShieldedTransaction {
-  const record = object(value, path, [
-    "slot",
-    "txSignature",
-    "eventIndex",
-    "txViewingPk",
-    "salt",
-    "outputSlots",
-    "messages",
-    "nullifiers",
-    "proofless",
-    "ringConfig",
-    "ringProgramId",
-  ]);
+  const record = object(value, path, FIELDS.indexedTransaction);
   const txViewingPk = optional(record["txViewingPk"], `${path}.txViewingPk`, checkedBase64);
   const salt = optional(record["salt"], `${path}.salt`, checkedBase64);
   const ringConfig = optional(record["ringConfig"], `${path}.ringConfig`, checkedAddress);
   const ringProgramId = optional(record["ringProgramId"], `${path}.ringProgramId`, checkedAddress);
   return {
-    slot: unboundedU64(record["slot"], `${path}.slot`),
+    slot: u64(record["slot"], `${path}.slot`),
     txSignature: checkedSignature(record["txSignature"], `${path}.txSignature`),
     ...(record["eventIndex"] === undefined
       ? {}
@@ -446,7 +463,7 @@ function signatureIndexedTransaction(
   value: unknown,
   path: string,
 ): SignatureIndexedShieldedTransaction {
-  const record = object(value, path, ["eventIndex", "transaction"]);
+  const record = object(value, path, FIELDS.signatureIndexedTransaction);
   return {
     eventIndex: u16(record["eventIndex"], `${path}.eventIndex`),
     transaction: indexedTransaction(record["transaction"], `${path}.transaction`),
@@ -454,7 +471,7 @@ function signatureIndexedTransaction(
 }
 
 function merkleContext(value: unknown, path: string): MerkleProof["merkleContext"] {
-  const record = object(value, path, ["treeType", "tree"]);
+  const record = object(value, path, FIELDS.merkleContext);
   return {
     treeType: u16(record["treeType"], `${path}.treeType`),
     tree: checkedAddress(record["tree"], `${path}.tree`),
@@ -462,39 +479,20 @@ function merkleContext(value: unknown, path: string): MerkleProof["merkleContext
 }
 
 function merkleProof(value: unknown, path: string): MerkleProof {
-  const record = object(value, path, [
-    "leaf",
-    "merkleContext",
-    "path",
-    "leafIndex",
-    "root",
-    "rootSeq",
-    "rootIndex",
-  ]);
+  const record = object(value, path, FIELDS.merkleProof);
   return {
     leaf: checkedHash(record["leaf"], `${path}.leaf`),
     merkleContext: merkleContext(record["merkleContext"], `${path}.merkleContext`),
     path: array(record["path"], `${path}.path`, checkedHash),
     leafIndex: u64(record["leafIndex"], `${path}.leafIndex`),
     root: checkedHash(record["root"], `${path}.root`),
-    rootSeq: unboundedU64(record["rootSeq"], `${path}.rootSeq`),
+    rootSeq: u64(record["rootSeq"], `${path}.rootSeq`),
     rootIndex: u16(record["rootIndex"], `${path}.rootIndex`),
   };
 }
 
 function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
-  const record = object(value, path, [
-    "leaf",
-    "merkleContext",
-    "path",
-    "lowElement",
-    "lowElementIndex",
-    "highElement",
-    "highElementIndex",
-    "root",
-    "rootSeq",
-    "rootIndex",
-  ]);
+  const record = object(value, path, FIELDS.nonInclusionProof);
   return {
     leaf: checkedHash(record["leaf"], `${path}.leaf`),
     merkleContext: merkleContext(record["merkleContext"], `${path}.merkleContext`),
@@ -504,15 +502,13 @@ function nonInclusionProof(value: unknown, path: string): NonInclusionProof {
     highElement: checkedHash(record["highElement"], `${path}.highElement`),
     highElementIndex: u64(record["highElementIndex"], `${path}.highElementIndex`),
     root: checkedHash(record["root"], `${path}.root`),
-    rootSeq: unboundedU64(record["rootSeq"], `${path}.rootSeq`),
+    rootSeq: u64(record["rootSeq"], `${path}.rootSeq`),
     rootIndex: u16(record["rootIndex"], `${path}.rootIndex`),
   };
 }
 
-const PAGE_CONTROLS = ["paginationToken", "limit", "filters", "minContextSlot"] as const;
-
 function decodeRingsByTagsRequest(value: unknown): GetRingsByTagsRequest {
-  const record = object(value, "$", ["tags", "ringProgramId", ...PAGE_CONTROLS]);
+  const record = exactObject(value, "$", FIELDS.ringsByTagsRequest);
   const controls = pageControls(record);
   const ringProgramId = optional(record["ringProgramId"], "$.ringProgramId", checkedAddress);
   const tags = array(record["tags"], "$.tags", checkedHash);
@@ -539,7 +535,7 @@ export function encodeRingsByTagsRequest(value: GetRingsByTagsRequest): WireObje
 }
 
 function decodeRingsByNullifiersRequest(value: unknown): GetRingsByNullifiersRequest {
-  const record = object(value, "$", ["nullifiers", ...PAGE_CONTROLS]);
+  const record = exactObject(value, "$", FIELDS.ringsByNullifiersRequest);
   return {
     nullifiers: array(record["nullifiers"], "$.nullifiers", checkedHash),
     ...pageControls(record),
@@ -567,10 +563,11 @@ export function encodeShieldedTransactionsBySignatureRequest(
 
 function decodePage<T>(
   value: unknown,
-  child: "events" | "outputs",
+  rowFields: typeof FIELDS.transactionEvents | typeof FIELDS.transactionOutputs,
   decode: (v: unknown, p: string) => T,
 ) {
-  const record = object(value, "$", ["context", "data", "paginationToken", "outputTreeId"]);
+  const child = rowFields[2];
+  const record = object(value, "$", FIELDS.page);
   const outputTreeId = optional(record["outputTreeId"], "$.outputTreeId", u16);
   const pageContext = context(record["context"], "$.context");
   const token =
@@ -578,7 +575,7 @@ function decodePage<T>(
       ? null
       : paginationToken(record["paginationToken"], "$.paginationToken");
   const data = array(record["data"], "$.data", (v, p) => {
-    const row = object(v, p, ["slot", "signature", child]);
+    const row = object(v, p, rowFields);
     const slot = u64(row["slot"], `${p}.slot`);
     const signature = checkedSignature(row["signature"], `${p}.signature`);
     const entries = array(row[child], `${p}.${child}`, decode);
@@ -604,7 +601,7 @@ function decodePage<T>(
 }
 
 export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosByTagsResponse {
-  const page = decodePage(value, "outputs", encryptedUtxoMatch);
+  const page = decodePage(value, FIELDS.transactionOutputs, encryptedUtxoMatch);
   return {
     ...page,
     data: page.data.map(({ entries: outputs, ...header }) => {
@@ -622,7 +619,7 @@ export function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosB
 export function decodeShieldedTransactionsResponse(
   value: unknown,
 ): GetShieldedTransactionsByTagsResponse {
-  const page = decodePage(value, "events", indexedTransaction);
+  const page = decodePage(value, FIELDS.transactionEvents, indexedTransaction);
   return {
     ...page,
     data: page.data.map(({ entries: events, ...header }) => {
@@ -649,7 +646,7 @@ export function decodeShieldedTransactionsResponse(
 export function decodeShieldedTransactionsBySignatureResponse(
   value: unknown,
 ): GetShieldedTransactionsBySignatureResponse {
-  const record = object(value, "$", ["context", "transactions", "outputTreeId"]);
+  const record = object(value, "$", FIELDS.bySignatureResponse);
   const outputTreeId = optional(record["outputTreeId"], "$.outputTreeId", u16);
   return {
     ...(outputTreeId === undefined ? {} : { outputTreeId }),
@@ -659,7 +656,7 @@ export function decodeShieldedTransactionsBySignatureResponse(
 }
 
 function decodeLeavesRequest(value: unknown): GetMerkleProofsRequest {
-  const record = object(value, "$", ["treeAccount", "leaves"]);
+  const record = exactObject(value, "$", FIELDS.leavesRequest);
   return {
     treeAccount: checkedAddress(record["treeAccount"], "$.treeAccount"),
     leaves: array(record["leaves"], "$.leaves", checkedHash),
@@ -681,7 +678,7 @@ export function encodeMerkleProofsRequest(value: GetMerkleProofsRequest): WireOb
 }
 
 export function decodeMerkleProofsResponse(value: unknown): GetMerkleProofsResponse {
-  const record = object(value, "$", ["context", "proofs"]);
+  const record = object(value, "$", FIELDS.proofsResponse);
   return {
     context: context(record["context"], "$.context"),
     proofs: array(record["proofs"], "$.proofs", merkleProof),
@@ -693,7 +690,7 @@ export function encodeNonInclusionProofsRequest(value: GetNonInclusionProofsRequ
 }
 
 export function decodeNonInclusionProofsResponse(value: unknown): GetNonInclusionProofsResponse {
-  const record = object(value, "$", ["context", "proofs"]);
+  const record = object(value, "$", FIELDS.proofsResponse);
   return {
     context: context(record["context"], "$.context"),
     proofs: array(record["proofs"], "$.proofs", nonInclusionProof),

@@ -616,7 +616,7 @@ impl<T: Positioned> Page<T> {
 
 /// The returned events of one Solana transaction, in event order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TransactionEvents<T, S = SerializableSignature> {
     pub slot: u64,
@@ -626,7 +626,7 @@ pub struct TransactionEvents<T, S = SerializableSignature> {
 
 /// All matching outputs of one Solana transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct TransactionOutputs<T, S = SerializableSignature> {
     pub slot: u64,
@@ -949,12 +949,13 @@ pub type GetEncryptedUtxosByTagsResponse = Page<TransactionOutputs<EncryptedUtxo
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RingsOutputContext {
     pub hash: Hash,
-    /// The tree account the output was appended to.
+    /// The tree account the output was appended to, `pda::tree(tree_id)`.
     ///
-    /// Deprecated: it is `pda::tree(tree_id)` and carries nothing `tree_id`
-    /// does not. Emitted for one release so readers can move over, then
-    /// dropped.
-    pub tree: SerializablePubkey,
+    /// Deprecated: readers derive the account from `tree_id` and do not need
+    /// this field. Photon sends it because SDK 0.8 clients, TS and Rust, require
+    /// it, and can drop it once those clients are gone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tree: Option<SerializablePubkey>,
     /// The raw tree id the output's commitment is hashed under.
     pub tree_id: u16,
     pub leaf_index: u64,
@@ -1046,7 +1047,7 @@ pub struct GetMerkleProofsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetMerkleProofsResponse {
     pub context: Context,
@@ -1066,7 +1067,7 @@ pub struct GetNullifierQueueElementsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetNullifierQueueElementsResponse {
     pub context: Context,
@@ -1075,7 +1076,7 @@ pub struct GetNullifierQueueElementsResponse {
 
 /// One queued nullifier, in on-chain input-queue order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NullifierQueueElement {
     pub seq: u64,
@@ -1083,7 +1084,7 @@ pub struct NullifierQueueElement {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MerkleContext {
     pub tree_type: u16,
@@ -1091,7 +1092,7 @@ pub struct MerkleContext {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct MerkleProof {
     pub leaf: Hash,
@@ -1116,7 +1117,7 @@ pub struct GetNonInclusionProofsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetNonInclusionProofsResponse {
     pub context: Context,
@@ -1124,7 +1125,7 @@ pub struct GetNonInclusionProofsResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct NonInclusionProof {
     pub leaf: Hash,
@@ -1153,7 +1154,7 @@ pub struct GetUserRecordsRequest {
 
 /// A user registry record, the shielded address a Solana pubkey publishes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct UserRecord {
     pub owner: SerializablePubkey,
@@ -1168,7 +1169,7 @@ pub struct UserRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct GetUserRecordsResponse {
     pub context: Context,

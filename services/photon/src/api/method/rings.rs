@@ -71,7 +71,7 @@ mod tests {
                 view_tag: hash(1),
                 output_context: RingsOutputContext {
                     hash: hash(2),
-                    tree: pubkey(3),
+                    tree: Some(pubkey(3)),
                     tree_id: 7,
                     leaf_index: 2,
                 },
@@ -112,7 +112,7 @@ mod tests {
                 view_tag: hash(4),
                 output_context: RingsOutputContext {
                     hash: hash(5),
-                    tree: pubkey(6),
+                    tree: Some(pubkey(6)),
                     tree_id: 9,
                     leaf_index: 3,
                 },

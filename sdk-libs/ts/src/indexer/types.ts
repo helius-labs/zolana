@@ -37,6 +37,7 @@ export interface GetRingsByNullifiersRequest {
 export interface RingsOutputContext {
   readonly treeId: number;
   readonly hash: Hash;
+  /** The tree account of `treeId`, derived from it rather than read off the wire. */
   readonly tree: Address;
   readonly leafIndex: bigint;
 }

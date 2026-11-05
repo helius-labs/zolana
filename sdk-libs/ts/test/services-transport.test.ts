@@ -88,6 +88,27 @@ describe("postJsonRpc envelope validation", () => {
     expect(JSON.stringify(failure.facts)).not.toContain("secret");
   });
 
+  it("keeps the context slot of a minimum-context-slot error and nothing else from its data", async () => {
+    const facts = async (data: unknown, code = -32016) =>
+      (
+        await failureOf(
+          call(
+            fetchReturning(
+              jsonResponse(JSON.stringify({ jsonrpc: "2.0", id: "call-1", error: { code, data } })),
+            ),
+          ),
+        )
+      ).facts;
+    expect(await facts({ contextSlot: 98, secret: "x" })).toEqual({
+      retryable: false,
+      rpcCode: -32016,
+      contextSlot: "98",
+    });
+    for (const data of [{ contextSlot: "98" }, { contextSlot: -1 }, { contextSlot: 1.5 }, null])
+      expect(await facts(data)).toEqual({ retryable: false, rpcCode: -32016 });
+    expect(await facts({ contextSlot: 98 }, -32000)).toEqual({ retryable: false, rpcCode: -32000 });
+  });
+
   it("refuses an envelope that omits its result", async () => {
     const body = JSON.stringify({ jsonrpc: "2.0", id: "call-1" });
     const failure = await failureOf(call(fetchReturning(jsonResponse(body))));
