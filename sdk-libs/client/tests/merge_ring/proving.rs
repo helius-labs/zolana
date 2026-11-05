@@ -14,8 +14,8 @@ use spr_transaction::{instructions::merge::merge_output_blinding, Data, Mint, Ut
 
 use crate::{harness::MergeRingHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 
-/// Test fixtures live in the first localnet tree.
-// TODO(tree-id): resolve the tree id from the tree account.
+/// The tree id these fixtures commit to. They prove against the in-memory
+/// `TestIndexer`, so there is no tree account to read it from.
 const TEST_TREE_ID: u16 = 0;
 
 /// Fixed test ring program id; every input and the merged output carry it and the
