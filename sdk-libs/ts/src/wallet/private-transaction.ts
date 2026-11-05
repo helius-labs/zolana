@@ -6,14 +6,11 @@ import { initializePoseidon } from "../hasher/index.js";
 import { equalBytes } from "../interface/bytes.js";
 import type { Address, Bytes32, Instruction, RequestContext } from "../interface/types.js";
 import { treeAddress } from "../interface/pda/index.js";
-import { selectConfidentialEddsaShape } from "../interface/shape.js";
-import { randomBlinding } from "../keypair/bytes.js";
 import { DEFAULT_TREE_ID } from "../interface/tree-slot.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { ViewingKey } from "../keypair/viewing-key.js";
 import type { Data } from "../transaction/data.js";
-import { ConfidentialSplit } from "../transaction/instructions/builders.js";
-import { ConfidentialTransfer, SppProofInputs } from "../transaction/instructions/transact.js";
+import { ConfidentialTransfer } from "../transaction/instructions/transact.js";
 import { TransactionError } from "../transaction/error.js";
 import { ProofInputUtxo, type Utxo } from "../transaction/utxo.js";
 import {
@@ -27,7 +24,7 @@ import {
 } from "../transaction/wallet/intent.js";
 import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import { destroyTransactionKeys, transactionKeyAnswers } from "../transaction/wallet/key-batch.js";
-import { encryptConfidentialTransfer, encryptSplit } from "../transaction/wallet/encrypt-rails.js";
+import { encryptConfidentialTransfer } from "../transaction/wallet/encrypt-rails.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { UnsignedPrivateTransaction } from "./actions.js";
@@ -159,71 +156,37 @@ async function authorizeWithInputs(
   inCircuitOwner: boolean,
 ): Promise<AuthorizedPrivateTransaction> {
   const action = transaction._action();
-  let proofInputs: SppProofInputs;
-  let intent: TransactionIntent;
-  let senderOutputCount: number;
-  let approvedIntentHash: Bytes32;
+  const transfer = new ConfidentialTransfer(address, inputs, transaction.payer());
   if (action.kind === "split") {
-    const input = inputs[0];
-    if (input === undefined) throw new WalletError("WALLET_NO_INPUTS");
-    const prepared = new ConfidentialSplit({
-      owner: address,
-      input,
-      asset: action.asset,
-      numOutputs: action.numOutputs,
-      perOutputAmount: action.perOutputAmount,
-      payer: transaction.payer(),
-    }).prepare();
-    const encrypted = await withTransactionKey(
-      keys,
-      prepared.firstNullifier,
-      (tx) =>
-        encryptSplit(tx, {
-          viewingPublicKey: address.viewingPublicKey,
-          viewTag: prepared.owner.confidentialViewTag(),
-          bundle: prepared.bundlePlaintext(wallet.registry),
-        }),
-      context,
-    );
-    intent = {
-      kind: "split",
-      asset: action.asset,
-      numOutputs: action.numOutputs,
-      perOutputAmount: action.perOutputAmount,
-    };
-    const approval = await approve({
-      solanaPublicKey: address.solanaAddress(),
-      intent,
-      summary: transaction._summary(),
-    });
-    checkIntentApproval(approval, intent, intentMismatch);
-    approvedIntentHash = approval.intentHash;
-    senderOutputCount = 0;
-    proofInputs = prepared.finalize({
-      txViewingPublicKey: encrypted.txViewingPublicKey,
-      salt: encrypted.salt,
-      payload: encrypted.payload,
-    });
-  } else {
-    const transfer = new ConfidentialTransfer(address, inputs, transaction.payer());
-    if (action.kind === "transfer") {
-      for (const payment of action.payments) {
-        transfer.send(payment.recipient, action.asset, payment.amount);
-      }
-    } else {
-      transfer.withdraw(action.asset, action.amount, action.target);
+    // A split is a confidential transfer to the owner, one output per part,
+    // so every wallet reads its outputs like any other confidential slot.
+    for (let part = 0; part < action.numOutputs; part++) {
+      transfer.send(address, action.asset, action.perOutputAmount);
     }
-    if (inCircuitOwner) transfer.withConfidentialEddsaShape();
-    const prepared = transfer.prepare();
-    const encrypted = await withTransactionKey(
-      keys,
-      prepared.firstNullifier,
-      (tx) =>
-        encryptConfidentialTransfer(tx, { outputs: prepared.outputs, assets: wallet.registry }),
-      context,
-    );
-    intent =
-      action.kind === "transfer"
+  } else if (action.kind === "transfer") {
+    for (const payment of action.payments) {
+      transfer.send(payment.recipient, action.asset, payment.amount);
+    }
+  } else {
+    transfer.withdraw(action.asset, action.amount, action.target);
+  }
+  if (inCircuitOwner) transfer.withConfidentialEddsaShape();
+  const prepared = transfer.prepare();
+  const encrypted = await withTransactionKey(
+    keys,
+    prepared.firstNullifier,
+    (tx) => encryptConfidentialTransfer(tx, { outputs: prepared.outputs, assets: wallet.registry }),
+    context,
+  );
+  const intent: TransactionIntent =
+    action.kind === "split"
+      ? {
+          kind: "split",
+          asset: action.asset,
+          numOutputs: action.numOutputs,
+          perOutputAmount: action.perOutputAmount,
+        }
+      : action.kind === "transfer"
         ? transferIntent(action.asset, action.payments)
         : {
             kind: "withdrawal",
@@ -231,42 +194,30 @@ async function authorizeWithInputs(
             amount: action.amount,
             recipient: withdrawalIntentRecipient(action.target),
           };
-    const approval = await approve({
-      solanaPublicKey: address.solanaAddress(),
-      intent,
-      summary: transaction._summary(),
-    });
-    checkIntentApproval(approval, intent, intentMismatch);
-    approvedIntentHash = approval.intentHash;
-    checkPreparedTransfer(prepared, intent, intentMismatch);
-    senderOutputCount = prepared.senderOutputCount;
-    proofInputs = prepared.finalize({
-      txViewingPublicKey: encrypted.txViewingPublicKey,
-      salt: encrypted.salt,
-      payload: encrypted.payload,
-    });
-  }
-  if (inCircuitOwner && action.kind === "split") {
-    const shape = selectConfidentialEddsaShape(
-      proofInputs.inputUtxos.length,
-      proofInputs.outputs.length,
-    );
-    const padded = [...proofInputs.inputUtxos];
-    while (padded.length < shape.inputs) padded.push(ProofInputUtxo.dummy(randomBlinding()));
-    proofInputs = new SppProofInputs({ ...proofInputs, inputUtxos: padded });
-  }
+  const approval = await approve({
+    solanaPublicKey: address.solanaAddress(),
+    intent,
+    summary: transaction._summary(),
+  });
+  checkIntentApproval(approval, intent, intentMismatch);
+  checkPreparedTransfer(prepared, intent, intentMismatch);
+  const proofInputs = prepared.finalize({
+    txViewingPublicKey: encrypted.txViewingPublicKey,
+    salt: encrypted.salt,
+    payload: encrypted.payload,
+  });
   const withdrawal = transaction._withdrawal();
   const material = Object.freeze({
     proofInputs,
     tree: transaction.tree(),
     intent,
-    senderOutputCount,
+    senderOutputCount: prepared.senderOutputCount,
     owner: address,
     setupInstructions,
     ...(withdrawal === undefined ? {} : { withdrawal }),
   });
   checkAuthorizedBinding(material, intentMismatch);
-  return mintAuthorizedPrivateTransaction(material, approvedIntentHash);
+  return mintAuthorizedPrivateTransaction(material, approval.intentHash);
 }
 
 /** One payment is a `transfer` intent, so a single-recipient approval keeps its hash. */

@@ -4,11 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bytes32, Bytes64 } from "../src/interface/index.js";
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
 import {
-  Data,
   LocalShieldedKeys,
   createProofOutput,
   encryptConfidentialTransfer,
-  encryptSplit,
   type ShieldedKeys,
 } from "../src/transaction/index.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
@@ -81,27 +79,6 @@ describe("encrypt rails run under a per-transaction key that is wiped after them
         encryptConfidentialTransfer(tx, {
           outputs: [recipientOutput()],
           assets: new AssetRegistry(),
-        }),
-      );
-      expectWiped(minted);
-    });
-
-    it(`${name} split`, async () => {
-      const keys = make();
-      const owner = ShieldedKeypair.generate();
-      const minted = trackMintedTxViewingKeys();
-      await withTransactionKey(keys, filled(1), (tx) =>
-        encryptSplit(tx, {
-          viewingPublicKey: keys.address().viewingPublicKey,
-          viewTag: filled(2),
-          bundle: {
-            ownerPublicKey: owner.signingPublicKey(),
-            numOutputs: 2,
-            assetId: 0n,
-            assetAmount: 5n,
-            blindingSeed: filled(4),
-            data: new Data(),
-          },
         }),
       );
       expectWiped(minted);

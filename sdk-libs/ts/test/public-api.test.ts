@@ -629,8 +629,6 @@ describe("relayed decryption surface", () => {
     for (const name of [
       "decodeOutputData",
       "decodeConfidential",
-      "decodeSplitBundle",
-      "decodeSplitEncrypted",
       "decodePlaintextTransfer",
       "decodeProofless",
       "decodeData",
@@ -644,6 +642,10 @@ describe("relayed decryption surface", () => {
       "encryptAnonymousTransfer",
       "anonymousRecipientFromUtxos",
       "anonymousSenderFromUtxos",
+      // Rust has no split scheme; a split is ordinary confidential outputs.
+      "decodeSplitBundle",
+      "encryptSplit",
+      "ConfidentialSplit",
     ]) {
       expect(transaction, name).not.toHaveProperty(name);
     }

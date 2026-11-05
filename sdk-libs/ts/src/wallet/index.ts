@@ -11,11 +11,7 @@ export {
 } from "../transaction/wallet/keys.js";
 export { LocalKeys } from "../client/keys.js";
 export type { ProofAuthority, ProofService, WalletKeys } from "../client/ports.js";
-export type {
-  EncryptedEnvelope,
-  EncryptedSplit,
-  EncryptedTransfer,
-} from "../transaction/wallet/encrypt-rails.js";
+export type { EncryptedEnvelope, EncryptedTransfer } from "../transaction/wallet/encrypt-rails.js";
 export {
   approveIntent,
   approveUnattended,

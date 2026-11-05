@@ -14,10 +14,8 @@ export {
 } from "./error.js";
 export {
   BN254_MODULUS_DEC,
-  ConfidentialSplit,
   Merge,
   PreparedMerge,
-  PreparedSplit,
   SENDER_SLOT_COUNT,
   SPP_SUPPORTED_SHAPES,
   SppProofInputs,
@@ -80,7 +78,6 @@ export {
   decryptTransactions,
   deserializeWallet,
   encryptConfidentialTransfer,
-  encryptSplit,
   serializeWallet,
 } from "./wallet/index.js";
 export {
@@ -99,7 +96,6 @@ export type {
   DeriveRequest,
   PrivateBalances,
   EncryptedEnvelope,
-  EncryptedSplit,
   EncryptedTransfer,
   Filter,
   PrivateTransaction,
@@ -109,7 +105,6 @@ export type {
   PrivateTransactionStatus,
   RingBalance,
   ShieldedKeys,
-  SplitBundlePlaintext,
   SyncReport,
   TransactionKeyRequest,
   SerializedSyncCheckpoint,
@@ -120,7 +115,7 @@ export type {
   WalletUtxo,
 } from "./wallet/index.js";
 /** Wire type prefixes, defined once beside the reader and writer that enforce them. */
-export { MERGE, SPLIT, TRANSFER, TRANSFER_PLAINTEXT } from "./serialization/codecs.js";
+export { MERGE, TRANSFER, TRANSFER_PLAINTEXT } from "./serialization/codecs.js";
 export {
   EncryptedScheme,
   decodeContextForSlot,
@@ -129,7 +124,6 @@ export {
   outputDataEncoding,
   plaintextTransferFromUtxos,
   prooflessFromUtxos,
-  splitBundleFromUtxos,
   type DecodeContext,
   type OutputDataEncoding,
   type OwnerContext,
@@ -147,11 +141,8 @@ export {
   decodeOutputData,
   decodePlaintextTransfer,
   decodeProofless,
-  decodeSplitBundle,
-  decodeSplitEncrypted,
   type ConfidentialOutputPlaintext,
   type ProoflessOutput,
-  type SplitEncryptedUtxos,
   type TransferPlaintextUtxos,
 } from "./serialization/index.js";
 

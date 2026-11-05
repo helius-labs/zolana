@@ -18,21 +18,14 @@ import {
   decodeConfidential,
   decodePlaintextTransfer,
   decodeProofless,
-  decodeSplitBundle,
   encodeConfidential,
   encodeOutputData,
   encodePlaintextTransfer,
   encodeProofless,
-  encodeSplitBundle,
   encryptConfidential,
-  encryptSplit,
 } from "../dist/transaction/serialization/index.js";
 
 const FIXTURES = new URL("../fixtures/", import.meta.url);
-
-function decryptSplit(viewing, txPublicKey, body, salt, slot) {
-  return viewing.decryptUtxo(body, txPublicKey, salt, slot);
-}
 
 function decryptConfidential(viewing, txPublicKey, body, salt, slot) {
   return decodeConfidential(viewing.decryptUtxo(body.subarray(33), txPublicKey, salt, slot));
@@ -167,29 +160,6 @@ const serialization = readJson("transaction/serialization-v1.json");
     confidentialBytes,
     encodeConfidential(
       decryptConfidential(recipientViewing, tx.publicKey(), confidentialBody, salt, 0),
-    ),
-  );
-
-  const split = {
-    ownerPublicKey: keypair.signingPublicKey(),
-    numOutputs: 3,
-    assetId: 1n,
-    assetAmount: 12n,
-    blindingSeed: outputSeed,
-    data,
-  };
-  const splitBytes = encodeSplitBundle(split);
-  const splitBody = encryptSplit(tx, keypair.viewingPublicKey(), splitBytes, salt, 3);
-  families.split.wincodeBytes = hex(splitBytes);
-  families.split.encryptedBodyBytes = hex(splitBody);
-  families.split.envelopeBorshBytes = hex(
-    encodeOutputData(EncryptedScheme.split, splitBody, "encrypted"),
-  );
-  families.split.roundTripVerified = verifiedRoundTrip(
-    "split",
-    splitBytes,
-    encodeSplitBundle(
-      decodeSplitBundle(decryptSplit(keypair.viewingKey(), tx.publicKey(), splitBody, salt, 3)),
     ),
   );
 

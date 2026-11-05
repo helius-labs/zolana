@@ -12,7 +12,7 @@
     },
     {
       "path": "transaction/serialization-v1.json",
-      "sha256": "1d7fc6c01964a75095cdb515c7b5399ff164ae51a509ee8c5c89c3e18b0528d5"
+      "sha256": "11d33fef9ecd699b28efa8c2004b0af681385cc576eb0cce3328ece0a3b98ec0"
     },
     {
       "path": "transaction/wallet-state-v1.json",
