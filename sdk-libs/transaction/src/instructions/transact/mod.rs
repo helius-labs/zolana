@@ -246,6 +246,24 @@ impl ConfidentialTransaction {
         }
 
         // 3. Read the first nullifier and initialize the transaction.
+        Self::initialized(inputs, addresses, payer, input_tree_ids)
+    }
+
+    /// One dummy input of `output_tree_id` seeds the outputs, SPP admits it only within that tree's dummy-input headroom.
+    pub fn new_deposit(output_tree_id: u16, payer: Address) -> Result<Self, TransactionError> {
+        let dummy = SppProofInputUtxo::dummy(output_tree_id)?;
+        let mut transaction =
+            Self::initialized(vec![dummy], Vec::new(), payer, vec![output_tree_id])?;
+        transaction.output_tree_id = output_tree_id;
+        Ok(transaction)
+    }
+
+    fn initialized(
+        inputs: Vec<SppProofInputUtxo>,
+        addresses: Vec<SppProofInputUtxo>,
+        payer: Address,
+        input_tree_ids: Vec<u16>,
+    ) -> Result<Self, TransactionError> {
         let first_nullifier = addresses
             .first()
             .map(|input| input.nullifier)
