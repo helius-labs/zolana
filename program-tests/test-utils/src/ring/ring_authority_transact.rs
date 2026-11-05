@@ -372,9 +372,7 @@ impl RingHarness {
                     && utxo.blinding == consumed.blinding
                     && utxo.ring_program_id == consumed.ring_program_id
             })
-            .ok_or_else(|| {
-                anyhow!("accepted authority input_utxo input disappeared from fixture")
-            })?;
+            .ok_or_else(|| anyhow!("accepted authority spend input disappeared from fixture"))?;
         actor.spendable.remove(position);
         Ok(())
     }

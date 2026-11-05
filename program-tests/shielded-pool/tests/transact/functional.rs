@@ -2492,6 +2492,6 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
     );
     assert!(
         event.spl_transfers.is_empty(),
-        "the input_utxo has no public funding"
+        "the spend has no public funding"
     );
 }

@@ -281,7 +281,7 @@ fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
         }],
         "SOL deposit emits exactly one deposit transfer with no asset"
     );
-    assert!(event.inputs.is_empty(), "deposit input_utxos no inputs");
+    assert!(event.inputs.is_empty(), "deposit spends no inputs");
     assert_eq!(event.outputs.len(), 1, "deposit appends exactly one output");
 }
 

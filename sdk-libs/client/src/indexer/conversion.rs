@@ -21,7 +21,7 @@ pub(super) fn ring_history_request(
 ) -> Result<GetRingsByTagsRequest, ClientError> {
     let limit = options
         .limit
-        .map(|value| Limit::new(u64::from(value)).map_err(|error| ClientError::Rpc(error.into())))
+        .map(|value| Limit::new(u64::from(value)).map_err(ClientError::InvalidPageLimit))
         .transpose()?;
     Ok(GetRingsByTagsRequest {
         tags: Vec::new(),
@@ -229,11 +229,13 @@ fn convert_user_record(
         )?,
         merge_encryption: MergeEncryptionScheme::from_byte(record.merge_encryption).ok_or_else(
             || {
-                ClientError::Rpc(format!(
-                    "invalid indexer field {}: unknown merge encryption scheme {}",
-                    field("mergeEncryption"),
-                    record.merge_encryption
-                ))
+                decode_error(
+                    &field("mergeEncryption"),
+                    format!(
+                        "unknown merge encryption scheme {}",
+                        record.merge_encryption
+                    ),
+                )
             },
         )?,
     })
@@ -288,14 +290,18 @@ fn fixed_bytes<const N: usize>(
 ) -> Result<[u8; N], ClientError> {
     let actual_len = bytes.len();
     bytes.try_into().map_err(|_| {
-        ClientError::Rpc(format!(
-            "invalid indexer field {field}: expected {expected_len} bytes, got {actual_len}"
-        ))
+        decode_error(
+            field,
+            format!("expected {expected_len} bytes, got {actual_len}"),
+        )
     })
 }
 
 fn decode_error(field: &str, error: impl std::fmt::Display) -> ClientError {
-    ClientError::Rpc(format!("invalid indexer field {field}: {error}"))
+    ClientError::InvalidIndexerField {
+        field: field.to_owned(),
+        reason: error.to_string(),
+    }
 }
 
 #[cfg(test)]

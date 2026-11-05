@@ -199,7 +199,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         );
         let order_input_utxo = order_utxo
             .to_input_utxo(localnet.tree_id, order_state.leaf_index)
-            .map_err(|e| anyhow!("order input_utxo: {e:?}"))?;
+            .map_err(|e| anyhow!("order spend: {e:?}"))?;
 
         let mut cancel = ConfidentialTransaction::from_proof_inputs_compact(
             vec![order_input_utxo],

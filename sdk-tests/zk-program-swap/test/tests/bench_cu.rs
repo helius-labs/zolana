@@ -568,7 +568,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
 
     let order_input_utxo = order_utxo
         .to_input_utxo(BENCH_TREE_ID, 0)
-        .expect("order input_utxo");
+        .expect("order spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: spr_transaction::Mint::SOL,
@@ -747,7 +747,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         order_utxo.destination_output(maker_address, destination_output_blinding);
     let order_input_utxo = order_utxo
         .to_input_utxo(BENCH_TREE_ID, 0)
-        .expect("order input_utxo");
+        .expect("order spend");
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: spr_transaction::Mint::SOL,
@@ -943,7 +943,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
 
     let order_input_utxo = order_utxo
         .to_input_utxo(BENCH_TREE_ID, 0)
-        .expect("order input_utxo");
+        .expect("order spend");
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
     let mut cancel =

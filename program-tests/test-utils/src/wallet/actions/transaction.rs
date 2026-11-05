@@ -16,7 +16,7 @@ use spr_transaction::{
     select_spend, Address, TransactionError, WalletUtxo, SOL_MINT,
 };
 
-use crate::wallet::{ApprovalRequest, SyncWalletAuthority, Wallet, WalletAuthority};
+use crate::wallet::{ApprovalRequest, SyncWalletAuthority, Wallet, WalletAuthority, WalletError};
 
 use solana_signer::Signer;
 use solana_transaction::versioned::VersionedTransaction;
@@ -153,7 +153,7 @@ pub struct WithdrawalParams<'a> {
 
 pub async fn create_transfer<R: AsyncRpc>(
     request: TransferParams<'_, R>,
-) -> Result<CreatedTransfer, ClientError> {
+) -> Result<CreatedTransfer, WalletError> {
     let recipient = try_resolve_registered_address_async(request.rpc, request.recipient).await?;
     let spl_token_program = if recipient.is_none() {
         resolve_asset_token_program_async(request.rpc, request.asset).await?
@@ -165,7 +165,7 @@ pub async fn create_transfer<R: AsyncRpc>(
 
 pub fn create_transfer_sync<R: Rpc>(
     request: TransferParams<'_, R>,
-) -> Result<CreatedTransfer, ClientError> {
+) -> Result<CreatedTransfer, WalletError> {
     let recipient = {
         let _t = timing::Phase::start("resolve_recipient", 0);
         try_resolve_registered_address(request.rpc, request.recipient)?
@@ -182,7 +182,7 @@ fn create_transfer_with_recipient<R>(
     request: TransferParams<'_, R>,
     recipient: Option<ResolvedAddress>,
     spl_token_program: Option<Pubkey>,
-) -> Result<CreatedTransfer, ClientError> {
+) -> Result<CreatedTransfer, WalletError> {
     let tree = resolve_spend_tree(
         request.wallet,
         request.asset,
@@ -237,7 +237,7 @@ fn create_transfer_with_recipient<R>(
 async fn resolve_asset_token_program_async<R: AsyncRpc + ?Sized>(
     rpc: &R,
     asset: Address,
-) -> Result<Option<Pubkey>, ClientError> {
+) -> Result<Option<Pubkey>, WalletError> {
     if asset == SOL_MINT {
         return Ok(None);
     }
@@ -245,7 +245,7 @@ async fn resolve_asset_token_program_async<R: AsyncRpc + ?Sized>(
     let account = rpc
         .get_account(Address::new_from_array(mint.to_bytes()))
         .await?
-        .ok_or(ClientError::AccountNotFound {
+        .ok_or(WalletError::AccountNotFound {
             address: mint.to_bytes(),
         })?;
     Ok(Some(validate_token_program_owner(mint, account.owner)?))
@@ -254,30 +254,30 @@ async fn resolve_asset_token_program_async<R: AsyncRpc + ?Sized>(
 fn resolve_asset_token_program<R: Rpc + ?Sized>(
     rpc: &R,
     asset: Address,
-) -> Result<Option<Pubkey>, ClientError> {
+) -> Result<Option<Pubkey>, WalletError> {
     if asset == SOL_MINT {
         return Ok(None);
     }
     let mint = Pubkey::new_from_array(asset.to_bytes());
     let account = rpc
         .get_account(Address::new_from_array(mint.to_bytes()))?
-        .ok_or(ClientError::AccountNotFound {
+        .ok_or(WalletError::AccountNotFound {
             address: mint.to_bytes(),
         })?;
     Ok(Some(validate_token_program_owner(mint, account.owner)?))
 }
 
-fn validate_token_program_owner(mint: Pubkey, owner: Pubkey) -> Result<Pubkey, ClientError> {
+fn validate_token_program_owner(mint: Pubkey, owner: Pubkey) -> Result<Pubkey, WalletError> {
     if owner == Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID)
         || owner == Pubkey::new_from_array(SPL_TOKEN_2022_PROGRAM_ID)
     {
         Ok(owner)
     } else {
-        Err(ClientError::UnsupportedSplTokenProgram { mint, owner })
+        Err(WalletError::UnsupportedSplTokenProgram { mint, owner })
     }
 }
 
-pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdrawal, ClientError> {
+pub fn create_withdrawal(request: WithdrawalParams<'_>) -> Result<CreatedWithdrawal, WalletError> {
     validate_withdrawal_legs(&request.legs)?;
     let required = aggregate_withdrawal_amounts(&request.legs)?;
     let (tree, inputs) = select_withdrawal_inputs(request.wallet, &required)?;
@@ -332,7 +332,7 @@ pub struct SplitParams<'a> {
 /// commitment hash or, when omitted, as the largest unspent plain utxo of the
 /// asset on the single spend tree. The utxo must be plain (no ring binding, no
 /// attached data) and its amount evenly divisible into `parts`.
-pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, ClientError> {
+pub fn create_split(request: SplitParams<'_>) -> Result<CreatedSplit, WalletError> {
     // A split re-mints into 2..=16 equal utxos. Reject an out-of-range arity up
     // front so a direct SDK caller gets a clear error before utxo selection;
     let max_parts = Shape::IN1_OUT16.n_outputs() as u8;
@@ -385,19 +385,19 @@ fn select_split_utxo(
     asset: Address,
     parts: u8,
     input: Option<[u8; 32]>,
-) -> Result<(WalletUtxo, u64), ClientError> {
+) -> Result<(WalletUtxo, u64), WalletError> {
     let parts_u64 = u64::from(parts);
     let candidate = match input {
         Some(hash) => {
             let entry = wallet
                 .unspent()
                 .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == hash)
-                .ok_or(ClientError::InputUtxoUnavailable { hash })?;
+                .ok_or(WalletError::InputUtxoUnavailable { hash })?;
             // The utxo exists but lives on another tree: report the mismatch
             // rather than "unavailable", which the owner can see is untrue in
             // their own `wallet utxos` listing.
             if pda::tree(entry.tree_id()) != tree {
-                return Err(ClientError::InputUtxoTreeMismatch {
+                return Err(WalletError::InputUtxoTreeMismatch {
                     hash,
                     utxo_tree: pda::tree(entry.tree_id()),
                     spend_tree: tree,
@@ -434,13 +434,13 @@ fn select_split_utxo(
             match (largest_divisible, largest_plain) {
                 (Some(entry), _) => entry,
                 (None, Some(entry)) => {
-                    return Err(ClientError::SplitNotDivisible {
+                    return Err(WalletError::SplitNotDivisible {
                         amount: entry.utxo.amount,
                         parts,
                     })
                 }
                 (None, None) => {
-                    return Err(ClientError::InsufficientBalance {
+                    return Err(WalletError::InsufficientBalance {
                         requested: 1,
                         available: 0,
                     })
@@ -451,15 +451,15 @@ fn select_split_utxo(
 
     let hash = candidate.utxo_hash;
     if candidate.utxo.ring_program_id.is_some() {
-        return Err(ClientError::SplitInputRingMismatch { hash });
+        return Err(WalletError::SplitInputRingMismatch { hash });
     }
     if !candidate.is_plain() {
-        return Err(ClientError::SplitInputHasData { hash });
+        return Err(WalletError::SplitInputHasData { hash });
     }
 
     let amount = candidate.utxo.amount;
     if parts == 0 || amount % parts_u64 != 0 {
-        return Err(ClientError::SplitNotDivisible { amount, parts });
+        return Err(WalletError::SplitNotDivisible { amount, parts });
     }
 
     Ok((candidate.clone(), amount / parts_u64))
@@ -483,7 +483,7 @@ pub struct SelectedSpendInputs {
 pub async fn select_input_utxos<A: WalletAuthority + ?Sized>(
     request: SpendInputParams<'_>,
     authority: &A,
-) -> Result<SelectedSpendInputs, ClientError> {
+) -> Result<SelectedSpendInputs, WalletError> {
     let (trees, inputs) = unsigned_input_utxos(request)?;
     let nullifier_key = authority.spend_nullifier_key().await?;
     Ok(SelectedSpendInputs {
@@ -495,7 +495,7 @@ pub async fn select_input_utxos<A: WalletAuthority + ?Sized>(
 pub fn select_input_utxos_sync<A: SyncWalletAuthority + ?Sized>(
     request: SpendInputParams<'_>,
     authority: &A,
-) -> Result<SelectedSpendInputs, ClientError> {
+) -> Result<SelectedSpendInputs, WalletError> {
     let (trees, inputs) = unsigned_input_utxos(request)?;
     let nullifier_key = authority.spend_nullifier_key()?;
     Ok(SelectedSpendInputs {
@@ -506,7 +506,7 @@ pub fn select_input_utxos_sync<A: SyncWalletAuthority + ?Sized>(
 
 fn unsigned_input_utxos(
     request: SpendInputParams<'_>,
-) -> Result<(Vec<Address>, Vec<WalletUtxo>), ClientError> {
+) -> Result<(Vec<Address>, Vec<WalletUtxo>), WalletError> {
     let mut selected = select_spend(request.wallet.unspent(), request.asset, request.amount)?;
     let mut trees = Vec::new();
     for entry in &selected {
@@ -525,13 +525,13 @@ fn unsigned_input_utxos(
 fn validate_input_keys(
     inputs: Vec<WalletUtxo>,
     nullifier_key: NullifierKey,
-) -> Result<Vec<WalletUtxo>, ClientError> {
+) -> Result<Vec<WalletUtxo>, WalletError> {
     let public_key = nullifier_key.pubkey()?;
     for (index, input) in inputs.iter().enumerate() {
         if input.nullifier_pubkey != public_key
             || nullifier_key.nullifier(&input.utxo_hash, &input.utxo.blinding)? != input.nullifier
         {
-            return Err(ClientError::InputNullifierMismatch { index });
+            return Err(ClientError::InputNullifierMismatch { index }.into());
         }
     }
     Ok(inputs)
@@ -549,12 +549,12 @@ pub async fn build_private_transaction<
     authority: &A,
     client: &AsyncSprClient<R, I>,
     fee_payer: Pubkey,
-) -> Result<UnsignedMessage, ClientError> {
+) -> Result<UnsignedMessage, WalletError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
-    Submission::new(&shielded, fee_payer, &nullifier_key)
+    Ok(Submission::new(&shielded, fee_payer, &nullifier_key)
         .finish_unsigned(client)
-        .await
+        .await?)
 }
 
 pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc, I: AsyncIndexer>(
@@ -563,7 +563,7 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc, 
     authority: &A,
     client: &AsyncSprClient<R, I>,
     fee_payer: &dyn Signer,
-) -> Result<VersionedTransaction, ClientError> {
+) -> Result<VersionedTransaction, WalletError> {
     sign_private_transaction_with_signers(transaction, wallet, authority, client, fee_payer, &[])
         .await
 }
@@ -581,16 +581,16 @@ pub async fn sign_private_transaction_with_signers<
     client: &AsyncSprClient<R, I>,
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
-) -> Result<VersionedTransaction, ClientError> {
+) -> Result<VersionedTransaction, WalletError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
     let unsigned = Submission::new(&shielded, fee_payer.pubkey(), &nullifier_key)
         .finish_unsigned(client)
         .await?;
-    sign_transaction(
+    Ok(sign_transaction(
         unsigned.message,
         &native_signers(fee_payer, additional_native_signers),
-    )
+    )?)
 }
 
 /// Build the unsigned v1 message for a private transaction, for a signer that
@@ -605,10 +605,10 @@ pub fn build_private_transaction_sync<
     authority: &A,
     client: &SprClient<R, I>,
     fee_payer: Pubkey,
-) -> Result<UnsignedMessage, ClientError> {
+) -> Result<UnsignedMessage, WalletError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
     let nullifier_key = authority.spend_nullifier_key()?;
-    Submission::new(&shielded, fee_payer, &nullifier_key).finish_unsigned_sync(client)
+    Ok(Submission::new(&shielded, fee_payer, &nullifier_key).finish_unsigned_sync(client)?)
 }
 
 pub fn sign_private_transaction_sync<
@@ -621,7 +621,7 @@ pub fn sign_private_transaction_sync<
     authority: &A,
     client: &SprClient<R, I>,
     fee_payer: &dyn Signer,
-) -> Result<VersionedTransaction, ClientError> {
+) -> Result<VersionedTransaction, WalletError> {
     sign_private_transaction_sync_with_signers(
         transaction,
         wallet,
@@ -644,7 +644,7 @@ pub fn sign_private_transaction_sync_with_signers<
     client: &SprClient<R, I>,
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
-) -> Result<VersionedTransaction, ClientError> {
+) -> Result<VersionedTransaction, WalletError> {
     let shielded = {
         let _t = timing::Phase::start("sign_shielded", 0);
         sign_shielded_transaction_sync(transaction, wallet, authority)?
@@ -657,10 +657,10 @@ pub fn sign_private_transaction_sync_with_signers<
         Submission::new(&shielded, fee_payer.pubkey(), &nullifier_key)
             .finish_unsigned_sync(client)?
     };
-    sign_transaction(
+    Ok(sign_transaction(
         unsigned.message,
         &native_signers(fee_payer, additional_native_signers),
-    )
+    )?)
 }
 
 fn native_signers<'a>(
@@ -678,7 +678,7 @@ pub async fn sign_shielded_transaction<A: WalletAuthority + ?Sized>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-) -> Result<SignedPrivateTransaction, ClientError> {
+) -> Result<SignedPrivateTransaction, WalletError> {
     validate_unsigned_inputs(wallet, transaction.tree, &transaction.inputs)?;
     let address = authority.shielded_address().await?;
     let nullifier_key = authority.spend_nullifier_key().await?;
@@ -734,7 +734,7 @@ pub fn sign_shielded_transaction_sync<A: SyncWalletAuthority + ?Sized>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
-) -> Result<SignedPrivateTransaction, ClientError> {
+) -> Result<SignedPrivateTransaction, WalletError> {
     futures::executor::block_on(sign_shielded_transaction(transaction, wallet, authority))
 }
 
@@ -745,7 +745,7 @@ async fn encrypt_transaction<A: WalletAuthority + ?Sized>(
     transaction: ConfidentialTransaction,
     authority: &A,
     approval_summary: String,
-) -> Result<SppProofInputs, ClientError> {
+) -> Result<SppProofInputs, WalletError> {
     // The per-transaction viewing key is taken through the key port, so the
     // encryption reads no long-lived secret of its own.
     let keys = LocalShieldedKeys::new(
@@ -766,7 +766,7 @@ fn withdrawal_target(
     recipient: Pubkey,
     asset: Address,
     spl_token_program: Option<Pubkey>,
-) -> Result<(SettlementTarget, TransactInterfaceTransferAccounts), ClientError> {
+) -> Result<(SettlementTarget, TransactInterfaceTransferAccounts), WalletError> {
     if asset == SOL_MINT {
         return Ok((
             SettlementTarget::Sol {
@@ -795,7 +795,7 @@ fn withdrawal_target(
     ))
 }
 
-fn validate_withdrawal_legs(legs: &[WithdrawalLeg]) -> Result<(), ClientError> {
+fn validate_withdrawal_legs(legs: &[WithdrawalLeg]) -> Result<(), WalletError> {
     if legs.is_empty() {
         return Err(TransactionError::NoInterfaceTransfers.into());
     }
@@ -816,7 +816,7 @@ fn validate_withdrawal_legs(legs: &[WithdrawalLeg]) -> Result<(), ClientError> {
 
 fn aggregate_withdrawal_amounts(
     legs: &[WithdrawalLeg],
-) -> Result<Vec<(Address, u64)>, ClientError> {
+) -> Result<Vec<(Address, u64)>, WalletError> {
     let mut required = Vec::<(Address, u64)>::new();
     for leg in legs {
         if let Some((_, amount)) = required.iter_mut().find(|(asset, _)| *asset == leg.asset) {
@@ -833,7 +833,7 @@ fn aggregate_withdrawal_amounts(
 fn select_withdrawal_inputs(
     wallet: &Wallet,
     required: &[(Address, u64)],
-) -> Result<(Address, Vec<WalletUtxo>), ClientError> {
+) -> Result<(Address, Vec<WalletUtxo>), WalletError> {
     let (first_asset, _) = required
         .first()
         .copied()
@@ -852,11 +852,11 @@ fn select_withdrawal_inputs(
                         && entry.is_default_ring_spendable()
                 })
                 .map(|entry| entry.utxo_hash)
-                .ok_or(ClientError::InsufficientBalance {
+                .ok_or(WalletError::InsufficientBalance {
                     requested: *amount,
                     available: 0,
                 })?;
-            return Err(ClientError::InputUtxoTreeMismatch {
+            return Err(WalletError::InputUtxoTreeMismatch {
                 hash,
                 utxo_tree: asset_tree,
                 spend_tree: tree,
@@ -881,12 +881,12 @@ fn named_input_tree(
     wallet: &Wallet,
     asset: Address,
     hash: [u8; 32],
-) -> Result<Address, ClientError> {
+) -> Result<Address, WalletError> {
     wallet
         .unspent()
         .find(|entry| entry.utxo.asset.asset == asset && entry.utxo_hash == hash)
         .map(|entry| pda::tree(entry.tree_id()))
-        .ok_or(ClientError::InputUtxoUnavailable { hash })
+        .ok_or(WalletError::InputUtxoUnavailable { hash })
 }
 
 /// The distinct pool trees holding eligible funds, in the order a spend
@@ -897,7 +897,7 @@ fn resolve_spend_trees(
     wallet: &Wallet,
     asset: Address,
     eligible: impl Fn(&WalletUtxo) -> bool,
-) -> Result<Vec<Address>, ClientError> {
+) -> Result<Vec<Address>, WalletError> {
     let trees: BTreeSet<Address> = wallet
         .unspent()
         .filter(|entry| entry.utxo.asset.asset == asset && eligible(entry))
@@ -905,13 +905,13 @@ fn resolve_spend_trees(
         .collect();
 
     if trees.is_empty() {
-        return Err(ClientError::InsufficientBalance {
+        return Err(WalletError::InsufficientBalance {
             requested: 1,
             available: 0,
         });
     }
     if trees.len() > MAX_INPUT_TREES {
-        return Err(ClientError::AmbiguousTree {
+        return Err(WalletError::AmbiguousTree {
             asset,
             tree_count: trees.len(),
         });
@@ -926,10 +926,10 @@ fn resolve_spend_tree(
     wallet: &Wallet,
     asset: Address,
     eligible: impl Fn(&WalletUtxo) -> bool,
-) -> Result<Address, ClientError> {
+) -> Result<Address, WalletError> {
     match resolve_spend_trees(wallet, asset, eligible)?.as_slice() {
         [tree] => Ok(*tree),
-        trees => Err(ClientError::AmbiguousTree {
+        trees => Err(WalletError::AmbiguousTree {
             asset,
             tree_count: trees.len(),
         }),
@@ -942,7 +942,7 @@ fn select_inputs(
     asset: Address,
     amount: u64,
     eligible: impl Fn(&WalletUtxo) -> bool,
-) -> Result<Vec<WalletUtxo>, ClientError> {
+) -> Result<Vec<WalletUtxo>, WalletError> {
     let mut selected = Vec::new();
     let mut available = 0u64;
     for entry in wallet.unspent().filter(|entry| {
@@ -960,7 +960,7 @@ fn select_inputs(
         }
     }
 
-    Err(ClientError::InsufficientBalance {
+    Err(WalletError::InsufficientBalance {
         requested: amount,
         available,
     })
@@ -970,7 +970,7 @@ fn validate_unsigned_inputs(
     wallet: &Wallet,
     tree: Address,
     inputs: &[WalletUtxo],
-) -> Result<(), ClientError> {
+) -> Result<(), WalletError> {
     for (index, input) in inputs.iter().enumerate() {
         let available = wallet.unspent().any(|entry| {
             pda::tree(entry.tree_id()) == tree
@@ -981,7 +981,7 @@ fn validate_unsigned_inputs(
                 && entry.utxo == input.utxo
         });
         if !available {
-            return Err(ClientError::UnsignedInputUnavailable { index });
+            return Err(WalletError::UnsignedInputUnavailable { index });
         }
     }
     Ok(())
@@ -1126,7 +1126,7 @@ mod tests {
         wallet
     }
 
-    fn withdrawal_error(result: Result<CreatedWithdrawal, ClientError>) -> ClientError {
+    fn withdrawal_error(result: Result<CreatedWithdrawal, WalletError>) -> WalletError {
         match result {
             Err(error) => error,
             Ok(_) => panic!("withdrawal was expected to fail"),
@@ -1343,7 +1343,9 @@ mod tests {
         }));
         assert!(matches!(
             empty,
-            ClientError::Transaction(TransactionError::NoInterfaceTransfers)
+            WalletError::Client(ClientError::Transaction(
+                TransactionError::NoInterfaceTransfers
+            ))
         ));
 
         let too_many = withdrawal_error(create_withdrawal(WithdrawalParams {
@@ -1360,10 +1362,10 @@ mod tests {
         }));
         assert!(matches!(
             too_many,
-            ClientError::Transaction(TransactionError::TooManyInterfaceTransfers {
+            WalletError::Client(ClientError::Transaction(TransactionError::TooManyInterfaceTransfers {
                 got,
                 max
-            }) if got == MAX_INTERFACE_TRANSFERS + 1 && max == MAX_INTERFACE_TRANSFERS
+            })) if got == MAX_INTERFACE_TRANSFERS + 1 && max == MAX_INTERFACE_TRANSFERS
         ));
 
         let zero = withdrawal_error(create_withdrawal(WithdrawalParams {
@@ -1378,7 +1380,9 @@ mod tests {
         }));
         assert!(matches!(
             zero,
-            ClientError::Transaction(TransactionError::ZeroInterfaceTransferAmount)
+            WalletError::Client(ClientError::Transaction(
+                TransactionError::ZeroInterfaceTransferAmount
+            ))
         ));
     }
 
@@ -1597,7 +1601,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            ClientError::InsufficientBalance {
+            WalletError::InsufficientBalance {
                 requested: 11,
                 available: 10
             }
@@ -1641,7 +1645,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            ClientError::InputUtxoTreeMismatch {
+            WalletError::InputUtxoTreeMismatch {
                 utxo_tree,
                 spend_tree,
                 ..
@@ -1676,7 +1680,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            ClientError::UnsignedInputUnavailable { index: 0 }
+            WalletError::UnsignedInputUnavailable { index: 0 }
         ));
     }
 
@@ -1770,7 +1774,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            ClientError::AmbiguousTree {
+            WalletError::AmbiguousTree {
                 asset,
                 tree_count: 2,
             } if asset == SOL_MINT
@@ -1834,7 +1838,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            ClientError::SplitNotDivisible {
+            WalletError::SplitNotDivisible {
                 amount: 10,
                 parts: 3
             }
@@ -1863,7 +1867,7 @@ mod tests {
             Ok(_) => panic!("a utxo carrying data must be rejected"),
         };
 
-        assert!(matches!(error, ClientError::SplitInputHasData { .. }));
+        assert!(matches!(error, WalletError::SplitInputHasData { .. }));
     }
 
     #[test]
@@ -1886,7 +1890,7 @@ mod tests {
             Ok(_) => panic!("a ring-bound utxo must be rejected"),
         };
 
-        assert!(matches!(error, ClientError::SplitInputRingMismatch { .. }));
+        assert!(matches!(error, WalletError::SplitInputRingMismatch { .. }));
     }
 
     #[test]
@@ -2027,7 +2031,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            ClientError::SplitNotDivisible {
+            WalletError::SplitNotDivisible {
                 amount: 1000,
                 parts: 3
             }
@@ -2108,7 +2112,7 @@ mod tests {
                 50,
                 WalletUtxo::is_default_ring_spendable
             ),
-            Err(ClientError::InsufficientBalance {
+            Err(WalletError::InsufficientBalance {
                 requested: 50,
                 available: 10
             })
@@ -2156,12 +2160,12 @@ mod tests {
                 },
                 &keypair
             ),
-            Err(ClientError::Transaction(
+            Err(WalletError::Client(ClientError::Transaction(
                 TransactionError::InsufficientBalance {
                     requested: 50,
                     available: 25
                 }
-            ))
+            )))
         ));
     }
 
@@ -2318,7 +2322,7 @@ mod tests {
                     asset: SOL_MINT,
                     amount: u64::try_from(MAX_INPUT_TREES).unwrap() * 10 + 1,
                 }, &keypair),
-            Err(ClientError::Transaction(TransactionError::TooManyInputTrees { got, max }))
+            Err(WalletError::Client(ClientError::Transaction(TransactionError::TooManyInputTrees { got, max })))
                 if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
         ));
     }
@@ -2356,12 +2360,12 @@ mod tests {
                 },
                 &keypair
             ),
-            Err(ClientError::Transaction(
+            Err(WalletError::Client(ClientError::Transaction(
                 TransactionError::InsufficientBalance {
                     requested: 60,
                     available: 20
                 }
-            ))
+            )))
         ));
     }
 
@@ -2404,7 +2408,7 @@ mod tests {
             },
             &keypair,
         )
-        .expect("the covering note input_utxos alone");
+        .expect("the covering note spends alone");
         assert_eq!(amounts(&selected.inputs), vec![100]);
     }
 
@@ -2423,7 +2427,9 @@ mod tests {
                 },
                 &keypair
             ),
-            Err(ClientError::Transaction(TransactionError::ZeroSpendAmount))
+            Err(WalletError::Client(ClientError::Transaction(
+                TransactionError::ZeroSpendAmount
+            )))
         ));
     }
 
@@ -2447,7 +2453,7 @@ mod tests {
         );
         assert!(matches!(
             error,
-            Err(ClientError::Transaction(TransactionError::SpendNeedsMerge { max_inputs, .. }))
+            Err(WalletError::Client(ClientError::Transaction(TransactionError::SpendNeedsMerge { max_inputs, .. })))
                 if max_inputs == widest
         ));
     }
@@ -2464,7 +2470,7 @@ mod tests {
         bind_to_ring(&mut wallet, ring_bound, RING_TREE_ID);
 
         let tree = resolve_spend_tree(&wallet, SOL_MINT, WalletUtxo::is_plain)
-            .expect("the ring utxo on another tree must not block a plain input_utxo");
+            .expect("the ring utxo on another tree must not block a plain spend");
 
         assert_eq!(tree, test_tree());
     }
@@ -2475,7 +2481,7 @@ mod tests {
         let wallet = wallet_with_ring_balance_on_another_tree(&keypair);
 
         let tree = resolve_spend_tree(&wallet, SOL_MINT, WalletUtxo::is_default_ring_spendable)
-            .expect("a ring balance on another tree must not make the input_utxo ambiguous");
+            .expect("a ring balance on another tree must not make the spend ambiguous");
 
         assert_eq!(tree, test_tree());
     }
@@ -2571,7 +2577,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            ClientError::InsufficientBalance { available: 0, .. }
+            WalletError::InsufficientBalance { available: 0, .. }
         ));
     }
 }
