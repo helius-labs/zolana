@@ -9,7 +9,7 @@ use spr_user_registry_interface::{user_record_pda, MergeEncryptionScheme};
 use crate::{
     error::ClientError,
     rpc::{
-        Context, EncryptedUtxoMatch, GetShieldedTransactionsBySignatureResponse,
+        EncryptedUtxoMatch, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, IndexedShieldedTransaction,
         MerkleContext, MerkleProof, NonInclusionProof, OutputContext, OutputSlot,
         RingHistoryOptions, ShieldedTransaction, UserRecord,
@@ -31,13 +31,6 @@ pub(super) fn ring_history_request(
         ring_program_id: Some(SerializablePubkey(options.ring_program_id)),
         min_context_slot: None,
     })
-}
-
-pub(super) fn convert_context(context: spr_api::Context) -> Context {
-    Context {
-        block_time: context.block_time,
-        slot: context.slot,
-    }
 }
 
 pub(super) fn convert_encrypted_utxo_match(
@@ -92,7 +85,7 @@ pub(super) fn convert_shielded_transactions_by_signature_response(
     response: spr_api::GetShieldedTransactionsBySignatureResponse,
 ) -> Result<GetShieldedTransactionsBySignatureResponse, ClientError> {
     Ok(GetShieldedTransactionsBySignatureResponse {
-        context: convert_context(response.context),
+        context: response.context,
         output_tree_id: response.output_tree_id,
         transactions: response
             .transactions
@@ -197,7 +190,7 @@ pub(super) fn convert_user_records_response(
     response: spr_api::GetUserRecordsResponse,
 ) -> Result<GetUserRecordsResponse, ClientError> {
     Ok(GetUserRecordsResponse {
-        context: convert_context(response.context),
+        context: response.context,
         records: response
             .records
             .into_iter()
