@@ -39,7 +39,6 @@ function changeSlots(
  * crate root does.
  */
 export const TRANSFER = 1;
-export const SPLIT = 2;
 export const MERGE = 3;
 export const TRANSFER_PLAINTEXT = 4;
 
@@ -50,7 +49,6 @@ export const EncryptedScheme = Object.freeze({
   anonymousSender: 2,
   confidential: 3,
   ringConfidential: 4,
-  split: 5,
   merge: 6,
   plaintextTransfer: 7,
   ringDeposit: 8,
@@ -68,7 +66,6 @@ export function encryptedSchemeFromByte(byte: number): EncryptedScheme {
     case EncryptedScheme.anonymousSender:
     case EncryptedScheme.confidential:
     case EncryptedScheme.ringConfidential:
-    case EncryptedScheme.split:
     case EncryptedScheme.merge:
     case EncryptedScheme.plaintextTransfer:
     case EncryptedScheme.ringDeposit:
@@ -114,22 +111,6 @@ export interface ConfidentialOutputPlaintext {
   readonly blinding: Bytes32;
   readonly ringProgramId?: Address;
   readonly data: Data;
-}
-
-export interface SplitBundlePlaintext {
-  readonly ownerPublicKey: ShieldedPublicKey;
-  readonly numOutputs: number;
-  readonly assetId: bigint;
-  readonly assetAmount: bigint;
-  readonly blindingSeed: Bytes32;
-  readonly data: Data;
-}
-
-export interface SplitEncryptedUtxos {
-  readonly typePrefix: number;
-  readonly txViewingPublicKey: X25519PublicKey;
-  readonly salt: Bytes16;
-  readonly ciphertext: Uint8Array;
 }
 
 export interface TransferPlaintextSplChange {
@@ -570,99 +551,6 @@ export function plaintextTransferUtxos(
   return values;
 }
 
-export function encodeSplitBundle(value: SplitBundlePlaintext): Uint8Array {
-  const writer = new Writer();
-  writer.bytes(value.ownerPublicKey.toBytes());
-  writer.u8(value.numOutputs);
-  writer.u64(value.assetId);
-  writer.u64(value.assetAmount);
-  writer.bytes(checked<Bytes32>(value.blindingSeed, 32, "blinding seed"));
-  writeData(writer, value.data);
-  return writer.finish();
-}
-
-export function decodeSplitBundle(bytes: Uint8Array): SplitBundlePlaintext {
-  const reader = new Reader(bytes);
-  const result: SplitBundlePlaintext = {
-    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
-    numOutputs: reader.u8(),
-    assetId: reader.u64(),
-    assetAmount: reader.u64(),
-    blindingSeed: reader.take(32) as Bytes32,
-    data: readDataRecords(reader),
-  };
-  reader.exact();
-  return result;
-}
-
-export function encodeSplitEncrypted(value: SplitEncryptedUtxos): Uint8Array {
-  if (value.typePrefix !== SPLIT) {
-    throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", {
-      typePrefix: value.typePrefix,
-    });
-  }
-  const writer = new Writer();
-  writer.u8(value.typePrefix);
-  writer.bytes(value.txViewingPublicKey.toBytes());
-  writer.bytes(checked<Bytes16>(value.salt, 16, "salt"));
-  if (value.ciphertext.length > 0xffff) {
-    throw new TransactionError("TRANSACTION_INVALID_DATA_LENGTH", {
-      name: "split ciphertext",
-      maximum: 0xffff,
-      actual: value.ciphertext.length,
-    });
-  }
-  writer.u16(value.ciphertext.length);
-  writer.bytes(value.ciphertext);
-  return writer.finish();
-}
-
-export function decodeSplitEncrypted(bytes: Uint8Array): SplitEncryptedUtxos {
-  const reader = new Reader(bytes);
-  const typePrefix = reader.u8();
-  if (typePrefix !== SPLIT) {
-    throw new TransactionError("TRANSACTION_BAD_DISCRIMINATOR", { typePrefix });
-  }
-  const txViewingPublicKey = X25519PublicKey.fromBytes(reader.take(33) as Bytes33);
-  const salt = reader.take(16) as Bytes16;
-  const ciphertext = reader.take(reader.u16());
-  reader.exact();
-  return { typePrefix, txViewingPublicKey, salt, ciphertext };
-}
-
-/**
- * Rust `SplitBundlePlaintext::into_utxos`: the bundle discloses the derived
- * output seed and every slot's blinding follows from it, the transaction's
- * first nullifier, and the slot index.
- */
-export function splitBundleUtxos(
-  value: SplitBundlePlaintext,
-  assets: AssetRegistry,
-  firstNullifier: Bytes32,
-  ringProgramId?: Address,
-): readonly Utxo[] {
-  if (value.numOutputs === 0 && !value.data.isEmpty()) {
-    throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
-  }
-  if (value.numOutputs > MAX_OUTPUT_SLOTS) {
-    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
-  }
-  const ring = resolveRingProgramId(ringProgramId, value.data);
-  const asset = assets.resolve(value.assetId);
-  return Array.from(
-    { length: value.numOutputs },
-    (_, position) =>
-      new Utxo({
-        owner: value.ownerPublicKey,
-        asset,
-        amount: value.assetAmount,
-        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, position),
-        data: value.data,
-        ...(ring === undefined ? {} : { ringProgramId: ring }),
-      }),
-  );
-}
-
 function encodingAllowed(scheme: EncryptedScheme, encoding: OutputDataEncoding): boolean {
   return scheme === EncryptedScheme.merge
     ? encoding === mergeOutputDataEncoding(false) || encoding === mergeOutputDataEncoding(true)
@@ -861,16 +749,6 @@ export function encryptConfidential(
       tx.encryptSlot(recipient, encodeConfidential(value), salt, slotIndex),
     ),
   );
-}
-
-export function encryptSplit(
-  tx: ViewingKeyLike,
-  recipient: X25519PublicKey,
-  plaintext: Uint8Array,
-  salt: Bytes16,
-  slotIndex: number,
-): Uint8Array {
-  return inTransactionCategory(() => tx.encryptSlot(recipient, plaintext, salt, slotIndex));
 }
 
 /**
@@ -1087,42 +965,6 @@ export function plaintextTransferFromUtxos(
   };
 }
 
-export function splitBundleFromUtxos(
-  utxos: readonly Utxo[],
-  owner: OwnerContext,
-  cx: SeedBundleContext,
-): SplitBundlePlaintext {
-  const first = utxos[0];
-  if (first === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
-  if (utxos.length > MAX_OUTPUT_SLOTS) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
-  const blindingSeed = checked<Bytes32>(cx.blindingSeed, 32, "blinding seed");
-  const firstNullifier = checked<Bytes32>(cx.firstNullifier, 32, "first nullifier");
-  for (const [index, utxo] of utxos.entries()) {
-    validateOwner(utxo, owner.owner, index);
-    validateRing(utxo, owner.ringProgramId, index);
-    if (utxo.asset !== first.asset) {
-      throw new TransactionError("TRANSACTION_OUTPUT_ASSET_MISMATCH", { index });
-    }
-    if (utxo.amount !== first.amount) {
-      throw new TransactionError("TRANSACTION_OUTPUT_AMOUNT_MISMATCH", { index });
-    }
-    if (!sameData(utxo.data, first.data)) {
-      throw new TransactionError("TRANSACTION_OUTPUT_DATA_MISMATCH", { index });
-    }
-    if (!equalBytes(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, index))) {
-      throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", { index });
-    }
-  }
-  return {
-    ownerPublicKey: owner.owner,
-    numOutputs: utxos.length,
-    assetId: owner.assets.assetId(first.asset),
-    assetAmount: first.amount,
-    blindingSeed,
-    data: new Data(first.data.records()),
-  };
-}
-
 export function prooflessFromUtxos(
   utxos: readonly Utxo[],
   owner: OwnerContext,
@@ -1146,16 +988,4 @@ export function prooflessFromUtxos(
     ...(ringData === undefined ? {} : { ringData }),
     ...(memo === undefined ? {} : { memo }),
   };
-}
-
-function sameData(left: Data, right: Data): boolean {
-  const leftRecords = left.records();
-  const rightRecords = right.records();
-  if (leftRecords.length !== rightRecords.length) return false;
-  return leftRecords.every((record, index) => {
-    const other = rightRecords[index];
-    return (
-      other !== undefined && record.kind === other.kind && equalBytes(record.bytes, other.bytes)
-    );
-  });
 }

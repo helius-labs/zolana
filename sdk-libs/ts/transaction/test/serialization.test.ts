@@ -18,24 +18,16 @@ import {
   decodeOutputData,
   decodePlaintextTransfer,
   decodeProofless,
-  decodeSplitBundle,
   encodeConfidential,
   encodeOutputData,
   encodePlaintextTransfer,
   encodeProofless,
-  encodeSplitBundle,
   encryptedSchemeFromByte,
   encryptConfidential,
-  encryptSplit,
   plaintextTransferFromUtxos,
   plaintextTransferUtxos,
-  splitBundleUtxos,
 } from "../../src/transaction/serialization/index.js";
-import {
-  decodeSplitEncrypted,
-  encodeSplitEncrypted,
-  splitEmbeddedKey,
-} from "../../src/transaction/serialization/codecs.js";
+import { splitEmbeddedKey } from "../../src/transaction/serialization/codecs.js";
 import { fixtureArray, fixtureObject, fixtureString, hexBytes, readFixture } from "./fixture.js";
 
 function hex(bytes: Uint8Array): string {
@@ -163,34 +155,6 @@ describe("manifest-verified transaction serialization", () => {
       ),
     ).toEqual(confidential);
 
-    const split = {
-      ownerPublicKey: keypair.signingPublicKey(),
-      numOutputs: 3,
-      assetId: 1n,
-      assetAmount: 12n,
-      blindingSeed: outputSeed,
-      data,
-    };
-    const splitBytes = encodeSplitBundle(split);
-    const splitExpected = family(families, "split");
-    expect(hex(splitBytes)).toBe(fixtureString(splitExpected, "wincodeBytes"));
-    const splitBody = encryptSplit(tx, keypair.viewingPublicKey(), splitBytes, salt, 3);
-    expect(hex(splitBody)).toBe(fixtureString(splitExpected, "encryptedBodyBytes"));
-    expect(hex(encodeOutputData(EncryptedScheme.split, splitBody, "encrypted"))).toBe(
-      fixtureString(splitExpected, "envelopeBorshBytes"),
-    );
-    const decodedSplit = decodeSplitBundle(
-      keypair.viewingKey().decryptUtxo(splitBody, tx.publicKey(), salt, 3),
-    );
-    expect(decodedSplit).toEqual(split);
-    expect(decodeSplitBundle(encodeSplitBundle(split))).toMatchObject({
-      numOutputs: 3,
-      assetAmount: 12n,
-    });
-    expect(
-      splitBundleUtxos(decodedSplit, assets, firstNullifier).map((utxo) => utxo.blinding),
-    ).toEqual([blinding(0), blinding(1), blinding(2)]);
-
     const plaintext = {
       typePrefix: 4,
       blindingSeed: outputSeed,
@@ -294,11 +258,11 @@ describe("manifest-verified transaction serialization", () => {
     }
   });
 
-  it("matches proofless and split-encrypted fixed layouts", () => {
+  it("matches the proofless fixed layout", () => {
     const fixture = load();
     const inputs = section(fixture, "inputs");
     const families = fixtureObject(section(fixture, "expected").families);
-    const { keypair, tx } = keys(inputs);
+    const { keypair } = keys(inputs);
     const { blinding } = slotBlindings(inputs);
     const proofless = encodeProofless({
       owner: keypair.shieldedAddress().ownerHash(),
@@ -332,16 +296,6 @@ describe("manifest-verified transaction serialization", () => {
         assets,
       ),
     ).toMatchObject({ assetId: 1n, amount: 55n });
-
-    const splitEncryptedExpected = fixtureObject(families.splitEncrypted);
-    const splitEncrypted = encodeSplitEncrypted({
-      typePrefix: 2,
-      txViewingPublicKey: tx.publicKey(),
-      salt: hexBytes(fixtureString(inputs, "saltBytes")) as Bytes16,
-      ciphertext: Uint8Array.of(1, 2, 3, 4, 5),
-    });
-    expect(hex(splitEncrypted)).toBe(fixtureString(splitEncryptedExpected, "wincodeBytes"));
-    expect(decodeSplitEncrypted(splitEncrypted).ciphertext).toEqual(Uint8Array.of(1, 2, 3, 4, 5));
   });
 
   /**
@@ -364,7 +318,6 @@ describe("manifest-verified transaction serialization", () => {
     spent.destroy();
 
     const calls = [
-      () => encryptSplit(spent, recipientPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
       () =>
         encryptConfidential(
           spent,
@@ -394,14 +347,17 @@ describe("manifest-verified transaction serialization", () => {
       const value = fixtureObject(entry, "scheme");
       return Number(fixtureString(value, "byte"));
     });
-    expect(schemes).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(schemes).toEqual([0, 1, 2, 3, 4, 6, 7, 8]);
     expect(() => decodeOutputData(Uint8Array.of(4, 0, 0, 0, 0))).toThrow();
-    expect(() => encryptedSchemeFromByte(9)).toThrow(
-      expect.objectContaining({
-        code: "TRANSACTION_BAD_DISCRIMINATOR",
-        details: { byte: 9 },
-      }),
-    );
+    // Rust has no scheme 5; a slot carrying it is no wallet's.
+    for (const byte of [5, 9]) {
+      expect(() => encryptedSchemeFromByte(byte)).toThrow(
+        expect.objectContaining({
+          code: "TRANSACTION_BAD_DISCRIMINATOR",
+          details: { byte },
+        }),
+      );
+    }
     expect(() =>
       encodeOutputData(EncryptedScheme.confidential, Uint8Array.of(1), "plaintext"),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_BAD_DISCRIMINATOR" }));

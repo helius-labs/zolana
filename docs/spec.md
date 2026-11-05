@@ -42,8 +42,6 @@
     - [Instruction Data Layout](#instruction-data-layout)
   - [Plaintext Transfer](#plaintext-transfer)
   - [UTXO Split](#utxo-split)
-    - [Plaintext Layout](#plaintext-layout-1)
-    - [Instruction Data Layout](#instruction-data-layout-1)
   - [Merge](#merge)
     - [PoseidonCtrV1](#poseidonctrv1)
     - [Ring merge output encryption](#ring-merge-output-encryption)
@@ -628,9 +626,9 @@ distinct across accepted transactions and slots even if a client reuses
 `blinding_seed`.
 
 The [recipient](#recipient) plaintext contains the derived blinding. The
-[sender](#sender), [plaintext transfer](#plaintext-transfer), and
-[split](#utxo-split) bundles serialize the derived `output_blinding_seed` as
-`blinding_seed`; readers derive each slot from it and `first_nullifier`.
+[sender](#sender) and [plaintext transfer](#plaintext-transfer) bundles
+serialize the derived `output_blinding_seed` as `blinding_seed`; readers derive
+each slot from it and `first_nullifier`.
 
 Other rails have their own rules: [`deposit`](#blinding-derivation) derives the
 blinding from the tree and leaf index; [`ring_deposit`](#ring_deposit) delegates
@@ -660,8 +658,6 @@ enter the public `output_utxo_hashes` chain.
 
 The confidential default ring reveals recipients but dummy utxos also carry cipher texts so that these are indistinguishable from real outputs.
 
-`split` pads with owner-bound zero-value outputs, not empty UTXOs.
-
 # Output UTXO Serialization
 
 Output UTXO serialization is the per-output ciphertext layout for shielded
@@ -677,9 +673,8 @@ is tagged by its owner pubkey (the `owner_tag` value).
 Schemes:
 
 1. Transfer — one sender and `0<=` recipient ciphertexts.
-2. UTXO Split — one ciphertext for M equal-amount outputs under the same owner.
-3. Merge — scheme byte `6`: the merged output's amount and mint encrypted for the owner with a key derived from the owner's nullifier secret (see [Merge](#merge)). On `merge_transact` the merge proof checks the ciphertext; on `merge_ring` SPP publishes it unverified.
-4. Plaintext Transfer — the Transfer layout with unencrypted payloads.
+2. Merge — scheme byte `6`: the merged output's amount and mint encrypted for the owner with a key derived from the owner's nullifier secret (see [Merge](#merge)). On `merge_transact` the merge proof checks the ciphertext; on `merge_ring` SPP publishes it unverified.
+3. Plaintext Transfer — the Transfer layout with unencrypted payloads.
 
 ## AES Key derivation
 
@@ -913,58 +908,11 @@ struct TransferPlaintextRecipient {
 
 Requires a plain input; produces plain outputs (no attached data).
 
-A split commits eight owner-bound outputs. Slots `0..M` have the requested amount;
-slots `M..8` have amount zero. All share owner, asset, and owner tag. The wallet
-tracks slots `0..M`.
-
-The ciphertext encodes owner, asset, amount, `M`, and `output_blinding_seed`.
-The owner decrypts the bundle and derives each tracked slot's blinding from the
-seed, `first_nullifier`, and physical index `i < M` (see [Output Blinding](#output-blinding)).
-
-### Plaintext Layout
-
-```rust
-/// 84 B plaintext → 84 B ciphertext (no tag) with an empty
-/// `data` field. See [UTXO Data](#utxo-data) for the growth per
-/// populated record.
-struct SplitBundlePlaintext {
-    /// Shared owner.
-    owner_pubkey: PublicKey,
-    /// M — number of equal-amount outputs.
-    num_outputs: u8,
-    /// `1` for SOL; SPL via per-mint Asset registry (`asset_id ≥ 2`).
-    asset_id: u64,
-    /// Shared across all M outputs.
-    asset_amount: u64,
-    /// The derived `output_blinding_seed`; see [Output Blinding](#output-blinding).
-    blinding_seed: [u8; 32],
-    /// Empty (plain outputs).
-    data: Data,
-}
-```
-
-### Instruction Data Layout
-
-```rust
-/// 136 bytes total when the plaintext `data` field is empty; populated
-/// records grow the ciphertext by `3 + len` bytes each. Packed; the
-/// ciphertext is prefixed with a `u16_le` length.
-/// Tagged by the sender's `owner` pubkey in the transact instruction data
-/// (all M outputs share the sender as owner).
-struct SplitEncryptedUtxos {
-    /// Discriminator (SPLIT).
-    type_prefix: u8,
-    tx_viewing_pk: X25519Pubkey,
-    /// Per-transaction CSPRNG salt.
-    salt: [u8; 16],
-    /// 84-byte plaintext (no tag).
-    ciphertext: Vec<u8>,
-}
-```
-
-The bundle ciphertext sits at `outputs[0].data`; every other output sets
-`data = None`. All eight `owner_tag` values resolve to the same owner. The proof
-and `private_tx_hash` cover all eight commitments.
+A split is a confidential transfer whose recipients are all the sender: `M`
+outputs of the same owner, asset, and amount, and no change. Each output carries
+its own confidential ciphertext (scheme byte `3`), so a wallet reads the parts
+like any other confidential output. Unused slots are padding, as in any
+transfer.
 
 ## Merge
 

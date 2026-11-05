@@ -23,8 +23,8 @@ pub const DOMAIN_PRIVATE_TX_BLINDING_V1: u32 = 0x5458_5042;
 /// `Poseidon(TXOS, first_nullifier, blinding_seed)`: the seed every physical output
 /// blinding of one transaction comes from. `blinding_seed` is the transaction's
 /// private random root seed. The derived output seed is disclosed to the reader
-/// of an anonymous Sender bundle, a plaintext transfer, or a split bundle, which
-/// is why it is domain-separated from [`derive_private_tx_blinding`].
+/// of an anonymous Sender bundle or a plaintext transfer, which is why it is
+/// domain-separated from [`derive_private_tx_blinding`].
 pub fn derive_output_blinding_seed(
     first_nullifier: &[u8; 32],
     blinding_seed: &[u8; 32],

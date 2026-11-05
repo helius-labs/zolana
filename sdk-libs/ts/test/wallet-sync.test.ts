@@ -37,7 +37,6 @@ import {
   encodeConfidentialSlots,
   outputBlindingSeed,
   serializeWallet,
-  splitBundleFromUtxos,
   transactOutputBlinding,
   type ShieldedKeys,
 } from "../src/transaction/index.js";
@@ -45,9 +44,7 @@ import {
   EncryptedScheme,
   encodeOutputData,
   encodeProofless,
-  encodeSplitBundle,
   encryptConfidential,
-  encryptSplit,
   readOutputData,
 } from "../src/transaction/serialization/codecs.js";
 import {
@@ -116,8 +113,8 @@ function position(slot: bigint): string {
 function mergeAfterSplit() {
   const keypair = ShieldedKeypair.generate();
   const identityTag = keypair.signingPublicKey().confidentialViewTag();
-  // The split's first nullifier. Every output blinding and the seed the bundle
-  // discloses derive from it, and sync reads it back from `nullifiers[0]`.
+  // The split's first nullifier. Every output blinding and the transaction key
+  // derive from it, and sync reads it back from `nullifiers[0]`.
   const splitNullifier = bytes(9);
   const outputSeed = outputBlindingSeed(splitNullifier, bytes(7));
   const outputs = [0, 1].map(
@@ -136,13 +133,6 @@ function mergeAfterSplit() {
   }));
   const salt = new Uint8Array(16).fill(5) as Bytes16;
   const txKey = keypair.viewingKey().transactionViewingKey(splitNullifier);
-  const bundle = encodeSplitBundle(
-    splitBundleFromUtxos(
-      outputs,
-      { owner: keypair.signingPublicKey(), assets: new AssetRegistry() },
-      { blindingSeed: outputSeed, firstNullifier: splitNullifier },
-    ),
-  );
   const split = {
     slot: 1n,
     txSignature: SIGNATURE,
@@ -151,14 +141,23 @@ function mergeAfterSplit() {
     outputSlots: contexts.map((outputContext, index) => ({
       viewTag: identityTag,
       outputContext,
-      payload:
-        index === 0
-          ? encodeOutputData(
-              EncryptedScheme.split,
-              encryptSplit(txKey, keypair.viewingPublicKey(), bundle, salt, 0),
-              "encrypted",
-            )
-          : new Uint8Array(),
+      // Every part is an ordinary confidential output, as Rust writes a split.
+      payload: encodeOutputData(
+        EncryptedScheme.confidential,
+        encryptConfidential(
+          txKey,
+          keypair.viewingPublicKey(),
+          {
+            assetId: SOL_ASSET_ID,
+            amount: outputs[index]!.amount,
+            blinding: outputs[index]!.blinding,
+            data: new Data(),
+          },
+          salt,
+          index,
+        ),
+        "encrypted",
+      ),
     })),
     messages: [],
     nullifiers: [splitNullifier],
@@ -2227,6 +2226,7 @@ describe("wallet sync", () => {
       EncryptedScheme.anonymousRecipient,
       EncryptedScheme.anonymousSender,
       EncryptedScheme.ringDeposit,
+      5,
       9,
       10,
       11,
@@ -2328,7 +2328,6 @@ describe("wallet sync", () => {
       EncryptedScheme.proofless,
       EncryptedScheme.confidential,
       EncryptedScheme.ringConfidential,
-      EncryptedScheme.split,
       EncryptedScheme.merge,
       EncryptedScheme.plaintextTransfer,
     ])("records the spend for wallet scheme byte %i", async (schemeByte) => {
