@@ -16,12 +16,5 @@
     "isolatedModules": true,
     "skipLibCheck": true
   },
-  "include": [
-    "src/**/*.ts",
-    "test/**/*.ts",
-    "api/test/**/*.ts",
-    "transaction/test/**/*.ts",
-    "wallet/test/**/*.ts",
-    "vitest.config.ts"
-  ]
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
 }

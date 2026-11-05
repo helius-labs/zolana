@@ -1,8 +1,11 @@
-// Recomputes the derivation-dependent fields in fixtures/transaction/*.json
-// with the current library and rewrites fixtures/manifest.json. Run after a
-// build: `npm run build && node scripts/regenerate-fixtures.mjs`.
+// The fixtures in fixtures/transaction/*.json are TypeScript regression
+// fixtures: this script recomputes their derivation-dependent fields with the
+// current library and rewrites fixtures/manifest.json, so they pin the TS
+// output and do not check it against Rust. Run with `npm run fixtures:regenerate`.
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
   ShieldedKeypair,
@@ -126,7 +129,7 @@ const walletState = readJson("transaction/wallet-state-v1.json");
   writeJson("transaction/wallet-state-v1.json", walletState);
 }
 
-// The plaintext families of transaction/test/serialization.test.ts, rebuilt
+// The plaintext families of test/transaction/serialization.test.ts, rebuilt
 // through the public encoders and ciphers from the fixture inputs. The
 // scenario constants (amounts, asset ids, slot indexes, the "codec" memo)
 // mirror that test; every blinding is `TXOB(firstNullifier, outputSeed, slot)`
@@ -260,6 +263,9 @@ const walletSync = readJson("transaction/wallet-sync-v1.json");
   viewing.destroy();
   writeJson("transaction/wallet-sync-v1.json", walletSync);
 }
+
+// Hash the files as `npm run format:check` expects them.
+execFileSync("oxfmt", ["--write", fileURLToPath(new URL("transaction/", FIXTURES))]);
 
 const manifest = readJson("manifest.json");
 for (const entry of manifest.files) {

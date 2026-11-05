@@ -105,7 +105,7 @@
       }
     ]
   },
-  "id": "fx-p00-transaction-serialization-v1",
+  "id": "transaction-serialization-v1",
   "inputs": {
     "blindingSeedBytes": "000b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
     "firstNullifierBytes": "0707070707070707070707070707070707070707070707070707070707070707",
@@ -117,11 +117,7 @@
     "txViewingSecretBytes": "254808cf4b7b6038a964696dacee10159e00a8ff1a3f8cf15452e375454a2bf2",
     "viewingSecretBytes": "79f23ff3d69caf61bb2434d3a439e8894e8a19d6fce30ba5fcb22a160162e52d"
   },
-  "inventoryRow": "sdk-libs/transaction/tests/features/serialization.feature",
-  "owningPacket": "P00",
   "responsibility": "exact wincode, Borsh, fixed layouts, length prefixes, round trips, and malformed bytes",
-  "rustPath": "sdk-libs/transaction/src/serialization",
-  "rustSymbol": "all UtxoSerialization families and EncryptedScheme",
   "schema": "zolana-ts-fixtures-v1",
   "version": "1"
 }

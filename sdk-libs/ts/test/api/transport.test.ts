@@ -1,4 +1,4 @@
-import { transactionItems } from "../../test/helpers/pages.js";
+import { transactionItems } from "../helpers/pages.js";
 import { describe, expect, it, vi } from "vitest";
 
 import { treeAddress } from "../../src/interface/pda/index.js";

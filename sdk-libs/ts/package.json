@@ -62,12 +62,13 @@
     "changelog:check": "node scripts/check-changelog.mjs",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
-    "lint": "oxlint --deny-warnings src test api/test transaction/test wallet/test scripts bench",
+    "lint": "oxlint --deny-warnings src test scripts bench",
     "test": "vitest run --exclude \"test/e2e/**\"",
     "test:e2e": "vitest run --no-file-parallelism test/e2e",
     "check": "npm run format:check && npm run lint && npm run changelog:check && npm run typecheck && npm run test && npm run build && npm run check:dist",
     "loadtest": "npm run build && node --experimental-strip-types bench/loadtest.ts",
-    "check:dist": "tsc -p tsconfig.dist.json && tsc -p tsconfig.bench.json"
+    "check:dist": "tsc -p tsconfig.dist.json && tsc -p tsconfig.bench.json",
+    "fixtures:regenerate": "npm run build && node scripts/regenerate-fixtures.mjs"
   },
   "dependencies": {
     "@hpke/core": "^1.9.0",

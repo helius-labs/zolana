@@ -1,22 +1,22 @@
-import { transactionItems, outputItems } from "../../../test/helpers/pages.js";
+import { transactionItems, outputItems } from "../helpers/pages.js";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Bytes32 } from "../../../src/interface/index.js";
+import type { Bytes32 } from "../../src/interface/index.js";
 import {
   ShieldedKeypair,
   SigningKey,
   ViewingKey,
   type X25519PublicKey,
-} from "../../../src/keypair/index.js";
+} from "../../src/keypair/index.js";
 import {
   AssetRegistry,
   LocalShieldedKeys,
   Wallet,
   type ShieldedKeys,
-} from "../../../src/transaction/index.js";
-import { ClientError } from "../../../src/client/error.js";
-import { syncWallet, type SyncClient } from "../../../src/wallet/index.js";
-import fixture from "../../../vectors/wallet-sync-tags-v1.json" with { type: "json" };
+} from "../../src/transaction/index.js";
+import { ClientError } from "../../src/client/error.js";
+import { syncWallet, type SyncClient } from "../../src/wallet/index.js";
+import fixture from "../../vectors/wallet-sync-tags-v1.json" with { type: "json" };
 
 interface Case {
   readonly id: string;

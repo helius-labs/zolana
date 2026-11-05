@@ -536,7 +536,7 @@
       "utxoCount": "1"
     }
   },
-  "id": "fx-p00-transaction-wallet-sync-v1",
+  "id": "transaction-wallet-sync-v1",
   "inputs": {
     "history": {
       "transactions": [
@@ -747,11 +747,7 @@
     "txViewingSecretBytes": "254808cf4b7b6038a964696dacee10159e00a8ff1a3f8cf15452e375454a2bf2",
     "viewingSecretBytes": "79f23ff3d69caf61bb2434d3a439e8894e8a19d6fce30ba5fcb22a160162e52d"
   },
-  "inventoryRow": "sdk-libs/transaction/tests/wallet_prop.rs",
-  "owningPacket": "P00",
   "responsibility": "incremental and idempotent sync, worker equivalence, tamper rejection, and authority errors",
-  "rustPath": "sdk-libs/transaction/src/wallet/sync.rs; sdk-libs/transaction/src/wallet/parallel.rs",
-  "rustSymbol": "Wallet::sync; sync_parallel; decrypt_transactions",
   "schema": "zolana-ts-fixtures-v1",
   "version": "1"
 }
