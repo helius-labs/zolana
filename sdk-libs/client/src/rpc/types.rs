@@ -1,6 +1,3 @@
-use std::pin::Pin;
-
-use futures::Stream;
 use solana_address::Address;
 use solana_signature::Signature;
 pub use spr_indexer_api::{
@@ -11,7 +8,7 @@ use spr_keypair::X25519Pubkey;
 pub use spr_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use spr_user_registry_interface::UserRecord;
 
-use crate::{error::ClientError, prover::ProofCompressed};
+use crate::prover::ProofCompressed;
 
 /// Registry records read from the chain no earlier than `context.slot`, one
 /// per requested owner in request order.
@@ -96,10 +93,6 @@ pub struct GetShieldedTransactionsBySignatureResponse {
 
 pub type GetShieldedTransactionsByNullifiersResponse =
     Page<TransactionEvents<ShieldedTransaction, Signature>>;
-
-/// Stream of shielded transactions pushed as they land, one per matching transaction.
-pub type ShieldedTransactionStream =
-    Pin<Box<dyn Stream<Item = Result<ShieldedTransaction, ClientError>> + Send>>;
 
 /// Inclusion proof for a leaf, plus the root metadata the consuming instruction needs.
 #[derive(Clone, Debug, PartialEq, Eq)]

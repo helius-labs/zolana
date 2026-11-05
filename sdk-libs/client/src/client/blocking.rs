@@ -16,7 +16,7 @@ use crate::{
         GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
         GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
         GetUserRecordsResponse, HistoryFilters, IndexerRpcConfig, PaginationToken,
-        ProgramAccountsFilter, ProveResult, RingHistoryOptions, Rpc, ShieldedTransactionStream,
+        ProgramAccountsFilter, ProveResult, RingHistoryOptions, Rpc,
     },
 };
 
@@ -67,10 +67,6 @@ impl<R: BlockingRpc, I: BlockingIndexer> Rpc for SprClient<R, I> {
 
     fn get_slot(&self) -> Result<u64, ClientError> {
         self.block_on(self.client.get_slot())
-    }
-
-    fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
-        self.block_on(self.client.get_transaction_slot(signature))
     }
 
     fn get_signature_statuses(
@@ -195,13 +191,6 @@ impl<R: BlockingRpc, I: BlockingIndexer> Rpc for SprClient<R, I> {
             filters,
             config,
         ))
-    }
-
-    fn subscribe_to_shielded_transactions_by_tags(
-        &self,
-        tags: Vec<[u8; 32]>,
-    ) -> Result<ShieldedTransactionStream, ClientError> {
-        self.block_on(self.client.subscribe_to_shielded_transactions_by_tags(tags))
     }
 
     fn get_merkle_proofs(

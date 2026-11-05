@@ -36,9 +36,7 @@ In Rust, pass a `TeePolicy` to `ProverClient::with_tee` or
 `AsyncProverClient::with_tee`. In TypeScript, pass `tee` to `ProverClient` or
 `proverTee` to `SprClient`. A missing policy fails before any remote HTTP
 request. Only a loopback prover permits plaintext development; a Rust client
-using a proxy requires a policy even for loopback. The forester's explicit
-`for_tree_batches` mode permits plaintext nullifier-tree batch proofs, which
-carry only public tree data, and refuses every other proof.
+using a proxy requires a policy even for loopback.
 
 The CLI takes `--prover-tee-policy <file>`, accepting either a bare policy or
 its `{ "deployment": ... }` file wrapper. `--prover-tee` also requires a supplied

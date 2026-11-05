@@ -88,8 +88,7 @@ release's policy JSON with `TeePolicy::from_file_json` and pass it to
 The SDK embeds no prover URLs. The same policy parameter works
 with a direct prover URL, a unified Helius API URL or a proxy path. Remote calls
 without a policy fail before HTTP. Only loopback development without a proxy
-permits plaintext. The explicit `for_tree_batches()` mode permits public
-nullifier-tree batch proofs in plaintext and refuses every other proof.
+permits plaintext.
 
 The [TEE deployment guide](../../prover/tee/README.md) records the reviewed
 policies and measured-build provenance. An older SDK can use a new deployment

@@ -23,7 +23,7 @@ use super::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, HistoryFilters,
-        PaginationToken, RingHistoryOptions, ShieldedTransactionStream,
+        PaginationToken, RingHistoryOptions,
     },
     IndexerRpcConfig, ProgramAccountsFilter,
 };
@@ -109,11 +109,6 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
 
     async fn get_slot(&self) -> Result<u64, ClientError> {
         self.run(|rpc| rpc.get_slot()).await
-    }
-
-    async fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
-        self.run(move |rpc| rpc.get_transaction_slot(signature))
-            .await
     }
 
     async fn get_signature_statuses(
@@ -235,14 +230,6 @@ impl<T: Rpc + Send + Sync + 'static> AsyncRpc for Blocking<T> {
             )
         })
         .await
-    }
-
-    async fn subscribe_to_shielded_transactions_by_tags(
-        &self,
-        tags: Vec<[u8; 32]>,
-    ) -> Result<ShieldedTransactionStream, ClientError> {
-        self.run(move |rpc| rpc.subscribe_to_shielded_transactions_by_tags(tags))
-            .await
     }
 
     async fn get_merkle_proofs(
