@@ -23,12 +23,13 @@ use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };
+use spr_program_test::initial_nullifier_tree;
 use spr_program_test::SprProgramTest;
 use spr_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
     dummy_transfer_output, external_data_hash, fe, inline_outputs, input_utxo,
-    new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
-    real_output, set_output_owner_tags, signed_to_field, single_tree_slots, sol_leg, spl_leg,
+    new_transact_ix_data, output_owner_pk_hashes, prove_and_verify_transfer, real_output,
+    set_output_owner_tags, signed_to_field, single_tree_slots, sol_leg, spl_leg,
     test_private_tx_blinding, transfer_input, transfer_output, LegAccounts, TransferInputArgs,
     TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
@@ -79,7 +80,7 @@ fn build_spend_note(
         .expect("state proof")
         .to_vec();
 
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
     let nullifier = nullifier_key
         .nullifier(&utxo_hash, &utxo.blinding)

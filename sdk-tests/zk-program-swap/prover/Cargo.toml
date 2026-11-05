@@ -16,6 +16,7 @@ path = "src/bin/setup.rs"
 spr-gnark-ffi-prover = { workspace = true }
 swap-program = { path = "../program" }
 spr-client = { workspace = true }
+spr-hasher = { workspace = true }
 
 [build-dependencies]
 spr-gnark-ffi-prover-build = { workspace = true }

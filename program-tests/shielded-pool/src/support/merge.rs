@@ -24,8 +24,8 @@ use spr_keypair::{
 use spr_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof as IndexedNonInclusionProof};
 use spr_merkle_tree::MerkleTree;
 use spr_program::instruction::{CacheWriteAccounts, MergeRing, MergeTransact};
+use spr_program_test::initial_nullifier_tree;
 use spr_program_test::{test_blinding, SprProgramTest, RING_TEST_PROGRAM_ID};
-use spr_test_utils::transact::nullifier_tree;
 use spr_transaction::{instructions::merge::merge_dummy_nullifier, Data, Mint, Utxo};
 use spr_user_registry_interface::{
     state::{MergeEncryptionScheme, UserRecord},
@@ -148,7 +148,7 @@ impl ZeroDeposits<'_> {
 
         let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(self.rpc, &self.tree);
         assert_eq!(state_tree.root(), utxo_root, "state root gate");
-        let nullifier_tree = nullifier_tree().expect("indexed nullifier tree");
+        let nullifier_tree = initial_nullifier_tree();
         assert_eq!(nullifier_tree.root(), nullifier_root, "nullifier root gate");
 
         let deposits = utxos
@@ -544,7 +544,7 @@ impl RingZeroDeposits<'_> {
 
         let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(self.rpc, &self.tree);
         assert_eq!(state_tree.root(), utxo_root, "state root gate");
-        let nullifier_tree = nullifier_tree().expect("indexed nullifier tree");
+        let nullifier_tree = initial_nullifier_tree();
         assert_eq!(nullifier_tree.root(), nullifier_root, "nullifier root gate");
 
         let deposits = utxos

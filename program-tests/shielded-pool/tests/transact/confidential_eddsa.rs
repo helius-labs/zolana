@@ -27,11 +27,9 @@ use spr_interface::{
 use spr_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use spr_merkle_tree::{indexed::NonInclusionProof as IndexedNonInclusionProof, MerkleTree};
 use spr_program::instruction::Transact;
+use spr_program_test::initial_nullifier_tree;
 use spr_program_test::Rejection;
-use spr_test_utils::{
-    transact::nullifier_tree,
-    utxo::{wallet, ProofKeys},
-};
+use spr_test_utils::utxo::{wallet, ProofKeys};
 use spr_transaction::{
     instructions::transact::{ConfidentialTransaction, SppProofInputs},
     Mint, SppProofOutputUtxo, WalletUtxo,
@@ -76,7 +74,7 @@ fn owned_deposits(
     }
     let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &tree);
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
-    let nullifier_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nullifier_tree = initial_nullifier_tree();
     assert_eq!(nullifier_tree.root(), nullifier_root, "nullifier root gate");
     let deposits = leaves
         .into_iter()

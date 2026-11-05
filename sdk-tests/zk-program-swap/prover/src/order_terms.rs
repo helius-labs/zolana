@@ -1,5 +1,5 @@
 use spr_gnark_ffi_prover::decimal;
-use swap_program::instructions::shared::u64_right_align;
+use spr_hasher::primitives::right_align;
 
 pub const TAKE_MODE_DERIVED: u64 = 0;
 pub const TAKE_MODE_VERIFIABLE: u64 = 1;
@@ -21,12 +21,12 @@ impl OrderTermsProofInput {
             ("DestinationAsset", self.destination_asset),
             (
                 "DestinationAmount",
-                u64_right_align(self.destination_amount),
+                right_align(&self.destination_amount.to_be_bytes()),
             ),
             ("MakerOwnerHash", self.maker_owner_hash),
-            ("Expiry", u64_right_align(self.expiry)),
+            ("Expiry", right_align(&self.expiry.to_be_bytes())),
             ("TakerPkFe", self.taker_pk_fe),
-            ("TakeMode", u64_right_align(self.take_mode)),
+            ("TakeMode", right_align(&self.take_mode.to_be_bytes())),
         ];
         let mut entries: Vec<(String, Vec<String>)> = scalars
             .iter()

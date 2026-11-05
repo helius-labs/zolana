@@ -44,6 +44,7 @@ use shielded_pool_tests::support::{
 use spr_interface::{
     instruction::instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, pda, shape::Shape,
 };
+use spr_program_test::initial_nullifier_tree;
 use spr_program_test::RING_TEST_PROGRAM_ID;
 use spr_test_utils::{
     nullifier_pda::nullifier_pda_addresses,
@@ -51,7 +52,7 @@ use spr_test_utils::{
     transact::{
         build_spl_withdrawal, build_transfer_prover_inputs, change_and_dummy_outputs,
         compact_input, derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output,
-        external_data_hash, fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree,
+        external_data_hash, fe, inline_outputs, input_utxo, new_transact_ix_data,
         output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer, public_sol_field,
         real_output, set_output_owner_tags, single_tree_slots, sol_leg, sol_public_slots,
         test_private_tx_blinding, transfer_input, transfer_output, TransferInputArgs,
@@ -581,7 +582,7 @@ fn bench_transfer_shape(
     let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
     let zero = [0u8; 32];
 
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     let owner_hash = solana_owner_identity(&payer_bytes).expect("owner identity");
     let (sent_inputs, sent_outputs) = if compact {
         (1, 1)
@@ -889,7 +890,7 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
         .expect("state proof")
         .to_vec();
 
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
     let nullifier = nullifier_key
         .nullifier(&utxo_hash, &blinding)

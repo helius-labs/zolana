@@ -13,10 +13,6 @@ pub enum SwapError {
     ProofVerificationFailed = 8007,
     #[error("instruction data is invalid")]
     InvalidInstructionData = 8011,
-    #[error("shielded-pool program account is invalid")]
-    InvalidShieldedPoolProgram = 8012,
-    #[error("order-authority account is missing from the transact account list")]
-    MissingOrderAuthority = 8013,
     #[error("make transact must carry exactly one marker message")]
     InvalidMarkerMessage = 8014,
     #[error("make marker message data must be empty")]

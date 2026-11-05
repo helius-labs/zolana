@@ -61,28 +61,21 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
     let source_asset_id_le = source_asset_id.to_le_bytes();
     let destination_asset_id_le = destination_asset_id.to_le_bytes();
 
-    let pair_bump = verify_pda(
+    let pair_pda = verify_pda(
         pair_account.address(),
-        &[
+        [
             Pair::SEED_PREFIX,
             &authority,
             &source_asset_id_le,
             &destination_asset_id_le,
         ],
-        &crate::ID,
     )?;
-    CreatePdaAccount::<4> {
+    CreatePdaAccount {
         fee_payer: payer,
         new_account: pair_account,
         space: Pair::SIZE,
         owner: &crate::ID,
-        signer_seeds: [
-            Pair::SEED_PREFIX,
-            &authority,
-            &source_asset_id_le,
-            &destination_asset_id_le,
-        ],
-        bump: pair_bump,
+        pda: &pair_pda,
     }
     .execute()?;
 
@@ -92,7 +85,7 @@ pub fn process_create_pair_ix(accounts: &mut [AccountView], data: &[u8]) -> Prog
             .map_err(|_| DynamicSwapError::InvalidInstructionData)?;
         let state: &mut Pair = bytemuck::from_bytes_mut(&mut bytes[..]);
         state.discriminator = PAIR;
-        state.bump = pair_bump;
+        state.bump = pair_pda.bump();
         state.authority = *payer.address();
         state.source_asset_id = source_asset_id;
         state.destination_asset_id = destination_asset_id;

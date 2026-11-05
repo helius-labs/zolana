@@ -17,8 +17,6 @@ default = ["insecure-test-setup"]
 insecure-test-setup = []
 bpf-entrypoint = []
 no-entrypoint = []
-cpi = ["no-entrypoint"]
-test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
 
 [dependencies]

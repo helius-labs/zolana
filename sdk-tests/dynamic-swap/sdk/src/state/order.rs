@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use dynamic_swap_program::instructions::shared::u64_right_align;
+use spr_hasher::primitives::right_align;
 use spr_keypair::hash::poseidon;
 use spr_program::ShieldedPda;
 use spr_transaction::{
@@ -41,8 +41,8 @@ impl EscrowTerms {
     pub fn data_hash(&self, created_at: u64) -> Result<[u8; 32]> {
         poseidon(&[
             &self.recipient_owner_hash,
-            &u64_right_align(self.max_price),
-            &u64_right_align(created_at),
+            &right_align(&self.max_price.to_be_bytes()),
+            &right_align(&created_at.to_be_bytes()),
         ])
         .map_err(err)
     }

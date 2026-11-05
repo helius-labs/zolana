@@ -7,13 +7,11 @@ use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{
     error::TimelockEscrowError,
-    instructions::shared::{EscrowAuthority, IxData},
+    instructions::shared::{escrow_authority, escrow_authority_owner_hash, IxData},
     verifier::escrow,
 };
 
 pub mod slot {
-    pub const SOURCE: usize = 0;
-    pub const CHANGE: usize = 0;
     pub const ESCROW: usize = 1;
 }
 
@@ -30,7 +28,7 @@ pub fn process_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let creator = *iter.next_signer("creator")?.address();
     let creator_identity =
         solana_owner_identity(creator.as_array()).map_err(TimelockEscrowError::from)?;
-    let escrow_authority = EscrowAuthority::find(&creator);
+    let escrow_authority = escrow_authority(&creator);
 
     let IxData {
         args: EscrowArgs {
@@ -45,7 +43,7 @@ pub fn process_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         proof: &proof,
         public_inputs: escrow::PublicInputs {
             escrow_owner: spr_program::verifier::address_hash(
-                &escrow_authority.owner_hash()?,
+                &escrow_authority_owner_hash(escrow_authority.address())?,
                 &viewing_pubkey,
             )
             .map_err(TimelockEscrowError::from)?,
@@ -58,5 +56,5 @@ pub fn process_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     .map_err(TimelockEscrowError::from)?;
 
     let spp_accounts = iter.remaining()?;
-    escrow_authority.invoke_transact(spp_accounts, transact)
+    escrow_authority.invoke_transact::<16>(spp_accounts, transact)
 }

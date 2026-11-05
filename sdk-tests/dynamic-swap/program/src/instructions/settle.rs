@@ -1,14 +1,14 @@
 use light_program_profiler::profile;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, ProgramResult};
 use spr_account_checks::AccountIterator;
-use spr_hasher::{Hasher, Poseidon};
+use spr_hasher::{primitives::right_align, Hasher, Poseidon};
 use spr_interface::instruction::instruction_data::transact::TransactIxData;
 use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{
     error::DynamicSwapError,
     instructions::{
-        shared::{cpi_spp_transact_signed, u64_right_align},
+        shared::{cpi_spp_transact_signed, escrow_authority},
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
     state::{load_escrow_mut, load_pair},
@@ -53,7 +53,7 @@ impl SettlePublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
         Poseidon::hashv(&[
             self.private_tx_hash.as_slice(),
-            u64_right_align(self.execution_price).as_slice(),
+            right_align(&self.execution_price.to_be_bytes()).as_slice(),
             self.order_in_hash.as_slice(),
             self.reservation_in_hash.as_slice(),
             self.authority_owner_hash.as_slice(),
@@ -139,8 +139,7 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     // so only that one PDA must be flipped to a signer in the `transact` CPI.
     let spp_accounts = iter.remaining()?;
     cpi_spp_transact_signed(
-        &pair_address,
-        crate::ESCROW_AUTHORITY_PDA_SEED,
+        &escrow_authority(&pair_address),
         spp_accounts,
         &transact_bytes,
     )?;

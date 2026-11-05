@@ -7,6 +7,8 @@ repository.workspace = true
 publish = false
 
 [features]
+# The example programs' mollusk CU benches.
+bench = ["mollusk", "dep:light-program-profiler"]
 mollusk = ["dep:mollusk-svm", "dep:solana-program-error"]
 parallel = ["dep:rayon"]
 
@@ -17,6 +19,7 @@ base64 = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
+light-program-profiler = { workspace = true, features = ["report"], optional = true }
 mollusk-svm = { workspace = true, optional = true }
 num-bigint = { workspace = true }
 rand = { workspace = true }

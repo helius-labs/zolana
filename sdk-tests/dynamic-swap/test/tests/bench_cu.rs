@@ -1,8 +1,12 @@
+use spr_test_utils::bench::{
+    assemble_accounts, keypair_from_payer, prove_transact_timed, proving_time_table,
+    system_owned_account, tree_fixture, tx_size_table, BENCH_TREE_ID,
+};
 use spr_test_utils::utxo::{
     assign_output_blindings, encrypt_transaction_data, get_transaction_viewing_key,
 };
 use spr_transaction::utxo::SppProofInputUtxo;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use dynamic_swap_program::{
     instructions::create_escrow::EscrowOpenProof,
@@ -28,102 +32,39 @@ use dynamic_swap_sdk::{
 };
 use light_program_profiler::{
     mollusk::{register_profiling_syscalls, take_profiling_entries},
-    report::{CuBenchmark, ReadmeConfig, SectionTable},
+    report::{CuBenchmark, ReadmeConfig},
 };
 use mollusk_svm::{result::Check, Mollusk};
-use num_bigint::BigUint;
 use solana_account::Account;
 use solana_address::Address;
-use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use spr_client::{
-    transaction_size, ComputeBudgetConfig, MerkleContext, MerkleProof, NonInclusionProof,
-    ProverClient, ProverExt, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
-};
-use spr_hasher::Poseidon;
-use spr_interface::{
-    instruction::instruction_data::transact::TransactIxData,
-    state::{
-        default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
-        tree_account_size, STATE_HEIGHT,
-    },
-    SHIELDED_POOL_PROGRAM_ID,
-};
-use spr_keypair::{random_blinding, ShieldedKeypair, SigningKey};
-use spr_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
+use spr_interface::SHIELDED_POOL_PROGRAM_ID;
+use spr_keypair::random_blinding;
 use spr_program::ShieldedPda;
 use spr_transaction::{
-    instructions::transact::{
-        asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo, BN254_MODULUS_DEC,
-    },
+    instructions::transact::{asset_field, ExternalData, SppProofInputs, SppProofOutputUtxo},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
     },
     AssetRegistry, Data, Utxo, SOL_MINT,
 };
-use spr_tree::TreeAccount;
 
 const PROFILING_SBF_DIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../target/dynamic-swap-bench"
 );
 const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../BENCHMARK.md");
-const PROVER_KEYS_DIR: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../../prover/server/proving-keys"
-);
 
 const SOURCE_ASSET_ID: u64 = 2;
 const DESTINATION_ASSET_ID: u64 = 1;
 const PRICE: u64 = 5;
 
-fn to_mollusk_pubkey(key: &Pubkey) -> Pubkey {
-    Pubkey::new_from_array(key.to_bytes())
-}
-
-fn to_mollusk_instruction(ix: &Instruction) -> Instruction {
-    Instruction {
-        program_id: to_mollusk_pubkey(&ix.program_id),
-        accounts: ix
-            .accounts
-            .iter()
-            .map(|meta| AccountMeta {
-                pubkey: to_mollusk_pubkey(&meta.pubkey),
-                is_signer: meta.is_signer,
-                is_writable: meta.is_writable,
-            })
-            .collect(),
-        data: ix.data.clone(),
-    }
-}
-
-fn mollusk_program_account(program_id: &Pubkey) -> (Pubkey, Account) {
-    let account = mollusk_svm::program::create_program_account_loader_v3(program_id);
-    (*program_id, account)
-}
-
-// A plain, system-owned account: `lamports == 0` reads as "does not exist
-// yet" to `pinocchio_system::create_account_with_minimum_balance_signed`'s
-// hot path (used for every PDA `create_pair`/`create_escrow` initializes);
-// `lamports > 0` models an existing wallet.
-fn system_owned_account(lamports: u64) -> Account {
-    Account {
-        lamports,
-        data: Vec::new(),
-        owner: Pubkey::new_from_array([0u8; 32]),
-        executable: false,
-        rent_epoch: 0,
-    }
-}
-
 // The dynamic-swap program's own PDA state accounts are built directly from
-// their `Pod` structs rather than by actually running `create_pair`/
-// `deposit_liquidity` first: each bench only
-// needs the world "as if" those prior calls already happened, exactly
-// mirroring how `zk-program-swap`'s own bench constructs its order UTXOs and
-// tree fixture directly instead of replaying a deposit.
+// their `Pod` structs rather than by running the instructions that create
+// them: each bench only needs the world "as if" those calls already happened,
+// as the tree fixture holds the input UTXOs without replaying a deposit.
 fn dynamic_swap_account(bytes: Vec<u8>, program_id: &Pubkey) -> Account {
     Account {
         lamports: 1_000_000_000,
@@ -142,233 +83,12 @@ fn escrow_fixture(state: Escrow, program_id: &Pubkey) -> Account {
     dynamic_swap_account(bytemuck::bytes_of(&state).to_vec(), program_id)
 }
 
-/// Raw id of the fixture tree. `build_tree_fixture` initializes the account with
-/// this id, and every UTXO commitment folds it in.
-const BENCH_TREE_ID: u16 = 0;
-
-fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32], [u8; 32], u16) {
-    let mut tree_account_bytes = vec![0u8; tree_account_size()];
-    let root_index = leaves.len() as u16;
-    let (utxo_root, nullifier_root) = {
-        let mut account = TreeAccount::init(
-            &mut tree_account_bytes,
-            TREE_ACCOUNT_DISCRIMINATOR,
-            STATE_HEIGHT as u8,
-            tree.to_bytes(),
-            BENCH_TREE_ID,
-            nullifier_tree_params(),
-            default_tree_fees(),
-        )
-        .expect("init tree account");
-        for (slot, leaf) in (1_u64..).zip(leaves) {
-            account
-                .utxo_tree()
-                .append(*leaf, slot)
-                .expect("append leaf");
-        }
-        (
-            account.get_utxo_tree_root(root_index).expect("utxo root"),
-            account.get_nullifier_tree_root(0).expect("nullifier root"),
-        )
-    };
-    let fixture = Account {
-        lamports: 1_000_000_000_000,
-        data: tree_account_bytes,
-        owner: Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
-        executable: false,
-        rent_epoch: 0,
-    };
-    (fixture, utxo_root, nullifier_root, root_index)
-}
-
-fn local_state_tree(leaves: &[[u8; 32]]) -> MerkleTree<Poseidon> {
-    let mut tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
-    for leaf in leaves {
-        tree.append(leaf).expect("append state leaf");
-    }
-    tree
-}
-
-fn nullifier_tree() -> IndexedMerkleTree<Poseidon, usize> {
-    let modulus_minus_one =
-        BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10).expect("parse bn254 modulus") - 1u32;
-    IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(
-        NULLIFIER_TREE_HEIGHT,
-        0,
-        modulus_minus_one,
-    )
-    .expect("nullifier tree")
-}
-
-fn build_spend_proofs(
-    tree: &Pubkey,
-    state_tree: &MerkleTree<Poseidon>,
-    nf_tree: &IndexedMerkleTree<Poseidon, usize>,
-    commitments: &[&SppProofInputUtxo],
-    utxo_root: [u8; 32],
-    nullifier_root: [u8; 32],
-    root_index: u16,
-) -> Vec<SpendProof> {
-    let merkle_context = MerkleContext {
-        tree_type: 0,
-        tree: Address::new_from_array(tree.to_bytes()),
-    };
-    commitments
-        .iter()
-        .enumerate()
-        .map(|(leaf_index, commitment)| {
-            let state_path = state_tree
-                .get_proof_of_leaf(leaf_index, true)
-                .expect("state proof")
-                .to_vec();
-            let nf = nf_tree
-                .get_non_inclusion_proof(&BigUint::from_bytes_be(&commitment.nullifier))
-                .expect("non inclusion proof");
-            SpendProof {
-                state: MerkleProof {
-                    leaf: commitment.utxo_hash,
-                    merkle_context: merkle_context.clone(),
-                    path: state_path,
-                    leaf_index: leaf_index as u64,
-                    root: utxo_root,
-                    root_seq: 0,
-                    root_index,
-                },
-                nullifier: NonInclusionProof {
-                    leaf: commitment.nullifier,
-                    merkle_context: merkle_context.clone(),
-                    path: nf.merkle_proof.to_vec(),
-                    low_element: nf.leaf_lower_range_value,
-                    low_element_index: nf.leaf_index as u64,
-                    high_element: nf.leaf_higher_range_value,
-                    high_element_index: 0,
-                    root: nullifier_root,
-                    root_seq: 0,
-                    root_index: 0,
-                },
-            }
-        })
-        .collect()
-}
-
-// Maps every account an instruction references onto its mollusk fixture:
-// `spp_id` -> the shielded-pool program's own loader-v3 account (it is CPI'd
-// into and, for the event self-CPI, appears again inside the forwarded
-// account list); `Pubkey::default()` -> the system program (its address is
-// literally the all-zero pubkey both SPP and this program use as a
-// placeholder); anything else explicit in `fixtures` -> that fixture;
-// anything left over -> a funded, empty, system-owned wallet (fee payers,
-// PDA signer placeholders whose address alone matters for CPI signer checks).
-fn assemble_accounts(
-    ix: &Instruction,
-    spp_id: &Pubkey,
-    fixtures: &[(Pubkey, Account)],
-) -> Vec<(Pubkey, Account)> {
-    let spp = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    ix.accounts
-        .iter()
-        .map(|meta| {
-            if meta.pubkey == spp {
-                mollusk_program_account(spp_id)
-            } else if meta.pubkey == Pubkey::default() {
-                mollusk_svm::program::keyed_account_for_system_program()
-            } else if let Some((_, account)) = fixtures.iter().find(|(key, _)| *key == meta.pubkey)
-            {
-                (to_mollusk_pubkey(&meta.pubkey), account.clone())
-            } else {
-                (
-                    to_mollusk_pubkey(&meta.pubkey),
-                    system_owned_account(1_000_000_000),
-                )
-            }
-        })
-        .collect()
-}
-
-fn shielded_keypair_from_seed(seed: [u8; 32]) -> ShieldedKeypair {
-    ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&seed))
-        .expect("shielded keypair from seed")
-}
-
-fn prove_transact_timed(
-    proof_inputs: SppProofInputs,
-    spend_proofs: &[SpendProof],
-    prover: &ProverClient,
-    keys: &[&spr_keypair::NullifierKey],
-) -> (TransactIxData, Duration) {
-    let dummy_proofs = spr_test_utils::utxo::dummy_proofs(&proof_inputs);
-    prover
-        .prove_transact(
-            proof_inputs.clone(),
-            spend_proofs,
-            &dummy_proofs,
-            &spr_test_utils::utxo::ProofKeys(keys),
-        )
-        .expect("warm prove transact");
-    let start = Instant::now();
-    let transact = prover
-        .prove_transact(
-            proof_inputs,
-            spend_proofs,
-            &dummy_proofs,
-            &spr_test_utils::utxo::ProofKeys(keys),
-        )
-        .expect("prove transact");
-    (transact, start.elapsed())
-}
-
-fn start_prover() {
-    static INIT: std::sync::Once = std::sync::Once::new();
-    INIT.call_once(|| {
-        std::env::set_var("ZOLANA_PROVER_KEYS_DIR", PROVER_KEYS_DIR);
-    });
-    spr_client::spawn_prover().expect("spawn prover");
-}
-
-fn proving_time_table(spp: Duration, circuit: Duration) -> SectionTable {
-    SectionTable {
-        title: "Proving Time".into(),
-        headers: vec![
-            "SPP transfer proof".into(),
-            "Dynamic-swap circuit proof".into(),
-            "Total".into(),
-        ],
-        rows: vec![vec![
-            format!("{} ms", spp.as_millis()),
-            format!("{} ms", circuit.as_millis()),
-            format!("{} ms", (spp + circuit).as_millis()),
-        ]],
-    }
-}
-
-/// The version 1 transaction this instruction is sent as. Its compute ceilings
-/// live in the message header.
-fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
-    let v1 = transaction_size(
-        payer,
-        std::slice::from_ref(ix),
-        ComputeBudgetConfig::new(1_400_000),
-    )
-    .expect("measure v1 transaction")
-    .bytes;
-
-    SectionTable {
-        title: "Transaction Size".into(),
-        headers: vec!["Instruction Data".into(), "Accounts".into(), "v1 Tx".into()],
-        rows: vec![vec![
-            format!("{} bytes", ix.data.len()),
-            ix.accounts.len().to_string(),
-            format!("{} bytes", v1),
-        ]],
-    }
-}
-
 #[test]
 #[ignore = "CU benchmark; slow, needs SBF binaries + prover. Run via just bench-dynamic-swap"]
 fn bench_cu_dynamic_swap() {
     std::env::set_var("SBF_OUT_DIR", PROFILING_SBF_DIR);
 
-    let dynamic_swap_id = Pubkey::new_from_array(*dynamic_swap_program::ID.as_array());
+    let dynamic_swap_id = dynamic_swap_program::ID;
     let spp_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
 
     let mut mollusk = Mollusk::default();
@@ -398,7 +118,7 @@ fn bench_cu_dynamic_swap() {
         ..Default::default()
     });
 
-    start_prover();
+    spr_test_utils::prover::spawn_workspace_prover(spr_client::IndexerRequirement::Optional);
 
     bench_create_pair(&mut mollusk, &spp_id, &dynamic_swap_id, &mut bench);
     bench_update_price(&mut mollusk, &spp_id, &dynamic_swap_id, &mut bench);
@@ -436,8 +156,7 @@ fn bench_create_pair(
         (pair, system_owned_account(0)),
     ];
     let accounts = assemble_accounts(&ix, spp_id, &fixtures);
-    let mollusk_ix = to_mollusk_instruction(&ix);
-    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+    mollusk.process_and_validate_instruction(&ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
     assert!(
@@ -483,8 +202,7 @@ fn bench_update_price(
         (pair, pair_fixture(pair_state, dynamic_swap_id)),
     ];
     let accounts = assemble_accounts(&ix, spp_id, &fixtures);
-    let mollusk_ix = to_mollusk_instruction(&ix);
-    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+    mollusk.process_and_validate_instruction(&ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
     assert!(
@@ -507,17 +225,9 @@ fn bench_create_escrow(
     const CREATED_AT: u64 = 1_000;
 
     let authority_solana = Keypair::new();
-    let authority_keypair = shielded_keypair_from_seed(
-        authority_solana.to_bytes()[..32]
-            .try_into()
-            .expect("ed25519 seed is the first 32 bytes"),
-    );
+    let authority_keypair = keypair_from_payer(&authority_solana);
     let user_solana = Keypair::new();
-    let user_keypair = shielded_keypair_from_seed(
-        user_solana.to_bytes()[..32]
-            .try_into()
-            .expect("ed25519 seed is the first 32 bytes"),
-    );
+    let user_keypair = keypair_from_payer(&user_solana);
     let source_asset = Address::new_from_array([2u8; 32]);
 
     let pair = pair_pda(
@@ -672,30 +382,11 @@ fn bench_create_escrow(
         cache_accounts: Default::default(),
     };
 
-    let commitments = spp_proof_inputs
-        .input_utxo_hashes()
-        .expect("input commitments");
-    let leaves: Vec<[u8; 32]> = commitments.iter().map(|input| input.utxo_hash).collect();
-    let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
-    let state_tree = local_state_tree(&leaves);
-    assert_eq!(state_tree.root(), utxo_root, "state root gate");
-    let nf_tree = nullifier_tree();
-    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
-    let spend_proofs = build_spend_proofs(
-        &tree,
-        &state_tree,
-        &nf_tree,
-        &commitments,
-        utxo_root,
-        nullifier_root,
-        root_index,
-    );
+    let (tree_account, spend_proofs) = tree_fixture(&tree, &spp_proof_inputs);
 
-    let prover = ProverClient::local();
     let (transact, spp_dur) = prove_transact_timed(
         spp_proof_inputs,
         &spend_proofs,
-        &prover,
         &[&user_keypair.nullifier_key, escrow_owner.as_ref()],
     );
 
@@ -776,8 +467,7 @@ fn bench_create_escrow(
         (tree, tree_account),
     ];
     let accounts = assemble_accounts(&ix, spp_id, &fixtures);
-    let mollusk_ix = to_mollusk_instruction(&ix);
-    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+    mollusk.process_and_validate_instruction(&ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
     assert!(
@@ -785,7 +475,10 @@ fn bench_create_escrow(
         "no profiling entries for 'create_escrow'"
     );
     bench.add_from_entries("create_escrow", entries);
-    bench.add_table("create_escrow", proving_time_table(spp_dur, circuit_dur));
+    bench.add_table(
+        "create_escrow",
+        proving_time_table(spp_dur, Some(("Dynamic-swap circuit proof", circuit_dur))),
+    );
     bench.add_table(
         "create_escrow",
         tx_size_table(&ix, &authority_solana.pubkey()),
@@ -804,20 +497,12 @@ fn bench_settle(
     const CREATED_AT: u64 = 1_000;
 
     let authority_solana = Keypair::new();
-    let authority_keypair = shielded_keypair_from_seed(
-        authority_solana.to_bytes()[..32]
-            .try_into()
-            .expect("ed25519 seed is the first 32 bytes"),
-    );
+    let authority_keypair = keypair_from_payer(&authority_solana);
     let authority_owner_hash = authority_keypair
         .owner_hash()
         .expect("authority owner hash");
     let user_solana = Keypair::new();
-    let user_keypair = shielded_keypair_from_seed(
-        user_solana.to_bytes()[..32]
-            .try_into()
-            .expect("ed25519 seed is the first 32 bytes"),
-    );
+    let user_keypair = keypair_from_payer(&user_solana);
     let recipient_owner_hash = user_keypair.owner_hash().expect("user owner hash");
     let source_asset = Address::new_from_array([2u8; 32]);
 
@@ -952,32 +637,10 @@ fn bench_settle(
         cache_accounts: Default::default(),
     };
 
-    let commitments = spp_proof_inputs
-        .input_utxo_hashes()
-        .expect("input commitments");
-    let leaves: Vec<[u8; 32]> = commitments.iter().map(|input| input.utxo_hash).collect();
-    let (tree_account, utxo_root, nullifier_root, root_index) = build_tree_fixture(&tree, &leaves);
-    let state_tree = local_state_tree(&leaves);
-    assert_eq!(state_tree.root(), utxo_root, "state root gate");
-    let nf_tree = nullifier_tree();
-    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
-    let spend_proofs = build_spend_proofs(
-        &tree,
-        &state_tree,
-        &nf_tree,
-        &commitments,
-        utxo_root,
-        nullifier_root,
-        root_index,
-    );
+    let (tree_account, spend_proofs) = tree_fixture(&tree, &spp_proof_inputs);
 
-    let prover = ProverClient::local();
-    let (transact, spp_dur) = prove_transact_timed(
-        spp_proof_inputs,
-        &spend_proofs,
-        &prover,
-        &[escrow_owner.as_ref()],
-    );
+    let (transact, spp_dur) =
+        prove_transact_timed(spp_proof_inputs, &spend_proofs, &[escrow_owner.as_ref()]);
 
     let proof_inputs = SettleProofInputParams {
         order_in: order_in.clone(),
@@ -1061,12 +724,14 @@ fn bench_settle(
         (tree, tree_account),
     ];
     let accounts = assemble_accounts(&ix, spp_id, &fixtures);
-    let mollusk_ix = to_mollusk_instruction(&ix);
-    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+    mollusk.process_and_validate_instruction(&ix, &accounts, &[Check::success()]);
 
     let entries = take_profiling_entries();
     assert!(!entries.is_empty(), "no profiling entries for 'settle'");
     bench.add_from_entries("settle", entries);
-    bench.add_table("settle", proving_time_table(spp_dur, circuit_dur));
+    bench.add_table(
+        "settle",
+        proving_time_table(spp_dur, Some(("Dynamic-swap circuit proof", circuit_dur))),
+    );
     bench.add_table("settle", tx_size_table(&ix, &authority_solana.pubkey()));
 }

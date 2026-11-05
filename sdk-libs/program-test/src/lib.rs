@@ -40,8 +40,8 @@ pub use events::{
 };
 pub mod indexer;
 pub use indexer::{
-    shielded_transaction_from_general_event, IndexedPayload, IndexedUtxo, IndexerError, LeafProof,
-    ProoflessOutput, TestIndexer,
+    initial_nullifier_tree, shielded_transaction_from_general_event, IndexedPayload, IndexedUtxo,
+    IndexerError, LeafProof, ProoflessOutput, TestIndexer,
 };
 pub mod instructions;
 pub use instructions::{

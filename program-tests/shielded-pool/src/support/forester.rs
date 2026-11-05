@@ -8,18 +8,14 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
     BatchAddressAppendInputs, ComputeBudgetConfig, ProofCompressed, ProverClient, ProverExt, Rpc,
-    SolanaRpc, NULLIFIER_TREE_HEIGHT,
+    SolanaRpc,
 };
 use spr_hasher::hash_chain::create_hash_chain_4_from_slice;
 use spr_interface::instruction::BatchUpdateNullifierTreeData;
-use spr_merkle_tree::indexed::IndexedMerkleTree;
 use spr_protocol_instructions::BatchUpdateNullifierTree;
 use spr_smart_account_client::execute_sync_ix;
 use spr_test_utils::localnet::{send_transaction, send_transaction_with_budget};
-use spr_transaction::instructions::transact::BN254_MODULUS_DEC;
 use spr_tree::TreeAccount;
-
-type NullifierTree = IndexedMerkleTree<spr_hasher::Poseidon, usize>;
 
 #[derive(Default)]
 pub struct NullifierTestForester {
@@ -174,7 +170,7 @@ impl NullifierTestForester {
         plan: &ForesterPlan,
         batch_values: &[[u8; 32]],
     ) -> Result<(BatchAddressAppendInputs, [u8; 32])> {
-        let mut reference = reference_nullifier_tree()?;
+        let mut reference = spr_program_test::initial_nullifier_tree();
         for value in &self.inserted_nullifiers {
             reference.append(&BigUint::from_bytes_be(value))?;
         }
@@ -288,19 +284,6 @@ impl ForesterPlan {
                 .map_err(|_| anyhow!("zkp batch index {zkp_batch_index} exceeds u16"))?,
         })
     }
-}
-
-fn reference_nullifier_tree() -> Result<NullifierTree> {
-    let modulus_minus_one = BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10)
-        .context("parse bn254 modulus")?
-        - 1u32;
-    Ok(
-        IndexedMerkleTree::<spr_hasher::Poseidon, usize>::new_with_next_value(
-            NULLIFIER_TREE_HEIGHT,
-            0,
-            modulus_minus_one,
-        )?,
-    )
 }
 
 fn bytes_path_to_biguint(path: Vec<[u8; 32]>) -> Vec<BigUint> {

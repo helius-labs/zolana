@@ -1,7 +1,5 @@
 #[cfg(any(feature = "circuits", feature = "wasm"))]
 pub mod circuits;
-#[cfg(all(feature = "circuits", not(feature = "r1cs-export")))]
-pub mod client;
 pub mod error;
 #[cfg(not(feature = "r1cs-export"))]
 pub mod instructions;

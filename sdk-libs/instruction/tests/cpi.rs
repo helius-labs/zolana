@@ -2,7 +2,7 @@
 
 use pinocchio::{error::ProgramError, AccountView, Address};
 use spr_account_checks::account_info::test_account_info::get_account_view;
-use spr_instruction::cpi::{SppTransactAccounts, TransactAccountsError};
+use spr_instruction::cpi::{PdaSigner, SppTransactAccounts, TransactAccountsError};
 use spr_interface::SHIELDED_POOL_PROGRAM_ID;
 
 const PDA: [u8; 32] = [4u8; 32];
@@ -78,4 +78,45 @@ fn error_codes_are_stable() {
     ] {
         assert_eq!(ProgramError::from(error), ProgramError::Custom(code));
     }
+}
+
+#[test]
+fn pda_signer_derives_the_canonical_bump_and_appends_it_to_the_seeds() {
+    let program_id = Address::new_from_array([5u8; 32]);
+    let creator = [6u8; 32];
+    let seeds: [&[u8]; 2] = [b"authority", &creator];
+    let (address, bump) = Address::find_program_address(&seeds, &program_id);
+
+    let signer = PdaSigner::find(seeds, &program_id);
+    let signer_seeds: Vec<Vec<u8>> = signer
+        .signer_seeds()
+        .iter()
+        .map(|seed| seed.to_vec())
+        .collect();
+
+    assert_eq!(
+        (*signer.address(), signer.bump(), signer_seeds),
+        (
+            address,
+            bump,
+            vec![b"authority".to_vec(), creator.to_vec(), vec![bump]]
+        )
+    );
+}
+
+#[test]
+fn pda_signer_invokes_transact_only_when_its_pda_is_in_the_accounts() {
+    let program_id = Address::new_from_array([5u8; 32]);
+    let signer = PdaSigner::find([b"authority".as_slice()], &program_id);
+    let mut accounts = transact_accounts(SHIELDED_POOL_PROGRAM_ID);
+    let without_pda = signer.invoke_transact::<8>(&accounts, &[]);
+    accounts.push(view(signer.address().to_bytes(), [0u8; 32]));
+
+    assert_eq!(
+        (without_pda, signer.invoke_transact::<8>(&accounts, &[])),
+        (
+            Err(TransactAccountsError::MissingPdaSigner { index: 0 }.into()),
+            Ok(())
+        )
+    );
 }

@@ -13,14 +13,8 @@ use crate::error::CompressionError;
 
 pub const DEFAULT_TREE: Address = address!("777pvSGe5LaBd9nCczvE2FXEauiwtfGJ5XRpjKyniGor");
 
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
 pub fn derive_pda(authority: &Address) -> (Address, u8) {
     Address::find_program_address(&[crate::ACCOUNT_PDA_SEED, authority.as_array()], &crate::ID)
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-pub fn derive_pda(_authority: &Address) -> (Address, u8) {
-    unimplemented!("PDA derivation requires Solana runtime syscalls")
 }
 
 pub struct TransitionAccounts<'a> {

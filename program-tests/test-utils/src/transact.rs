@@ -14,7 +14,7 @@ use spr_client::{
     prover::field::{be, right_align_slice},
     spawn_prover, CacheReadInputs, Proof, ProofCompressed, ProofInputUtxo, ProverClient, ProverExt,
     PublicInputs, PublicTransfers, TransferInput, TransferInputs, TransferOutput, TreeSlotFields,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 use spr_hasher::primitives::{hash_bytes, solana_owner_identity};
 use spr_hasher::Poseidon;
@@ -47,8 +47,8 @@ use spr_program::instruction::{
 use spr_program::TransactExternalData;
 use spr_program_test::SprProgramTest;
 use spr_transaction::{
+    instructions::transact::signed_magnitude_to_field,
     instructions::transact::PrivateTxHash,
-    instructions::transact::{signed_magnitude_to_field, BN254_MODULUS_DEC},
     utxo::SppProofInputUtxo,
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
@@ -806,17 +806,6 @@ pub fn cache_write_slots(writes: &[CacheWrite]) -> Result<[CacheWrite; MAX_CACHE
     Ok(write_slots)
 }
 
-pub fn nullifier_tree() -> Result<IndexedMerkleTree<Poseidon, usize>> {
-    let modulus_minus_one = BigUint::parse_bytes(BN254_MODULUS_DEC.as_bytes(), 10)
-        .context("parse bn254 modulus")?
-        - 1u32;
-    Ok(IndexedMerkleTree::<Poseidon, usize>::new_with_next_value(
-        NULLIFIER_TREE_HEIGHT,
-        0,
-        modulus_minus_one,
-    )?)
-}
-
 pub struct TransferInputArgs<'a> {
     pub utxo: &'a Utxo,
     pub owner_field: &'a [u8; 32],
@@ -962,7 +951,7 @@ pub fn build_spl_withdrawal(
         .get_proof_of_leaf(0, true)
         .expect("state proof")
         .to_vec();
-    let nf_tree = nullifier_tree().expect("nullifier tree");
+    let nf_tree = spr_program_test::initial_nullifier_tree();
     assert_eq!(nf_tree.root(), nullifier_root);
     let nullifier = nullifier_key
         .nullifier(&utxo_hash, &blinding)

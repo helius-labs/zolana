@@ -428,12 +428,8 @@ pub fn process_increment_ix(accounts: &mut [AccountView], data: &[u8]) -> Progra
     .verify()?;
 
     // Validate the SPP accounts and sign for the counter’s PDA owner.
-    let (authority, bump) =
-        Address::find_program_address(&[COUNTER_AUTHORITY_SEED], &crate::ID);
-    let bump = [bump];
-    let seeds = [Seed::from(COUNTER_AUTHORITY_SEED), Seed::from(&bump)];
-    SppTransactAccounts::new(accounts, &[&authority])?
-        .invoke::<16>(transact_data, &[Signer::from(&seeds)])
+    PdaSigner::find([COUNTER_AUTHORITY_SEED], &crate::ID)
+        .invoke_transact::<16>(accounts, transact_data)
 }
 ```
 

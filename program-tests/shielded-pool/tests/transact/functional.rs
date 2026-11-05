@@ -56,6 +56,7 @@ use spr_merkle_tree::MerkleTree;
 use spr_program::instruction::{
     Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
 };
+use spr_program_test::initial_nullifier_tree;
 use spr_program_test::{test_blinding, Rejection};
 use spr_test_utils::nullifier_pda::{
     assert_nullifier_pda, assert_nullifier_pdas, assert_tree_lamports_after_spend,
@@ -64,7 +65,7 @@ use spr_test_utils::nullifier_pda::{
 use spr_test_utils::transact::{
     build_transfer_prover_inputs, change_and_dummy_outputs, derive_test_transfer_output_blindings,
     dummy_input, dummy_transfer_output, external_data_hash_for_discriminator, fe, inline_outputs,
-    input_utxo, input_utxo_in_tree, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+    input_utxo, input_utxo_in_tree, new_transact_ix_data, output_owner_pk_hashes,
     pack_transact_proof, real_output, set_output_owner_tags, single_tree_slots, sol_public_slots,
     test_private_tx_blinding, transact_input_flags, transfer_input, transfer_output, tree_contexts,
     TransferInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
@@ -126,7 +127,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         .get_proof_of_leaf(0, true)
         .expect("state proof")
         .to_vec();
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
     let nullifier = nullifier_key
         .nullifier(&utxo_hash, &blinding)
@@ -430,7 +431,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .get_proof_of_leaf(0, true)
         .expect("state proof")
         .to_vec();
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
     let nullifier = nullifier_key
         .nullifier(&utxo_hash, &blinding)
@@ -2060,7 +2061,7 @@ fn build_two_tree_transact_ix(
         .expect("owner pk hash");
     let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
     let tree_id = env.tree_id;
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let nf_tree = initial_nullifier_tree();
     let mut tree_slots = [TreeSlot::ZERO; INPUT_TREES];
     let mut root_indexes = Vec::new();
     let mut input_hashes = Vec::new();
