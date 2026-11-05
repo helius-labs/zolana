@@ -30,6 +30,7 @@ Breaking
 
 Added
 
+- `Merge` and `PreparedMerge` take a `mergeSeed` to prove a ring merge under the zero nullifier key, and that proof publishes the owner's hashed key, so the owner signs the merge instruction.
 - `ConfidentialTransfer.newDeposit(owner, outputTreeId, feePayer)` builds a transfer that spends no note, and `ConfidentialTransfer.deposit(asset, amount, source)` funds its outputs from the public SOL or SPL account a `DepositSource` names.
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `SprClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.

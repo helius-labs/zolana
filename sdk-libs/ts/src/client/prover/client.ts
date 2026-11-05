@@ -707,8 +707,12 @@ function mergeProverRequest(
     outputTreeId: hex(inputs.outputTreeId, "outputTreeId"),
     mintChunks: inputs.mintChunks.map((chunk) => hex(chunk, "mintChunks")),
     outputCiphertextSalt: hex(inputs.outputCiphertextSalt, "outputCiphertextSalt"),
-    // This SDK proves ring merges under a nonzero nullifier secret only.
-    ...(circuitType === "merge-ring" ? { mergeSeed: "0x0", publishedOwner: "0x0" } : {}),
+    ...(circuitType === "merge-ring"
+      ? {
+          mergeSeed: hex(inputs.mergeSeed ?? asField(0n), "mergeSeed"),
+          publishedOwner: hex(inputs.publishedOwner ?? asField(0n), "publishedOwner"),
+        }
+      : {}),
     ownerPkHash: hex(inputs.ownerPublicKeyHash, "ownerPkHash"),
     userNullifierPk: hex(inputs.userNullifierPublicKey, "userNullifierPk"),
     userNullifierSecret: secret(inputs.userNullifierSecret, "userNullifierSecret"),

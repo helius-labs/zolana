@@ -417,6 +417,7 @@ export function prepareMerge(
   }
   const [mintChunk0, mintChunk1] = mergeMintChunks(prepared.output.asset);
   const mintChunks = [asField(mintChunk0), asField(mintChunk1)] as const;
+  const publishedOwner = prepared.mergeSeed === undefined ? 0n : ownerPublicKeyHash;
   const publicInputs = mergePublicInputs({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHash: bytesToBigInt(outputHash),
@@ -439,7 +440,7 @@ export function prepareMerge(
             kind: "ring",
             outputRingDataHash: BigInt(output.circuit.ringDataHash),
             ringProgramId: BigInt(output.circuit.ringProgramId),
-            publishedOwner: 0n,
+            publishedOwner,
             outputCiphertextSalt: bytesToBigInt(outputCiphertextSalt),
             outputCiphertext: [ciphertext0, ciphertext1, ciphertext2],
           },
@@ -459,6 +460,12 @@ export function prepareMerge(
     allowDummyInputs: asField(1n),
     outputRingDataHash: output.circuit.ringDataHash,
     ringProgramId: output.circuit.ringProgramId,
+    ...(prepared.mergeSeed === undefined
+      ? {}
+      : {
+          mergeSeed: asField(bytesToBigInt(prepared.mergeSeed)),
+          publishedOwner: asField(publishedOwner),
+        }),
   });
   return Object.freeze({
     inputs: Object.freeze({
