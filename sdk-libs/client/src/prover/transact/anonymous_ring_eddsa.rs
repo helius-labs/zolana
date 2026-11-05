@@ -190,10 +190,24 @@ pub fn anonymous_signer_pk_hashes(
     transaction: &SppProofInputs,
     owner: &PublicKey,
 ) -> Result<Vec<[u8; 32]>, ClientError> {
-    let width = transaction.check_shape()?.signer_width();
+    let shape = transaction.check_shape()?;
+    let width = shape.signer_width();
     let hidden = owner.owner_proof_input_hash()?;
-    let mut signers = transaction.signer_pk_hashes(width)?;
-    signers.retain(|signer| *signer != hidden);
+    let mut signers = Vec::with_capacity(width);
+    for signer in transaction.owner_signer_pubkeys()? {
+        let identity = solana_owner_identity(signer.as_array())?;
+        if identity != hidden {
+            signers.push(identity);
+        }
+    }
+    // The hidden owner signs inside the proof, the program and circuit size the vector without it.
+    if signers.len() > width {
+        return Err(spr_transaction::TransactionError::UnsupportedShape {
+            n_in: shape.n_inputs(),
+            n_out: shape.n_outputs(),
+        }
+        .into());
+    }
     signers.resize(width, [0; 32]);
     Ok(signers)
 }

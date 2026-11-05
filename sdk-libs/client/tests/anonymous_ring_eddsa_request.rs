@@ -133,6 +133,28 @@ fn spend_proof(input: &SppProofInputUtxo) -> SpendProof {
     }
 }
 
+/// A hidden owner beside as many data owners as slots, the circuit's vector holds them all.
+#[test]
+fn the_hidden_owner_takes_no_signer_slot() {
+    let owner = keypair(OWNER_SEED);
+    let mut transaction = proof_inputs(&owner, Some(Address::new_from_array(RING)));
+    let data_owner = |seed: u8, output: &mut SppProofOutputUtxo| {
+        let holder = keypair(seed);
+        output.owner_address = Some(holder.shielded_address().unwrap());
+        output.data_hash = Some([seed; 32]);
+        spr_hasher::primitives::solana_owner_identity(
+            &holder.signing_pubkey().as_ed25519().unwrap(),
+        )
+        .unwrap()
+    };
+    let first = data_owner(0x23, &mut transaction.output_utxos[0]);
+    let second = data_owner(0x24, &mut transaction.output_utxos[1]);
+    assert_eq!(
+        anonymous_signer_pk_hashes(&transaction, &owner.signing_pubkey()).unwrap(),
+        [first, second]
+    );
+}
+
 /// The plain request body and the wincode selector the transfer carries before its proof.
 fn request_and_circuit(input_ring: Option<Address>) -> (Value, String) {
     let owner = keypair(OWNER_SEED);
