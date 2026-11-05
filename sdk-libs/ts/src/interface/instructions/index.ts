@@ -125,12 +125,9 @@ export function tagged(tag: number, payload?: Uint8Array): Uint8Array {
   return data;
 }
 
-/// The forester's `batch_update_nullifier_tree` builder is deliberately absent.
-/// Its `compressedProof` comes from the `address-append` circuit, which no
-/// TypeScript path can prove: nothing here ships a forester, and producing the
-/// proof needs witness generation and gnark proving rather than the hashing that
-/// compiles. Publishing the builder advertised the last step of a pipeline whose
-/// earlier steps are missing.
+// The SDK has no builder for the forester's `batch_update_nullifier_tree`: its
+// `compressedProof` comes from the `address-append` circuit, which no TypeScript
+// path proves, since that needs a forester's witness generation and gnark proving.
 
 export async function createAssetCounterInstruction(
   input: Readonly<{ authority: SignerAccount }>,

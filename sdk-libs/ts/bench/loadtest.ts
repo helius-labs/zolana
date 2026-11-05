@@ -283,12 +283,12 @@ async function main(): Promise<void> {
     indexerUrl: options.indexerUrl,
     proverUrl: options.proverUrl,
     tree: options.tree,
-    // Explicitly insecure, matching `xtask loadtest`: devnet's ALB has no
-    // certificate yet, so the indexer and prover are plain http. That is a real
-    // exposure -- the wallet's UTXO set and every proof witness cross the
-    // network in the clear -- and it is spelled out here rather than defaulted,
-    // so it disappears the moment the certificate is issued.
-    allowInsecureHttp: true,
+    // Plain http only when the operator names an http indexer or prover URL;
+    // the wallet's UTXO set and every proof witness then cross the network in
+    // the clear.
+    allowInsecureHttp: [options.indexerUrl, options.proverUrl].some(
+      (url) => new URL(url).protocol === "http:",
+    ),
     fetch: timedFetch,
   });
   const actors = await loadActors(options.keypairs, client.proofService);

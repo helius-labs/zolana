@@ -39,17 +39,23 @@ export const NULLIFIER_TREE_HEIGHT = 40;
 export const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY = 100;
 export const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE =
   NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE * BigInt(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY);
-/// The flat fee every tree is created with: a transact or merge pays it once to
-/// each tree it writes. Mirrors Rust `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+/**
+ * The flat fee every tree is created with: a transact or merge pays it once to
+ * each tree it writes. Mirrors Rust `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+ */
 export const DEFAULT_FEE_PER_TREE_LAMPORTS = 5_000n;
-/// What one batch append and one nullifier-PDA close cost a forester. Mirrors
-/// Rust `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS` and
-/// `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS`.
+/**
+ * What one batch append and one nullifier-PDA close cost a forester. Mirrors
+ * Rust `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS` and
+ * `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS`.
+ */
 export const AT_COST_APPEND_REIMBURSEMENT_LAMPORTS = 5_000n;
 export const AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS = 88n;
 
-/// The schedule every tree is created with: the default fee per tree written,
-/// and forester reimbursements at cost. Mirrors Rust `default_tree_fees`.
+/**
+ * The schedule every tree is created with: the default fee per tree written,
+ * and forester reimbursements at cost. Mirrors Rust `default_tree_fees`.
+ */
 export function defaultTreeFees(): TreeFeeSchedule {
   return Object.freeze({
     feePerTree: DEFAULT_FEE_PER_TREE_LAMPORTS,
@@ -60,8 +66,10 @@ export function defaultTreeFees(): TreeFeeSchedule {
 
 export const PROTOCOL_CONFIG_SIZE = 166;
 export const TREE_ACCOUNT_SIZE = 40_080;
-/// The program allocates a tree PDA in chunks of this many bytes; creation
-/// repeats the create-tree instruction once per chunk within one transaction.
+/**
+ * The program allocates a tree PDA in chunks of this many bytes; creation
+ * repeats the create-tree instruction once per chunk within one transaction.
+ */
 export const TREE_ALLOCATION_STEP = 10 * 1024;
 export const TREE_CREATION_STEP_COUNT = Math.ceil(TREE_ACCOUNT_SIZE / TREE_ALLOCATION_STEP);
 export const TREE_FEES_OFFSET = 8;

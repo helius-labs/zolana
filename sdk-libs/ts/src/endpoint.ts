@@ -1,11 +1,3 @@
-/**
- * The URL of each service a client talks to.
- *
- * Each remote service uses a caller-supplied URL. A config that names no URL
- * at all means the local stack, where the
- * validator, photon, and the prover each listen on their own port.
- */
-
 /** The ports a local validator stack listens on. */
 export const LOCALNET_SOLANA_ENDPOINT = "http://127.0.0.1:8899";
 export const LOCALNET_PHOTON_ENDPOINT = "http://127.0.0.1:8784";
@@ -18,7 +10,7 @@ export const SPR_GATEWAY_PATH = "/v1/spr";
 
 const HELIUS_RPC_HOST = /(^|\.)helius-rpc\.com$/u;
 
-/** A Helius RPC root URL as its zolana namespace, query kept; any other URL unchanged. */
+/** A Helius RPC root URL as its `/v1/spr` gateway URL, query kept; any other URL unchanged. */
 function sprServiceUrl(rpc: string | URL): string | URL {
   let url: URL;
   try {

@@ -27,10 +27,8 @@ export interface IndexerRpcConfig {
    * Slot the indexer must have persisted before its answer is accepted.
    * Omitted accepts whatever the indexer currently has.
    *
-   * There is deliberately no "wait, but for nothing in particular" state: a
-   * freshness requirement is a slot. The previous shape paired a boolean with no
-   * target and compared the indexer's block time against `Date.now()`, mixing
-   * clock domains so the check could not pass while block time trailed real time.
+   * A freshness requirement is always a slot, never a comparison of block time
+   * with the local clock, which could not pass while block time trails real time.
    */
   readonly requireSlot?: bigint;
 }
