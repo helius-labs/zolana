@@ -15,7 +15,9 @@ const vector = JSON.parse(
 }>;
 
 function bytes(value: string): Bytes32 {
-  return Uint8Array.from(value.match(/../g)?.map((pair) => Number.parseInt(pair, 16)) ?? []) as Bytes32;
+  return Uint8Array.from(
+    value.match(/../g)?.map((pair) => Number.parseInt(pair, 16)) ?? [],
+  ) as Bytes32;
 }
 
 function hex(value: Uint8Array): string {

@@ -30,6 +30,7 @@ Breaking
 
 Added
 
+- `ConfidentialTransfer.newDeposit(owner, outputTreeId, feePayer)` builds a transfer that spends no note, and `ConfidentialTransfer.deposit(asset, amount, source)` funds its outputs from the public SOL or SPL account a `DepositSource` names.
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `SprClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `SprClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
@@ -38,6 +39,7 @@ Added
 
 Changed
 
+- `prepareRingAuthorityTransfer` in `@heliuslabs/spr/internal` accepts inputs from two trees and rejects a third tree with `TRANSACTION_TOO_MANY_INPUT_TREES`.
 - The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
 - `SprIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 

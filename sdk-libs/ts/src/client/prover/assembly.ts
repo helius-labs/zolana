@@ -485,8 +485,6 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
   ) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
-  const realInputs = proofInputs.inputUtxos.filter((input) => !input.isDummy());
-  if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
   validateOutputBlindings(proofInputs);
   const cache = checkedTransferCache(proofInputs);
 
@@ -1080,9 +1078,11 @@ export function prepareSlots(
 ): PreparedSlots {
   const treeIds: TreeId[] = [];
   const treeIndexes: number[] = [];
+  // In a deposit, a random dummy opens its tree.
+  const deposit = inputs.every((input) => input.isDummy());
   const transferInputs = inputs.map((input, index) => {
     let treeSlot = treeIds.indexOf(input.treeId);
-    if (input.isDummy()) {
+    if (input.isDummy() && !(deposit && treeSlot === -1 && !input.isCompact())) {
       if (treeIds.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
       // SPP packs tree index 0 for the slots it never receives, so compact
       // padding must name the first tree.

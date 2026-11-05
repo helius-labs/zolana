@@ -410,6 +410,8 @@ function checkStatement(inputs: IndexedProofInputs): void {
   // Inputs from different trees may interleave, so a dummy only needs an
   // earlier input to have opened the tree it names. Compact padding, a dummy
   // publishing nullifier 0, carries the nullifier its witness is taken for.
+  // A frame of only dummies lets any dummy open a tree.
+  const deposit = inputs.payload.inputs.every((input) => input.isDummy === 1n);
   const used = new Set<number>();
   inputs.lookups.forEach((lookup, index) => {
     const input = inputs.payload.inputs[index];
@@ -449,7 +451,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
       (lookup.nullifier === null) !== (input.isDummy === 0n || input.nullifier !== 0n)
     )
       throw invalid();
-    if (input.isDummy === 1n && !used.has(lookup.treeSlot)) throw invalid();
+    if (input.isDummy === 1n && !deposit && !used.has(lookup.treeSlot)) throw invalid();
     if (lookup.commitment !== null) bytesField(lookup.commitment, "commitment");
     if (lookup.nullifier !== null && bytesField(lookup.nullifier, "nullifier") === 0n)
       throw invalid();
