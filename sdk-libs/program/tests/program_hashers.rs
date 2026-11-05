@@ -1,5 +1,3 @@
-#![cfg(feature = "compression")]
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use pinocchio::Address;
 use sha2::Digest;

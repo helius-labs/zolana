@@ -663,7 +663,10 @@ mod tests {
                 let tree = spr_interface::pda::tree(utxo.tree_id);
                 let nullifier = NonInclusionProof {
                     leaf: utxo.nullifier,
-                    merkle_context: MerkleContext { tree, tree_type: 2 },
+                    merkle_context: MerkleContext {
+                        tree,
+                        tree_type: MerkleContext::NULLIFIER_TREE_TYPE,
+                    },
                     path: vec![[0; 32]; 40],
                     low_element: [0; 32],
                     high_element: [0; 32],
@@ -682,7 +685,10 @@ mod tests {
                 }
                 let state = MerkleProof {
                     leaf: utxo.utxo_hash,
-                    merkle_context: MerkleContext { tree, tree_type: 1 },
+                    merkle_context: MerkleContext {
+                        tree,
+                        tree_type: MerkleContext::STATE_TREE_TYPE,
+                    },
                     path: vec![[0; 32]; 32],
                     leaf_index: 0,
                     root: super::super::scalar_one(),

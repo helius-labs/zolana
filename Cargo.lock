@@ -192,22 +192,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
-name = "anchor-syn"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ec9f541e494a3b07f453110264b2a4f4d3d1a9e86736d267cf0d252a54a6ff3"
-dependencies = [
- "bs58",
- "heck 0.3.3",
- "proc-macro2",
- "quote",
- "serde",
- "sha2 0.11.0",
- "syn 2.0.119",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4191,15 +4175,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
 dependencies = [
  "hashbrown 0.15.5",
-]
-
-[[package]]
-name = "heck"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d621efb26863f0e9924c6ac577e8275e5e6b77455db64ffa6c65c904e9e132c"
-dependencies = [
- "unicode-segmentation",
 ]
 
 [[package]]
@@ -10914,7 +10889,6 @@ dependencies = [
 name = "spr-macros"
 version = "0.8.0"
 dependencies = [
- "anchor-syn",
  "borsh",
  "proc-macro2",
  "quote",
@@ -11024,13 +10998,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "solana-address 2.6.1",
  "solana-signature",
  "spr-hasher",
  "spr-interface",
  "spr-keypair",
  "spr-program",
  "spr-transaction",
+ "timelock-escrow-program",
 ]
 
 [[package]]

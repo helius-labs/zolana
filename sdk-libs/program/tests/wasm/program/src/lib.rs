@@ -1,21 +1,34 @@
-mod escrow;
-mod state;
-mod withdraw;
+//! The wasm module the browser tests load: the timelock escrow circuits
+//! (`sdk-tests/timelock-escrow`) and a state with a custom payload codec.
 
-use solana_address::Address;
-use spr_program::ProgramOwner;
+use borsh::{BorshDeserialize, BorshSerialize};
+use spr_program::{circuit::UtxoState, EncryptionCodec};
 
-pub use escrow::{
-    Escrow, EscrowCircuit, EscrowPrivateInputs, EscrowPublicInputs, ESCROW_OUTPUT_SLOT,
+#[cfg(feature = "wasm")]
+pub use timelock_escrow_program::circuits::{
+    escrow_authority, Escrow, EscrowCircuit, EscrowPrivateInputs, EscrowPublicInputs, EscrowTerms,
+    EscrowTermsCircuit, Withdraw, WithdrawCircuit, WithdrawPrivateInputs, WithdrawPublicInputs,
     ESCROW_TOKEN_INPUTS,
 };
-pub use state::{CompactCounter, CompactCounterCircuit, EscrowTerms, EscrowTermsCircuit};
-pub use withdraw::{Withdraw, WithdrawCircuit, WithdrawPrivateInputs, WithdrawPublicInputs};
 
-pub const ID: Address = Address::from_str_const("CVtSrm1XGnozF4XKGDCWLDoxypr1KL8PxnJtK3KzrBDY");
+/// Exercises a custom payload through the generated wasm state binding.
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState)]
+#[utxo_state(custom_codec)]
+pub struct CompactCounter {
+    pub count: u64,
+    pub doubled: u64,
+}
 
-pub const ESCROW_AUTHORITY_PDA_SEED: &[u8] = b"escrow_authority";
+impl EncryptionCodec for CompactCounter {
+    fn serialize_for_encryption(&self) -> std::io::Result<Vec<u8>> {
+        borsh::to_vec(&self.count)
+    }
 
-pub fn escrow_authority() -> ProgramOwner {
-    ProgramOwner::find(&[ESCROW_AUTHORITY_PDA_SEED], &ID)
+    fn deserialize_after_decryption(bytes: &[u8]) -> std::io::Result<Self> {
+        let count = u64::try_from_slice(bytes)?;
+        let doubled = count.checked_mul(2).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "doubled count overflows")
+        })?;
+        Ok(Self { count, doubled })
+    }
 }

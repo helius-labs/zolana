@@ -29,6 +29,13 @@ pub struct MerkleContext {
     pub tree: Address,
 }
 
+impl MerkleContext {
+    /// `tree_type` of a state-tree inclusion proof.
+    pub const STATE_TREE_TYPE: u16 = 1;
+    /// `tree_type` of a nullifier-tree non-inclusion proof.
+    pub const NULLIFIER_TREE_TYPE: u16 = 2;
+}
+
 /// A single ciphertext whose view tag matched a query tag.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EncryptedUtxoMatch {

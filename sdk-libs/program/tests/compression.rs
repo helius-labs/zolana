@@ -1,5 +1,3 @@
-#![cfg(feature = "compression")]
-
 use solana_address::{address, Address};
 use spr_client::ProofInputUtxo;
 use spr_hasher::{

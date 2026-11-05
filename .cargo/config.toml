@@ -2,3 +2,8 @@
 # Delegate git fetches to the system git CLI so existing credentials are picked
 # up for any private git dependency.
 git-fetch-with-cli = true
+
+[env]
+# The workspace root, which spr-program-test resolves its default program,
+# CLI and proving-key paths against.
+SPR_WORKSPACE_DIR = { value = "", relative = true }

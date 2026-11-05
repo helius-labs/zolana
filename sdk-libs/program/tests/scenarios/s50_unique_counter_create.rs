@@ -15,10 +15,7 @@ use spr_program::{
     },
 };
 
-use crate::{
-    benchmark::prove,
-    shared::{keypair, poseidon_bytes},
-};
+use crate::shared::{keypair, poseidon_bytes, prove};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
 pub struct Counter {

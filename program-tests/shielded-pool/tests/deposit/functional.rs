@@ -138,9 +138,7 @@ fn deposits_advance_history_once_per_updated_slot_without_gap_entries() {
 
     let current_slot = pool.rpc.svm.get_sysvar::<Clock>().slot;
     let target_slot = current_slot + 1;
-    pool.rpc
-        .warp_to_slot(target_slot)
-        .expect("warp to first updated slot");
+    pool.rpc.warp_to_slot(target_slot);
     let expected_index = (initial_index + 1) % STATE_ROOT_HISTORY_CAPACITY as u16;
 
     let depositor = pool.funded_signer(2_000_000_000);
@@ -216,9 +214,7 @@ fn deposits_advance_history_once_per_updated_slot_without_gap_entries() {
         u64::from(expected_gap_index),
         "the regression must distinguish the dense index from slot modulo capacity"
     );
-    pool.rpc
-        .warp_to_slot(gap_slot)
-        .expect("warp across slots without tree updates");
+    pool.rpc.warp_to_slot(gap_slot);
     pool.rpc
         .deposit(
             &tree,

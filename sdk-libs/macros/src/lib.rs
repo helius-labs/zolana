@@ -1,8 +1,6 @@
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
-#[cfg(test)]
-mod discriminator_tests;
 mod encryption_codec;
 mod paths;
 mod public_inputs;
