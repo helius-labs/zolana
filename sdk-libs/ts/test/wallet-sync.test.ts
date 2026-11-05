@@ -21,6 +21,7 @@ import {
   type Bytes16,
   type Bytes32,
 } from "../src/interface/index.js";
+import { bytesKey } from "../src/interface/bytes.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import {
   AssetRegistry,
@@ -1299,8 +1300,9 @@ describe("wallet sync", () => {
 
   it("refuses a merge whose ciphertext does not decrypt to its output commitment", async () => {
     // The cipher is unauthenticated: a ciphertext of another amount still
-    // decrypts in range, and only the commitment check keeps it out.
-    const { keypair, keys, merge } = mergeAfterSplit();
+    // decrypts in range, and only the commitment check keeps it out. The split
+    // shows the merge spends the wallet's own notes, so its output is owed.
+    const { keypair, keys, split, merge } = mergeAfterSplit();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const forged = {
       ...merge,
@@ -1313,14 +1315,22 @@ describe("wallet sync", () => {
     };
 
     const before = serializeWallet(wallet);
-    await expect(decryptWithKeys(keys, { wallet, transactions: [forged] })).rejects.toMatchObject({
+    await expect(
+      decryptWithKeys(keys, { wallet, transactions: [split, forged] }),
+    ).rejects.toMatchObject({
       code: "TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE",
     });
     expect(serializeWallet(wallet)).toBe(before);
+
+    // Without the split nothing shows the inputs were the wallet's: the forged
+    // output is not stored and the pass commits.
+    const report = await decryptWithKeys(keys, { wallet, transactions: [forged] });
+    expect(report).toMatchObject({ storedUtxos: 0, undecryptableCandidates: 1 });
+    expect(wallet.utxos()).toEqual([]);
   });
 
   it.each([false, true])("wipes sync's merge key copies after failure=%s", async (failure) => {
-    const { keypair, keys, merge } = mergeAfterSplit();
+    const { keypair, keys, split, merge } = mergeAfterSplit();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const derive = KeyMemo.prototype.derive;
     const copies: Bytes32[] = [];
@@ -1336,18 +1346,20 @@ describe("wallet sync", () => {
       outputSlots: [{ ...slot, payload: new Uint8Array(slot.payload.length) }],
     };
     try {
+      // The failing merge spends the split's notes, so its output is owed.
       const result = decryptWithKeys(keys, {
         wallet,
-        transactions: [
-          failure
-            ? {
+        transactions: failure
+          ? [
+              split,
+              {
                 ...merge,
                 outputSlots: [
                   { ...slot, outputContext: { ...slot.outputContext, hash: bytes(1) } },
                 ],
-              }
-            : merge,
-        ],
+              },
+            ]
+          : [merge],
       });
       if (failure)
         await expect(result).rejects.toMatchObject({
@@ -2499,7 +2511,9 @@ describe("wallet sync", () => {
     },
   );
 
-  it("rejects an unreadable owner-tagged merge even when its inputs are unknown", async () => {
+  it("skips an unreadable owner-tagged merge whose inputs the wallet never held", async () => {
+    // Any sender can publish under the owner tag: only a spent nullifier the
+    // wallet holds shows a merge is its own.
     const keypair = ShieldedKeypair.generate();
     const other = ShieldedKeypair.generate();
     // Nullifiers are field elements on chain; these are no nullifier of this wallet.
@@ -2566,18 +2580,19 @@ describe("wallet sync", () => {
         paginationToken: null,
       })),
     });
-    const before = serializeWallet(wallet);
-    await expect(
-      syncWallet({
-        wallet,
-        keys: LocalShieldedKeys.fromKeypair(keypair),
-        client,
-      }),
-    ).rejects.toMatchObject({
-      code: "WALLET_SYNC",
-      causeCode: "TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE",
+    const report = await syncWallet({
+      wallet,
+      keys: LocalShieldedKeys.fromKeypair(keypair),
+      client,
     });
-    expect(serializeWallet(wallet)).toBe(before);
+    expect(report).toMatchObject({ storedUtxos: 0, undecryptableCandidates: 1 });
+    expect(wallet.utxos().map((entry) => [entry.utxo, entry.spent])).toEqual([[existing, false]]);
+    expect(
+      wallet._syncCheckpoint(
+        "transactions",
+        bytesKey(keypair.signingPublicKey().confidentialViewTag()),
+      ),
+    ).toBe(10n);
   });
 
   it("marks a multi-device spend through paginated nullifier lookup", async () => {

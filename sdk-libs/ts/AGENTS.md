@@ -14,9 +14,14 @@ a defect.
 - Security and correctness paths MUST fail closed. Unsupported, ambiguous,
   malformed, stale, partially decoded, or unauthenticated state is an error,
   never an empty result, default value, successful sync, or best-effort skip.
-  One exception: a third-party transaction's undecodable viewing key is read
-  as absent and its outputs as not ours, because a transaction is untrusted
-  input and a permanent sync failure is the attack.
+  One exception: an output that cannot be the wallet's is read as not ours,
+  because a transaction is untrusted input and a permanent sync failure is
+  the attack. That is a third-party transaction's undecodable viewing key, a
+  slot addressed to a viewing key the wallet does not hold, a plaintext no
+  commitment can be rebuilt from, an asset id that a registry read at or past
+  the transaction's slot does not name, a zero-amount output of an
+  unregistered mint, and an unreadable merge that spends none of the wallet's
+  notes.
 - Every invariant MUST have one implementation owner and adversarial tests at
   the boundary where it can fail. Copying policy is forbidden.
 - Probabilistic filters, caches, and heuristics may optimize the average path
@@ -104,9 +109,10 @@ a defect.
 - A cursor is a durable commit record, not a paging optimization. It may advance
   only when every fetched item before it is durably represented in wallet
   state or durably retained for deterministic replay.
-- Unknown assets, failed/unsupported registry backfill, undecoded owned data,
-  incomplete follow-up reads, or unresolved dependencies MUST prevent cursor
-  commit. Returning diagnostics while committing past the data is forbidden.
+- Held mints the registry cannot name, failed/unsupported registry backfill,
+  undecoded owned data, incomplete follow-up reads, or unresolved dependencies
+  MUST prevent cursor commit. Returning diagnostics while committing past the
+  data is forbidden.
 - Cursors remain separate per stream and per stable tag/nullifier. A newly
   learned key starts at its own beginning. Another key's watermark MUST NOT be
   reused. A read that ends with a null `paginationToken` advances the
