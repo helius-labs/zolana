@@ -20,7 +20,7 @@ use super::{
         GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, GetUserRecordsResponse, HistoryFilters,
-        PaginationToken, ProveResult, RingHistoryOptions, ShieldedTransactionStream,
+        PaginationToken, ProveResult, RingHistoryOptions,
     },
     ProgramAccountsFilter,
 };
@@ -75,10 +75,6 @@ pub trait Rpc {
 
     fn get_slot(&self) -> Result<u64, ClientError> {
         Err(unsupported("get_slot"))
-    }
-
-    fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
-        Err(unsupported("get_transaction_slot"))
     }
 
     fn get_signature_statuses(
@@ -200,13 +196,6 @@ pub trait Rpc {
         Err(unsupported("get_shielded_transactions_by_nullifiers"))
     }
 
-    fn subscribe_to_shielded_transactions_by_tags(
-        &self,
-        tags: Vec<[u8; 32]>,
-    ) -> Result<ShieldedTransactionStream, ClientError> {
-        Err(unsupported("subscribe_to_shielded_transactions_by_tags"))
-    }
-
     fn get_merkle_proofs(
         &self,
         tree_account: Address,
@@ -263,10 +252,6 @@ pub trait Rpc {
     ) -> Result<ProveResult, ClientError> {
         Err(unsupported("prove"))
     }
-
-    fn send_and_prove(&self, proof_inputs: SppProofInputs) -> Result<Signature, ClientError> {
-        Err(unsupported("send_and_prove"))
-    }
 }
 
 /// Async combined Solana RPC, SPP indexer, and proving surface for production clients.
@@ -313,10 +298,6 @@ pub trait AsyncRpc: Send + Sync {
 
     async fn get_slot(&self) -> Result<u64, ClientError> {
         Err(unsupported("get_slot"))
-    }
-
-    async fn get_transaction_slot(&self, signature: Signature) -> Result<u64, ClientError> {
-        Err(unsupported("get_transaction_slot"))
     }
 
     async fn get_signature_statuses(
@@ -418,13 +399,6 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
         Err(unsupported("get_shielded_transactions_by_nullifiers"))
-    }
-
-    async fn subscribe_to_shielded_transactions_by_tags(
-        &self,
-        tags: Vec<[u8; 32]>,
-    ) -> Result<ShieldedTransactionStream, ClientError> {
-        Err(unsupported("subscribe_to_shielded_transactions_by_tags"))
     }
 
     async fn get_merkle_proofs(
