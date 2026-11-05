@@ -100,7 +100,8 @@ fn cosigned_rfq_settlement() -> Result<()> {
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     let signature = send_cosigned(localnet.client.rpc(), &maker_solana, &taker_solana, ix)?;
     localnet

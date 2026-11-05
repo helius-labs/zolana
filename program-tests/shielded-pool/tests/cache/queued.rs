@@ -537,14 +537,14 @@ fn ten_proofs_in_parallel_then_sequential_splits_and_delayed_spends() {
                     let proof = prove_with_backpressure(&witness);
                     builder.data.proof = pack_transact_proof(&proof).expect("pack proof");
                     let ix = match (reads, writes) {
-                        (true, true) => {
-                            builder.instruction_with_caches(cache, cache, writer_address)
-                        }
-                        (false, true) => {
-                            builder.instruction_with_cache_write(cache, writer_address)
-                        }
-                        (true, false) => builder.instruction_with_cache_read(other_cache),
-                        (false, false) => builder.instruction(),
+                        (true, true) => builder
+                            .instruction_with_caches(cache, cache, writer_address)
+                            .unwrap(),
+                        (false, true) => builder
+                            .instruction_with_cache_write(cache, writer_address)
+                            .unwrap(),
+                        (true, false) => builder.instruction_with_cache_read(other_cache).unwrap(),
+                        (false, false) => builder.instruction().unwrap(),
                     };
                     (ix, expected)
                 })
@@ -820,7 +820,9 @@ fn a_read_cache_and_a_write_cache_may_differ_in_tree_and_writer() {
         pack_transact_proof(&prove_with_backpressure(&deposit.witness)).expect("pack proof");
     send(
         &mut pool.rpc,
-        builder.instruction_with_cache_write(cache_a, writer_a.pubkey()),
+        builder
+            .instruction_with_cache_write(cache_a, writer_a.pubkey())
+            .unwrap(),
         &writer_a,
     );
     assert_eq!(cache_state(&pool.rpc, cache_a), expected_a);
@@ -847,25 +849,33 @@ fn a_read_cache_and_a_write_cache_may_differ_in_tree_and_writer() {
         pack_transact_proof(&prove_with_backpressure(&across.witness)).expect("pack proof");
     assert_rejected_atomically(
         &mut pool.rpc,
-        builder.instruction_with_caches(cache_a, cache_b, writer_a.pubkey()),
+        builder
+            .instruction_with_caches(cache_a, cache_b, writer_a.pubkey())
+            .unwrap(),
         &writer_a,
         Some(ShieldedPoolError::CacheWriteAuthorityMismatch as u32),
     );
     assert_rejected_atomically(
         &mut pool.rpc,
-        builder.instruction_with_caches(cache_a, cache_a, writer_a.pubkey()),
+        builder
+            .instruction_with_caches(cache_a, cache_a, writer_a.pubkey())
+            .unwrap(),
         &writer_a,
         Some(ShieldedPoolError::CacheTreeMismatch as u32),
     );
     assert_rejected_atomically(
         &mut pool.rpc,
-        builder.instruction_with_cache_write(cache_b, writer_b.pubkey()),
+        builder
+            .instruction_with_cache_write(cache_b, writer_b.pubkey())
+            .unwrap(),
         &writer_b,
         Some(ShieldedPoolError::InvalidSettlementAccounts as u32),
     );
     send(
         &mut pool.rpc,
-        builder.instruction_with_caches(cache_a, cache_b, writer_b.pubkey()),
+        builder
+            .instruction_with_caches(cache_a, cache_b, writer_b.pubkey())
+            .unwrap(),
         &writer_b,
     );
     assert_eq!(cache_state(&pool.rpc, cache_a), expected_a);
@@ -893,7 +903,9 @@ fn a_read_cache_and_a_write_cache_may_differ_in_tree_and_writer() {
         pack_transact_proof(&prove_with_backpressure(&back.witness)).expect("pack proof");
     send(
         &mut pool.rpc,
-        builder.instruction_with_caches(cache_b, cache_a, writer_a.pubkey()),
+        builder
+            .instruction_with_caches(cache_b, cache_a, writer_a.pubkey())
+            .unwrap(),
         &writer_a,
     );
     assert_eq!(cache_state(&pool.rpc, cache_a), expected_a);
@@ -960,7 +972,9 @@ fn a_distinct_output_tree_pays_its_own_tree_fee() {
     let mut builder = step.builder;
     builder.data.proof =
         pack_transact_proof(&prove_with_backpressure(&step.witness)).expect("pack proof");
-    let ix = builder.instruction_with_cache_write(cache, writer.pubkey());
+    let ix = builder
+        .instruction_with_cache_write(cache, writer.pubkey())
+        .unwrap();
 
     // The payer ends at exactly its rent exemption after both signatures, the
     // deposit and both tree fees; one lamport less cannot cover the output

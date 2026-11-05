@@ -6,7 +6,7 @@ use spr_interface::{
     PROGRAM_ID_PUBKEY,
 };
 
-use super::transact::nullifier_pda_accounts;
+use super::transact::{nullifier_pda_accounts, TransactBuildError};
 
 /// Builder for the `merge_transact` instruction. The account layout mirrors the
 /// program loader (`MergeTransactAccounts::validate_and_parse`):
@@ -41,13 +41,13 @@ impl CacheWriteAccounts {
 }
 
 impl MergeTransact {
-    pub fn instruction(&self) -> Instruction {
+    pub fn instruction(&self) -> Result<Instruction, TransactBuildError> {
         let mut instruction_data = vec![tag::MERGE_TRANSACT];
         instruction_data.extend_from_slice(
             &self
                 .data
                 .serialize()
-                .expect("shielded-pool instruction serialization is infallible"),
+                .map_err(|_| TransactBuildError::Serialization)?,
         );
 
         let mut accounts = vec![
@@ -68,10 +68,10 @@ impl MergeTransact {
                 .flat_map(CacheWriteAccounts::account_metas),
         );
 
-        Instruction {
+        Ok(Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts,
             data: instruction_data,
-        }
+        })
     }
 }

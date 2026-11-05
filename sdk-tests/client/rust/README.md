@@ -32,7 +32,8 @@ building an instruction.
    the private transaction hash in one call.
 5. **Prove.** `prove_transact` fetches the witnesses and returns
    `TransactIxData`.
-6. **Build.** `Transact { .. }.instruction()`.
+6. **Build.** `Transact { .. }.instruction()?`, which rejects transfers the
+   program would reject.
 7. **Sign.** The fee payer signs; the sender proves ownership as a Solana
    signer.
 8. **Submit and confirm.** `create_and_send_transaction`, then read the landed

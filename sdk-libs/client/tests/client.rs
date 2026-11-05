@@ -1277,7 +1277,8 @@ impl<R: Rpc> TestSubmission for SprClient<R> {
             interface_transfer_accounts: signed.settlement_transfers.clone(),
             data,
         }
-        .instruction();
+        .instruction()
+        .unwrap();
         compile_message(
             &fee_payer,
             &[instruction],

@@ -493,8 +493,8 @@ fn build_unsigned_message(
         data: transact_data,
     };
     let transact_ix = match trees.read_cache {
-        Some(cache) => transact.instruction_with_cache_read(cache),
-        None => transact.instruction(),
+        Some(cache) => transact.instruction_with_cache_read(cache)?,
+        None => transact.instruction()?,
     };
     // The transact is the only instruction: a v1 message states its compute
     // ceiling and its priority fee in the header, so nothing rides along to

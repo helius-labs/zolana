@@ -155,7 +155,8 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 interface_transfer_accounts: Vec::new(),
                 data: split_transact,
             }
-            .instruction();
+            .instruction()
+            .unwrap();
             env.localnet
                 .client
                 .rpc()

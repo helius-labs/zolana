@@ -90,7 +90,7 @@ pub fn assert_widest_merge_that_fits(
 ) -> Result<()> {
     let size = |merge: &MergeTransact| {
         let mut instructions = preceding.to_vec();
-        instructions.push(merge.instruction());
+        instructions.push(merge.instruction().expect("valid instruction"));
         transaction_size(payer, &instructions, compute_budget)
     };
     let fitted = size(merge)?;

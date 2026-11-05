@@ -437,7 +437,8 @@ fn sol_split_case(reorder_recipients: bool) {
         ],
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
 
     if reorder_recipients {
         let user_position = ix
@@ -575,7 +576,8 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
         interface_transfer_accounts: vec![spl_transfer(first_token), spl_transfer(second_token)],
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let outcome = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -736,7 +738,8 @@ fn three_distinct_assets_support_opposite_public_directions() {
         ],
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let outcome = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])

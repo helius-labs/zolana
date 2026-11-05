@@ -125,7 +125,7 @@ new outputs when that one is full or paused.
 
 `prove_sync` checks the owner's record (PoseidonCtrV1 selected, same keys), fetches
 the witness, proves and verifies the proof. The proof binds no fee payer, so
-the `ProvedMerge` it returns is for any payer: `proved.instruction(payer)` is
+the `ProvedMerge` it returns is for any payer: `proved.instruction(payer)?` is
 the `merge_transact` to put in any message, for example a relayer's.
 `finish_unsigned_sync(&client, fee_payer)` builds the message the payer signs
 alone; `send_sync` signs, sends and waits as `Submission` does. As for

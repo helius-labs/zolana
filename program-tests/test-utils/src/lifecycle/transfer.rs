@@ -282,7 +282,7 @@ impl LifecycleHarness {
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
-        .instruction();
+        .instruction()?;
         let budget = ComputeBudgetConfig::new(1_400_000);
         self.last_transaction_size = Some(transaction_size(
             &fee_payer.pubkey(),

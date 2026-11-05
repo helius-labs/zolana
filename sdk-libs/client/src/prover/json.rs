@@ -385,7 +385,8 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str, ring: bool) -> St
         output_ring_data_hash: big_uint_to_string(&inputs.output_ring_data_hash),
         ring_program_id: big_uint_to_string(&inputs.ring_program_id),
     };
-    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+    serde_json::to_string(&json)
+        .expect("a struct of strings, numbers and sequences serializes to JSON")
 }
 
 /// Serialize the default merge witness to the prover server's JSON request body.
@@ -460,7 +461,8 @@ pub(crate) fn to_json_batch_address_append(inputs: &BatchAddressAppendInputs) ->
         tree_height: inputs.tree_height,
         batch_size: inputs.batch_size,
     };
-    serde_json::to_string(&json).expect("JSON serialization failed for valid struct")
+    serde_json::to_string(&json)
+        .expect("a struct of strings, numbers and sequences serializes to JSON")
 }
 
 /// Serialize a Solana-only transfer witness to the prover server's JSON request
@@ -506,7 +508,8 @@ fn transfer_inputs_json(
         cache: cache_reads_to_json(&inputs.cache),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
     };
-    Ok(serde_json::to_string(&json).expect("JSON serialization failed for valid struct"))
+    Ok(serde_json::to_string(&json)
+        .expect("a struct of strings, numbers and sequences serializes to JSON"))
 }
 
 /// Serialize the Solana-only confidential transfer witness to the prover server's

@@ -265,7 +265,7 @@ impl RingHarness {
             output_ring_data_hash: data.output_ring_data_hash,
             cache: None,
         }
-        .instruction();
+        .instruction()?;
         let budget = ComputeBudgetConfig::new(1_400_000);
         self.last_transaction_size = Some(transaction_size(
             &payer.pubkey(),
@@ -426,7 +426,7 @@ impl RingHarness {
             output_ring_data_hash: data.output_ring_data_hash,
             cache: None,
         }
-        .instruction();
+        .instruction()?;
         match send_transaction_with_budget(
             &mut self.rpc,
             &[merge_ix],

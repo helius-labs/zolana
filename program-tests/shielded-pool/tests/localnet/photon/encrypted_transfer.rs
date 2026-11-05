@@ -119,7 +119,8 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         interface_transfer_accounts: Vec::new(),
         data: ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     // Proof verification needs more than the implicit per-instruction budget.
     let transfer_sig = send_transaction_with_budget(
         &mut rpc,

@@ -1,5 +1,4 @@
 use groth16_solana::groth16::negate_g1_be;
-use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
 use spr_interface::instruction::{
@@ -171,25 +170,40 @@ pub(crate) struct GnarkProofJson {
 }
 
 /// Build a 64-byte big-endian G1 point (X || Y) from a 2-element hex string array.
-fn g1_from_hex_pair(pair: &[String]) -> Option<[u8; 64]> {
-    let [x, y] = pair else { return None };
+fn g1_from_hex_pair(pair: &[String], name: &str) -> Result<[u8; 64], ClientError> {
+    let [x, y] = pair else {
+        return Err(ClientError::ProofParse(format!(
+            "{name} has {} coordinates, expected 2",
+            pair.len()
+        )));
+    };
     let mut out = [0u8; 64];
-    out[..32].copy_from_slice(&hex_to_be_32(x));
-    out[32..].copy_from_slice(&hex_to_be_32(y));
-    Some(out)
+    out[..32].copy_from_slice(&hex_to_be_32(x, name)?);
+    out[32..].copy_from_slice(&hex_to_be_32(y, name)?);
+    Ok(out)
 }
 
-fn hex_to_be_32(hex_str: &str) -> [u8; 32] {
-    let trimmed = hex_str.trim_start_matches("0x");
-    let big_int = num_bigint::BigInt::from_str_radix(trimmed, 16).unwrap_or_default();
-    let bytes = big_int.to_bytes_be().1;
-    let mut result = [0u8; 32];
-    if bytes.len() <= 32 {
-        result[32 - bytes.len()..].copy_from_slice(&bytes);
-    } else {
-        result.copy_from_slice(&bytes[bytes.len() - 32..]);
+/// Parse a coordinate as gnark prints it, hex digits with an optional `0x`
+/// prefix, into 32 big-endian bytes. A value that does not fit in 32 bytes is
+/// rejected rather than truncated.
+fn hex_to_be_32(hex_str: &str, name: &str) -> Result<[u8; 32], ClientError> {
+    let digits = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ClientError::ProofParse(format!(
+            "{name} coordinate {hex_str:?} is not a hex number"
+        )));
     }
-    result
+    let significant = digits.trim_start_matches('0');
+    if significant.len() > 64 {
+        return Err(ClientError::ProofParse(format!(
+            "{name} coordinate {hex_str:?} does not fit in 32 bytes"
+        )));
+    }
+    let padded = format!("{significant:0>64}");
+    let mut result = [0u8; 32];
+    hex::decode_to_slice(&padded, &mut result)
+        .map_err(|e| ClientError::ProofParse(format!("{name} coordinate {hex_str:?}: {e}")))?;
+    Ok(result)
 }
 
 impl Proof {
@@ -198,7 +212,6 @@ impl Proof {
     /// receiving the proof from a server.
     pub fn from_gnark_json(json: &str) -> Result<Self, ClientError> {
         proof_from_gnark_json(json)
-            .ok_or_else(|| ClientError::ProofParse("invalid gnark proof JSON".to_string()))
     }
 }
 
@@ -231,25 +244,33 @@ pub(crate) fn proof_from_value(
     key.check(reported)?;
     let proof_json = serde_json::to_string(proof_value)
         .map_err(|e| ClientError::ProofParse(format!("failed to re-serialize proof: {e}")))?;
-    proof_from_gnark_json(&proof_json)
-        .ok_or_else(|| ClientError::ProofParse(format!("could not parse proof: {raw}")))
+    proof_from_gnark_json(&proof_json).map_err(|e| match e {
+        ClientError::ProofParse(reason) => {
+            ClientError::ProofParse(format!("could not parse proof ({reason}): {raw}"))
+        }
+        other => other,
+    })
 }
 
 /// Parse a gnark proof JSON (`{ar, bs, krs, proofCommitment?, proofCommitmentPok?}`)
 /// into an uncompressed [`Proof`] with `proof_a` negated. The commitment is `Some`
 /// only when both commitment fields are present (EdDSA rail).
-pub(crate) fn proof_from_gnark_json(json_str: &str) -> Option<Proof> {
-    let json: GnarkProofJson = serde_json::from_str(json_str).ok()?;
+pub(crate) fn proof_from_gnark_json(json_str: &str) -> Result<Proof, ClientError> {
+    let json: GnarkProofJson = serde_json::from_str(json_str)
+        .map_err(|e| ClientError::ProofParse(format!("invalid gnark proof JSON: {e}")))?;
 
-    let a = negate_g1_be(&g1_from_hex_pair(&json.ar)?);
-    let c = g1_from_hex_pair(&json.krs)?;
+    let a = negate_g1_be(&g1_from_hex_pair(&json.ar, "proof_a")?);
+    let c = g1_from_hex_pair(&json.krs, "proof_c")?;
 
     // proof_b is a G2 point: bs[0] = (x.a0, x.a1), bs[1] = (y.a0, y.a1).
     let [bx, by] = json.bs.as_slice() else {
-        return None;
+        return Err(ClientError::ProofParse(format!(
+            "proof_b has {} coordinate pairs, expected 2",
+            json.bs.len()
+        )));
     };
-    let bx = g1_from_hex_pair(bx)?;
-    let by = g1_from_hex_pair(by)?;
+    let bx = g1_from_hex_pair(bx, "proof_b")?;
+    let by = g1_from_hex_pair(by, "proof_b")?;
     let mut b = [0u8; 128];
     b[..64].copy_from_slice(&bx);
     b[64..].copy_from_slice(&by);
@@ -258,12 +279,12 @@ pub(crate) fn proof_from_gnark_json(json_str: &str) -> Option<Proof> {
         None
     } else {
         Some(Commitments {
-            commitment: g1_from_hex_pair(&json.proof_commitment)?,
-            commitment_pok: g1_from_hex_pair(&json.proof_commitment_pok)?,
+            commitment: g1_from_hex_pair(&json.proof_commitment, "commitment")?,
+            commitment_pok: g1_from_hex_pair(&json.proof_commitment_pok, "commitment_pok")?,
         })
     };
 
-    Some(Proof {
+    Ok(Proof {
         a,
         b,
         c,
@@ -311,6 +332,47 @@ mod tests {
         ))
         .expect("well-formed proof");
         assert!(proof.commitment.is_none());
+    }
+
+    #[test]
+    fn hex_to_be_32_parses_short_and_full_width_values() {
+        let mut one = [0u8; 32];
+        one[31] = 1;
+        assert_eq!(hex_to_be_32("0x1", "p").unwrap(), one);
+        assert_eq!(hex_to_be_32("01", "p").unwrap(), one);
+        let max = format!("0x{}", "f".repeat(64));
+        assert_eq!(hex_to_be_32(&max, "p").unwrap(), [0xff; 32]);
+        let padded = format!("0x{}{}", "0".repeat(8), "f".repeat(64));
+        assert_eq!(hex_to_be_32(&padded, "p").unwrap(), [0xff; 32]);
+    }
+
+    #[test]
+    fn hex_to_be_32_rejects_bad_hex() {
+        for value in ["", "0x", "0xzz", "12g4", "-1", "+1", "1_0", "0x0x1", " 1"] {
+            assert!(
+                matches!(hex_to_be_32(value, "p"), Err(ClientError::ProofParse(_))),
+                "accepted {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn hex_to_be_32_rejects_values_wider_than_32_bytes() {
+        let overlong = format!("0x1{}", "0".repeat(64));
+        assert!(matches!(
+            hex_to_be_32(&overlong, "p"),
+            Err(ClientError::ProofParse(_))
+        ));
+    }
+
+    /// A coordinate that is not hex fails the proof instead of decoding as a
+    /// zero point.
+    #[test]
+    fn from_gnark_json_rejects_a_non_hex_coordinate() {
+        let point = r#"["0x1","0x2"]"#;
+        let json = format!(r#"{{"ar":["0x1","nope"],"bs":[{point},{point}],"krs":{point}}}"#);
+        let error = Proof::from_gnark_json(&json).expect_err("non-hex coordinate");
+        assert!(matches!(error, ClientError::ProofParse(reason) if reason.contains("proof_a")));
     }
 
     #[test]

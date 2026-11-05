@@ -21,7 +21,7 @@ pub use ring_config::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner}
 pub use ring_deposit::{RingAssetDeposit, RingDeposit};
 pub use ring_transact::RingTransact;
 pub use transact::{
-    nullifier_pda_accounts, transact_nullifier_pda_accounts, Transact,
+    nullifier_pda_accounts, transact_nullifier_pda_accounts, Transact, TransactBuildError,
     TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplDepositAccounts,
     TransactSplWithdrawalAccounts,
 };

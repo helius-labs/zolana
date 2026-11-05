@@ -102,7 +102,8 @@ fn sol_withdrawal_rejects_an_unsigned_payer_meta() {
         )],
         data: ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     ix.accounts.get_mut(0).expect("payer meta").is_signer = false;
 
     let error = rpc
@@ -138,7 +139,8 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
         )],
         data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     // Swap the canonical SOL-custody PDA (first group account, right after the
     // nullifier PDAs) for an attacker account.
     ix.accounts
@@ -247,7 +249,8 @@ impl SplWithdrawalEnv {
             )],
             data: ix_data,
         }
-        .instruction();
+        .instruction()
+        .unwrap();
 
         let ata_before = self.rpc.token_balance(&self.attacker_ata).unwrap_or(0);
         let vault_before = self.rpc.token_balance(&self.vault).unwrap_or(0);
@@ -308,7 +311,8 @@ fn spl_withdrawal_rejects_a_wrong_cpi_authority_account() {
         )],
         data: ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     // The withdrawal group's cpi_authority is the first group account, right
     // after the nullifier PDAs.
     ix.accounts

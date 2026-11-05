@@ -378,7 +378,7 @@ fn merge_transact_appends_the_cache_and_writer_only_when_set() {
         data: merge_data(None),
         cache: None,
     };
-    let without_cache = builder.instruction();
+    let without_cache = builder.instruction().unwrap();
     assert_eq!(without_cache.accounts.len(), 6 + 8);
     assert_eq!(
         without_cache.accounts.last().map(|meta| meta.pubkey),
@@ -393,7 +393,8 @@ fn merge_transact_appends_the_cache_and_writer_only_when_set() {
         }),
         ..builder
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     assert_eq!(
         with_cache.accounts.get(..6 + 8),
         without_cache.accounts.get(..)
@@ -422,7 +423,7 @@ fn merge_ring_appends_the_cache_and_writer_only_when_set() {
         output_ring_data_hash: [5u8; 32],
         cache: None,
     };
-    let without_cache = builder.instruction();
+    let without_cache = builder.instruction().unwrap();
     assert_eq!(without_cache.accounts.len(), 6 + 8);
     assert_eq!(
         without_cache.accounts.last().map(|meta| meta.pubkey),
@@ -441,14 +442,14 @@ fn merge_ring_appends_the_cache_and_writer_only_when_set() {
         AccountMeta::new(cache, false),
         AccountMeta::new_readonly(builder.payer, true),
     ];
-    let with_cache = cached.instruction();
+    let with_cache = cached.instruction().unwrap();
     assert_eq!(
         with_cache.accounts.get(..6 + 8),
         without_cache.accounts.get(..)
     );
     assert_eq!(with_cache.accounts.get(6 + 8..), Some(&cache_accounts[..]));
     assert_eq!(
-        cached.cpi_instruction().accounts.get(6 + 8..),
+        cached.cpi_instruction().unwrap().accounts.get(6 + 8..),
         Some(&cache_accounts[..])
     );
 }

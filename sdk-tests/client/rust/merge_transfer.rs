@@ -130,7 +130,8 @@ fn main() -> Result<()> {
         data: merge_instruction_data(&merge, merge_proof)?,
         cache: None,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let merge_signature = client.create_and_send_transaction(
         &[merge_ix],
         merge_payer.pubkey(),
@@ -184,7 +185,8 @@ fn main() -> Result<()> {
         interface_transfer_accounts: Vec::new(),
         data: transfer_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let signature = client.create_and_send_transaction(
         &[transfer_ix],
         sender.pubkey(),

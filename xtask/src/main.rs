@@ -828,6 +828,7 @@ fn tx_size(args: Vec<String>) {
             data,
         }
         .instruction()
+        .expect("valid instruction")
     };
     // The ring rail has its own builder, so the accounts follow the loader's
     // layout rather than an index patched into the transact metas. Every
@@ -850,6 +851,7 @@ fn tx_size(args: Vec<String>) {
             data,
         }
         .instruction()
+        .expect("valid instruction")
     };
     let slots = N_PUBLIC_SLOTS as u8;
     let ring_eddsa = |n: usize, m: usize| CircuitId::ConfidentialRingEddsa(n as u8, m as u8, slots);
@@ -936,6 +938,7 @@ fn tx_size(args: Vec<String>) {
             data,
         }
         .instruction()
+        .expect("valid instruction")
     };
     // The widest shape of every output count of the rail: 48x8 and 48x16.
     for (n, m) in [(2usize, 8usize), (16, 16), (24, 16), (48, 8), (48, 16)] {
@@ -1013,7 +1016,8 @@ fn tx_size(args: Vec<String>) {
             output_ring_data_hash: [0u8; 32],
             cache: None,
         }
-        .instruction();
+        .instruction()
+        .expect("valid instruction");
         let user_record = Pubkey::new_unique();
         let merge_ix_paid_by = |payer: Pubkey| {
             MergeTransact {
@@ -1025,6 +1029,7 @@ fn tx_size(args: Vec<String>) {
                 cache: None,
             }
             .instruction()
+            .expect("valid instruction")
         };
         let merge_ix = merge_ix_paid_by(payer_pk);
         let label = match merge_circuit_width(input_count) {

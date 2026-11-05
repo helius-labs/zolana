@@ -204,6 +204,7 @@ fn transact_instruction(env: &Pool, data: TransactIxData) -> solana_instruction:
         data,
     }
     .instruction()
+    .unwrap()
 }
 
 fn nullifiers_of(data: &TransactIxData) -> Vec<[u8; 32]> {

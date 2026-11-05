@@ -6,6 +6,7 @@ use spr_interface::{
     pda, MAX_INTERFACE_TRANSFERS, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
     SOL_INTERFACE_PUBKEY,
 };
+use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransactSolTransferAccounts {
@@ -36,6 +37,32 @@ pub enum TransactInterfaceTransferAccounts {
     SplWithdrawal(TransactSplWithdrawalAccounts),
 }
 
+/// Why a transact-family builder (`transact`, `ring_transact`,
+/// `ring_authority_transact`, `merge_transact`, `merge_ring`) rejected its
+/// input. Each case is one the program would reject on chain.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum TransactBuildError {
+    #[error("transaction has {count} interface transfers; at most {max} are supported")]
+    TooManyInterfaceTransfers { count: usize, max: usize },
+    #[error("interface transfer {index} moves a zero amount")]
+    ZeroInterfaceTransferAmount { index: usize },
+    #[error("{transfers} interface transfers but {account_groups} settlement account groups")]
+    InterfaceTransferAccountCountMismatch {
+        transfers: usize,
+        account_groups: usize,
+    },
+    #[error("interface transfer {index} does not match the kind of its settlement account group")]
+    InterfaceTransferAccountMismatch { index: usize },
+    #[error("input {input} references tree {tree_index}, but only {input_trees} input trees are declared")]
+    InputTreeIndexOutOfRange {
+        input: usize,
+        tree_index: u8,
+        input_trees: usize,
+    },
+    #[error("instruction data could not be serialized")]
+    Serialization,
+}
+
 /// Builder for the `transact` instruction. The account layout mirrors the
 /// program loader (`TransactAccounts::validate_and_parse`): `payer`,
 /// `output_tree`, the SPP and System Program accounts, one input tree per
@@ -56,18 +83,31 @@ pub(super) fn append_interface_transfer_accounts(
     accounts: &mut Vec<AccountMeta>,
     interface_transfers: &[InterfaceTransfer],
     transfer_accounts: &[TransactInterfaceTransferAccounts],
-) {
-    assert!(
-        interface_transfers.len() <= MAX_INTERFACE_TRANSFERS,
-        "interface transfer count exceeds the protocol maximum"
-    );
-    assert_eq!(
-        interface_transfers.len(),
-        transfer_accounts.len(),
-        "interface transfers and settlement account groups must have equal lengths"
-    );
+) -> Result<(), TransactBuildError> {
+    if interface_transfers.len() > MAX_INTERFACE_TRANSFERS {
+        return Err(TransactBuildError::TooManyInterfaceTransfers {
+            count: interface_transfers.len(),
+            max: MAX_INTERFACE_TRANSFERS,
+        });
+    }
+    if let Some(index) = interface_transfers
+        .iter()
+        .position(|transfer| transfer.amount() == 0)
+    {
+        return Err(TransactBuildError::ZeroInterfaceTransferAmount { index });
+    }
+    if interface_transfers.len() != transfer_accounts.len() {
+        return Err(TransactBuildError::InterfaceTransferAccountCountMismatch {
+            transfers: interface_transfers.len(),
+            account_groups: transfer_accounts.len(),
+        });
+    }
 
-    for (transfer, transfer_accounts) in interface_transfers.iter().zip(transfer_accounts) {
+    for (index, (transfer, transfer_accounts)) in interface_transfers
+        .iter()
+        .zip(transfer_accounts)
+        .enumerate()
+    {
         match (transfer, transfer_accounts) {
             (InterfaceTransfer::SolDeposit { .. }, TransactInterfaceTransferAccounts::Sol(sol)) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
@@ -103,11 +143,24 @@ pub(super) fn append_interface_transfer_accounts(
                 accounts.push(AccountMeta::new(spl.user_token_account, false));
                 accounts.push(AccountMeta::new_readonly(spl.token_program, false));
             }
-            _ => {
-                panic!("interface transfer type must match its settlement account group");
-            }
+            _ => return Err(TransactBuildError::InterfaceTransferAccountMismatch { index }),
         }
     }
+    Ok(())
+}
+
+/// Serialize transact instruction data behind `tag`.
+pub(super) fn transact_instruction_data(
+    tag: u8,
+    data: &TransactIxData,
+) -> Result<Vec<u8>, TransactBuildError> {
+    let mut instruction_data = vec![tag];
+    instruction_data.extend_from_slice(
+        &data
+            .serialize()
+            .map_err(|_| TransactBuildError::Serialization)?,
+    );
+    Ok(instruction_data)
 }
 
 /// One writable nullifier-PDA account per nullifier, all derived under one
@@ -126,48 +179,50 @@ pub fn nullifier_pda_accounts<'a>(
 }
 
 /// One writable nullifier-PDA account per input, in input order, each derived
-/// under the tree its `tree_index` selects from `input_trees`. Panics on an
-/// index outside `input_trees`, which the program rejects as
-/// `InputTreeIndexOutOfRange`.
+/// under the tree its `tree_index` selects from `input_trees`. An index outside
+/// `input_trees`, which the program rejects as `InputTreeIndexOutOfRange`, is
+/// an error.
 pub fn transact_nullifier_pda_accounts<'a>(
     input_trees: &[Pubkey],
     inputs: impl IntoIterator<Item = &'a InputUtxo>,
-) -> Vec<AccountMeta> {
+) -> Result<Vec<AccountMeta>, TransactBuildError> {
     inputs
         .into_iter()
-        .map(|input| {
-            let input_tree = input_trees
-                .get(usize::from(input.tree_index))
-                .expect("input tree_index must reference a declared input tree");
-            AccountMeta::new(
+        .enumerate()
+        .map(|(index, input)| {
+            let input_tree = input_trees.get(usize::from(input.tree_index)).ok_or(
+                TransactBuildError::InputTreeIndexOutOfRange {
+                    input: index,
+                    tree_index: input.tree_index,
+                    input_trees: input_trees.len(),
+                },
+            )?;
+            Ok(AccountMeta::new(
                 pda::nullifier_pda(input_tree, &input.nullifier_hash).0,
                 false,
-            )
+            ))
         })
         .collect()
 }
 
 impl Transact {
-    pub fn instruction(&self) -> Instruction {
-        let mut instruction_data = vec![tag::TRANSACT];
-        instruction_data.extend_from_slice(
-            &self
-                .data
-                .serialize()
-                .expect("shielded-pool instruction serialization is infallible"),
-        );
-        Instruction {
+    pub fn instruction(&self) -> Result<Instruction, TransactBuildError> {
+        let accounts = self.accounts(&[])?;
+        Ok(Instruction {
             program_id: PROGRAM_ID_PUBKEY,
-            accounts: self.accounts(&[]),
-            data: instruction_data,
-        }
+            accounts,
+            data: transact_instruction_data(tag::TRANSACT, &self.data)?,
+        })
     }
 
-    pub fn cpi_accounts(&self, signer_pdas: &[Pubkey]) -> Vec<AccountMeta> {
+    pub fn cpi_accounts(
+        &self,
+        signer_pdas: &[Pubkey],
+    ) -> Result<Vec<AccountMeta>, TransactBuildError> {
         self.accounts(signer_pdas)
     }
 
-    fn accounts(&self, signer_pdas: &[Pubkey]) -> Vec<AccountMeta> {
+    fn accounts(&self, signer_pdas: &[Pubkey]) -> Result<Vec<AccountMeta>, TransactBuildError> {
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.output_tree, false),
@@ -182,7 +237,7 @@ impl Transact {
         accounts.extend(transact_nullifier_pda_accounts(
             &self.input_trees,
             self.data.inputs.iter(),
-        ));
+        )?);
         accounts.extend(
             self.owner_signers
                 .iter()
@@ -199,20 +254,27 @@ impl Transact {
             &mut accounts,
             &self.data.interface_transfers,
             &self.interface_transfer_accounts,
-        );
-        accounts
+        )?;
+        Ok(accounts)
     }
 
-    pub fn instruction_with_cache_read(&self, cache: Pubkey) -> Instruction {
-        let mut instruction = self.instruction();
+    pub fn instruction_with_cache_read(
+        &self,
+        cache: Pubkey,
+    ) -> Result<Instruction, TransactBuildError> {
+        let mut instruction = self.instruction()?;
         append_cache_accounts(&mut instruction.accounts, Some(cache), None);
-        instruction
+        Ok(instruction)
     }
 
-    pub fn instruction_with_cache_write(&self, cache: Pubkey, writer: Pubkey) -> Instruction {
-        let mut instruction = self.instruction();
+    pub fn instruction_with_cache_write(
+        &self,
+        cache: Pubkey,
+        writer: Pubkey,
+    ) -> Result<Instruction, TransactBuildError> {
+        let mut instruction = self.instruction()?;
         append_cache_accounts(&mut instruction.accounts, None, Some((cache, writer)));
-        instruction
+        Ok(instruction)
     }
 
     pub fn instruction_with_caches(
@@ -220,14 +282,14 @@ impl Transact {
         read_cache: Pubkey,
         write_cache: Pubkey,
         writer: Pubkey,
-    ) -> Instruction {
-        let mut instruction = self.instruction();
+    ) -> Result<Instruction, TransactBuildError> {
+        let mut instruction = self.instruction()?;
         append_cache_accounts(
             &mut instruction.accounts,
             Some(read_cache),
             Some((write_cache, writer)),
         );
-        instruction
+        Ok(instruction)
     }
 }
 
@@ -291,7 +353,7 @@ mod tests {
             data: empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 7 }]),
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().unwrap();
         let keys: Vec<_> = ix.accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(
             keys,
@@ -333,7 +395,7 @@ mod tests {
             }]),
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().unwrap();
         let keys: Vec<_> = ix.accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(
             keys,
@@ -387,7 +449,7 @@ mod tests {
             ]),
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().unwrap();
         let keys: Vec<_> = ix.accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(
             keys,
@@ -435,7 +497,7 @@ mod tests {
             }]),
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().unwrap();
         assert_eq!(ix.accounts[5].pubkey, spl.mint);
         assert_eq!(ix.accounts[6].pubkey, spl.spl_interface);
         assert_eq!(ix.accounts[7].pubkey, spl.token_authority);
@@ -467,7 +529,7 @@ mod tests {
             data,
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().unwrap();
         let nullifier_pda = |nullifier: &[u8; 32]| pda::nullifier_pda(&input_tree, nullifier).0;
         assert_eq!(
             ix.accounts,
@@ -488,27 +550,31 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "equal lengths")]
     fn rejects_transfer_account_count_mismatch() {
-        let input_tree = Pubkey::new_unique();
-        Transact {
+        let error = Transact {
             payer: Pubkey::new_unique(),
-            input_trees: vec![input_tree],
+            input_trees: vec![Pubkey::new_unique()],
             output_tree: Pubkey::new_unique(),
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
             data: empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 1 }]),
         }
-        .instruction();
+        .instruction()
+        .unwrap_err();
+        assert_eq!(
+            error,
+            TransactBuildError::InterfaceTransferAccountCountMismatch {
+                transfers: 1,
+                account_groups: 0,
+            }
+        );
     }
 
     #[test]
-    #[should_panic(expected = "interface transfer type")]
     fn rejects_transfer_account_tag_mismatch() {
-        let input_tree = Pubkey::new_unique();
-        Transact {
+        let error = Transact {
             payer: Pubkey::new_unique(),
-            input_trees: vec![input_tree],
+            input_trees: vec![Pubkey::new_unique()],
             output_tree: Pubkey::new_unique(),
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -521,7 +587,77 @@ mod tests {
                 spl_interface_bump: 42,
             }]),
         }
-        .instruction();
+        .instruction()
+        .unwrap_err();
+        assert_eq!(
+            error,
+            TransactBuildError::InterfaceTransferAccountMismatch { index: 0 }
+        );
+    }
+
+    fn sol_withdrawals(amounts: &[u64]) -> Transact {
+        Transact {
+            payer: Pubkey::new_unique(),
+            input_trees: vec![Pubkey::new_unique()],
+            output_tree: Pubkey::new_unique(),
+            owner_signers: Vec::new(),
+            interface_transfer_accounts: amounts
+                .iter()
+                .map(|_| {
+                    TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                        recipient: Pubkey::new_unique(),
+                    })
+                })
+                .collect(),
+            data: empty_data(
+                amounts
+                    .iter()
+                    .map(|&amount| InterfaceTransfer::SolWithdrawal { amount })
+                    .collect(),
+            ),
+        }
+    }
+
+    /// The instruction serializer rejects more than `MAX_INTERFACE_TRANSFERS`;
+    /// the builder returns it as a typed error.
+    #[test]
+    fn rejects_too_many_interface_transfers() {
+        let builder = sol_withdrawals(&[1; MAX_INTERFACE_TRANSFERS + 1]);
+        assert_eq!(
+            builder.instruction().unwrap_err(),
+            TransactBuildError::TooManyInterfaceTransfers {
+                count: MAX_INTERFACE_TRANSFERS + 1,
+                max: MAX_INTERFACE_TRANSFERS,
+            }
+        );
+        assert!(builder.cpi_accounts(&[]).is_err());
+    }
+
+    /// The instruction serializer rejects a zero-amount interface transfer;
+    /// the builder returns it as a typed error.
+    #[test]
+    fn rejects_zero_amount_interface_transfer() {
+        assert_eq!(
+            sol_withdrawals(&[3, 0]).instruction().unwrap_err(),
+            TransactBuildError::ZeroInterfaceTransferAmount { index: 1 }
+        );
+    }
+
+    #[test]
+    fn rejects_input_tree_index_outside_declared_trees() {
+        let mut builder = builder_without_transfers();
+        builder.data.inputs = vec![InputUtxo {
+            nullifier_hash: [9u8; 32],
+            tree_index: 1,
+        }];
+        assert_eq!(
+            builder.instruction().unwrap_err(),
+            TransactBuildError::InputTreeIndexOutOfRange {
+                input: 0,
+                tree_index: 1,
+                input_trees: 1,
+            }
+        );
     }
 
     fn builder_without_transfers() -> Transact {
@@ -540,11 +676,14 @@ mod tests {
         let builder = builder_without_transfers();
         let cache = Pubkey::new_unique();
         let writer = Pubkey::new_unique();
-        let mut expected = builder.instruction().accounts;
+        let mut expected = builder.instruction().unwrap().accounts;
         expected.push(AccountMeta::new(cache, false));
         expected.push(AccountMeta::new_readonly(writer, true));
         assert_eq!(
-            builder.instruction_with_cache_write(cache, writer).accounts,
+            builder
+                .instruction_with_cache_write(cache, writer)
+                .unwrap()
+                .accounts,
             expected
         );
     }
@@ -553,10 +692,10 @@ mod tests {
     fn cache_read_appends_read_only_cache() {
         let builder = builder_without_transfers();
         let cache = Pubkey::new_unique();
-        let mut expected = builder.instruction().accounts;
+        let mut expected = builder.instruction().unwrap().accounts;
         expected.push(AccountMeta::new_readonly(cache, false));
         assert_eq!(
-            builder.instruction_with_cache_read(cache).accounts,
+            builder.instruction_with_cache_read(cache).unwrap().accounts,
             expected
         );
     }
@@ -567,13 +706,14 @@ mod tests {
         let read_cache = Pubkey::new_unique();
         let write_cache = Pubkey::new_unique();
         let writer = Pubkey::new_unique();
-        let mut expected = builder.instruction().accounts;
+        let mut expected = builder.instruction().unwrap().accounts;
         expected.push(AccountMeta::new_readonly(read_cache, false));
         expected.push(AccountMeta::new(write_cache, false));
         expected.push(AccountMeta::new_readonly(writer, true));
         assert_eq!(
             builder
                 .instruction_with_caches(read_cache, write_cache, writer)
+                .unwrap()
                 .accounts,
             expected
         );

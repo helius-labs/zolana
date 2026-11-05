@@ -114,7 +114,7 @@ fn widest_wallet_spend(published_inputs: usize) -> TransactionSize {
     };
     transaction_size(
         &payer,
-        &[transact.instruction()],
+        &[transact.instruction().unwrap()],
         ComputeBudgetConfig::new(1_400_000).with_priority_fee(u64::MAX),
     )
     .expect("measure the spend")

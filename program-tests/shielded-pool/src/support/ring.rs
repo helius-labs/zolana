@@ -76,7 +76,8 @@ impl RingTransactProof {
             interface_transfer_accounts: Vec::new(),
             data: self.data.clone(),
         }
-        .instruction();
+        .instruction()
+        .expect("valid instruction");
         *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
         ix.accounts
             .insert(4, AccountMeta::new_readonly(self.ring_config, true));

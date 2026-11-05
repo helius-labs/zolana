@@ -1,7 +1,7 @@
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use spr_hasher::HasherError;
-use spr_instruction::instruction::DepositBuildError;
+use spr_instruction::instruction::{DepositBuildError, TransactBuildError};
 use spr_interface::error::ShieldedPoolError;
 use spr_keypair::KeypairError;
 use spr_transaction::TransactionError;
@@ -15,6 +15,8 @@ pub enum ClientError {
     AddressInputUnsupported { index: usize },
     #[error("deposit builder error: {0}")]
     DepositBuild(#[from] DepositBuildError),
+    #[error("transact builder error: {0}")]
+    TransactBuild(#[from] TransactBuildError),
 
     #[error("keypair error: {0}")]
     Keypair(#[from] KeypairError),

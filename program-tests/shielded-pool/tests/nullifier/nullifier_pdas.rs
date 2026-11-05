@@ -75,6 +75,7 @@ fn transact_instruction(env: &Pool, data: TransactIxData) -> Instruction {
         data,
     }
     .instruction()
+    .unwrap()
 }
 
 fn close_instruction(env: &Pool, nullifiers: Vec<[u8; 32]>) -> Instruction {

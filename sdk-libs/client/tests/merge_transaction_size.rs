@@ -142,7 +142,8 @@ fn build_merge(real_inputs: usize, ring: Option<Address>) -> BuiltMerge {
                 data: data.merge,
                 cache: None,
             }
-            .instruction();
+            .instruction()
+            .unwrap();
             (instruction, sent_nullifiers)
         }
         None => {
@@ -156,7 +157,8 @@ fn build_merge(real_inputs: usize, ring: Option<Address>) -> BuiltMerge {
                 data,
                 cache: None,
             }
-            .instruction();
+            .instruction()
+            .unwrap();
             (instruction, sent_nullifiers)
         }
     };

@@ -305,7 +305,8 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let transfer_tx = send_indexed(
         &mut cycle.rpc,
         &mut cycle.indexer,
@@ -438,7 +439,8 @@ fn phase_unshield(
         )],
         data: withdraw_ix_data,
     }
-    .instruction();
+    .instruction()
+    .unwrap();
     let withdraw_tx = send_indexed(
         &mut cycle.rpc,
         &mut cycle.indexer,

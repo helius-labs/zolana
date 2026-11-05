@@ -58,6 +58,7 @@ fn both_take_rails_forward_the_order_and_paying_taker_as_owner_signers() {
         data: data.clone(),
     }
     .instruction()
+    .unwrap()
     .accounts;
     // The swap program supplies this signature during CPI, not at transaction entry.
     for account in &mut expected {

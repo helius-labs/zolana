@@ -1,13 +1,31 @@
 use pinocchio::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use spr_interface::instruction::instruction_data::transact::TransactIxData;
-use spr_program::{instruction::Transact, CompressedProof};
+use spr_program::{
+    instruction::{Transact, TransactBuildError},
+    CompressedProof,
+};
 
 use crate::{
     circuits::escrow_authority,
     instructions::{escrow::EscrowArgs, withdraw::WithdrawArgs},
     tag, ID,
 };
+/// Why an escrow program instruction could not be built.
+#[derive(Debug, thiserror::Error)]
+pub enum InstructionBuildError {
+    #[error("instruction data could not be serialized: {0}")]
+    Serialization(#[from] wincode::Error),
+    #[error("transact accounts: {0}")]
+    Transact(#[from] TransactBuildError),
+}
+
+impl From<wincode::WriteError> for InstructionBuildError {
+    fn from(error: wincode::WriteError) -> Self {
+        Self::Serialization(error.into())
+    }
+}
+
 // TODO: move to tests as utils file
 pub struct EscrowInstruction {
     pub creator: Address,
@@ -18,7 +36,7 @@ pub struct EscrowInstruction {
 }
 
 impl EscrowInstruction {
-    pub fn instruction(self) -> Result<Instruction, wincode::Error> {
+    pub fn instruction(self) -> Result<Instruction, InstructionBuildError> {
         ProgramTransact {
             tag: tag::ESCROW,
             args: wincode::serialize(&EscrowArgs {
@@ -45,7 +63,7 @@ pub struct WithdrawInstruction {
 }
 
 impl WithdrawInstruction {
-    pub fn instruction(self) -> Result<Instruction, wincode::Error> {
+    pub fn instruction(self) -> Result<Instruction, InstructionBuildError> {
         ProgramTransact {
             tag: tag::WITHDRAW,
             args: wincode::serialize(&WithdrawArgs {
@@ -74,7 +92,7 @@ struct ProgramTransact {
 }
 
 impl ProgramTransact {
-    fn instruction(self, data: TransactIxData) -> Result<Instruction, wincode::Error> {
+    fn instruction(self, data: TransactIxData) -> Result<Instruction, InstructionBuildError> {
         let Self {
             tag,
             args,
@@ -92,7 +110,7 @@ impl ProgramTransact {
             interface_transfer_accounts: Vec::new(),
             data,
         };
-        accounts.extend(transact.cpi_accounts(&[*escrow_authority(&creator).pda()]));
+        accounts.extend(transact.cpi_accounts(&[*escrow_authority(&creator).pda()])?);
         let mut instruction_data = vec![tag];
         instruction_data.extend(args);
         instruction_data.extend(transact_data);

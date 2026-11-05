@@ -595,7 +595,7 @@ impl RingHarness {
             interface_transfer_accounts,
             data: data.clone(),
         }
-        .instruction();
+        .instruction()?;
         let instructions = [transfer_ix.clone()];
         let budget = ComputeBudgetConfig::new(1_400_000);
         self.last_transaction_size = Some(transaction_size(
@@ -987,7 +987,7 @@ impl RingHarness {
             interface_transfer_accounts: Vec::new(),
             data,
         }
-        .instruction();
+        .instruction()?;
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         match send_transaction_with_budget(
             &mut self.rpc,
