@@ -19,6 +19,7 @@ export {
 } from "./transact.js";
 export type {
   CacheAccounts,
+  DepositSource,
   EncryptedTransaction,
   ExternalData,
   ExternalDataInit,

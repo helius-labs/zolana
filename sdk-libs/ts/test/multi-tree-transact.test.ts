@@ -15,7 +15,11 @@ import {
 } from "../src/interface/tree-slot.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { TransactionError } from "../src/transaction/error.js";
-import { inputTreeIds, singleInputTreeId } from "../src/transaction/instructions/transact.js";
+import {
+  inputTreeIds,
+  prepareRingAuthorityTransfer,
+  singleInputTreeId,
+} from "../src/transaction/instructions/transact.js";
 import {
   ProofInputUtxo,
   SOL_MINT,
@@ -503,5 +507,46 @@ describe("a client proving from two trees", () => {
       ),
     ).rejects.toThrow("CLIENT_INPUT_TREE_UNRESOLVED");
     expect(getMerkleProofs.mock.calls.map((call) => call[0])).toEqual([treeAddress(TREE_0.treeId)]);
+  });
+});
+
+describe("a ring authority transfer spending from two trees", () => {
+  it("declares both trees and refuses a third", () => {
+    const keypair = ShieldedKeypair.generate();
+    try {
+      const owner = keypair.shieldedAddress();
+      const ringProgramId = owner.solanaAddress();
+      const prepare = (treeIds: readonly number[]) =>
+        prepareRingAuthorityTransfer({
+          owner,
+          inputs: treeIds.map((treeId, index) =>
+            ProofInputUtxo.fromKeypair(
+              new Utxo({
+                owner: keypair.signingPublicKey(),
+                asset: SOL_MINT,
+                amount: 7n,
+                blinding: blinding(index + 1),
+                ringProgramId,
+              }),
+              keypair,
+              {},
+              treeId,
+            ),
+          ),
+          outputs: [{ recipient: owner, asset: SOL_MINT, amount: BigInt(treeIds.length) * 7n }],
+          payer: owner.solanaAddress(),
+          ringProgramId,
+          outputTreeId: TREE_0.treeId,
+        });
+      expect(prepare([TREE_0.treeId, TREE_1.treeId, TREE_0.treeId]).inputTreeIds).toEqual([
+        TREE_0.treeId,
+        TREE_1.treeId,
+      ]);
+      expect(() => prepare([TREE_0.treeId, TREE_1.treeId, 2])).toThrow(
+        expect.objectContaining({ code: "TRANSACTION_TOO_MANY_INPUT_TREES" }),
+      );
+    } finally {
+      keypair.destroy();
+    }
   });
 });
