@@ -10,8 +10,9 @@ use num_bigint::BigUint;
 use solana_address::Address;
 use spr_interface::instruction::instruction_data::transact::TreeContext;
 use spr_transaction::{
-    instructions::transact::{CacheAccounts, PublicTransfers}, utxo::program_id_proof_input_hash, ExternalData,
-    SppProofOutputUtxo,
+    instructions::transact::{CacheAccounts, PublicTransfers},
+    utxo::program_id_proof_input_hash,
+    ExternalData, SppProofOutputUtxo,
 };
 
 use crate::{
