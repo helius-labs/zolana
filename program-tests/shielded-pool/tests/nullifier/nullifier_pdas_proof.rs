@@ -329,7 +329,7 @@ fn transact_rejects_a_nullifier_queued_by_an_earlier_transaction() {
 
     env.rpc
         .create_and_send_default_payer_transaction(&[transact_instruction(&env, data.clone())], &[])
-        .expect("first input_utxo");
+        .expect("first spend");
     let tree_after_first = tree_account(&env);
 
     let error = env
@@ -348,7 +348,7 @@ fn transact_rejects_a_nullifier_queued_by_an_earlier_transaction() {
     );
     for (nullifier, offset) in nullifiers.iter().zip(0..) {
         assert_nullifier_pda(&env.rpc, &tree, nullifier, queue_next_before + offset)
-            .expect("first input_utxo's nullifier PDA unchanged");
+            .expect("first spend's nullifier PDA unchanged");
     }
 }
 

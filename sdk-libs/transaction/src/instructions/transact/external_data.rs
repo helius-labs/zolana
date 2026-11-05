@@ -227,13 +227,11 @@ impl ExternalData {
             .copied()
             .map(SettlementTransfer::settlement_accounts)
             .collect();
-        external
-            .hash(
-                self.instruction_discriminator,
-                &settlement_accounts,
-                &self.resolved_owner_tags,
-            )
-            .map_err(|e| TransactionError::Hash(e.to_string()))
+        Ok(external.hash(
+            self.instruction_discriminator,
+            &settlement_accounts,
+            &self.resolved_owner_tags,
+        )?)
     }
 }
 

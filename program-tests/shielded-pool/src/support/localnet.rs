@@ -339,7 +339,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
         .collect();
     let first_nullifier = nullifiers
         .first()
-        .ok_or_else(|| anyhow!("{} witness has no input_utxo input", args.label))?;
+        .ok_or_else(|| anyhow!("{} witness has no spend input", args.label))?;
     let output_hashes = derive_test_transfer_output_blindings(first_nullifier, &mut args.outputs)?;
     let output_blindings: Vec<[u8; 32]> = args
         .outputs

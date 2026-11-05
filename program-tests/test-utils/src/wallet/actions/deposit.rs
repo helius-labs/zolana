@@ -12,6 +12,7 @@ use spr_program::instruction::{
 };
 use spr_transaction::{TransactionError, SOL_MINT};
 
+use crate::wallet::WalletError;
 use spr_client::{
     error::ClientError,
     rpc::{compile_message, AsyncRpc, ComputeBudgetConfig, Rpc},
@@ -40,7 +41,7 @@ pub struct DepositParams<'a> {
 }
 
 impl Deposit {
-    pub fn new(request: DepositParams<'_>) -> Result<Self, ClientError> {
+    pub fn new(request: DepositParams<'_>) -> Result<Self, WalletError> {
         // The recipient `owner` commitment is public address material, so a
         // third-party depositor shares no secret with the recipient.
         let owner = request.recipient.owner_hash()?;
@@ -102,7 +103,7 @@ impl Deposit {
     }
 }
 
-pub fn create_deposit(request: DepositParams<'_>) -> Result<Deposit, ClientError> {
+pub fn create_deposit(request: DepositParams<'_>) -> Result<Deposit, WalletError> {
     Deposit::new(request)
 }
 
@@ -185,12 +186,12 @@ fn deposit_asset(
     asset: Address,
     spl_token_account: Option<Pubkey>,
     spl_token_program: Option<Pubkey>,
-) -> Result<DepositAsset, ClientError> {
+) -> Result<DepositAsset, WalletError> {
     if asset == SOL_MINT {
         return Ok(DepositAsset::Sol);
     }
     let mint = Pubkey::new_from_array(asset.to_bytes());
-    let user_token = spl_token_account.ok_or(ClientError::MissingSplTokenAccount { mint })?;
+    let user_token = spl_token_account.ok_or(WalletError::MissingSplTokenAccount { mint })?;
     let token_program =
         spl_token_program.ok_or(TransactionError::MissingSplTokenProgram { mint })?;
     Ok(DepositAsset::Spl(DepositSplAccounts {

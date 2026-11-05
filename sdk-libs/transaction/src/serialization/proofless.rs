@@ -74,7 +74,7 @@ impl UtxoSerialization for Proofless {
     }
 
     fn serialize(plaintext: &Self::Plaintext) -> Result<Vec<u8>, TransactionError> {
-        borsh::to_vec(plaintext).map_err(|e| TransactionError::Deserialize(e.to_string()))
+        borsh::to_vec(plaintext).map_err(|e| TransactionError::Serialize(e.to_string()))
     }
 
     fn encrypt(bytes: &[u8], _cx: &Self::EncodeCx) -> Result<Vec<u8>, TransactionError> {

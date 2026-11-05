@@ -499,7 +499,7 @@ fn external_hash_uses_canonical_bytes_and_only_resolves_account_owner_tags() {
         let mut changed = ext.clone();
         changed.resolved_owner_tags = tags;
         assert!(
-            matches!(changed.hash(), Err(TransactionError::Hash(message)) if message == format!("{provided} resolved owner tags for 2 outputs"))
+            matches!(changed.hash(), Err(TransactionError::OwnerTagCountMismatch { got, expected: 2 }) if got == provided)
         );
     }
 }

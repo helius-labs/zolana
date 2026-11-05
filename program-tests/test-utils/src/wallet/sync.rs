@@ -1726,7 +1726,7 @@ mod tests {
                 .get(&CheckpointStream::Nullifiers(unspent))
                 .copied(),
             Some(50),
-            "no input_utxo matched, so the position comes from the reported scan"
+            "no spend matched, so the position comes from the reported scan"
         );
 
         let mut proofless_checkpoints = HashMap::new();

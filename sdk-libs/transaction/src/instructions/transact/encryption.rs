@@ -66,7 +66,7 @@ impl OutputEncoder for Confidential {
             *blob.first_mut().ok_or(TransactionError::MissingOutput)? =
                 EncryptedScheme::RingConfidential.as_byte();
             message.data = borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
-                .map_err(|error| TransactionError::Deserialize(error.to_string()))?;
+                .map_err(|error| TransactionError::Serialize(error.to_string()))?;
         }
         Ok(message)
     }

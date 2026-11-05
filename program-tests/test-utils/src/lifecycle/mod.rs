@@ -37,6 +37,7 @@ use spr_transaction::{Data, Utxo, SOL_MINT};
 use crate::{
     harness::{BootstrapConfig, LocalnetHarness},
     test_validator_asserts::wait_for_indexed_transaction,
+    wallet::WalletError,
 };
 
 /// The extra account snapshots an SPL deposit assert needs.
@@ -145,7 +146,7 @@ impl Deposit<'_> {
         indexer: &I,
         payer: &Keypair,
         authority: &Keypair,
-    ) -> Result<DepositResult, ClientError> {
+    ) -> Result<DepositResult, WalletError> {
         // The recipient `owner_hash` is public address material, so a
         // third-party depositor shares no secret with the recipient.
         let owner = self.recipient.owner_hash()?;
@@ -160,21 +161,21 @@ impl Deposit<'_> {
         let (asset, deposit_asset) = if system_owned {
             // SOL: the funding system account must itself sign the debit.
             if self.sender != authority.pubkey() {
-                return Err(ClientError::DepositSenderNotSigner {
+                return Err(WalletError::DepositSenderNotSigner {
                     sender: self.sender.to_bytes(),
                 });
             }
             (SOL_MINT, DepositAsset::Sol)
         } else {
             // SPL: `sender` is a token account; everything else derives from it.
-            let account = sender_account.ok_or(ClientError::AccountNotFound {
+            let account = sender_account.ok_or(WalletError::AccountNotFound {
                 address: self.sender.to_bytes(),
             })?;
             let mint_bytes: [u8; 32] = account
                 .data
                 .get(0..32)
                 .and_then(|slice| slice.try_into().ok())
-                .ok_or(ClientError::AccountNotFound {
+                .ok_or(WalletError::AccountNotFound {
                     address: self.sender.to_bytes(),
                 })?;
             let mint = Pubkey::new_from_array(mint_bytes);
@@ -229,7 +230,7 @@ impl Deposit<'_> {
             let address = spr_interface::pda::spl_asset_registry(&asset);
             let account = rpc
                 .get_account(address)?
-                .ok_or(ClientError::AccountNotFound {
+                .ok_or(WalletError::AccountNotFound {
                     address: address.to_bytes(),
                 })?;
             let registry = spr_interface::state::SplAssetRegistry::from_account_bytes(
@@ -237,7 +238,7 @@ impl Deposit<'_> {
             )
             .map_err(|error| ClientError::Rpc(format!("invalid asset registry: {error:?}")))?;
             if registry.mint != asset {
-                return Err(ClientError::Rpc("asset registry mint mismatch".into()));
+                return Err(ClientError::Rpc("asset registry mint mismatch".into()).into());
             }
             spr_transaction::Mint::new(asset, registry.asset_id)
         };

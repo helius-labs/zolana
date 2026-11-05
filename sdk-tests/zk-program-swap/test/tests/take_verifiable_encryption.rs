@@ -220,7 +220,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         );
         let order_input_utxo = order_utxo
             .to_input_utxo(localnet.tree_id, order_state.leaf_index)
-            .map_err(|e| anyhow!("order input_utxo: {e:?}"))?;
+            .map_err(|e| anyhow!("order spend: {e:?}"))?;
         let taker_input_utxo = SppProofInputUtxo::from(taker_input_utxo);
         let inputs = vec![order_input_utxo, taker_input_utxo];
         let mut transaction_outputs = vec![source_output, destination_output];

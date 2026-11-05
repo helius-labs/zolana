@@ -729,7 +729,7 @@ async fn async_user_record_lookup_rejects_a_key_of_the_wrong_length() {
     assert!(
         matches!(
             &error,
-            ClientError::Rpc(message) if message.contains("records[0].viewingPubkey")
+            ClientError::InvalidIndexerField { field, .. } if field == "records[0].viewingPubkey"
         ),
         "{error}"
     );
