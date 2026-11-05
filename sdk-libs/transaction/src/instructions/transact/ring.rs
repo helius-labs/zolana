@@ -20,6 +20,17 @@ impl ConfidentialTransaction {
         Ok(transaction)
     }
 
+    /// [`new_deposit`](Self::new_deposit) in a custom ring.
+    pub fn new_deposit_with_ring(
+        output_tree_id: u16,
+        payer: Address,
+        ring_program_id: Address,
+    ) -> Result<Self, TransactionError> {
+        let mut transaction = Self::new_deposit(output_tree_id, payer)?;
+        transaction.ring_program_id = Some(ring_program_id);
+        Ok(transaction)
+    }
+
     /// Like [`new_with_ring`](Self::new_with_ring), but pads unused slots with
     /// compact padding, as [`new_compact`](Self::new_compact) does.
     pub fn new_compact_with_ring(

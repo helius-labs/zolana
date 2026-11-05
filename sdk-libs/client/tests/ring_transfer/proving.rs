@@ -72,6 +72,7 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> (RingTransferProver, Vec<Nullifier
     signer_pk_hashes.resize(shape.signer_width(), [0u8; 32]);
     (
         RingTransferProver {
+            cache_accounts: Default::default(),
             inputs,
             outputs,
             blinding_seed,
@@ -114,6 +115,7 @@ fn eddsa_multi_real() -> (RingTransferProver, Vec<NullifierKey>) {
     );
     (
         RingTransferProver {
+            cache_accounts: Default::default(),
             inputs,
             outputs,
             blinding_seed,
@@ -156,6 +158,7 @@ fn prove_and_verify_anonymous_with_address() {
     );
     let shape = Shape::new(2, 2);
     let mut result = AnonymousRingEddsaProver {
+        cache_accounts: Default::default(),
         inputs,
         outputs,
         blinding_seed,
