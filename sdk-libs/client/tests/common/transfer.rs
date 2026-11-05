@@ -1,4 +1,4 @@
-use spr_client::{NonInclusionProof, SpendProof, TransferInputUtxo, TransferProver};
+use spr_client::{NonInclusionProof, SignerRail, SpendProof, TransferInputUtxo, TransferProver};
 use spr_transaction::instructions::transact::SppProofInputs;
 
 pub fn transfer_prover(
@@ -40,5 +40,6 @@ pub fn transfer_prover(
         allow_dummy_inputs: true,
         shape,
         cache_accounts: Default::default(),
+        rail: SignerRail,
     }
 }

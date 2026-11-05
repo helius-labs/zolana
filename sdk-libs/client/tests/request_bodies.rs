@@ -28,8 +28,8 @@ use spr_client::{
         transact::{
             anonymous_ring_eddsa::anonymous_signer_pk_hashes, assemble, assemble_confidential_eddsa,
         },
-        AnonymousRingEddsaProver, ConfidentialEddsaProver, MergeCacheTarget, ProveRequest,
-        RingAuthorityProver, RingTransferProver, Shape, TransferProver,
+        AnonymousRingEddsaRail, ConfidentialEddsaRail, MergeCacheTarget, ProveRequest,
+        RingAuthorityRail, RingSignerRail, Shape, SignerRail, TransferProver,
     },
     ClientError, MergeProver, MerkleContext, MerkleProof, NonInclusionProof, Proof, ProofAuthority,
     Prover, ProverExt, Rpc, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
@@ -327,6 +327,7 @@ fn signer_body(shape: Shape, real: usize) -> String {
         allow_dummy_inputs: true,
         shape,
         cache_accounts: Default::default(),
+        rail: SignerRail,
     }
     .build()
     .unwrap();
@@ -350,7 +351,7 @@ fn ring_body(shape: Shape, real: usize) -> String {
     let owner = keypair(OWNER_SEED);
     let transaction = transaction(&owner, shape, real, Some(ring()), Some(ring()));
     let (spends, dummies) = witnesses(&transaction);
-    let mut result = RingTransferProver {
+    let mut result = TransferProver {
         signer_pk_hashes: transaction.signer_pk_hashes(shape.signer_width()).unwrap(),
         public_transfers: transaction.public_transfers().unwrap(),
         inputs: attach_input_proofs(transaction.input_utxos, &spends, &dummies).unwrap(),
@@ -359,8 +360,11 @@ fn ring_body(shape: Shape, real: usize) -> String {
         output_tree_id: TREE_ID,
         external_data: transaction.external_data,
         allow_dummy_inputs: true,
-        ring_program_id: Some(ring()),
         shape,
+        cache_accounts: Default::default(),
+        rail: RingSignerRail {
+            ring_program_id: Some(ring()),
+        },
     }
     .build()
     .unwrap();
@@ -372,17 +376,21 @@ fn ring_authority_body(shape: Shape, real: usize) -> String {
     let owner = keypair(OWNER_SEED);
     let transaction = transaction(&owner, shape, real, Some(ring()), Some(ring()));
     let (spends, dummies) = witnesses(&transaction);
-    let mut result = RingAuthorityProver {
+    let mut result = TransferProver {
+        signer_pk_hashes: Vec::new(),
         public_transfers: transaction.public_transfers().unwrap(),
         inputs: attach_input_proofs(transaction.input_utxos, &spends, &dummies).unwrap(),
         outputs: transaction.output_utxos,
         blinding_seed: transaction.blinding_seed,
         output_tree_id: TREE_ID,
         external_data: transaction.external_data,
-        payer: transaction.payer,
         allow_dummy_inputs: true,
-        ring_program_id: Some(ring()),
         shape,
+        cache_accounts: Default::default(),
+        rail: RingAuthorityRail {
+            ring_program_id: Some(ring()),
+            payer: transaction.payer,
+        },
     }
     .build()
     .unwrap();
@@ -395,7 +403,7 @@ fn confidential_eddsa_body(shape: Shape, real: usize) -> String {
     let key = signing_key(OWNER_SEED);
     let transaction = transaction(&owner, shape, real, None, None);
     let (spends, dummies) = witnesses(&transaction);
-    let mut result = ConfidentialEddsaProver {
+    let mut result = TransferProver {
         signer_pk_hashes: confidential_eddsa_signer_pk_hashes(
             &transaction,
             &owner.signing_pubkey(),
@@ -408,9 +416,11 @@ fn confidential_eddsa_body(shape: Shape, real: usize) -> String {
         output_tree_id: TREE_ID,
         external_data: transaction.external_data,
         allow_dummy_inputs: true,
-        owner: (&key).into(),
         shape,
         cache_accounts: Default::default(),
+        rail: ConfidentialEddsaRail {
+            owner: (&key).into(),
+        },
     }
     .build()
     .unwrap();
@@ -438,7 +448,7 @@ fn anonymous_body(shape: Shape, real: usize, input_ring: Option<Address>) -> Str
     let key = signing_key(OWNER_SEED);
     let transaction = transaction(&owner, shape, real, input_ring, Some(ring()));
     let (spends, dummies) = witnesses(&transaction);
-    let mut result = AnonymousRingEddsaProver {
+    let mut result = TransferProver {
         signer_pk_hashes: anonymous_signer_pk_hashes(&transaction, &owner.signing_pubkey())
             .unwrap(),
         public_transfers: transaction.public_transfers().unwrap(),
@@ -448,9 +458,12 @@ fn anonymous_body(shape: Shape, real: usize, input_ring: Option<Address>) -> Str
         output_tree_id: TREE_ID,
         external_data: transaction.external_data,
         allow_dummy_inputs: true,
-        owner: (&key).into(),
-        ring_program_id: Some(ring()),
         shape,
+        cache_accounts: Default::default(),
+        rail: AnonymousRingEddsaRail {
+            owner: (&key).into(),
+            ring_program_id: Some(ring()),
+        },
     }
     .build()
     .unwrap();

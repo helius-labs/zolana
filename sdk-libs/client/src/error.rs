@@ -62,6 +62,9 @@ pub enum ClientError {
     #[error("input {index} names a cache slot, but this proof reads no cache")]
     CachedInputUnsupported { index: usize },
 
+    #[error("the ring authority proof reads and writes no cache")]
+    CacheUnsupported,
+
     #[error("the transaction names a read cache, but no input reads from it")]
     UnusedReadCache,
 

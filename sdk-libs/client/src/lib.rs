@@ -46,14 +46,13 @@ pub use prover::{
     },
     verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs,
     verify_confidential_transfer_proof, AnonymousEddsaTransferInputs,
-    AnonymousRingEddsaProofResult, AnonymousRingEddsaProver, AsyncPollConfig, AsyncProverClient,
+    AnonymousRingEddsaRail, AsyncPollConfig, AsyncProverClient,
     BatchAddressAppendInputs, CacheReadInputs, Commitments, CompressedCommitments,
-    ConfidentialEddsaProofResult, ConfidentialEddsaProver, ConfidentialEddsaTransferInputs,
+    ConfidentialEddsaRail, ConfidentialEddsaTransferInputs,
     Delivery, EddsaAuthorization, IndexerRequirement, MergeProofResult, MergeProver,
     OwnerAuthorization, Proof, ProofCompressed, ProofInputUtxo, ProveRequest, Prover, ProverClient,
-    ProverExt, PublicInputs, PublicTransfers, RingAuthorityProofResult, RingAuthorityProver,
-    RingTransferProofResult, RingTransferProver, Shape, TransactRail, TransferInput,
-    TransferInputUtxo, TransferInputs, TransferOutput, TransferProofResult, TransferProver,
+    ProverExt, PublicInputs, PublicTransfers, RingAuthorityRail, RingSignerRail, Shape, SignerRail, TransactRail, TransferInput,
+    TransferInputUtxo, TransferInputs, TransferOutput, TransferProofResult, TransferProver, TransferRail,
     TreeSlotFields, CONFIDENTIAL_EDDSA_SHAPES, SPP_SUPPORTED_SHAPES,
 };
 #[cfg(feature = "reqwest")]

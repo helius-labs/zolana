@@ -12,7 +12,6 @@ pub mod merge;
 mod proof;
 pub mod proving_key;
 pub(crate) mod requests;
-pub mod ring_authority;
 pub mod tee;
 pub mod timing;
 pub mod transact;
@@ -38,17 +37,16 @@ pub use proving_key::{
     known_proving_keys, ExpectedProvingKey, ProverKeyStatus, ProverKeys, ProvingKeyArtifact,
     ProvingKeyCheck, ProvingKeyFormat, ProvingKeyReport,
 };
-pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver};
 pub use spr_transaction::instructions::transact::{
     Shape, TransactRail, CONFIDENTIAL_EDDSA_SHAPES, SPP_SUPPORTED_SHAPES,
 };
 pub use spr_transaction::utxo::ProofInputUtxo;
 pub use transact::{
     attach_input_proofs, confidential_eddsa_signer_pk_hashes, input_utxos_from_nullifiers,
-    AnonymousEddsaTransferInputs, AnonymousRingEddsaProofResult, AnonymousRingEddsaProver,
-    ConfidentialEddsaProofResult, ConfidentialEddsaProver, ConfidentialEddsaTransferInputs,
-    EddsaAuthorization, OwnerAuthorization, PublicInputs, PublicTransfers, RingTransferProofResult,
-    RingTransferProver, TransferInputUtxo, TransferProofResult, TransferProver,
+    AnonymousEddsaTransferInputs, AnonymousRingEddsaRail, ConfidentialEddsaRail,
+    ConfidentialEddsaTransferInputs, EddsaAuthorization, OwnerAuthorization, PublicInputs,
+    PublicTransfers, RingAuthorityRail, RingSignerRail, SignerRail, TransferInputUtxo,
+    TransferProofResult, TransferProver, TransferRail,
 };
 pub use verify::{
     verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs,

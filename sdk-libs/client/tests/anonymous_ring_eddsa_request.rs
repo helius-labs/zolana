@@ -12,7 +12,7 @@ use spr_client::{
         attach_input_proofs,
         indexed::{IndexedTransferPreparation, IndexedTransferRail, Request},
         transact::anonymous_ring_eddsa::anonymous_signer_pk_hashes,
-        AnonymousRingEddsaProver, ProveRequest, Shape,
+        AnonymousRingEddsaRail, ProveRequest, Shape, TransferProver,
     },
     MerkleContext, MerkleProof, NonInclusionProof, ProofAuthority, SpendProof,
     NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
@@ -139,7 +139,7 @@ fn request_and_circuit(input_ring: Option<Address>) -> (Value, String) {
     let key = signing_key(OWNER_SEED);
     let transaction = proof_inputs(&owner, input_ring);
     let proofs = [spend_proof(&transaction.input_utxos[0])];
-    let mut result = AnonymousRingEddsaProver {
+    let mut result = TransferProver {
         signer_pk_hashes: anonymous_signer_pk_hashes(&transaction, &owner.signing_pubkey())
             .unwrap(),
         public_transfers: transaction.public_transfers().unwrap(),
@@ -149,9 +149,12 @@ fn request_and_circuit(input_ring: Option<Address>) -> (Value, String) {
         output_tree_id: TREE_ID,
         external_data: transaction.external_data,
         allow_dummy_inputs: true,
-        owner: (&key).into(),
-        ring_program_id: Some(Address::new_from_array(RING)),
         shape: Shape::IN1_OUT2,
+        cache_accounts: Default::default(),
+        rail: AnonymousRingEddsaRail {
+            owner: (&key).into(),
+            ring_program_id: Some(Address::new_from_array(RING)),
+        },
     }
     .build()
     .unwrap();

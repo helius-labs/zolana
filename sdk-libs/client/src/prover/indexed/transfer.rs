@@ -5,27 +5,33 @@ use super::{
 use crate::{
     authority::ProofAuthority,
     prover::{
+        cache::CacheSelection,
         field::{be, right_align_slice},
-        json::{output_to_json, utxo_to_json, OutputParamsJson, UtxoParamsJson},
-        transact::assembly::{assemble_outputs, input_utxos_from_nullifiers, PublicInputs},
+        json::{output_to_json, utxo_to_json, OutputParamsJson, OwnerSignatureJson, UtxoParamsJson},
+        transact::{
+            assembly::{
+                assemble_outputs, check_dummy_policy, check_output_blindings,
+                input_utxos_from_nullifiers, transact_ix_data, transfer_private_tx_hash,
+                PublicInputs,
+            },
+            transfer::{
+                AnonymousRingEddsaRail, ConfidentialEddsaRail, RingAuthorityRail, RingSignerRail,
+                SignerRail, TransferRail,
+            },
+        },
         verify::TransferProofStatement,
         ExpectedProvingKey, OwnerAuthorization, Proof, ProofCompressed, ProofInputUtxo,
-        TransferInput,
+        TransferInput, TransferInputUtxo,
     },
     ClientError,
 };
 use serde::Serialize;
 use spr_interface::{
-    instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
+    instruction::instruction_data::transact::{CircuitId, TransactIxData},
     tree_slot::pack_input_flags,
-    MAX_INPUT_TREES, N_PUBLIC_SLOTS,
+    MAX_INPUT_TREES,
 };
-use spr_transaction::{
-    instructions::transact::{PrivateTxHash, SppProofInputs},
-    utxo::{
-        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
-    },
-};
+use spr_transaction::{instructions::transact::SppProofInputs, utxo::derive_private_tx_blinding};
 use zeroize::Zeroizing;
 
 pub enum IndexedTransferRail<'a> {
@@ -75,16 +81,66 @@ impl IndexedTransferPreparation<'_> {
         allow_dummy_inputs: bool,
     ) -> Result<PreparedIndexedTransfer, ClientError> {
         let Self { transaction, rail } = self;
-        if !allow_dummy_inputs {
-            if let Some(index) = transaction
-                .input_utxos
-                .iter()
-                .position(|input| input.is_dummy() && !input.is_compact())
-            {
-                return Err(ClientError::NonSpendInputNotAllowed { index });
+        let payer = transaction.payer;
+        let preparation = |circuit_type| IndexedRailPreparation {
+            transaction,
+            authority,
+            allow_dummy_inputs,
+            circuit_type,
+        };
+        match rail {
+            IndexedTransferRail::Confidential => {
+                preparation(IndexedCircuit::TransferConfidential).prepare(SignerRail)
+            }
+            IndexedTransferRail::Ring(ring) => preparation(IndexedCircuit::TransferRing)
+                .prepare(RingSignerRail {
+                    ring_program_id: Some(ring),
+                }),
+            IndexedTransferRail::RingAuthority(ring) => {
+                preparation(IndexedCircuit::TransferRingAuthority).prepare(RingAuthorityRail {
+                    ring_program_id: Some(ring),
+                    payer,
+                })
+            }
+            IndexedTransferRail::AnonymousRingEddsa { ring, owner } => {
+                preparation(IndexedCircuit::TransferAnonymousRingEddsa).prepare(
+                    AnonymousRingEddsaRail {
+                        owner,
+                        ring_program_id: Some(ring),
+                    },
+                )
+            }
+            IndexedTransferRail::ConfidentialEddsa { owner } => {
+                preparation(IndexedCircuit::TransferConfidentialEddsa)
+                    .prepare(ConfidentialEddsaRail { owner })
             }
         }
-        if matches!(rail, IndexedTransferRail::RingAuthority(_)) {
+    }
+}
+
+struct IndexedRailPreparation<'a> {
+    transaction: SppProofInputs,
+    authority: &'a dyn ProofAuthority,
+    allow_dummy_inputs: bool,
+    circuit_type: IndexedCircuit,
+}
+
+impl IndexedRailPreparation<'_> {
+    /// The complete builder's pipeline on `rail`, with the input witnesses
+    /// left to the prover: each input names the commitment and nullifier the
+    /// prover looks up instead of carrying their paths.
+    fn prepare<R: TransferRail>(self, rail: R) -> Result<PreparedIndexedTransfer, ClientError> {
+        use crate::prover::transact::transfer::rail::{InCircuitOwner, OwnerStatement};
+
+        let Self {
+            transaction,
+            authority,
+            allow_dummy_inputs,
+            circuit_type,
+        } = self;
+        let kind = rail.kind();
+        check_dummy_policy(&transaction.input_utxos, allow_dummy_inputs)?;
+        if kind.is_ring_authority() {
             if let Some(index) = transaction
                 .input_utxos
                 .iter()
@@ -93,44 +149,29 @@ impl IndexedTransferPreparation<'_> {
                 return Err(ClientError::AddressInputUnsupported { index });
             }
         }
-        let shape = transaction.check_shape_for(match rail {
-            IndexedTransferRail::ConfidentialEddsa { .. } => {
-                spr_transaction::instructions::transact::TransactRail::ConfidentialEddsa
-            }
-            _ => spr_transaction::instructions::transact::TransactRail::ConfidentialSigner,
-        })?;
+        let shape = transaction.check_shape_for(kind.transact_rail())?;
         let proof_inputs = transaction
             .input_utxos
             .iter()
             .cloned()
-            .map(|utxo| crate::prover::TransferInputUtxo {
+            .map(|utxo| TransferInputUtxo {
                 utxo,
                 proof: None,
                 nullifier_proof: None,
             })
             .collect::<Vec<_>>();
-        let cache = crate::prover::cache::CacheSelection::derive(
+        let cache = CacheSelection::derive(
             &proof_inputs,
             &transaction.output_utxos,
             transaction.cache_accounts,
             &transaction.external_data,
         )?;
-        let authority_rail = matches!(rail, IndexedTransferRail::RingAuthority(_));
-        let hidden_owner = match &rail {
-            IndexedTransferRail::AnonymousRingEddsa { owner, .. } => Some(owner.public_key()),
-            _ => None,
-        };
-        let ring = match &rail {
-            IndexedTransferRail::Confidential | IndexedTransferRail::ConfidentialEddsa { .. } => {
-                None
+        let ring = kind.ring();
+        if kind.is_ring_authority() {
+            if cache.access.is_some() {
+                return Err(ClientError::CacheUnsupported);
             }
-            IndexedTransferRail::Ring(ring)
-            | IndexedTransferRail::RingAuthority(ring)
-            | IndexedTransferRail::AnonymousRingEddsa { ring, .. } => Some(*ring),
-        };
-        if authority_rail
-            && (shape.n_inputs() != shape.n_outputs()
-                || cache.access.is_some()
+            if shape.n_inputs() != shape.n_outputs()
                 || !transaction.external_data.interface_transfers.is_empty()
                 || transaction
                     .input_utxos
@@ -139,10 +180,12 @@ impl IndexedTransferPreparation<'_> {
                 || transaction
                     .output_utxos
                     .iter()
-                    .any(|output| !output.is_dummy() && output.ring_program_id != ring))
-        {
-            return Err(super::invalid());
+                    .any(|output| !output.is_dummy() && output.ring_program_id != ring)
+            {
+                return Err(super::invalid());
+            }
         }
+        let hidden_owner = kind.hidden_owner();
         let mut trees: Vec<IndexedTree> = Vec::new();
         let mut lookups = Vec::new();
         let mut local_inputs = Vec::new();
@@ -223,78 +266,26 @@ impl IndexedTransferPreparation<'_> {
         }
         authority.complete_inputs(&mut local_inputs)?;
         let first = nullifiers.first().ok_or(ClientError::NoInputs)?;
-        let seed = derive_output_blinding_seed(first, &transaction.blinding_seed)?;
-        for (index, output) in transaction.output_utxos.iter().enumerate() {
-            let slot = u32::try_from(index).map_err(|_| super::invalid())?;
-            if output.blinding != derive_transact_output_blinding(first, &seed, slot)? {
-                return Err(ClientError::OutputBlindingMismatch { index });
-            }
-        }
+        check_output_blindings(first, &transaction.blinding_seed, &transaction.output_utxos)?;
         let outputs = assemble_outputs(&transaction.output_utxos, transaction.output_tree_id)?;
         let external_hash = cache.external_data_hash;
-        let blinding = derive_private_tx_blinding(first, &transaction.blinding_seed)?;
-        let private_tx = PrivateTxHash {
-            input_hashes: &input_hashes,
-            output_hashes: &outputs.private_tx_output_hashes,
-            address_nullifiers: Some(&address_nullifiers),
-            blinding: &blinding,
-        }
-        .hash()?;
+        let private_tx = transfer_private_tx_hash(
+            &input_hashes,
+            &address_nullifiers,
+            &outputs,
+            &derive_private_tx_blinding(first, &transaction.blinding_seed)?,
+        )?;
         let public_transfers = transaction.public_transfers()?;
-        let signers = if authority_rail {
-            vec![spr_hasher::primitives::solana_owner_identity(
-                transaction.payer.as_array(),
-            )?]
-        } else if let Some(hidden) = &hidden_owner {
-            crate::prover::transact::anonymous_ring_eddsa::anonymous_signer_pk_hashes(
-                &transaction,
-                hidden,
-            )?
-        } else if let IndexedTransferRail::ConfidentialEddsa { owner } = &rail {
-            crate::prover::transact::confidential_eddsa_signer_pk_hashes(
-                &transaction,
-                &owner.public_key(),
-            )?
-        } else {
-            transaction.signer_pk_hashes(shape.signer_width())?
-        };
+        let signers = kind.signers(kind.transaction_signers(&transaction, shape)?)?;
         let ring_program_id = spr_transaction::utxo::program_id_proof_input_hash(&ring)?;
-        let owners = match rail {
-            IndexedTransferRail::Confidential | IndexedTransferRail::ConfidentialEddsa { .. } => {
-                Some(outputs.output_owner_pk_hashes.clone())
-            }
-            IndexedTransferRail::Ring(_) | IndexedTransferRail::AnonymousRingEddsa { .. } => Some(
-                crate::prover::transact::assembly::confidential_marked_output_owner_pk_hashes(
-                    &transaction.external_data,
-                    transaction.output_utxos.len(),
-                )?,
-            ),
-            IndexedTransferRail::RingAuthority(_) => None,
-        };
-        let anonymous = match &rail {
-            IndexedTransferRail::AnonymousRingEddsa { owner, .. } => Some(
-                crate::prover::transact::anonymous_ring_eddsa::AnonymousAuthorizationPreparation {
-                    inputs: &proof_inputs,
-                    owner: *owner,
-                    private_tx: &private_tx,
-                    external_data_hash: &external_hash,
-                    published_owners: owners.as_deref().unwrap_or_default(),
-                }
-                .prepare()?,
-            ),
-            _ => None,
-        };
-        let eddsa = match &rail {
-            IndexedTransferRail::ConfidentialEddsa { owner } => {
-                Some(owner.authorize(&private_tx, &external_hash)?)
-            }
-            _ => None,
-        };
-        let appendix = match (&anonymous, &eddsa) {
-            (Some(prepared), _) => Some(prepared.authorization.public_fields()?),
-            (_, Some(authorization)) => Some(authorization.public_fields()?),
-            (None, None) => None,
-        };
+        let owners =
+            kind.published_owners(&transaction.external_data, &outputs.output_owner_pk_hashes)?;
+        let authorization = rail.authorize(&OwnerStatement {
+            inputs: &proof_inputs,
+            private_tx: &private_tx,
+            external_data_hash: &external_hash,
+            published_owners: owners.as_deref().unwrap_or_default(),
+        })?;
         let flags = pack_input_flags(allow_dummy_inputs, indexes.iter().copied())?;
         let public_inputs = PublicInputs {
             nullifiers: &nullifiers,
@@ -310,24 +301,10 @@ impl IndexedTransferPreparation<'_> {
             output_owner_pk_hashes: owners.as_deref(),
             cached_inputs: cache.public_fields,
         }
-        .without_roots(appendix.as_ref().map_or(&[], |fields| fields.as_slice()))?;
+        .without_roots(&authorization.public_fields()?)?;
         let prepared = PreparedTransferJson {
-            authorization: match (&anonymous, &eddsa) {
-                (Some(prepared), _) => Some(prepared.authorization.fields()),
-                (_, Some(authorization)) => Some(authorization.fields()),
-                (None, None) => None,
-            },
-            circuit_type: match rail {
-                IndexedTransferRail::Confidential => IndexedCircuit::TransferConfidential,
-                IndexedTransferRail::Ring(_) => IndexedCircuit::TransferRing,
-                IndexedTransferRail::RingAuthority(_) => IndexedCircuit::TransferRingAuthority,
-                IndexedTransferRail::AnonymousRingEddsa { .. } => {
-                    IndexedCircuit::TransferAnonymousRingEddsa
-                }
-                IndexedTransferRail::ConfidentialEddsa { .. } => {
-                    IndexedCircuit::TransferConfidentialEddsa
-                }
-            },
+            authorization: authorization.json(),
+            circuit_type,
             n_inputs: shape.n_inputs(),
             n_outputs: shape.n_outputs(),
             inputs: local_inputs
@@ -360,67 +337,13 @@ impl IndexedTransferPreparation<'_> {
             inputs: lookups,
             public_inputs,
         })?;
-        let external = transaction.external_data;
-        let data = TransactIxData {
-            proof: TransactProof::zeroed(),
-            expiry_unix_ts: external.expiry_unix_ts,
-            private_tx_hash: private_tx,
-            circuit: {
-                let n_in = u8::try_from(shape.n_inputs()).map_err(|_| super::invalid())?;
-                let n_out = u8::try_from(shape.n_outputs()).map_err(|_| super::invalid())?;
-                let slots = u8::try_from(N_PUBLIC_SLOTS).map_err(|_| super::invalid())?;
-                match rail {
-                    IndexedTransferRail::Confidential => match cache.access {
-                        Some(access) => {
-                            CircuitId::ConfidentialSignerCached(n_in, n_out, slots, access)
-                        }
-                        None => CircuitId::ConfidentialSigner(n_in, n_out, slots),
-                    },
-                    IndexedTransferRail::Ring(_) => match cache.access {
-                        Some(access) => {
-                            CircuitId::ConfidentialRingEddsaCached(n_in, n_out, slots, access)
-                        }
-                        None => CircuitId::ConfidentialRingEddsa(n_in, n_out, slots),
-                    },
-                    IndexedTransferRail::RingAuthority(_) => {
-                        CircuitId::RingAuthority(n_in, n_out, slots)
-                    }
-                    IndexedTransferRail::AnonymousRingEddsa { .. } => {
-                        let prepared = anonymous.as_ref().ok_or_else(super::invalid)?;
-                        let data = spr_interface::verifying_keys::AnonymousRingEddsaProofData {
-                            default_owner_tag: prepared.default_owner_tag,
-                            bsb22_commitment: spr_interface::instruction::instruction_data::transact::Bsb22Commitment { commitment: [0; 32], commitment_pok: [0; 32] },
-                        };
-                        match cache.access {
-                            Some(access) => CircuitId::AnonymousRingEddsaCached(
-                                n_in, n_out, slots, data, access,
-                            ),
-                            None => CircuitId::AnonymousRingEddsa(n_in, n_out, slots, data),
-                        }
-                    }
-                    IndexedTransferRail::ConfidentialEddsa { .. } => eddsa
-                        .as_ref()
-                        .ok_or_else(super::invalid)?
-                        .circuit(shape, cache.access),
-                }
-            },
-            inputs: input_utxos_from_nullifiers(&nullifiers, &indexes)?,
-            tree_contexts: Vec::new(),
-            interface_transfers: external
-                .interface_transfers
-                .iter()
-                .copied()
-                .map(
-                    spr_transaction::instructions::transact::SettlementTransfer::interface_transfer,
-                )
-                .collect(),
-            data_hash: external.data_hash,
-            ring_data_hash: external.ring_data_hash,
-            tx_viewing_pk: external.tx_viewing_pk,
-            salt: external.salt,
-            outputs: external.outputs,
-            messages: external.messages,
-        };
+        let data = transact_ix_data(
+            transaction.external_data,
+            private_tx,
+            kind.circuit(shape, cache.access, authorization.default_owner_tag())?,
+            input_utxos_from_nullifiers(&nullifiers, &indexes)?,
+            Vec::new(),
+        );
         Ok(PreparedIndexedTransfer { request, data })
     }
 }
@@ -552,7 +475,7 @@ impl TryFrom<&TransferInput> for PreparedInputJson {
 #[serde(rename_all = "camelCase")]
 struct PreparedTransferJson {
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
-    authorization: Option<serde_json::Map<String, serde_json::Value>>,
+    authorization: Option<OwnerSignatureJson>,
     n_inputs: usize,
     n_outputs: usize,
     #[serde(flatten)]
@@ -582,8 +505,10 @@ mod tests {
     use solana_address::Address;
     use spr_interface::instruction::{OwnerTag, TransactOutput, TreeContext};
     use spr_keypair::ShieldedKeypair;
+    use crate::prover::TransferProver;
     use spr_transaction::{
-        utxo::SppProofInputUtxo, Data, ExternalData, Mint, SppProofOutputUtxo, Utxo, WalletUtxo,
+        utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
+        Data, ExternalData, Mint, SppProofOutputUtxo, Utxo, WalletUtxo,
     };
 
     fn fixture(owner: &ShieldedKeypair, ring: Option<Address>, n_inputs: usize) -> SppProofInputs {
@@ -728,7 +653,7 @@ mod tests {
                     )
                 }
                 1 => {
-                    let result = crate::RingTransferProver {
+                    let result = TransferProver {
                         inputs,
                         outputs: transaction.output_utxos.clone(),
                         blinding_seed: transaction.blinding_seed,
@@ -737,8 +662,11 @@ mod tests {
                         public_transfers,
                         signer_pk_hashes: signers,
                         allow_dummy_inputs,
-                        ring_program_id: ring,
                         shape,
+                        cache_accounts: Default::default(),
+                        rail: RingSignerRail {
+                            ring_program_id: ring,
+                        },
                     }
                     .build()
                     .unwrap();
@@ -748,17 +676,21 @@ mod tests {
                     )
                 }
                 2 => {
-                    let result = crate::RingAuthorityProver {
+                    let result = TransferProver {
                         inputs,
                         outputs: transaction.output_utxos.clone(),
                         blinding_seed: transaction.blinding_seed,
                         output_tree_id: transaction.output_tree_id,
                         external_data: transaction.external_data.clone(),
                         public_transfers,
-                        payer: transaction.payer,
+                        signer_pk_hashes: Vec::new(),
                         allow_dummy_inputs,
-                        ring_program_id: ring,
                         shape,
+                        cache_accounts: Default::default(),
+                        rail: RingAuthorityRail {
+                            ring_program_id: ring,
+                            payer: transaction.payer,
+                        },
                     }
                     .build()
                     .unwrap();
@@ -769,7 +701,7 @@ mod tests {
                 }
                 3 => {
                     let signers = vec![[0; 32]; shape.signer_width()];
-                    let result = crate::prover::transact::AnonymousRingEddsaProver {
+                    let result = TransferProver {
                         inputs,
                         outputs: transaction.output_utxos.clone(),
                         blinding_seed: transaction.blinding_seed,
@@ -778,9 +710,12 @@ mod tests {
                         public_transfers,
                         signer_pk_hashes: signers,
                         allow_dummy_inputs,
-                        owner: OwnerAuthorization::SigningKey(&owner.signing_key),
-                        ring_program_id: ring,
                         shape,
+                        cache_accounts: Default::default(),
+                        rail: AnonymousRingEddsaRail {
+                            owner: OwnerAuthorization::SigningKey(&owner.signing_key),
+                            ring_program_id: ring,
+                        },
                     }
                     .build()
                     .unwrap();

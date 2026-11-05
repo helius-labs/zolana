@@ -3,7 +3,8 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use spr_client::{
-    ProverClient, ProverExt, PublicTransfers, RingAuthorityProver, Rpc, Shape, TransferInputUtxo,
+    ProverClient, ProverExt, PublicTransfers, RingAuthorityRail, Rpc, Shape, TransferInputUtxo,
+    TransferProver,
 };
 use spr_interface::{
     instruction::{
@@ -49,7 +50,7 @@ impl RingAuthorityHarness {
 // ---- scenario builders --------------------------------------------------------
 
 /// #1: one real zero-value Solana-owned ring input + dummy padding, dummy outputs.
-fn shape_sweep(n: usize) -> (RingAuthorityProver, Vec<NullifierKey>) {
+fn shape_sweep(n: usize) -> (TransferProver<RingAuthorityRail>, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(ed25519_keypair(), 0)]);
     for _ in 1..n {
@@ -61,7 +62,7 @@ fn shape_sweep(n: usize) -> (RingAuthorityProver, Vec<NullifierKey>) {
 
 /// #2: 2 real nonzero Solana-owned ring inputs consolidated into 1 real ring-owned
 /// output, with dummy input/output padding (shape 4x4).
-fn multi_real() -> (RingAuthorityProver, Vec<NullifierKey>) {
+fn multi_real() -> (TransferProver<RingAuthorityRail>, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let (mut inputs, keys) = build_real_inputs(
         &mut indexer,
@@ -81,7 +82,7 @@ fn multi_real() -> (RingAuthorityProver, Vec<NullifierKey>) {
 
 /// #3: one real independent EdDSA ring input + dummy input and outputs (shape 2x2).
 /// Exercises the pubkey-agnostic owner mode (no signature).
-fn independent_input() -> (RingAuthorityProver, Vec<NullifierKey>) {
+fn independent_input() -> (TransferProver<RingAuthorityRail>, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(independent_keypair(), 0)]);
     inputs.push(dummy_input());
@@ -92,7 +93,7 @@ fn independent_input() -> (RingAuthorityProver, Vec<NullifierKey>) {
 }
 
 /// #4: one Solana-owned and one independent Ed25519 real input, dummy outputs (shape 2x2).
-fn mixed_owners() -> (RingAuthorityProver, Vec<NullifierKey>) {
+fn mixed_owners() -> (TransferProver<RingAuthorityRail>, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let (inputs, keys) = build_real_inputs(
         &mut indexer,
@@ -107,7 +108,7 @@ fn mixed_owners() -> (RingAuthorityProver, Vec<NullifierKey>) {
 // ---- shared helpers -----------------------------------------------------------
 
 fn prove_and_verify(
-    (prover, keys): (RingAuthorityProver, Vec<NullifierKey>),
+    (prover, keys): (TransferProver<RingAuthorityRail>, Vec<NullifierKey>),
     n_in: usize,
     n_out: usize,
 ) {
@@ -135,24 +136,28 @@ fn assemble_prover(
     mut outputs: Vec<SppProofOutputUtxo>,
     n_in: usize,
     n_out: usize,
-) -> RingAuthorityProver {
+) -> TransferProver<RingAuthorityRail> {
     let blinding_seed = [46u8; 32];
     assign_output_blindings(
         &inputs.first().unwrap().utxo.nullifier,
         &mut outputs,
         &blinding_seed,
     );
-    RingAuthorityProver {
+    TransferProver {
         blinding_seed,
         output_tree_id: TEST_TREE_ID,
         inputs,
         outputs,
         external_data: ring_external_data(n_out),
         public_transfers: PublicTransfers::default(),
-        payer: Address::new_from_array([0u8; 32]),
+        signer_pk_hashes: Vec::new(),
         allow_dummy_inputs: true,
-        ring_program_id: Some(ring_program()),
         shape: Shape::new(n_in, n_out),
+        cache_accounts: Default::default(),
+        rail: RingAuthorityRail {
+            ring_program_id: Some(ring_program()),
+            payer: Address::new_from_array([0u8; 32]),
+        },
     }
 }
 
