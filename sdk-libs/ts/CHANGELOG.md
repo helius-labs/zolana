@@ -42,8 +42,8 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
-- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows.
-- `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note, and now stores the note.
+- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits and failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note; it now omits those history rows and stores the note.
+- `ConfidentialTransfer.withRingProgramId` transfers padded unused slots with ciphertexts shorter than real ones, and `PreparedTransfer.finalize` published a slot without checking its `viewTag` named the output's owner; padding now matches the real slot length and a mismatched `viewTag` fails with `TRANSACTION_OWNER_TAG_MISMATCH`.
 - `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
 
 ## 0.8.0-alpha — 2026-11-03

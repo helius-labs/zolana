@@ -343,8 +343,9 @@ export async function decodeProgramTransaction(
     const encrypted = encryptConfidentialTransfer(tx, { outputs: frozenOutputs });
     // A dummy is never encrypted: it carries a length-matched random ciphertext
     // under the participant tag it was padded with, like Rust `encrypt_with_viewing_key`.
+    // Program transactions are built in the default ring.
     const dummyLength = frozenOutputs.some((output) => output.isDummy())
-      ? dummyCiphertextLength(encrypted.salt)
+      ? dummyCiphertextLength(encrypted.salt, undefined)
       : 0;
     return createExternalData({
       ...(options?.expiryUnixTs === undefined ? {} : { expiryUnixTs: options.expiryUnixTs }),

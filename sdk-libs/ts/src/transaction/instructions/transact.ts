@@ -1554,12 +1554,24 @@ function finalizeTransfer(
   const needsDummyCiphertext =
     (padCount > 0 && prepared.compactPadding !== true) ||
     prepared.outputs.some((_, index) => encrypted.payload[index] === undefined);
-  const dummyLength = needsDummyCiphertext ? dummyCiphertextLength(encrypted.salt) : 0;
+  const dummyLength = needsDummyCiphertext
+    ? dummyCiphertextLength(encrypted.salt, prepared.ringProgramId)
+    : 0;
+  // A slot's ciphertext must be keyed to the owner its published tag names.
+  // Mirrors the Rust `OwnerTagMismatch` check.
+  const slotData = (index: number, tag: Bytes32): Uint8Array => {
+    const slot = encrypted.payload[index];
+    if (slot === undefined) return randomBytes(dummyLength);
+    if (!equalBytes(slot.viewTag, tag)) {
+      throw new TransactionError("TRANSACTION_OWNER_TAG_MISMATCH", { slotIndex: index });
+    }
+    return slot.data;
+  };
 
   // 1:1 output assembly. Every published slot carries its own ciphertext.
   // Change positions keep the compact sender tag; recipient positions take
-  // the inline tag of their ciphertext; padded positions carry a
-  // length-matched random ciphertext under the pad tag.
+  // their owner's inline tag; padded positions carry a length-matched random
+  // ciphertext under the pad tag.
   const outputs: TransactOutput[] = [];
   const resolved: Bytes32[] = [];
   const padding = prepared.recordPadding;
@@ -1568,7 +1580,6 @@ function finalizeTransfer(
     if (!output) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
     // Compact padding is the trailing suffix SPP fills back in.
     if (output.isCompact()) continue;
-    const slot = encrypted.payload[index];
     const utxoHash = output.hash(prepared.outputTreeId);
     if (output.isDummy()) {
       outputs.push({
@@ -1587,22 +1598,21 @@ function finalizeTransfer(
       if (ownerTag === undefined || tag === undefined) {
         throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
       }
-      outputs.push({ utxoHash, ownerTag, data: slot?.data ?? randomBytes(dummyLength) });
+      outputs.push({ utxoHash, ownerTag, data: slotData(index, tag) });
       resolved.push(tag);
     } else if (index < prepared.senderOutputCount) {
-      outputs.push({
-        utxoHash,
-        ownerTag: senderTag,
-        data: slot?.data ?? randomBytes(dummyLength),
-      });
+      outputs.push({ utxoHash, ownerTag: senderTag, data: slotData(index, senderResolved) });
       resolved.push(senderResolved);
     } else {
-      const tag = slot?.viewTag ?? output.ownerTag;
-      if (!tag) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
+      // A recipient slot must carry its encoding: random bytes would hide the UTXO from them.
+      const tag = output.ownerAddress?.confidentialViewTag();
+      if (tag === undefined || encrypted.payload[index] === undefined) {
+        throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
+      }
       outputs.push({
         utxoHash,
         ownerTag: { kind: "inline", value: tag },
-        data: slot?.data ?? randomBytes(dummyLength),
+        data: slotData(index, tag),
       });
       resolved.push(tag);
     }
@@ -1743,19 +1753,27 @@ export function encodeConfidentialSlots(
 }
 
 /**
- * The exact ciphertext byte length of a real confidential slot, derived by
- * encoding a throwaway output through the same path. This keeps dummy slots
- * byte-length-indistinguishable from real ones without pinning a brittle constant.
+ * The exact ciphertext byte length of a real confidential slot in the ring
+ * `ringProgramId` (the default ring when undefined), derived by encoding a
+ * throwaway output through the same path. This keeps dummy slots
+ * byte-length-indistinguishable from real ones without pinning a brittle
+ * constant. Mirrors Rust `dummy_ciphertext_len`.
  */
-export function dummyCiphertextLength(salt: Bytes16): number {
+export function dummyCiphertextLength(salt: Bytes16, ringProgramId: Address | undefined): number {
   const throwaway = ViewingKey.generate();
   try {
     return encodeOutputData(
-      EncryptedScheme.confidential,
+      ringProgramId === undefined ? EncryptedScheme.confidential : EncryptedScheme.ringConfidential,
       encryptConfidential(
         throwaway,
         throwaway.publicKey(),
-        { assetId: SOL_ASSET_ID, amount: 0n, blinding: randomBlinding(), data: new Data() },
+        {
+          assetId: SOL_ASSET_ID,
+          amount: 0n,
+          blinding: randomBlinding(),
+          ...(ringProgramId === undefined ? {} : { ringProgramId }),
+          data: new Data(),
+        },
         salt,
         0,
       ),
