@@ -20,11 +20,15 @@ use spr_client::{
         GetShieldedTransactionsBySignatureResponse, IndexedShieldedTransaction, IndexerRpcConfig,
         MerkleContext, MerkleProof, NonInclusionProof,
     },
-    ClientError, ProverClient, Rpc, RpcSendTransactionConfig, SprClient, WitnessReader,
+    ClientError, ProofDataSource, ProverClient, Rpc, RpcSendTransactionConfig, SprClient,
+    WitnessReader,
 };
 use spr_tree::TreeAccount;
 
-use crate::{indexer::LeafProof, transaction_trace::TransactionOutcome, SprProgramTest};
+use crate::{
+    indexer::LeafProof, rpc::last_valid_block_height, transaction_trace::TransactionOutcome,
+    ProgramTestError, SprProgramTest,
+};
 
 /// `tree_type` of a state-tree proof, as Photon reports it.
 const STATE_TREE_TYPE: u16 = 1;
@@ -42,14 +46,20 @@ impl SprProgramTest {
     }
 
     /// A client whose RPC and indexer are this harness, proving through
-    /// `prover`. [`SprClient::with_prover`] over two clones of
-    /// [`Self::into_handle`] gives one with a custom prover.
+    /// `prover`. The client fetches the proof data from the harness and hands
+    /// it to `prover`: a prover's own indexer never sees the litesvm trees.
+    /// [`SprClient::with_prover`] over two clones of [`Self::into_handle`]
+    /// gives one with a custom prover.
     pub fn into_client(
         self,
         prover: ProverClient,
     ) -> SprClient<ProgramTestHandle, ProgramTestHandle> {
         let handle = self.into_handle();
-        SprClient::new(handle.clone(), handle, prover)
+        SprClient::new(
+            handle.clone(),
+            handle,
+            prover.with_proof_data_source(ProofDataSource::Client),
+        )
     }
 }
 
@@ -58,11 +68,26 @@ impl ProgramTestHandle {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn send(&self, transaction: VersionedTransaction) -> Result<Signature, ClientError> {
+    /// A rejected transaction fails as `SolanaRpc` reports it, with the
+    /// typed transaction error under the RPC method's name, so a
+    /// [`crate::Rejection`] matches it as it does a validator's.
+    fn send(
+        &self,
+        transaction: VersionedTransaction,
+        operation: &'static str,
+    ) -> Result<Signature, ClientError> {
         self.lock()
             .send_indexed(transaction)
             .map(|indexed| indexed.signature)
-            .map_err(|error| ClientError::Rpc(error.to_string()))
+            .map_err(|error| match error {
+                ProgramTestError::TransactionFailure(failure) => {
+                    ClientError::SolanaRpcTransaction {
+                        operation,
+                        source: failure.err.into(),
+                    }
+                }
+                error => ClientError::Rpc(error.to_string()),
+            })
     }
 }
 
@@ -105,8 +130,14 @@ impl Rpc for ProgramTestHandle {
     fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
         let mut harness = self.lock();
         harness.svm.expire_blockhash();
-        let slot = harness.svm.get_sysvar::<Clock>().slot;
-        Ok((harness.svm.latest_blockhash(), slot))
+        Ok((
+            harness.svm.latest_blockhash(),
+            last_valid_block_height(&harness.svm),
+        ))
+    }
+
+    fn get_block_height(&self) -> Result<u64, ClientError> {
+        Rpc::get_block_height(&*self.lock())
     }
 
     fn send_transaction_with_config(
@@ -114,14 +145,14 @@ impl Rpc for ProgramTestHandle {
         transaction: &VersionedTransaction,
         _config: RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
-        self.send(transaction.clone())
+        self.send(transaction.clone(), "send_transaction_with_config")
     }
 
     fn process_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
-        self.send(transaction)
+        self.send(transaction, "process_transaction")
     }
 
     /// litesvm runs a transaction as it is sent, so one the harness accepted
@@ -167,7 +198,8 @@ impl Rpc for ProgramTestHandle {
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         let harness = self.lock();
-        let mut tree = tree_account_of(&harness, tree_account)?;
+        let mut data = tree_account_data(&harness, tree_account)?;
+        let mut tree = load_tree(&mut data, tree_account)?;
         let root_index = tree.utxo_tree().current_root_index();
         let chain_root = tree
             .get_utxo_tree_root(root_index)
@@ -219,7 +251,8 @@ impl Rpc for ProgramTestHandle {
         _config: Option<IndexerRpcConfig>,
     ) -> Result<GetNonInclusionProofsResponse, ClientError> {
         let harness = self.lock();
-        let tree = tree_account_of(&harness, tree_account)?;
+        let mut data = tree_account_data(&harness, tree_account)?;
+        let tree = load_tree(&mut data, tree_account)?;
         let proofs = leaves
             .iter()
             .map(|nullifier| -> Result<NonInclusionProof, ClientError> {
@@ -271,15 +304,15 @@ fn context(harness: &SprProgramTest) -> Context {
     }
 }
 
-/// The tree account's bytes, loaded as a tree. A copy: the account is read,
-/// never written through this.
-fn tree_account_of(
-    harness: &SprProgramTest,
-    tree: Address,
-) -> Result<TreeAccount<'static>, ClientError> {
-    let data = harness
+/// A copy of the tree account's bytes: the account is read, never written
+/// through this.
+fn tree_account_data(harness: &SprProgramTest, tree: Address) -> Result<Vec<u8>, ClientError> {
+    harness
         .account_data(&tree)
-        .ok_or_else(|| ClientError::Rpc(format!("tree account {tree} not found")))?;
-    TreeAccount::from_bytes(Box::leak(data.into_boxed_slice()), tree.to_bytes())
+        .ok_or_else(|| ClientError::Rpc(format!("tree account {tree} not found")))
+}
+
+fn load_tree(data: &mut [u8], tree: Address) -> Result<TreeAccount<'_>, ClientError> {
+    TreeAccount::from_bytes(data, tree.to_bytes())
         .map_err(|error| ClientError::Rpc(format!("tree {tree}: {error:?}")))
 }

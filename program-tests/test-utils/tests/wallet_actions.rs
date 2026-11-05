@@ -357,8 +357,8 @@ fn oversend_is_insufficient_balance() {
     assert!(matches!(
         sign(tx, &sender, Shape::IN2_OUT4),
         Err(TransactionError::InsufficientBalance {
-            requested: 100,
-            available: 0
+            requested: 200,
+            available: 100
         })
     ));
 }
