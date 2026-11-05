@@ -537,3 +537,29 @@ func TestResolvePreparedRejectsAnInputCountMismatch(t *testing.T) {
 		t.Fatal("mismatched input counts resolved")
 	}
 }
+
+func TestOnlyAFrameOfDummiesOpensATreeWithOne(t *testing.T) {
+	for name, dummies := range map[string][]bool{"deposit": {true, true}, "mixed": {true, false}} {
+		t.Run(name, func(t *testing.T) {
+			request, _, _ := fixture(t)
+			var prepared transfer.TransferParametersJSON
+			if err := json.Unmarshal(request.Prepared, &prepared); err != nil {
+				t.Fatal(err)
+			}
+			commitment := request.Inputs[0].Commitment
+			for index, dummy := range dummies {
+				prepared.Inputs[index].IsDummy = "0x0"
+				request.Inputs[index].Commitment = commitment
+				if dummy {
+					prepared.Inputs[index].IsDummy = "0x1"
+					request.Inputs[index].Commitment = nil
+				}
+			}
+			request.Prepared = encoded(t, prepared)
+			err := Validate(encoded(t, request))
+			if (err == nil) != (name == "deposit") {
+				t.Fatalf("%s frame: %v", name, err)
+			}
+		})
+	}
+}
