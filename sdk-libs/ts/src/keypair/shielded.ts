@@ -16,7 +16,6 @@ import {
 } from "./bytes.js";
 import { X25519_PUBLIC_KEY_LENGTH } from "./constants.js";
 import { type RoleSecrets, roleExpansion } from "./derivation.js";
-import { KeypairError } from "./error.js";
 import { ownerHash } from "./hash.js";
 import { NullifierKey } from "./nullifier-key.js";
 import { poseidon } from "./poseidon.js";
@@ -230,13 +229,11 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
   }
 
   /**
-   * Generates an Ed25519 signing identity by default, the rail supported by
-   * the lean SDK's registration and ordinary transaction builders. Both role
-   * keys expand from the signing key's derivation seed, like Rust's
-   * `new_ed25519`.
+   * Generates an Ed25519 signing identity. Both role keys expand from the
+   * signing key's derivation seed, like Rust's `new_ed25519`.
    */
-  static generate(type: SignatureType = "ed25519"): ShieldedKeypair {
-    return ShieldedKeypair.fromKeypair(SigningKey.generate(type));
+  static generate(): ShieldedKeypair {
+    return ShieldedKeypair.fromKeypair(SigningKey.generate());
   }
 
   /** Mirrors Rust's `ShieldedKeypair::from_keypair`. */
@@ -314,9 +311,6 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
    * The signing key supplies the Solana identity and authorizes transactions.
    */
   toSolanaSigner(): TransactionPartialSigner {
-    if (!this.#signing.isEd25519()) {
-      throw new KeypairError("KEYPAIR_NOT_ED25519");
-    }
     const address = addressDecoder.decode(this.signingPublicKey().ed25519());
     const signing = this.#signing;
     return Object.freeze({

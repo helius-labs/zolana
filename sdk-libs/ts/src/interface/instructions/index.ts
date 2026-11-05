@@ -219,6 +219,9 @@ export async function createTreeInstructions(
   return Array.from({ length: TREE_CREATION_STEP_COUNT }, () => instruction(data, accounts));
 }
 
+/** Distinct assets one deposit moves, SOL included. Mirrors Rust `MAX_DEPOSIT_ASSETS`. */
+const MAX_DEPOSIT_ASSETS = 5;
+
 interface DepositLayout {
   readonly hasSol: boolean;
   readonly splGroups: readonly DepositSplAccounts[];
@@ -248,7 +251,7 @@ export function depositLayout(
     }
     if (existing === undefined) splGroups.push(spl);
   }
-  if (Number(hasSol) + splGroups.length > 5) {
+  if (Number(hasSol) + splGroups.length > MAX_DEPOSIT_ASSETS) {
     fail("INTERFACE_CODEC", { reason: "too many deposit assets" });
   }
   return Object.freeze({ hasSol, splGroups: Object.freeze(splGroups) });

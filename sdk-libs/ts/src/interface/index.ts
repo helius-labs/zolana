@@ -44,14 +44,8 @@ export {
 } from "./instructions/index.js";
 export type { CacheWriteAccounts, TransactAccountsInput } from "./instructions/index.js";
 export { DepositAsset, TransactWithdrawal, circuitCacheAccess } from "./types.js";
+export { pack33 } from "./merge-utils.js";
 export {
-  ciphertextHash,
-  ownerPkFieldCompressed,
-  pack33,
-  pkFieldCompressed,
-} from "./merge-utils.js";
-export {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
   DUMMY_DOMAIN,
   InstructionTag,
   SHIELDED_POOL_CPI_AUTHORITY,
@@ -72,7 +66,6 @@ export {
   isTransactShape,
   selectConfidentialEddsaShape,
   selectSppShape,
-  validateSppShape,
 } from "./shape.js";
 export type { Shape } from "./shape.js";
 export {
@@ -81,7 +74,6 @@ export {
   AT_COST_APPEND_REIMBURSEMENT_LAMPORTS,
   AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
   DEFAULT_FEE_PER_TREE_LAMPORTS,
-  FIRST_ASSET_ID,
   NULLIFIER_TREE_HEIGHT,
   NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
   NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,

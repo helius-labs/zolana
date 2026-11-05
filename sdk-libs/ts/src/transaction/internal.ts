@@ -2,7 +2,7 @@ import { getAddressDecoder, getAddressEncoder, getBase58Encoder } from "@solana/
 import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 
 import { bytesToBigInt } from "../interface/bytes.js";
-import type { Address, Bytes16, Bytes32, Bytes33 } from "../interface/types.js";
+import type { Address, Bytes32 } from "../interface/types.js";
 export { hashBytes } from "../hasher/index.js";
 export { sha256Be } from "../keypair/hash.js";
 
@@ -142,12 +142,6 @@ export function rightHashChain(values: readonly Bytes32[]): Bytes32 {
   return hash;
 }
 
-export function random16(): Bytes16 {
-  const output = new Uint8Array(16);
-  globalThis.crypto.getRandomValues(output);
-  return output as Bytes16;
-}
-
 export function decodeAddress(address: Address): Bytes32 {
   try {
     return new Uint8Array(addressEncoder.encode(address)) as Bytes32;
@@ -164,8 +158,4 @@ export function decodeAddress(address: Address): Bytes32 {
 export function encodeAddress(bytes: Uint8Array): Address {
   const input = checked<Bytes32>(bytes, 32, "address");
   return addressDecoder.decode(input);
-}
-
-export function checked33(bytes: Uint8Array): Bytes33 {
-  return checked<Bytes33>(bytes, 33, "public key");
 }

@@ -6,7 +6,6 @@ export { formatAmount, parseAmount } from "./amount.js";
 export {
   TRANSACTION_ERROR_CODES,
   TransactionError,
-  transactionError,
   type TransactionErrorCause,
   type TransactionErrorCode,
   type TransactionErrorDetails,
@@ -155,7 +154,6 @@ export {
   type TransferPlaintextUtxos,
 } from "./serialization/index.js";
 
-export { VIEW_TAG_LENGTH as VIEW_TAG_LEN } from "../keypair/constants.js";
 export type { ErrorEnvelope } from "../errors/internal.js";
 
 export type { PendingWalletSubmission } from "./wallet/state.js";

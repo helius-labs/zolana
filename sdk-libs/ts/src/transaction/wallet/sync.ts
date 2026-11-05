@@ -266,10 +266,7 @@ class SyncPass {
   readonly #outputHashes: Set<string>;
   readonly #processedSlots = new Set<string>();
   readonly #processedOutbound = new Set<number>();
-  readonly #unknownAssetsBySite = new Map<
-    string,
-    Readonly<{ ids: Set<bigint>; fields: Map<string, Bytes32> }>
-  >();
+  readonly #unknownAssetsBySite = new Map<string, Set<bigint>>();
   storedUtxos = 0;
   undecryptableCandidates = 0;
 
@@ -312,23 +309,9 @@ class SyncPass {
   unknownAssetIds(): readonly bigint[] {
     const ids = new Set<bigint>();
     for (const candidate of this.#unknownAssetsBySite.values()) {
-      for (const id of candidate.ids) ids.add(id);
+      for (const id of candidate) ids.add(id);
     }
     return [...ids].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
-  }
-
-  unknownAssetFields(): readonly Bytes32[] {
-    const fields = new Map<string, Bytes32>();
-    for (const candidate of this.#unknownAssetsBySite.values()) {
-      for (const [key, field] of candidate.fields) fields.set(key, field);
-    }
-    return [...fields.values()]
-      .map((field) => new Uint8Array(field) as Bytes32)
-      .sort((left, right) => {
-        const leftKey = bytesKey(left);
-        const rightKey = bytesKey(right);
-        return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
-      });
   }
 
   /**
@@ -429,32 +412,15 @@ class SyncPass {
    * during decode.
    */
   #recordUndecryptable(error: unknown, siteKey: string): void {
-    if (error instanceof TransactionError) {
-      let candidate = this.#unknownAssetsBySite.get(siteKey);
-      const assetCandidate = (): Readonly<{
-        ids: Set<bigint>;
-        fields: Map<string, Bytes32>;
-      }> => {
-        if (candidate !== undefined) return candidate;
-        candidate = { ids: new Set(), fields: new Map() };
-        this.#unknownAssetsBySite.set(siteKey, candidate);
-        return candidate;
-      };
-      if (error.code === "TRANSACTION_UNKNOWN_ASSET") {
-        const assetId = error.details?.["assetId"];
-        if (typeof assetId === "string" && /^\d+$/u.test(assetId)) {
-          assetCandidate().ids.add(BigInt(assetId));
+    if (error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_ASSET") {
+      const assetId = error.details?.["assetId"];
+      if (typeof assetId === "string" && /^\d+$/u.test(assetId)) {
+        let candidate = this.#unknownAssetsBySite.get(siteKey);
+        if (candidate === undefined) {
+          candidate = new Set();
+          this.#unknownAssetsBySite.set(siteKey, candidate);
         }
-      } else if (error.code === "TRANSACTION_UNKNOWN_ASSET_FIELD") {
-        const value = error.details?.["assetField"];
-        if (
-          Array.isArray(value) &&
-          value.length === 32 &&
-          value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
-        ) {
-          const field = new Uint8Array(value as number[]) as Bytes32;
-          assetCandidate().fields.set(bytesKey(field), field);
-        }
+        candidate.add(BigInt(assetId));
       }
     }
     this.undecryptableCandidates++;
@@ -1087,14 +1053,7 @@ function commitPass(
     unparsedTransactions: index.unparsedTransactions,
     undecryptableCandidates: pass.undecryptableCandidates,
     unknownAssetIds: pass.unknownAssetIds(),
-    unknownAssetFields: pass.unknownAssetFields(),
   });
-}
-
-export async function decryptTransactionsWorkerEquivalent(
-  input: Parameters<typeof decryptTransactions>[0],
-): Promise<SyncReport> {
-  return decryptTransactions(input);
 }
 
 /** Decrypt a complete indexed history into a read-only balance view. */

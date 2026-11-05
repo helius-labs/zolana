@@ -6,10 +6,6 @@ export type { HistoryFilters, PaginationToken, SlotFilter } from "../interface/t
 import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
-export {
-  DEFAULT_INDEXER_POLL_CONFIG as DEFAULT_INDEXER_POLL,
-  validatePollConfig,
-} from "./retry.js";
 export type { IndexerPollConfig, IndexerRpcConfig } from "./retry.js";
 
 export type { PageOptions } from "../interface/types.js";

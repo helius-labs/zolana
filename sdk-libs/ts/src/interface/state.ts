@@ -29,7 +29,6 @@ export function isMergeEncryptionScheme(value: unknown): value is MergeEncryptio
 export const CACHE_CAPACITY = 36;
 export const CACHE_ACCOUNT_SIZE = 1_228;
 
-export const FIRST_ASSET_ID = 2n;
 export const STATE_HEIGHT = 32;
 /** Final roots for the latest 500 slots that actually updated the state tree. */
 export const STATE_ROOT_HISTORY_CAPACITY = 500;

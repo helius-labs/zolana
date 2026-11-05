@@ -10,7 +10,6 @@ import type {
 import type { ShieldedPublicKey } from "../../keypair/public-key.js";
 import type { SpendProof } from "../rpc.js";
 
-export type Shape = Readonly<{ inputs: number; outputs: number }>;
 export type Field = bigint & { readonly __bn254Field: unique symbol };
 
 export interface CircuitUtxo {

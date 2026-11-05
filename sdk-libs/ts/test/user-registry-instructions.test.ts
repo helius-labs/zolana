@@ -29,7 +29,7 @@ import {
   getSetMergeEncryptionInstructionAsync,
 } from "../src/instructions.js";
 import type { Bytes32, Bytes33 } from "../src/interface/index.js";
-import { decodeUserRecordAccount, internalUserRecordPda } from "../src/wallet/registry.js";
+import { decodeUserRecordAccount, userRecordAddress } from "../src/wallet/registry.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const PAYER = address("trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho");
@@ -48,7 +48,7 @@ function signingKey(seed: number): SigningKey {
 }
 
 async function registryPublishing(owner: Address, published: ShieldedAddress) {
-  const { bump } = await internalUserRecordPda(owner);
+  const { bump } = await userRecordAddress(owner);
   const data = Uint8Array.of(
     1,
     ...getAddressEncoder().encode(owner),

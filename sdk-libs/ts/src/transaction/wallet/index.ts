@@ -33,12 +33,7 @@ export {
   type SerializedSyncCheckpoints,
   type SerializedWalletState,
 } from "./persistence.js";
-export {
-  decryptToBalances,
-  decryptTransactions,
-  decryptTransactionsWorkerEquivalent,
-  type PrivateBalances,
-} from "./sync.js";
+export { decryptToBalances, decryptTransactions, type PrivateBalances } from "./sync.js";
 export { Wallet } from "./state.js";
 export type {
   AssetBalance,

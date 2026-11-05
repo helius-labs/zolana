@@ -622,11 +622,7 @@ async function runWalletSync(
       context,
     });
     let registryRefreshed = false;
-    if (
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(session.staging)
-    ) {
+    if (report.unknownAssetIds.length > 0 || walletHasUnknownMint(session.staging)) {
       registryRefreshed = true;
       if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
         report = await decryptTransactions({
@@ -659,9 +655,7 @@ async function runWalletSync(
       });
       if (
         !registryRefreshed &&
-        (report.unknownAssetIds.length > 0 ||
-          report.unknownAssetFields.length > 0 ||
-          walletHasUnknownMint(session.staging))
+        (report.unknownAssetIds.length > 0 || walletHasUnknownMint(session.staging))
       ) {
         if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
           report = await decryptTransactions({
@@ -676,11 +670,7 @@ async function runWalletSync(
     }
     // An unresolved asset means a fetched UTXO was not stored. A commit would
     // advance the checkpoints past it and lose the UTXO until a full rescan.
-    if (
-      report.unknownAssetIds.length > 0 ||
-      report.unknownAssetFields.length > 0 ||
-      walletHasUnknownMint(session.staging)
-    ) {
+    if (report.unknownAssetIds.length > 0 || walletHasUnknownMint(session.staging)) {
       throw new WalletError("WALLET_UNRESOLVED_ASSET", {
         details: { unknownAssetIds: report.unknownAssetIds.map(String) },
       });

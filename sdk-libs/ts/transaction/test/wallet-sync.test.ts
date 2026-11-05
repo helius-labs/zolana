@@ -34,7 +34,6 @@ import {
   encodeOutputData,
   encodeProofless,
 } from "../../src/transaction/serialization/codecs.js";
-import { decryptTransactionsWorkerEquivalent as syncWalletWorkerEquivalent } from "../../src/transaction/wallet/sync.js";
 import { encodeAddress } from "../../src/transaction/internal.js";
 import type { IndexedShieldedTransaction } from "../../src/transaction/instructions/transact.js";
 import { fixtureArray, fixtureObject, fixtureString, hexBytes, readFixture } from "./fixture.js";
@@ -135,9 +134,6 @@ function reportRow(value: unknown): SyncReport {
     unparsedTransactions: Number(fixtureString(report, "unparsedTransactions")),
     undecryptableCandidates: Number(fixtureString(report, "undecryptableCandidates")),
     unknownAssetIds: fixtureArray(report, "unknownAssetIds").map((entry) => BigInt(String(entry))),
-    // These fixtures predate merge-field recovery; no case contains an
-    // unresolved merge asset.
-    unknownAssetFields: [],
   };
 }
 
@@ -375,7 +371,7 @@ describe("manifest-verified wallet behavior", () => {
     expect(fresh.utxos()).toEqual(wallet.utxos());
 
     const worker = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
-    const workerReport = await syncWalletWorkerEquivalent({
+    const workerReport = await syncWalletWithKeys({
       wallet: worker,
       keys: value.keys,
       transactions,
