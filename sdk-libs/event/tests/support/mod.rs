@@ -8,8 +8,8 @@ use spr_event_parser::ParsedInstruction;
 use spr_interface::instruction::instruction_data::MergeOutputEncryption;
 use spr_interface::instruction::{
     instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
-    CircuitId, InputUtxo, InterfaceTransfer, MergeRingIxData, MergeTransactIxData, MessageData,
-    TransactIxData, TransactOutput, TransactProof, TreeContext,
+    CircuitId, InputUtxo, InterfaceTransfer, MergeRingAuthority, MergeRingIxData,
+    MergeTransactIxData, MessageData, TransactIxData, TransactOutput, TransactProof, TreeContext,
 };
 
 pub const INPUT_TREE: [u8; 32] = [1u8; 32];
@@ -69,9 +69,9 @@ pub const MERGE_CIPHERTEXT: [[u8; 32]; 3] = [[0x61; 32], [0x62; 32], [0x63; 32]]
 
 /// The data slot a rebuilt merge output carries, spelled out byte by byte:
 /// borsh `OutputDataEncoding::VerifiablyEncrypted` (variant 2) for
-/// `merge_transact` or `Encrypted` (variant 1, the ring merge proof does not
-/// bind it) for `merge_ring`, a u32 LE length, scheme 6, the `merge_ring`
-/// output ring data hash, the salt, the ciphertext.
+/// `merge_transact` or `Encrypted` (variant 1) for `merge_ring`, a u32 LE
+/// length, scheme 6, the `merge_ring` output ring data hash, the salt, the
+/// ciphertext.
 pub fn merge_output_data(ring_data_hash: Option<[u8; 32]>) -> Vec<u8> {
     let mut blob = vec![6u8];
     if let Some(ring_data_hash) = ring_data_hash {
@@ -112,6 +112,7 @@ pub fn merge_ring_ix(
 ) -> MergeRingIxData {
     MergeRingIxData {
         output_ring_data_hash,
+        authority: MergeRingAuthority::Ring,
         merge: merge_ix(output_utxo_hash),
     }
 }

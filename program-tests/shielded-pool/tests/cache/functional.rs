@@ -237,6 +237,7 @@ fn merge_rejects_a_cache_for_another_tree() {
 }
 
 #[test]
+#[ignore = "no ring merge keys are pinned"]
 fn ring_merge_writes_the_bound_slot() {
     const SLOT: u8 = 3;
     let mut pool = proof_env();
@@ -340,6 +341,7 @@ fn reject_cache_sponsor_write(pool: &mut Pool, cache: &CacheFixture, mut ix: Ins
 }
 
 #[test]
+#[ignore = "no ring merge keys are pinned"]
 fn ring_merge_without_a_cache_verifies() {
     let mut pool = proof_env();
     let tree = pool.tree;

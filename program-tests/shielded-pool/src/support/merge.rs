@@ -600,6 +600,7 @@ impl RealRingMerge {
             payer: pool.rpc.payer.pubkey(),
             data: self.data.merge.clone(),
             output_ring_data_hash: self.data.output_ring_data_hash,
+            owner: None,
             cache: self.cache.map(|cache| CacheWriteAccounts {
                 cache,
                 writer: pool.rpc.payer.pubkey(),

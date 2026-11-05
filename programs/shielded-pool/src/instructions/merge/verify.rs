@@ -13,9 +13,7 @@ use spr_interface::{
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
-    verifying_keys::{
-        merge_24_1, merge_52_1, merge_8_1, merge_ring_24_1, merge_ring_52_1, merge_ring_8_1,
-    },
+    verifying_keys::{merge_24_1, merge_52_1, merge_8_1},
 };
 
 use crate::instructions::verifier;
@@ -37,10 +35,13 @@ pub enum MergeOwnerBinding {
     /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
     /// calling `ring_config`, plus the output `ring_data_hash` the ring program
     /// selected; the proof asserts it against the output's
-    /// `Output.Utxo.RingDataHash`. Verified against `merge_ring_<n_inputs>_1`.
+    /// `Output.Utxo.RingDataHash`.
     Ring {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
+        /// The signer's hashed key, zero with no signer.
+        published_owner: [u8; 32],
+        output_encryption: MergeOutputEncryption,
     },
 }
 
@@ -122,10 +123,10 @@ impl<'a> MergeProof<'a> {
                     _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
                 },
             },
-            (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Ring { .. }, 24) => &merge_ring_24_1::VERIFYINGKEY,
-            (MergeOwnerBinding::Ring { .. }, 52) => &merge_ring_52_1::VERIFYINGKEY,
-            _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
+            // No ring merge keys are pinned.
+            (MergeOwnerBinding::Ring { .. }, _) => {
+                return Err(ShieldedPoolError::CircuitFeatureDisabled.into())
+            }
         };
         Ok(vk)
     }
@@ -140,9 +141,10 @@ impl<'a> MergeProof<'a> {
     /// signing identity and nullifier public key (from the registry) and its
     /// scheme's ciphertext elements (PoseidonCtrV1: the salt and the three
     /// ciphertext elements). The policy-ring merge omits that identity (no
-    /// registry to bind it against) and the ciphertext, and appends the output
-    /// `ring_data_hash` and `ring_program_id`. The 7-element prefix is 1 + 3 + 3,
-    /// so it ends on a complete HashChain4 group without padding. Continuing
+    /// registry to bind it against) and appends the output `ring_data_hash`,
+    /// `ring_program_id`, the published owner and the ciphertext elements. The
+    /// 7-element prefix is 1 + 3 + 3, so it ends on a complete HashChain4 group
+    /// without padding. Continuing
     /// from its hash with the tail is therefore equivalent to folding all
     /// elements together.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
@@ -177,12 +179,197 @@ impl<'a> MergeProof<'a> {
             MergeOwnerBinding::Ring {
                 ring_program_id,
                 output_ring_data_hash,
-            } => create_hash_chain_4_from_slice(&[
-                prefix_hash,
-                *output_ring_data_hash,
-                *ring_program_id,
-            ]),
+                published_owner,
+                output_encryption,
+            } => {
+                let mut inputs =
+                    ArrayVec::<[u8; 32], { 4 + MAX_MERGE_OUTPUT_ENCRYPTION_PUBLIC_INPUTS }>::new();
+                inputs.push(prefix_hash);
+                inputs.push(*output_ring_data_hash);
+                inputs.push(*ring_program_id);
+                inputs.push(*published_owner);
+                output_encryption
+                    .append_public_inputs(&mut inputs)
+                    .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+                create_hash_chain_4_from_slice(&inputs)
+            }
         }
         .map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use serde_json::Value;
+    use spr_interface::{
+        instruction::instruction_data::merge_transact::{
+            MergeProof as MergeProofData, MergeTransactIxData,
+        },
+        tree_slot::tree_id_field,
+    };
+
+    use super::*;
+
+    pub(crate) fn field(value: &Value) -> [u8; 32] {
+        let hex = value.as_str().expect("hex string");
+        core::array::from_fn(|index| {
+            u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).expect("hex byte")
+        })
+    }
+
+    pub(crate) fn output_encryption(salt: &Value, ciphertext: &Value) -> MergeOutputEncryption {
+        let salt = salt.as_str().expect("salt");
+        MergeOutputEncryption::PoseidonCtrV1 {
+            salt: core::array::from_fn(|index| {
+                u8::from_str_radix(&salt[index * 2..index * 2 + 2], 16).expect("hex byte")
+            }),
+            ciphertext: core::array::from_fn(|index| field(&ciphertext[index])),
+        }
+    }
+
+    /// Compact padding stays off the wire.
+    pub(crate) fn ix_data(
+        nullifiers: &[[u8; 32]],
+        output_hash: [u8; 32],
+        private_tx_hash: [u8; 32],
+        output_encryption: MergeOutputEncryption,
+    ) -> Vec<u8> {
+        MergeTransactIxData {
+            cache_slot: None,
+            expiry_unix_ts: 0,
+            proof: MergeProofData::zeroed(),
+            output_utxo_hash: output_hash,
+            output_encryption,
+            private_tx_hash,
+            nullifiers: nullifiers
+                .iter()
+                .copied()
+                .filter(|nullifier| *nullifier != [0; 32])
+                .collect(),
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }
+        .serialize()
+        .expect("serialize")
+    }
+
+    pub(crate) fn derived(
+        tree_slot: TreeSlot,
+        output_tree_id: u16,
+        external_data_hash: [u8; 32],
+        owner_binding: MergeOwnerBinding,
+    ) -> MergeProofInputs {
+        let mut allow_dummy_inputs = [0u8; 32];
+        allow_dummy_inputs[31] = 1;
+        MergeProofInputs {
+            tree_slot,
+            output_tree_id: tree_id_field(output_tree_id),
+            external_data_hash,
+            allow_dummy_inputs,
+            owner_binding,
+        }
+    }
+
+    /// Pins both rails' statements to the cross-language vectors whose sent
+    /// nullifiers select the vector's width.
+    #[test]
+    fn statements_match_the_shared_vectors() {
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../../../test-vectors/public_input_hash.json"
+        ))
+        .expect("vectors");
+        let mut checked = [0usize; 2];
+        for (rail, key) in ["merges", "ring_merges"].into_iter().enumerate() {
+            for vector in vectors[key].as_array().expect("vectors") {
+                let nullifiers: Vec<[u8; 32]> = vector["nullifiers"]
+                    .as_array()
+                    .expect("nullifiers")
+                    .iter()
+                    .map(field)
+                    .collect();
+                let sent = nullifiers.iter().filter(|n| **n != [0; 32]).count();
+                if merge_circuit_width(sent) != Some(nullifiers.len()) {
+                    continue;
+                }
+                let encryption = output_encryption(
+                    &vector["output_ciphertext_salt"],
+                    &vector["output_ciphertext"],
+                );
+                let data = ix_data(
+                    &nullifiers,
+                    field(&vector["output_hash"]),
+                    field(&vector["private_tx_hash"]),
+                    encryption,
+                );
+                let ix = MergeTransactIxDataRef::from_bytes(&data).expect("parse");
+                let slot = &vector["tree_slots"][0];
+                let owner_binding = if rail == 0 {
+                    MergeOwnerBinding::Default {
+                        signing_pk_field: field(&vector["owner_pk_hash"]),
+                        nullifier_pk: field(&vector["nullifier_pk"]),
+                        output_encryption: encryption,
+                    }
+                } else {
+                    MergeOwnerBinding::Ring {
+                        ring_program_id: field(&vector["ring_program_id"]),
+                        output_ring_data_hash: field(&vector["output_ring_data_hash"]),
+                        published_owner: field(&vector["published_owner"]),
+                        output_encryption: encryption,
+                    }
+                };
+                let proof = MergeProof::new(
+                    &ix,
+                    derived(
+                        TreeSlot {
+                            id: tree_id_field(slot["id"].as_u64().expect("id") as u16),
+                            utxo_root: field(&slot["utxo_root"]),
+                            nullifier_root: field(&slot["nullifier_root"]),
+                        },
+                        vector["output_tree_id"].as_u64().expect("tree id") as u16,
+                        field(&vector["external_data_hash"]),
+                        owner_binding,
+                    ),
+                );
+                assert_eq!(
+                    proof.public_input_hash().expect("hash"),
+                    field(&vector["public_input_hash"]),
+                    "{}",
+                    vector["name"]
+                );
+                checked[rail] += 1;
+            }
+        }
+        assert_eq!(checked, [2, 2]);
+    }
+
+    /// Refused ahead of any pairing.
+    #[test]
+    fn ring_is_refused_until_its_keys_are_pinned() {
+        let encryption = MergeOutputEncryption::PoseidonCtrV1 {
+            salt: [0; 16],
+            ciphertext: [[0; 32]; 3],
+        };
+        let data = ix_data(&[[3; 32]], [1; 32], [2; 32], encryption);
+        let ix = MergeTransactIxDataRef::from_bytes(&data).expect("parse");
+        for published_owner in [[0; 32], [4; 32]] {
+            let proof = MergeProof::new(
+                &ix,
+                derived(
+                    TreeSlot::ZERO,
+                    0,
+                    [0; 32],
+                    MergeOwnerBinding::Ring {
+                        ring_program_id: [0; 32],
+                        output_ring_data_hash: [0; 32],
+                        published_owner,
+                        output_encryption: encryption,
+                    },
+                ),
+            );
+            assert_eq!(
+                proof.verify(),
+                Err(ShieldedPoolError::CircuitFeatureDisabled.into())
+            );
+        }
     }
 }

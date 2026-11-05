@@ -319,6 +319,7 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(),
         output_ring_data_hash: fe(99),
+        owner: None,
         cache: None,
     }
     .cpi_instruction();
@@ -511,6 +512,7 @@ fn merge_ring_cpi_instruction(
         payer: rpc.payer.pubkey(),
         data,
         output_ring_data_hash,
+        owner: None,
         cache: None,
     }
     .cpi_instruction()
@@ -603,6 +605,7 @@ fn merge_ring_rejects_an_unsigned_payer() {
         payer: outsider,
         data: merge_ix_data(),
         output_ring_data_hash: fe(92),
+        owner: None,
         cache: None,
     }
     .cpi_instruction();
@@ -656,6 +659,78 @@ fn merge_ring_rejects_an_inactive_ring_config() {
     }
 }
 
+/// A ring merge signed by a fake SPP-owned `ring_config` keypair, so the
+/// owner is the only authorization a test varies.
+fn owner_signed_merge_ring(
+    rpc: &mut SprProgramTest,
+    tree: &Pubkey,
+    owner: Option<Pubkey>,
+) -> (solana_instruction::Instruction, Keypair) {
+    let ring_config = Keypair::new();
+    write_fake_ring_config(rpc, ring_config.pubkey(), RING_CONFIG, true, false);
+    let mut ix = MergeRing {
+        input_tree: *tree,
+        output_tree: *tree,
+        ring_program_id: Pubkey::new_from_array(spr_program_test::RING_TEST_PROGRAM_ID),
+        payer: rpc.payer.pubkey(),
+        data: merge_ix_data(),
+        output_ring_data_hash: fe(96),
+        owner,
+        cache: None,
+    }
+    .cpi_instruction();
+    ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
+    (ix, ring_config)
+}
+
+#[test]
+fn merge_ring_owner_signed_rejects_an_unsigned_owner() {
+    let (mut rpc, tree) = merge_env();
+    let owner = Keypair::new();
+    let (mut ix, ring_config) = owner_signed_merge_ring(&mut rpc, &tree, Some(owner.pubkey()));
+    ix.accounts.get_mut(6).expect("owner meta").is_signer = false;
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
+        .expect_err("an owner-signed ring merge without the owner signature must be rejected");
+    Rejection::custom(u32::from(spr_account_checks::AccountError::InvalidSigner))
+        .assert_litesvm(error);
+    rpc.last_transaction_trace()
+        .expect("rejected transaction trace")
+        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
+}
+
+/// Every account and data check passes before the unpinned key refuses.
+#[test]
+fn merge_ring_stops_at_its_unpinned_key_under_either_authority() {
+    let (mut rpc, tree) = merge_env();
+    let owner = Keypair::new();
+    for signer in [None, Some(&owner)] {
+        let (ix, ring_config) =
+            owner_signed_merge_ring(&mut rpc, &tree, signer.map(Keypair::pubkey));
+        let tree_before = rpc.account_data(&tree).expect("tree data");
+        let signers: Vec<&dyn Signer> = [Some(&ring_config), signer]
+            .into_iter()
+            .flatten()
+            .map(|keypair| keypair as &dyn Signer)
+            .collect();
+        let error = rpc
+            .create_and_send_default_payer_transaction_with_budget(
+                &[ix],
+                &signers,
+                ComputeBudgetConfig::new(1_400_000),
+            )
+            .expect_err("a ring merge without pinned keys must be rejected");
+        Rejection::pool(ShieldedPoolError::CircuitFeatureDisabled)
+            .at(0)
+            .assert_litesvm(error);
+        assert_eq!(
+            rpc.account_data(&tree).expect("tree data"),
+            tree_before,
+            "rejected ring merge must roll back the nullifier and output inserts"
+        );
+    }
+}
+
 #[test]
 fn merge_ring_rejects_a_wrong_input_count_shape_exactly() {
     let (mut rpc, tree) = merge_env();
@@ -697,6 +772,7 @@ fn merge_ring_rejects_a_paused_tree() {
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(),
         output_ring_data_hash: fe(95),
+        owner: None,
         cache: None,
     }
     .instruction();

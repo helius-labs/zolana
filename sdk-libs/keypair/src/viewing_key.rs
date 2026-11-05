@@ -15,7 +15,8 @@ use zeroize::Zeroizing;
 use crate::{
     constants::{SALT_LEN, VIEW_TAG_LEN},
     derivation::{
-        self, INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SENDER_VIEW_TAG_SECRET, INFO_TX_VIEWING_X25519,
+        self, INFO_MERGE_SEED, INFO_RECIPIENT_VIEW_TAG_SECRET, INFO_SENDER_VIEW_TAG_SECRET,
+        INFO_TX_VIEWING_X25519,
     },
     encryption,
     error::KeypairError,
@@ -122,6 +123,23 @@ impl ViewingKey {
     /// (`info = "TSPP/tx_viewing/x25519/v1"`).
     pub(crate) fn tx_viewing_secret(&self) -> Result<[u8; 32], KeypairError> {
         self.derive_secret32(INFO_TX_VIEWING_X25519)
+    }
+
+    /// Canonical by its zero top byte, nonzero by its low bit, and underivable
+    /// by the note's sender.
+    pub fn merge_seed(
+        &self,
+        ring_program_id: &[u8; 32],
+        first_nullifier: &[u8; 32],
+    ) -> Result<[u8; 32], KeypairError> {
+        let mut seed = [0u8; 32];
+        derivation::hkdf_expand_prk(
+            self.view_root().as_slice(),
+            &[INFO_MERGE_SEED, ring_program_id, first_nullifier],
+            &mut seed[1..],
+        )?;
+        seed[31] |= 1;
+        Ok(seed)
     }
 
     /// Sender-derived view tag for the sender's own change UTXO at `tx_count`;

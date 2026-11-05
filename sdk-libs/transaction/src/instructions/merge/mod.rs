@@ -10,8 +10,8 @@ mod transaction;
 
 pub use blinding::{
     merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
-    DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1, DOMAIN_MERGE_OUTPUT_CIPHERTEXT,
-    DOMAIN_MERGE_OUTPUT_KEY,
+    MergeSeed, DOMAIN_MERGE_DUMMY_NULLIFIER, DOMAIN_MERGE_OUTPUT_BLINDING_V1,
+    DOMAIN_MERGE_OUTPUT_CIPHERTEXT, DOMAIN_MERGE_OUTPUT_KEY,
 };
 pub use encryption::MergeOutputSecrets;
 pub use serialization::{MergeOutputCiphertext, MergeOutputPlaintext};

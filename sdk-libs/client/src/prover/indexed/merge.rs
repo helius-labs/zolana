@@ -2,7 +2,7 @@ use serde::Serialize;
 use spr_hasher::primitives::pack_be;
 use spr_interface::instruction::{
     instruction_data::{
-        merge_ring::MergeRingIxData,
+        merge_ring::{MergeRingAuthority, MergeRingIxData},
         merge_transact::{
             merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof,
             MergeTransactIxData,
@@ -191,6 +191,10 @@ impl IndexedMergePreparation {
         )
         .hash()?;
         let salt = right_align(&merge.output_ciphertext_salt);
+        let output_encryption = MergeOutputEncryption::PoseidonCtrV1 {
+            salt: merge.output_ciphertext_salt,
+            ciphertext: merge.output_ciphertext,
+        };
         let public_inputs = MergePublicInputs {
             nullifiers: &nullifiers,
             output_hash,
@@ -202,15 +206,14 @@ impl IndexedMergePreparation {
                 MergePublicInputBinding::Ring {
                     output_data_hash: ring_data_hash,
                     program_id_hash: ring_hash,
+                    published_owner: [0; 32],
+                    output_encryption,
                 }
             } else {
                 MergePublicInputBinding::Owner {
                     signing_key_hash: owner_pk_hash,
                     nullifier_public_key: nullifier_pk,
-                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
-                        salt: merge.output_ciphertext_salt,
-                        ciphertext: merge.output_ciphertext,
-                    },
+                    output_encryption,
                 }
             },
         }
@@ -230,7 +233,7 @@ impl IndexedMergePreparation {
             },
             output_tree_id: hex_field(&tree_id_field(merge.output_tree_id)),
             mint_chunks: [hex_field(&mint_chunk_0), hex_field(&mint_chunk_1)],
-            output_ciphertext_salt: merge.ring_program_id.is_none().then(|| hex_field(&salt)),
+            output_ciphertext_salt: hex_field(&salt),
             owner_pk_hash: hex_field(&owner_pk_hash),
             user_nullifier_pk: hex_field(&nullifier_pk),
             user_nullifier_secret: SecretField(Zeroizing::new(right_align_slice(
@@ -241,6 +244,8 @@ impl IndexedMergePreparation {
             allow_dummy_inputs: "0x1",
             output_ring_data_hash: hex_field(&ring_data_hash),
             ring_program_id: hex_field(&ring_hash),
+            merge_seed: merge.ring_program_id.map(|_| "0x0"),
+            published_owner: merge.ring_program_id.map(|_| "0x0"),
         };
         let request = IndexedProofRequest::new(IndexedProofData {
             witness: Zeroizing::new(serde_json::to_string(&witness).map_err(|_| invalid())?),
@@ -324,6 +329,7 @@ impl Request for PreparedIndexedMerge {
         Ok(match self.ring_data_hash {
             Some(output_ring_data_hash) => ProvenIndexedMerge::Ring(MergeRingIxData {
                 output_ring_data_hash,
+                authority: MergeRingAuthority::Ring,
                 merge: data,
             }),
             None => ProvenIndexedMerge::Merge(data),
@@ -350,9 +356,7 @@ struct PreparedMergeJson {
     output: MergeOutputParamsJson,
     output_tree_id: String,
     mint_chunks: [String; 2],
-    /// Default merge rail only; the merge-ring circuit has no ciphertext.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    output_ciphertext_salt: Option<String>,
+    output_ciphertext_salt: String,
     owner_pk_hash: String,
     user_nullifier_pk: String,
     user_nullifier_secret: SecretField,
@@ -361,6 +365,11 @@ struct PreparedMergeJson {
     allow_dummy_inputs: &'static str,
     output_ring_data_hash: String,
     ring_program_id: String,
+    /// Zero, since the indexed path proves under a nonzero nullifier key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    merge_seed: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    published_owner: Option<&'static str>,
 }
 
 #[cfg(test)]

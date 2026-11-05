@@ -8,7 +8,7 @@ use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::{
-            merge_ring::MergeRingIxData,
+            merge_ring::{MergeRingAuthority, MergeRingIxData},
             merge_transact::{
                 MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeTransactIxData,
             },
@@ -112,6 +112,7 @@ impl MergeProofResult {
     pub fn ring_instruction_data(&self, proof: MergeProof) -> MergeRingIxData {
         MergeRingIxData {
             output_ring_data_hash: self.output_ring_data_hash,
+            authority: MergeRingAuthority::Ring,
             merge: self.instruction_data(proof),
         }
     }
@@ -260,6 +261,10 @@ impl MergeProver {
         let user_signing_pk_hash = signing_pubkey.owner_proof_input_hash()?;
         let output_ring_data_hash = output_utxo.ring_data_hash.unwrap_or_default();
         let ring_hash = program_id_proof_input_hash(&ring_program_id)?;
+        let output_encryption = MergeOutputEncryption::PoseidonCtrV1 {
+            salt: output_ciphertext_salt,
+            ciphertext: output_ciphertext,
+        };
         let public_input_hash = MergePublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hash,
@@ -271,15 +276,14 @@ impl MergeProver {
                 MergePublicInputBinding::Ring {
                     output_data_hash: output_ring_data_hash,
                     program_id_hash: ring_hash,
+                    published_owner: [0; 32],
+                    output_encryption,
                 }
             } else {
                 MergePublicInputBinding::Owner {
                     signing_key_hash: user_signing_pk_hash,
                     nullifier_public_key: nullifier_pubkey,
-                    output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
-                        salt: output_ciphertext_salt,
-                        ciphertext: output_ciphertext,
-                    },
+                    output_encryption,
                 }
             },
         }
@@ -306,6 +310,8 @@ impl MergeProver {
             public_input_hash: be(&public_input_hash),
             output_ring_data_hash: be(&output_ring_data_hash),
             ring_program_id: be(&ring_hash),
+            merge_seed: BigUint::ZERO,
+            published_owner: BigUint::ZERO,
         };
         Ok(MergeProofResult {
             inputs,

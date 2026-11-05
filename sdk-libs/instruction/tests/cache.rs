@@ -420,6 +420,7 @@ fn merge_ring_appends_the_cache_and_writer_only_when_set() {
         payer: Pubkey::new_unique(),
         data: merge_data(None),
         output_ring_data_hash: [5u8; 32],
+        owner: None,
         cache: None,
     };
     let without_cache = builder.instruction();

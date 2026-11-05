@@ -433,9 +433,9 @@ impl IndexedCircuit {
             // The prefix without the tree hash, the owner tail, the ciphertext
             // salt and the three ciphertext elements.
             Self::Merge => 12,
-            // The prefix without the tree hash and the ring tail; the ring
-            // merge proof binds no ciphertext.
-            Self::MergeRing => 8,
+            // The merge layout with the ring data hash, the ring program and
+            // the published owner in place of the owner tail.
+            Self::MergeRing => 13,
         }
     }
 }
@@ -684,9 +684,8 @@ mod tests {
         assert!(body["prepared"].get("treeSlots").is_none());
     }
 
-    /// A ring merge proof binds no ciphertext, so its request carries the
-    /// shared prefix and the ring tail only; the default merge's count is
-    /// refused for it, and the other way round.
+    /// Each merge rail refuses the other's public input count, and a ring merge
+    /// with its own count stops at its unpinned key.
     #[test]
     fn merge_public_input_count_follows_the_rail() {
         let domain = format!("0x{:x}", spr_interface::UTXO_DOMAIN);
@@ -711,8 +710,11 @@ mod tests {
             public_inputs: vec![scalar_one(); count],
         };
         IndexedProofRequest::new(request("merge", 12)).expect("default merge shape");
-        IndexedProofRequest::new(request("merge-ring", 8)).expect("ring merge shape");
-        for (circuit, count) in [("merge", 8), ("merge-ring", 12)] {
+        assert!(matches!(
+            IndexedProofRequest::new(request("merge-ring", 13)),
+            Err(ClientError::UnsupportedShape { .. })
+        ));
+        for (circuit, count) in [("merge", 13), ("merge-ring", 12)] {
             assert!(matches!(
                 IndexedProofRequest::new(request(circuit, count)),
                 Err(ClientError::InvalidIndexedRequest)

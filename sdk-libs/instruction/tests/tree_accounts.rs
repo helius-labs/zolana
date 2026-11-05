@@ -196,6 +196,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
         payer,
         data: merge_data,
         output_ring_data_hash: [0u8; 32],
+        owner: None,
         cache: None,
     }
     .cpi_instruction();
