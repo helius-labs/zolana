@@ -8,9 +8,12 @@ import {
   decodeShieldedTransactionsBySignatureResponse,
   encodeRingsByNullifiersRequest,
   encodeRingsByTagsRequest,
+  decodeMerkleProofsResponse,
   decodeUserRecordsResponse,
   encodeUserRecordsRequest,
+  knownSchemaPath,
 } from "../src/indexer/codec.js";
+import { wireDecoder } from "../src/interface/decode.js";
 import { MAX_USER_RECORD_OWNERS } from "../src/interface/indexer-limits.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { hash } from "../src/indexer/scalars.js";
@@ -41,25 +44,32 @@ describe("user records wire", () => {
   const page = { context: { slot: 77, blockTime: 2 }, records: [record, null] };
 
   it("reads an unregistered owner as null and refuses a record it cannot fully decode", () => {
-    expect(decodeUserRecordsResponse(page)).toEqual({
+    const decoded = {
       context: { slot: 77n, blockTime: 2n },
       records: [
         { owner: RING, nullifierPubkey: TAG, viewingPubkey: X25519, mergeEncryption: 1 },
         null,
       ],
-    });
+    };
+    expect(decodeUserRecordsResponse(page)).toEqual(decoded);
+    // A field this release does not know is ignored, as `spr-indexer-api` does.
+    expect(
+      decodeUserRecordsResponse({
+        ...page,
+        context: { ...page.context, extra: 1 },
+        records: [{ ...record, bump: 1, ownerP256: null }, null],
+        extra: true,
+      }),
+    ).toEqual(decoded);
     for (const changed of [
-      { records: [{ ...record, bump: 1 }] },
-      { records: [{ ...record, ownerP256: null }] },
       { records: [{ ...record, mergeEncryption: true }] },
       { records: [{ ...record, mergeEncryption: 2 }] },
       { records: [{ ...record, mergeEncryption: -1 }] },
-      { records: [{ ...record, mergingEnabled: true }] },
+      { records: [{ ...record, mergeEncryption: "1" }] },
       { records: [{ ...record, nullifierPubkey: P256 }] },
       { records: [{ owner: RING }] },
       { records: [undefined] },
       { records: null },
-      { extra: true },
     ])
       expect(() => decodeUserRecordsResponse({ ...page, ...changed })).toThrow();
   });
@@ -241,13 +251,10 @@ describe("shielded transactions by tags response", () => {
   });
 
   it.each([
-    { extra: 1 },
-    { cursor: `1:${3}:${signature}` },
-    { hasMore: false },
     { paginationToken: undefined },
     { paginationToken: `1:${4}:${signature}` },
     { paginationToken: "invalid" },
-  ])("rejects a page with the old or an inconsistent token shape: %j", (change) => {
+  ])("rejects a page with a missing or inconsistent token: %j", (change) => {
     expect(() => decodeShieldedTransactionsResponse({ ...page, ...change })).toThrow();
   });
 });
@@ -350,22 +357,117 @@ describe("Photon tree metadata", () => {
     ).toThrowError(expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }));
   });
 
-  it("rejects missing IDs and tree addresses that disagree with their IDs", () => {
-    const missing = { hash: TAG, tree: treeAddress(7), leafIndex: 3 };
-    for (const { outputContext, code } of [
-      { outputContext: missing, code: "INDEXER_SCHEMA_INVALID_INTEGER" },
-      { outputContext: { ...missing, treeId: 8 }, code: "INDEXER_SCHEMA_INVALID_TREE" },
-    ]) {
-      const page = {
-        context,
-        data: outputItems([{ ...match, outputSlot: { ...output, outputContext } }]),
-        paginationToken: null,
-      };
-      const before = structuredClone(page);
-      expect(() => decodeEncryptedUtxosResponse(page)).toThrowError(
-        expect.objectContaining({ code }),
+  it("derives the tree account from treeId and does not read the deprecated tree field", () => {
+    const pageWith = (outputContext: Record<string, unknown>) => ({
+      context,
+      data: outputItems([{ ...match, outputSlot: { ...output, outputContext } }]),
+      paginationToken: null,
+    });
+    const decodedTree = (outputContext: Record<string, unknown>) =>
+      decodeEncryptedUtxosResponse(pageWith(outputContext)).data[0]?.outputs[0]?.outputSlot
+        .outputContext.tree;
+    const { tree: _tree, ...withoutTree } = output.outputContext;
+    expect(decodedTree(withoutTree)).toBe(treeAddress(7));
+    expect(decodedTree({ ...withoutTree, tree: treeAddress(8) })).toBe(treeAddress(7));
+    expect(decodedTree({ ...withoutTree, tree: "not-an-address" })).toBe(treeAddress(7));
+
+    const page = pageWith({ hash: TAG, tree: treeAddress(7), leafIndex: 3 });
+    const before = structuredClone(page);
+    expect(() => decodeEncryptedUtxosResponse(page)).toThrowError(
+      expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }),
+    );
+    expect(page).toEqual(before);
+  });
+});
+
+describe("wire integers", () => {
+  const proof = {
+    leaf: TAG,
+    merkleContext: { treeType: 0, tree: RING },
+    path: [TAG],
+    leafIndex: 0,
+    root: TAG,
+    rootSeq: 0,
+    rootIndex: 0,
+  };
+  const decode = (change: Record<string, unknown>, at: Record<string, unknown> = {}) =>
+    decodeMerkleProofsResponse({
+      context: { blockTime: 0, slot: 1, ...at },
+      proofs: [{ ...proof, ...change }],
+    });
+  const U64_MAX = "18446744073709551615";
+
+  // The transport hands a literal past 2^53 over as its exact digits, and every
+  // integer field reads it at the full range of its type.
+  it("reads the full range of every u64 and i64 field, slots and indexes alike", () => {
+    const response = decode(
+      { leafIndex: U64_MAX, rootSeq: "9007199254740993" },
+      { slot: U64_MAX, blockTime: "-9223372036854775808" },
+    );
+    expect(response.context).toEqual({
+      slot: 18_446_744_073_709_551_615n,
+      blockTime: -(1n << 63n),
+    });
+    expect(response.proofs[0]?.leafIndex).toBe(18_446_744_073_709_551_615n);
+    expect(response.proofs[0]?.rootSeq).toBe(9_007_199_254_740_993n);
+  });
+
+  it.each([
+    ["a quoted safe value", { leafIndex: "7" }],
+    ["a leading zero", { leafIndex: "007" }],
+    ["a sign on zero", { rootSeq: "-0" }],
+    ["an exponent", { rootSeq: "1e20" }],
+    ["a number that lost precision", { rootSeq: 2 ** 60 }],
+    ["a fraction", { leafIndex: 1.5 }],
+    ["a value past u64", { leafIndex: "18446744073709551616" }],
+    ["a negative u64", { rootSeq: "-9007199254740993" }],
+    ["a u16 past its range", { rootIndex: "9007199254740993" }],
+  ])("refuses %s", (_name, change) => {
+    expect(() => decode(change)).toThrowError(
+      expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }),
+    );
+  });
+
+  it("refuses the same spellings for a context slot", () => {
+    for (const slot of ["1", "01", 2 ** 60, -1])
+      expect(() => decode({}, { slot })).toThrowError(
+        expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }),
       );
-      expect(page).toEqual(before);
-    }
+  });
+});
+
+describe("the wire decoder's integers", () => {
+  it("follow the same rule as the indexer codec", () => {
+    const { integer, signedInteger } = wireDecoder(() => new Error("invalid integer"));
+    expect(integer(7, "x")).toBe(7n);
+    expect(integer("18446744073709551615", "x")).toBe(18_446_744_073_709_551_615n);
+    expect(signedInteger(-7, "x")).toBe(-7n);
+    for (const value of ["007", "7", "-0", 2 ** 60, 1.5, -1])
+      expect(() => integer(value, "x")).toThrow("invalid integer");
+  });
+});
+
+describe("schema error paths", () => {
+  it("keeps a path that names only contract fields and indexes", () => {
+    for (const path of [
+      "$",
+      "$.data[0].events[1].ringProgramId",
+      "$.data[0].outputs[0].outputSlot.outputContext.treeId",
+      "$.outputTreeId",
+      "$.transactions[2].transaction.messages[0].payload",
+      "$.filters.slot.gt",
+    ])
+      expect(knownSchemaPath(path)).toBe(path);
+  });
+
+  it("drops a path that names a key the caller or the indexer chose", () => {
+    for (const path of [
+      "$.filters.slot.eq",
+      "$.data[0].secret",
+      "$.matches",
+      "$['owner']",
+      `$${".slot".repeat(60)}`,
+    ])
+      expect(knownSchemaPath(path)).toBeUndefined();
   });
 });

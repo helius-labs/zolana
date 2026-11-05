@@ -37,7 +37,7 @@ Added
 Changed
 
 - The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
-- `SprIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
+- `SprIndexer` reads ignore response fields they do not know and derive `outputContext.tree` from `treeId`; history reads given a freshness wait send it as `minContextSlot`, retry Photon's `-32016` minimum-context-slot error until the wait ends and then fail with `CLIENT_INDEXER_NOT_CAUGHT_UP`, a `-32016` outside a wait being a `CLIENT_INDEXER` whose `details.contextSlot` is the indexer's slot; and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 
 Fixed
 

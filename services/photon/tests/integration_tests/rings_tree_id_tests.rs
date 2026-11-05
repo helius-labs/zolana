@@ -58,7 +58,7 @@ async fn an_output_reports_the_id_of_the_tree_it_landed_in() {
     for transaction in &transactions {
         for slot in &transaction.output_slots {
             assert_eq!(slot.output_context.tree_id, FIXTURE_TREE_ID);
-            assert_eq!(slot.output_context.tree, expected_tree);
+            assert_eq!(slot.output_context.tree, Some(expected_tree));
         }
     }
     // Both read methods build their output context through the same helper, so
@@ -68,7 +68,10 @@ async fn an_output_reports_the_id_of_the_tree_it_landed_in() {
             encrypted.output_slot.output_context.tree_id,
             FIXTURE_TREE_ID
         );
-        assert_eq!(encrypted.output_slot.output_context.tree, expected_tree);
+        assert_eq!(
+            encrypted.output_slot.output_context.tree,
+            Some(expected_tree)
+        );
     }
 }
 

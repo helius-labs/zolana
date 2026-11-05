@@ -576,24 +576,35 @@ describe("wallet sync atomicity", () => {
 });
 
 describe("wallet sync freshness", () => {
+  // An empty history page at `slot`, or Photon's `-32016` when the request's
+  // `minContextSlot` is past it.
+  function photonPage(body: unknown, slot: number): Response {
+    const { params } = body as { params: { minContextSlot?: number } };
+    return Response.json({
+      id: "test-account",
+      jsonrpc: "2.0",
+      ...((params.minContextSlot ?? 0) > slot
+        ? {
+            error: {
+              code: -32016,
+              message: "Minimum context slot has not been reached",
+              data: { contextSlot: slot },
+            },
+          }
+        : { result: { context: { blockTime: 1, slot }, data: [], paginationToken: null } }),
+    });
+  }
+
   // A Photon at slot 5 that reaches slot 10 after the first transaction tag
   // read. Every other read still answers at slot 5.
   function laggingClient(requireSlot: bigint) {
     const tagReads: number[] = [];
     const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
-      const { method } = JSON.parse(String(init?.body)) as { method: string };
-      const byTags = method === "getShieldedTransactionsByTags";
+      const body: unknown = JSON.parse(String(init?.body));
+      const byTags = (body as { method: string }).method === "getShieldedTransactionsByTags";
       const slot = byTags && tagReads.length > 0 ? 10 : 5;
       if (byTags) tagReads.push(slot);
-      return Response.json({
-        id: "test-account",
-        jsonrpc: "2.0",
-        result: {
-          context: { blockTime: 1, slot },
-          data: [],
-          paginationToken: null,
-        },
-      });
+      return photonPage(body, slot);
     });
     const client = new SprClient({
       fetch,
@@ -661,16 +672,12 @@ describe("wallet sync freshness", () => {
       // Photon stays at slot 5, and its first transaction tag page is too large.
       let oversized = true;
       const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
-        const { method } = JSON.parse(String(init?.body)) as { method: string };
-        if (method === "getShieldedTransactionsByTags" && oversized) {
+        const body: unknown = JSON.parse(String(init?.body));
+        if ((body as { method: string }).method === "getShieldedTransactionsByTags" && oversized) {
           oversized = false;
           return oversizedPage();
         }
-        return Response.json({
-          id: "test-account",
-          jsonrpc: "2.0",
-          result: { context: { blockTime: 1, slot: 5 }, data: [], paginationToken: null },
-        });
+        return photonPage(body, 5);
       });
       const client = new SprClient({
         fetch,

@@ -5,6 +5,7 @@ import { X25519PublicKey } from "../keypair/x25519.js";
 import { isAddress } from "@solana/kit";
 
 import { SprApi, ApiError } from "../api/index.js";
+import { JSON_RPC_MIN_CONTEXT_SLOT } from "../services/jsonrpc.js";
 import { hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
@@ -78,7 +79,7 @@ export class SprIndexer {
           {
             tags: owned.tags.map((tag) => hash(tag)),
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
-            ...wirePageControls(owned),
+            ...wirePageControls(owned, config),
           },
           context,
         );
@@ -102,7 +103,7 @@ export class SprIndexer {
           {
             tags: owned.tags.map((tag) => hash(tag)),
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
-            ...wirePageControls(owned),
+            ...wirePageControls(owned, config),
           },
           context,
         );
@@ -125,7 +126,7 @@ export class SprIndexer {
         const response = await this.#api.getShieldedTransactionsByNullifiers(
           {
             nullifiers: owned.nullifiers.map((nullifier) => hash(nullifier)),
-            ...wirePageControls(owned),
+            ...wirePageControls(owned, config),
           },
           context,
         );
@@ -321,12 +322,22 @@ function copyPageControls(request: PageControls): PageControls {
   };
 }
 
-function wirePageControls(owned: PageControls) {
+/**
+ * A `requireSlot` wait is sent as `minContextSlot`, as Rust sends `require_slot`,
+ * so Photon refuses a snapshot behind it; the greater slot wins when both are set.
+ */
+function wirePageControls(owned: PageControls, config: IndexerRpcConfig | undefined) {
+  const required = config?.requireSlot;
+  const minContextSlot =
+    required === undefined ||
+    (owned.minContextSlot !== undefined && owned.minContextSlot > required)
+      ? owned.minContextSlot
+      : required;
   return {
     ...(owned.paginationToken === undefined ? {} : { paginationToken: owned.paginationToken }),
     ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
     ...(owned.filters === undefined ? {} : { filters: owned.filters }),
-    ...(owned.minContextSlot === undefined ? {} : { minContextSlot: owned.minContextSlot }),
+    ...(minContextSlot === undefined ? {} : { minContextSlot }),
   };
 }
 
@@ -586,9 +597,23 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
   const attempts = poll.numRetries + 1;
   let latest: bigint | undefined;
   let responses = 0;
+  // A `-32016` answers too: the indexer is at its context slot, still behind,
+  // as Rust `wait_for_indexer_async` reads it.
+  const attempt = async () => {
+    try {
+      return await request();
+    } catch (cause) {
+      const indexed = indexedContextSlot(cause);
+      if (indexed !== undefined) {
+        responses++;
+        latest = indexed;
+      }
+      throw cause;
+    }
+  };
   try {
     return await pollUntil(
-      request,
+      attempt,
       (response) => {
         responses++;
         latest = response.context.slot;
@@ -617,8 +642,16 @@ export function wrapIndexer(cause: unknown, method: string): ClientError {
     cause instanceof ApiError && cause.code === "API_JSON_RPC"
       ? cause.details?.["rpcCode"]
       : undefined;
-  if (rpcCode === -32016) {
-    return new ClientError("CLIENT_INDEXER", { details: { method, retryable: true }, cause });
+  if (rpcCode === JSON_RPC_MIN_CONTEXT_SLOT) {
+    const contextSlot = cause instanceof ApiError ? cause.details?.["contextSlot"] : undefined;
+    return new ClientError("CLIENT_INDEXER", {
+      details: {
+        method,
+        retryable: true,
+        ...(typeof contextSlot === "string" ? { contextSlot } : {}),
+      },
+      cause,
+    });
   }
   const code = externalCode(cause);
   if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });
@@ -648,6 +681,18 @@ export function wrapIndexer(cause: unknown, method: string): ClientError {
     details: { method, retryable: apiRetryable(cause) },
     cause,
   });
+}
+
+/** The slot `wrapIndexer` kept from a `-32016`, a decimal string it validated. */
+function indexedContextSlot(error: unknown): bigint | undefined {
+  if (!isClientError(error) || error.code !== "CLIENT_INDEXER") return undefined;
+  const details: unknown = error.details;
+  return typeof details === "object" &&
+    details !== null &&
+    "contextSlot" in details &&
+    typeof details.contextSlot === "string"
+    ? BigInt(details.contextSlot)
+    : undefined;
 }
 
 // The API layer already classified the failure. An unrecognized shape counts as

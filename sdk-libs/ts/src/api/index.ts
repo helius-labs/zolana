@@ -14,6 +14,7 @@ import type {
   GetUserRecordsRequest,
   GetUserRecordsResponse,
 } from "../indexer/types.js";
+import { knownSchemaPath } from "../indexer/codec.js";
 import type { IndexerSchemaError } from "../indexer/scalars.js";
 import {
   getEncryptedUtxosByTagsMethod,
@@ -257,7 +258,9 @@ function schemaError(
   const schema = error as Partial<IndexerSchemaError>;
   const schemaDetails = schema.details;
   const path =
-    typeof schemaDetails?.["path"] === "string" ? safeSchemaPath(schemaDetails["path"]) : undefined;
+    typeof schemaDetails?.["path"] === "string"
+      ? knownSchemaPath(schemaDetails["path"])
+      : undefined;
   return new ApiError(
     code,
     code === "API_INVALID_REQUEST" ? "API request is invalid" : "API result is invalid",
@@ -270,11 +273,4 @@ function schemaError(
       },
     },
   );
-}
-
-function safeSchemaPath(path: string): string | undefined {
-  const knownField =
-    "(?:blockTime|context|data|events|filters|gt|gte|hash|highElement|highElementIndex|leaf|leafIndex|leaves|limit|lowElement|lowElementIndex|lt|lte|matches|mergeEncryption|merkleContext|minContextSlot|nullifierPubkey|nullifiers|outputContext|outputSlot|outputSlots|outputs|owner|owners|paginationToken|path|payload|proofless|proofs|records|root|rootIndex|rootSeq|salt|signature|slot|tags|transactions|tree|treeAccount|treeType|txSignature|txViewingPk|viewTag|viewingPubkey)";
-  const pattern = new RegExp(`^\\$(?:(?:\\.${knownField})|(?:\\[\\d+\\]))*$`, "u");
-  return path.length <= 256 && pattern.test(path) ? path : undefined;
 }

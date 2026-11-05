@@ -1788,8 +1788,11 @@ async fn assert_rings_api_exposes_output_hashes(
         .expect("matched output slot should be returned");
     assert_eq!(output_slot.view_tag.to_vec(), output.view_tag);
     assert_eq!(
-        output_slot.output_context.tree.to_bytes_vec(),
-        output.output_tree
+        output_slot
+            .output_context
+            .tree
+            .map(|tree| tree.to_bytes_vec()),
+        Some(output.output_tree.clone())
     );
     assert_eq!(
         output_slot.output_context.leaf_index,
@@ -1862,8 +1865,8 @@ async fn assert_rings_api_exposes_output_hashes(
             .output_slot
             .output_context
             .tree
-            .to_bytes_vec(),
-        output.output_tree
+            .map(|tree| tree.to_bytes_vec()),
+        Some(output.output_tree.clone())
     );
     assert_eq!(
         encrypted_match.output_slot.output_context.leaf_index,

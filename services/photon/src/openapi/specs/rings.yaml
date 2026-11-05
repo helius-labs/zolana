@@ -135,7 +135,6 @@ paths:
                               type: integer
                               format: u-int64
                               minimum: 0
-                          additionalProperties: false
                       outputTreeId:
                         type:
                         - integer
@@ -270,7 +269,6 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/MerkleProof'
-                    additionalProperties: false
         '429':
           description: Exceeded rate limit.
           content:
@@ -390,7 +388,6 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/NonInclusionProof'
-                    additionalProperties: false
         '429':
           description: Exceeded rate limit.
           content:
@@ -514,7 +511,6 @@ paths:
                         type: array
                         items:
                           $ref: '#/components/schemas/NullifierQueueElement'
-                    additionalProperties: false
         '429':
           description: Exceeded rate limit.
           content:
@@ -669,7 +665,6 @@ paths:
                               type: integer
                               format: u-int64
                               minimum: 0
-                          additionalProperties: false
                       outputTreeId:
                         type:
                         - integer
@@ -968,7 +963,6 @@ paths:
                               type: integer
                               format: u-int64
                               minimum: 0
-                          additionalProperties: false
                       outputTreeId:
                         type:
                         - integer
@@ -1109,7 +1103,6 @@ paths:
                           One entry per requested owner, in request order. `null` when the owner
                           has no registry record at the slot the records were read, which is no
                           earlier than `context.slot`.
-                    additionalProperties: false
         '429':
           description: Exceeded rate limit.
           content:
@@ -1228,7 +1221,6 @@ components:
           type: integer
           format: u-int16
           minimum: 0
-      additionalProperties: false
     MerkleProof:
       type: object
       required:
@@ -1268,7 +1260,6 @@ components:
             Root ordering key: the completed Solana slot for state-tree proof
             freshness, or the on-chain update sequence for an indexed-tree proof.
           minimum: 0
-      additionalProperties: false
     NonInclusionProof:
       type: object
       required:
@@ -1317,7 +1308,6 @@ components:
             Root ordering key: the completed Solana slot for a state-tree proof,
             or the on-chain update sequence for an indexed-tree proof.
           minimum: 0
-      additionalProperties: false
     NullifierQueueElement:
       type: object
       description: One queued nullifier, in on-chain input-queue order.
@@ -1331,7 +1321,6 @@ components:
           minimum: 0
         value:
           $ref: '#/components/schemas/Hash'
-      additionalProperties: false
     PaginationToken:
       type: string
     RingsMessage:
@@ -1348,7 +1337,6 @@ components:
       type: object
       required:
       - hash
-      - tree
       - treeId
       - leafIndex
       properties:
@@ -1359,13 +1347,15 @@ components:
           format: u-int64
           minimum: 0
         tree:
-          $ref: '#/components/schemas/SerializablePubkey'
-          description: |-
-            The tree account the output was appended to.
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SerializablePubkey'
+            description: |-
+              The tree account the output was appended to, `pda::tree(tree_id)`.
 
-            Deprecated: it is `pda::tree(tree_id)` and carries nothing `tree_id`
-            does not. Emitted for one release so readers can move over, then
-            dropped.
+              Deprecated: readers derive the account from `tree_id` and do not need
+              this field. Photon sends it because SDK 0.8 clients, TS and Rust, require
+              it, and can drop it once those clients are gone.
         treeId:
           type: integer
           format: u-int16
@@ -1508,4 +1498,3 @@ components:
         viewingPubkey:
           $ref: '#/components/schemas/Base64String'
           description: Tagged X25519 viewing pubkey (0x04 followed by a canonical 32-byte u-coordinate).
-      additionalProperties: false
