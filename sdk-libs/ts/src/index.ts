@@ -70,7 +70,7 @@ export {
   type DecryptRequest,
   type DeriveRequest,
   type SerializedSyncCheckpoint,
-  type SerializedNoteReservation,
+  type SerializedUtxoReservation,
   type SerializedSyncCheckpoints,
   type SerializedWalletState,
   type ShieldedKeys,

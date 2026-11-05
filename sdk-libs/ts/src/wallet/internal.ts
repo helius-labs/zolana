@@ -7,7 +7,7 @@ import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/
 
 import { WalletError } from "./error.js";
 
-/** @internal Named-input conflicts surface as `WALLET_NOTE_RESERVED`. */
+/** @internal Named-input conflicts surface as `WALLET_UTXO_RESERVED`. */
 export function reserveWalletEntries(
   wallet: Wallet,
   entries: readonly WalletUtxo[],
@@ -15,8 +15,8 @@ export function reserveWalletEntries(
   try {
     return reserveEntries(wallet, entries);
   } catch (cause) {
-    if (cause instanceof TransactionError && cause.code === "TRANSACTION_NOTE_RESERVED") {
-      throw new WalletError("WALLET_NOTE_RESERVED", {
+    if (cause instanceof TransactionError && cause.code === "TRANSACTION_UTXO_RESERVED") {
+      throw new WalletError("WALLET_UTXO_RESERVED", {
         ...(cause.details === undefined ? {} : { details: cause.details }),
         cause,
       });

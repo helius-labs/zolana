@@ -25,6 +25,7 @@ import {
 } from "./state.js";
 
 const encodeBase64 = getBase64Decoder();
+const SNAPSHOT_VERSION = 6;
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
@@ -85,10 +86,9 @@ export interface SerializedSyncCheckpoints {
   readonly nullifiers: readonly SerializedSyncCheckpoint[];
 }
 
-/** Version 3 wire names remain frozen for persisted snapshot compatibility. */
-export interface SerializedNoteReservation {
+export interface SerializedUtxoReservation {
   readonly id: string;
-  readonly noteHashes: readonly string[];
+  readonly utxoHashes: readonly string[];
   readonly expiresAtMs: string | null;
 }
 
@@ -98,7 +98,7 @@ export interface SerializedNoteReservation {
  * must still encrypt it at rest.
  */
 export interface SerializedWalletState {
-  readonly version: 5;
+  readonly version: 6;
   readonly identity: Readonly<{
     signingPublicKey: string;
     nullifierPublicKey: string;
@@ -111,11 +111,11 @@ export interface SerializedWalletState {
   readonly nullifiers: readonly string[];
   readonly lastSynced: string;
   readonly syncCheckpoints: SerializedSyncCheckpoints;
-  readonly reservations: readonly SerializedNoteReservation[];
+  readonly reservations: readonly SerializedUtxoReservation[];
   readonly pendingSubmissions: readonly Readonly<{
     id: string;
     intentHash: string;
-    noteHashes: readonly string[];
+    utxoHashes: readonly string[];
     attempts: number;
     signature: Signature;
     lastValidBlockHeight: string;
@@ -126,7 +126,7 @@ export function serializeWallet(wallet: Wallet): string {
   if (!(wallet instanceof Wallet)) fail("wallet");
   const state = wallet._state();
   const snapshot: SerializedWalletState = {
-    version: 5,
+    version: SNAPSHOT_VERSION,
     identity: {
       signingPublicKey: encode(wallet.identity.signingPublicKey.toBytes()),
       nullifierPublicKey: encode(wallet.identity.nullifierPublicKey),
@@ -149,7 +149,7 @@ export function serializeWallet(wallet: Wallet): string {
     pendingSubmissions: wallet.pendingSubmissions().map((pending) => ({
       id: pending.id,
       intentHash: encode(pending.intentHash),
-      noteHashes: pending.utxoHashes.map(encode),
+      utxoHashes: pending.utxoHashes.map(encode),
       attempts: pending.attempts,
       signature: pending.signature,
       lastValidBlockHeight: pending.lastValidBlockHeight.toString(),
@@ -158,7 +158,7 @@ export function serializeWallet(wallet: Wallet): string {
       ._reservationEntries()
       .map((reservation) => ({
         id: reservation.id,
-        noteHashes: reservation.utxoHashes.map(encode),
+        utxoHashes: reservation.utxoHashes.map(encode),
         expiresAtMs: reservation.expiresAtMs?.toString() ?? null,
       }))
       .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
@@ -188,8 +188,7 @@ export function deserializeWallet(serialized: string): Wallet {
 
 function hydrate(value: unknown): Wallet {
   const snapshot = record(value, "wallet");
-  const version = snapshot["version"];
-  if (version !== 2 && version !== 3 && version !== 4 && version !== 5) fail("version");
+  if (snapshot["version"] !== SNAPSHOT_VERSION) fail("version");
   const identityValue = record(snapshot["identity"], "identity");
   const identity = ShieldedAddress.fromPublicKeys(
     ShieldedPublicKey.fromBytes(
@@ -220,9 +219,7 @@ function hydrate(value: unknown): Wallet {
   ) {
     fail("viewingKeyHistory");
   }
-  const decodedUtxos = array(snapshot["utxos"], "utxos").map((entry, index) =>
-    deserializeUtxo(entry, index, version),
-  );
+  const decodedUtxos = array(snapshot["utxos"], "utxos").map(deserializeUtxo);
   const expectedOwner = encode(identity.signingPublicKey.toBytes());
   if (decodedUtxos.some((entry) => encode(entry.utxo.owner.toBytes()) !== expectedOwner)) {
     fail("utxos.owner");
@@ -246,79 +243,64 @@ function hydrate(value: unknown): Wallet {
     viewingKeyHistory,
     lastSynced: signed(snapshot["lastSynced"], "lastSynced"),
   });
-  // Versions before 5 predate slot checkpoints, their first sync rescans
-  // history once.
-  if (version === 5) {
-    hydrateCheckpoints(wallet, snapshot["syncCheckpoints"]);
-    wallet._forgetNullifierCheckpoints(nullifiers);
-  }
-  if (version >= 3 && snapshot["reservations"] !== undefined) {
-    hydrateReservations(wallet, snapshot["reservations"], version);
-  }
-  if (version >= 4) {
-    const seen = new Set<string>();
-    for (const [index, entry] of array(
-      snapshot["pendingSubmissions"],
-      "pendingSubmissions",
-    ).entries()) {
-      const path = `pendingSubmissions[${String(index)}]`;
-      const item = record(entry, path);
-      const id = item["id"];
-      if (typeof id !== "string" || !/^[0-9a-f]{32}$/u.test(id) || seen.has(id)) fail(`${path}.id`);
-      seen.add(id);
-      const attempts = item["attempts"];
-      if (
-        typeof attempts !== "number" ||
-        !Number.isInteger(attempts) ||
-        attempts < 1 ||
-        attempts > 3
-      )
-        fail(`${path}.attempts`);
-      const pending: PendingWalletSubmission = {
-        id,
-        intentHash: bytes(item["intentHash"], 32, `${path}.intentHash`) as Bytes32,
-        utxoHashes: array(item["noteHashes"], `${path}.noteHashes`).map(
-          (hash, index) => bytes(hash, 32, `${path}.noteHashes[${String(index)}]`) as Bytes32,
-        ),
-        attempts,
-        signature: signature(item["signature"], `${path}.signature`),
-        lastValidBlockHeight: unsigned(
-          item["lastValidBlockHeight"],
-          `${path}.lastValidBlockHeight`,
-        ),
-      };
-      const known = new Map(
-        wallet.utxos().map((entry) => [bytesKey(entry.outputContext.hash), entry]),
-      );
-      if (
-        new Set(pending.utxoHashes.map(bytesKey)).size !== pending.utxoHashes.length ||
-        pending.utxoHashes.some((hash) => !known.has(bytesKey(hash)))
-      )
-        fail(`${path}.noteHashes`);
-      const unspent = pending.utxoHashes.filter((hash) => !known.get(bytesKey(hash))?.spent);
-      const reservation = wallet._reservationEntries().find((entry) => entry.id === id);
-      if (
-        unspent.length !== 0 &&
-        (reservation === undefined ||
-          reservation.expiresAtMs !== null ||
-          reservation.utxoHashes.length !== pending.utxoHashes.length ||
-          reservation.utxoHashes.some(
-            (hash, index) => bytesKey(hash) !== bytesKey(pending.utxoHashes[index]!),
-          ))
-      )
-        fail(`${path}.reservation`);
-      wallet._setPendingSubmission(pending);
-    }
-    wallet._restoreReservations(
-      wallet
-        ._reservationEntries()
-        .filter((entry) => entry.expiresAtMs !== null || seen.has(entry.id)),
-    );
-  }
+  hydrateCheckpoints(wallet, snapshot["syncCheckpoints"]);
+  wallet._forgetNullifierCheckpoints(nullifiers);
+  hydrateReservations(wallet, snapshot["reservations"]);
+  hydratePendingSubmissions(wallet, snapshot["pendingSubmissions"]);
   return wallet;
 }
 
-function hydrateReservations(wallet: Wallet, value: unknown, version: number): void {
+function hydratePendingSubmissions(wallet: Wallet, value: unknown): void {
+  const seen = new Set<string>();
+  for (const [index, entry] of array(value, "pendingSubmissions").entries()) {
+    const path = `pendingSubmissions[${String(index)}]`;
+    const item = record(entry, path);
+    const id = item["id"];
+    if (typeof id !== "string" || !/^[0-9a-f]{32}$/u.test(id) || seen.has(id)) fail(`${path}.id`);
+    seen.add(id);
+    const attempts = item["attempts"];
+    if (typeof attempts !== "number" || !Number.isInteger(attempts) || attempts < 1 || attempts > 3)
+      fail(`${path}.attempts`);
+    const pending: PendingWalletSubmission = {
+      id,
+      intentHash: bytes(item["intentHash"], 32, `${path}.intentHash`) as Bytes32,
+      utxoHashes: array(item["utxoHashes"], `${path}.utxoHashes`).map(
+        (hash, index) => bytes(hash, 32, `${path}.utxoHashes[${String(index)}]`) as Bytes32,
+      ),
+      attempts,
+      signature: signature(item["signature"], `${path}.signature`),
+      lastValidBlockHeight: unsigned(item["lastValidBlockHeight"], `${path}.lastValidBlockHeight`),
+    };
+    const known = new Map(
+      wallet.utxos().map((entry) => [bytesKey(entry.outputContext.hash), entry]),
+    );
+    if (
+      new Set(pending.utxoHashes.map(bytesKey)).size !== pending.utxoHashes.length ||
+      pending.utxoHashes.some((hash) => !known.has(bytesKey(hash)))
+    )
+      fail(`${path}.utxoHashes`);
+    const unspent = pending.utxoHashes.filter((hash) => !known.get(bytesKey(hash))?.spent);
+    const reservation = wallet._reservationEntries().find((entry) => entry.id === id);
+    if (
+      unspent.length !== 0 &&
+      (reservation === undefined ||
+        reservation.expiresAtMs !== null ||
+        reservation.utxoHashes.length !== pending.utxoHashes.length ||
+        reservation.utxoHashes.some(
+          (hash, index) => bytesKey(hash) !== bytesKey(pending.utxoHashes[index]!),
+        ))
+    )
+      fail(`${path}.reservation`);
+    wallet._setPendingSubmission(pending);
+  }
+  wallet._restoreReservations(
+    wallet
+      ._reservationEntries()
+      .filter((entry) => entry.expiresAtMs !== null || seen.has(entry.id)),
+  );
+}
+
+function hydrateReservations(wallet: Wallet, value: unknown): void {
   const reserved = new Set<string>();
   const seen = new Set<string>();
   wallet._restoreReservations(
@@ -328,9 +310,9 @@ function hydrateReservations(wallet: Wallet, value: unknown, version: number): v
       const id = item["id"];
       if (typeof id !== "string" || !/^[0-9a-f]{32}$/u.test(id) || seen.has(id)) fail(`${path}.id`);
       seen.add(id);
-      const utxoHashes = array(item["noteHashes"], `${path}.noteHashes`).map((hash, hashIndex) => {
-        const decoded = bytes(hash, 32, `${path}.noteHashes[${String(hashIndex)}]`) as Bytes32;
-        if (reserved.has(bytesKey(decoded))) fail(`${path}.noteHashes`);
+      const utxoHashes = array(item["utxoHashes"], `${path}.utxoHashes`).map((hash, hashIndex) => {
+        const decoded = bytes(hash, 32, `${path}.utxoHashes[${String(hashIndex)}]`) as Bytes32;
+        if (reserved.has(bytesKey(decoded))) fail(`${path}.utxoHashes`);
         reserved.add(bytesKey(decoded));
         return decoded;
       });
@@ -338,9 +320,7 @@ function hydrateReservations(wallet: Wallet, value: unknown, version: number): v
         id,
         utxoHashes,
         expiresAtMs:
-          version >= 4 && item["expiresAtMs"] === null
-            ? null
-            : signed(item["expiresAtMs"], `${path}.expiresAtMs`),
+          item["expiresAtMs"] === null ? null : signed(item["expiresAtMs"], `${path}.expiresAtMs`),
       });
     }),
   );
@@ -404,13 +384,11 @@ function serializeUtxo(value: WalletUtxo): SerializedWalletUtxo {
   };
 }
 
-function deserializeUtxo(value: unknown, index: number, version: number): WalletUtxo {
+function deserializeUtxo(value: unknown, index: number): WalletUtxo {
   const path = `utxos[${String(index)}]`;
   const entry = record(value, path);
   const context = record(entry["outputContext"], `${path}.outputContext`);
-  // Versions before 5 store no tree id: those SDKs kept only UTXOs whose
-  // commitment opened in tree 0.
-  const treeId = version === 5 ? u16(context["treeId"], `${path}.outputContext.treeId`) : 0;
+  const treeId = u16(context["treeId"], `${path}.outputContext.treeId`);
   const tree = address(context["tree"], `${path}.outputContext.tree`);
   if (tree !== treeAddress(treeId)) fail(`${path}.outputContext.tree`);
   const records = array(entry["data"], `${path}.data`).map((value, recordIndex) => {

@@ -29,7 +29,7 @@ export {
   deserializeWallet,
   serializeWallet,
   type SerializedSyncCheckpoint,
-  type SerializedNoteReservation,
+  type SerializedUtxoReservation,
   type SerializedSyncCheckpoints,
   type SerializedWalletState,
 } from "./persistence.js";

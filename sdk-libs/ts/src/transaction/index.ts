@@ -113,7 +113,7 @@ export type {
   SyncReport,
   TransactionKeyRequest,
   SerializedSyncCheckpoint,
-  SerializedNoteReservation,
+  SerializedUtxoReservation,
   SerializedSyncCheckpoints,
   SerializedWalletState,
   ViewingKeyEntry,

@@ -84,34 +84,18 @@ describe("wallet persistence", () => {
     expect(serializeWallet(restored)).toBe(serialized);
   });
 
-  it("accepts version 2 state with no checkpoints", () => {
-    const keypair = ShieldedKeypair.generate();
-    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    wallet._setSyncCheckpoint("transactions", "aa".repeat(32), 1n);
+  it.each([1, 2, 3, 4, 5, 7])("refuses a version %s snapshot", (version) => {
+    const wallet = new Wallet({ identity: ShieldedKeypair.generate().shieldedAddress() });
     const snapshot = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
-    snapshot["version"] = 2;
-    delete snapshot["syncCheckpoints"];
-
-    const restored = deserializeWallet(JSON.stringify(snapshot));
-
-    expect(restored._syncCheckpoint("transactions", "aa".repeat(32))).toBeUndefined();
-  });
-
-  it.each([3, 4, 5])("accepts version %s state and drops its byte cursors", (version) => {
-    const keypair = ShieldedKeypair.generate();
-    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const snapshot = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
+    expect(snapshot["version"]).toBe(6);
     snapshot["version"] = version;
-    // Versions 3 through 5 stored opaque cursor bytes.
-    snapshot["syncCursors"] = {
-      transactions: [{ key: "aa".repeat(32), cursor: "AQI=" }],
-      proofless: [],
-      nullifiers: [],
-    };
 
-    const restored = deserializeWallet(JSON.stringify(snapshot));
-
-    expect(restored._syncCheckpoint("transactions", "aa".repeat(32))).toBeUndefined();
+    expect(() => deserializeWallet(JSON.stringify(snapshot))).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_DESERIALIZE",
+        details: { field: "version" },
+      }),
+    );
   });
 
   it("drops a persisted checkpoint for a nullifier already spent", () => {
@@ -186,7 +170,6 @@ describe("wallet persistence", () => {
     );
 
     type Snapshot = {
-      version: number;
       utxos: { outputContext: { tree: string; treeId?: number | undefined } }[];
     };
     const edited = (edit: (snapshot: Snapshot) => void): string => {
@@ -203,19 +186,6 @@ describe("wallet persistence", () => {
         ),
       ).toThrow("TRANSACTION_DESERIALIZE");
     }
-
-    // An earlier version stores no tree id, its UTXOs all opened in tree 0.
-    const earlier = (tree: string) =>
-      edited((snapshot) => {
-        snapshot.version = 4;
-        snapshot.utxos[0]!.outputContext.tree = tree;
-        delete snapshot.utxos[0]!.outputContext.treeId;
-      });
-    expect(deserializeWallet(earlier(TREE)).utxos()[0]?.outputContext).toMatchObject({
-      tree: TREE,
-      treeId: 0,
-    });
-    expect(() => deserializeWallet(earlier(treeAddress(1)))).toThrow("TRANSACTION_DESERIALIZE");
   });
 
   it("rejects a P-256 viewing snapshot", () => {

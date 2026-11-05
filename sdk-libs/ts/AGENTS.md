@@ -113,7 +113,7 @@ a defect.
   checkpoint only to that last page's `context.slot`.
 - Snapshot encoding has one owner:
   `src/transaction/wallet/persistence.ts`. Deserialization validates everything
-  and supports every shipped version. Migrations are explicit and tested.
+  and accepts only the current version. A format change bumps the version.
 - `syncPersistedWallet` is the only sync+save composition. Sync, serialization,
   and save run in the same wallet queue. Save occurs only after commit. Store
   replacement MUST be atomic. Cross-process safety is not implied: one stored
