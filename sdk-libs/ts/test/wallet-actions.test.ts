@@ -13,7 +13,7 @@ import { LocalKeys } from "../src/client/keys.js";
 import { ClientError } from "../src/client/error.js";
 import { prepareMerge } from "../src/client/prover/merge.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../src/interface/program.js";
-import { internalUserRecordPda } from "../src/wallet/registry.js";
+import { userRecordAddress } from "../src/wallet/registry.js";
 import {
   authorizedPrivateTransactionMaterial,
   type AuthorizedPrivateTransaction,
@@ -50,7 +50,6 @@ import {
   createSplit,
   createTransfer,
   createWithdrawal,
-  resolveWithdrawal,
 } from "../src/wallet/actions.js";
 import {
   associatedTokenAddress,
@@ -63,7 +62,10 @@ import { depositClient, privateTransactionClient } from "./helpers/clients.js";
 import { emptyTransaction } from "./helpers/transactions.js";
 import { approveIntent, type ApprovalRequest } from "../src/transaction/wallet/intent.js";
 import { MAX_SPEND_INPUTS } from "../src/flows/select.js";
-import { withdrawalSetupInstructions } from "../src/flows/settlement.js";
+import {
+  resolveWithdrawalSettlement,
+  withdrawalSetupInstructions,
+} from "../src/flows/settlement.js";
 import { buildMergeTransaction, createMerge, type MergeClient } from "../src/wallet/merge.js";
 import {
   authorizePrivateTransaction,
@@ -446,7 +448,7 @@ describe("prover indexer lag", () => {
         ).catch((cause: unknown) => cause);
         return { result, calls, wallet };
       }
-      const pda = await internalUserRecordPda(owner);
+      const pda = await userRecordAddress(owner);
       const record = Uint8Array.of(
         1,
         ...getAddressEncoder().encode(owner),
@@ -835,7 +837,7 @@ describe("unsigned public transaction builders", () => {
   });
 });
 
-describe("resolveWithdrawal", () => {
+describe("resolveWithdrawalSettlement", () => {
   it("uses one idempotent ATA setup policy for every withdrawal rail", async () => {
     await expect(
       withdrawalSetupInstructions({ payer: PAYER, recipient: RECIPIENT, asset: SOL_MINT }),
@@ -853,7 +855,11 @@ describe("resolveWithdrawal", () => {
   });
 
   it("derives one SPL settlement, shared by the proof side and the accounts side", async () => {
-    const resolved = await resolveWithdrawal(RECIPIENT, SPL_MINT, SPL_TOKEN_2022_PROGRAM_ID);
+    const resolved = await resolveWithdrawalSettlement(
+      RECIPIENT,
+      SPL_MINT,
+      SPL_TOKEN_2022_PROGRAM_ID,
+    );
     if (resolved.target.kind !== "spl" || resolved.accounts.kind !== "spl") {
       throw new Error("an SPL mint resolves to SPL settlement");
     }
@@ -870,7 +876,7 @@ describe("resolveWithdrawal", () => {
   });
 
   it("settles SOL through the recipient account itself", async () => {
-    const resolved = await resolveWithdrawal(RECIPIENT, SOL_MINT);
+    const resolved = await resolveWithdrawalSettlement(RECIPIENT, SOL_MINT);
     if (resolved.target.kind !== "sol" || resolved.accounts.kind !== "sol") {
       throw new Error("SOL resolves to SOL settlement");
     }
@@ -1217,7 +1223,7 @@ describe("merge encryption opt-in", () => {
     const owner = shielded.solanaAddress();
     const wallet = fundedWallet(keypair, [20n, 30n]);
     const keys = localKeys(keypair);
-    const pda = await internalUserRecordPda(owner);
+    const pda = await userRecordAddress(owner);
     const record = Uint8Array.of(
       1,
       ...getAddressEncoder().encode(owner),

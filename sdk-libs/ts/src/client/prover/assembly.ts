@@ -1046,7 +1046,6 @@ export interface InputTree {
 export interface PreparedSlots {
   readonly transferInputs: readonly PreparedTransferInput[];
   readonly nullifiers: readonly Bytes32[];
-  readonly inputOwnerFields: readonly bigint[];
   /** The input trees in first-use order, at most `MAX_INPUT_TREES` of them. */
   readonly treeIds: readonly TreeId[];
   /** Each input's position in `treeIds`. */
@@ -1110,7 +1109,6 @@ export function prepareSlots(
     nullifiers: Object.freeze(
       transferInputs.map((input) => bigintToBytes(input.nullifier, "nullifier") as Bytes32),
     ),
-    inputOwnerFields: Object.freeze(transferInputs.map((input) => input.ownerPublicKeyHash)),
     treeIds: Object.freeze(treeIds),
     treeIndexes: Object.freeze(treeIndexes),
   });
@@ -1143,7 +1141,6 @@ export function assembleSlots(
 ): AssembledSlots {
   const transferInputs: TransferInput[] = [];
   const nullifiers: Bytes32[] = [];
-  const inputOwnerFields: bigint[] = [];
   const runs: InputTreeRun[] = [];
   const treeIndexes: number[] = [];
   let proofIndex = 0;
@@ -1182,7 +1179,6 @@ export function assembleSlots(
       );
       transferInputs.push(converted);
       nullifiers.push(bigintToBytes(converted.nullifier, "nullifier") as Bytes32);
-      inputOwnerFields.push(converted.ownerPublicKeyHash);
       treeIndexes.push(openIndex);
       continue;
     }
@@ -1275,7 +1271,6 @@ export function assembleSlots(
     }
     transferInputs.push(converted);
     nullifiers.push(new Uint8Array(input.nullifier()) as Bytes32);
-    inputOwnerFields.push(owner);
     treeIndexes.push(treeIndex);
   }
   if (runs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
@@ -1283,7 +1278,6 @@ export function assembleSlots(
     transferInputs: Object.freeze(transferInputs),
     treeIds: Object.freeze(runs.map((run) => run.treeId)),
     nullifiers: Object.freeze(nullifiers),
-    inputOwnerFields: Object.freeze(inputOwnerFields),
     inputTrees: Object.freeze(runs.map(inputTreeOf)),
     treeIndexes: Object.freeze(treeIndexes),
   });
@@ -1826,10 +1820,6 @@ export function signedField(value: bigint, name: string): bigint {
 
 export function asField(value: bigint): Field {
   return field(value, "field") as Field;
-}
-
-export function asInteger(value: bigint): Field {
-  return value as Field;
 }
 
 function copyProof(proof: ProvedTransactProof): TransactProof {

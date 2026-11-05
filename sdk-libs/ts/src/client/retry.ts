@@ -279,10 +279,6 @@ export function retryCause(error: unknown): RetryErrorCause | undefined {
   }
 }
 
-export function isRetryable(cause: unknown): cause is ClientError {
-  return retryCause(cause) !== undefined;
-}
-
 function retryableDetail(error: ClientError): boolean {
   const details: unknown = error.details;
   return (

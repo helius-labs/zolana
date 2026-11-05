@@ -1,10 +1,4 @@
-import {
-  assertIsSignature,
-  getAddressEncoder,
-  getBase58Encoder,
-  getBase64Decoder,
-  getBase64Encoder,
-} from "@solana/kit";
+import { getAddressEncoder, getBase64Decoder, getBase64Encoder } from "@solana/kit";
 import { HasherFailure, MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
 
 import { bytesToBigInt } from "../interface/bytes.js";
@@ -17,7 +11,6 @@ import type {
   Bytes64,
   Bytes128,
   RequestContext,
-  Signature,
 } from "../interface/types.js";
 import { INPUT_TREES } from "../interface/tree-slot.js";
 import { hashBytes } from "../hasher/index.js";
@@ -39,7 +32,6 @@ export function inputTreeAddress(client: TreeContext, treeId: number): Address {
 export const BN254_MODULUS =
   21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
 const addressEncoder = getAddressEncoder();
-const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
 
@@ -246,15 +238,6 @@ export function addressBytes(value: Address): Bytes32 {
     return new Uint8Array(addressEncoder.encode(value)) as Bytes32;
   } catch {
     throw new ClientError("CLIENT_INVALID_BASE58", { details: { field: "address" } });
-  }
-}
-
-export function signatureBytes(value: Signature): Bytes64 {
-  try {
-    assertIsSignature(value);
-    return new Uint8Array(base58Encoder.encode(value)) as Bytes64;
-  } catch {
-    throw new ClientError("CLIENT_INVALID_BASE58", { details: { field: "signature" } });
   }
 }
 

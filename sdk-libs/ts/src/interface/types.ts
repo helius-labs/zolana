@@ -141,12 +141,6 @@ export interface MessageData {
   readonly data: Uint8Array;
 }
 
-export interface OutputUtxo {
-  readonly viewTag: Bytes32;
-  readonly utxoHash: Bytes32;
-  readonly data: Uint8Array;
-}
-
 export interface TransactProof {
   readonly a: Bytes32;
   readonly b: Bytes128;

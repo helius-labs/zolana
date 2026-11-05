@@ -85,7 +85,7 @@ export interface UserRecord {
 
 type DecodedUserRecord = UserRecord;
 
-async function userRecordAddress(owner: Address): Promise<
+export async function userRecordAddress(owner: Address): Promise<
   Readonly<{
     address: Address;
     bump: number;
@@ -113,12 +113,6 @@ async function userRecordAddress(owner: Address): Promise<
 
 export async function internalUserRecordAddress(owner: Address): Promise<Address> {
   return (await userRecordAddress(owner)).address;
-}
-
-export async function internalUserRecordPda(
-  owner: Address,
-): Promise<Readonly<{ address: Address; bump: number }>> {
-  return userRecordAddress(owner);
 }
 
 /** @internal */
@@ -165,7 +159,10 @@ class Reader {
   }
 
   u8(): number {
-    return this.bytes(1)[0] ?? 0;
+    const byte = this.#bytes[this.#offset];
+    if (byte === undefined) throw new WalletError("WALLET_INVALID_USER_RECORD");
+    this.#offset += 1;
+    return byte;
   }
 }
 

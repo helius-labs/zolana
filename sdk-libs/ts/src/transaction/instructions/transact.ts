@@ -1,5 +1,3 @@
-import { address } from "@solana/kit";
-
 import { concatBytes, equalBytes } from "../../interface/bytes.js";
 import { NO_CACHE_WRITES, bindCacheWrite } from "../../interface/cache.js";
 import {
@@ -60,7 +58,7 @@ import {
   type TreeId,
 } from "../utxo.js";
 import { DEFAULT_TREE_ID, MAX_INPUT_TREES } from "../../interface/tree-slot.js";
-import { Mint, SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
+import { Mint, SOL_ASSET_ID, SOL_MINT, type AssetRegistry } from "../asset.js";
 import { sha256Bytes } from "../../keypair/hash.js";
 
 export type { Shape };
@@ -996,8 +994,6 @@ interface Recipient {
   readonly ring: RecipientRing;
 }
 
-const ZERO_ADDRESS = address("11111111111111111111111111111111");
-
 export class ConfidentialTransfer {
   readonly #owner: ShieldedAddress;
   readonly #inputs: readonly ProofInputUtxo[];
@@ -1108,10 +1104,10 @@ export class ConfidentialTransfer {
         value: "0",
       });
     }
-    if (target.kind === "spl" && asset === ZERO_ADDRESS) {
+    if (target.kind === "spl" && asset === SOL_MINT) {
       throw new TransactionError("TRANSACTION_WITHDRAWAL_ASSET_MISMATCH");
     }
-    if (target.kind === "sol" && asset !== ZERO_ADDRESS) {
+    if (target.kind === "sol" && asset !== SOL_MINT) {
       throw new TransactionError("TRANSACTION_WITHDRAWAL_ASSET_MISMATCH");
     }
     this.#withdrawal = { asset, amount, target };
@@ -1123,13 +1119,13 @@ export class ConfidentialTransfer {
         ...this.#inputs.map((input) => input.utxo.asset),
         ...this.#recipients.map((recipient) => recipient.asset),
         ...(this.#withdrawal ? [this.#withdrawal.asset] : []),
-      ].filter((asset) => asset !== ZERO_ADDRESS),
+      ].filter((asset) => asset !== SOL_MINT),
     );
     if (splAssets.size > 1) throw new TransactionError("TRANSACTION_MULTIPLE_PUBLIC_SPL_ASSETS");
     const splAsset = [...splAssets][0];
-    const publicSol = this.#withdrawal?.asset === ZERO_ADDRESS ? -this.#withdrawal.amount : 0n;
+    const publicSol = this.#withdrawal?.asset === SOL_MINT ? -this.#withdrawal.amount : 0n;
     const publicSpl =
-      this.#withdrawal && this.#withdrawal.asset !== ZERO_ADDRESS ? -this.#withdrawal.amount : 0n;
+      this.#withdrawal && this.#withdrawal.asset !== SOL_MINT ? -this.#withdrawal.amount : 0n;
     const change = (asset: Address, publicAmount: bigint): bigint => {
       const inputs = this.#inputs
         .filter((input) => input.utxo.asset === asset)
@@ -1148,7 +1144,7 @@ export class ConfidentialTransfer {
       return result;
     };
     const splChange = splAsset ? change(splAsset, publicSpl) : 0n;
-    const solChange = change(ZERO_ADDRESS, publicSol);
+    const solChange = change(SOL_MINT, publicSol);
     const firstInput = this.#inputs[0];
     if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
     const firstNullifier = firstInput.nullifier();
@@ -1174,7 +1170,7 @@ export class ConfidentialTransfer {
       });
     }
     if (hasSolChange) {
-      layouts.push({ ownerAddress: this.#owner, asset: ZERO_ADDRESS, amount: solChange, ...ring });
+      layouts.push({ ownerAddress: this.#owner, asset: SOL_MINT, amount: solChange, ...ring });
     }
     const senderOutputCount = layouts.length;
     layouts.push(
@@ -1431,7 +1427,7 @@ function appendRecordSlot(
     outputs.push(
       createProofOutput({
         ownerAddress: template?.ownerAddress ?? fields.owner,
-        asset: template?.asset ?? ZERO_ADDRESS,
+        asset: template?.asset ?? SOL_MINT,
         amount: 0n,
         blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length),
       }),
@@ -1453,7 +1449,7 @@ function appendRecordSlot(
   while (outputs.length < shape.outputs) {
     outputs.push(
       createProofOutput({
-        asset: ZERO_ADDRESS,
+        asset: SOL_MINT,
         amount: 0n,
         blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length),
         compact: true,
@@ -1647,7 +1643,7 @@ function finalOutputPlan(prepared: PreparedTransferFields): Readonly<{
     ),
     ...Array.from({ length: padCount }, (_, offset) =>
       createProofOutput({
-        asset: ZERO_ADDRESS,
+        asset: SOL_MINT,
         amount: 0n,
         blinding: transactOutputBlinding(
           prepared.firstNullifier,

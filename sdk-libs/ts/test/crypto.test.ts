@@ -77,8 +77,8 @@ describe("Poseidon parity with Rust", () => {
 });
 
 describe("shielded key material", () => {
-  it.each(["ed25519"] as const)("signs and verifies on the %s rail", (rail) => {
-    const key = SigningKey.generate(rail);
+  it("signs and verifies on the Ed25519 rail", () => {
+    const key = SigningKey.generate();
     const message = new Uint8Array(32).fill(7);
     const signature = key.sign(message);
     expect(key.verify(message, signature)).toBe(true);
@@ -87,13 +87,11 @@ describe("shielded key material", () => {
     expect(key.verify(changed, signature)).toBe(false);
   });
 
-  it("defaults generated identities to the supported Ed25519 signing rail", () => {
+  it("generates identities on the Ed25519 signing rail", () => {
     const keypair = ShieldedKeypair.generate();
     expect(keypair.curve()).toBe("ed25519");
     expect(keypair.signingPublicKey().signatureType()).toBe("ed25519");
     expect(keypair.viewingPublicKey()).toBeInstanceOf(X25519PublicKey);
-    expect(() => ShieldedKeypair.generate("pda")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
-    expect(() => SigningKey.generate("pda")).toThrow("KEYPAIR_INVALID_SIGNATURE_TYPE");
   });
 
   it("rejects an unknown owner tag without changing Ed25519 or PDA encodings", () => {
@@ -147,12 +145,9 @@ describe("shielded key material", () => {
   });
 
   it("refuses to sign derivation inputs", () => {
-    for (const rail of ["ed25519"] as const) {
-      const key = SigningKey.generate(rail);
-      const payload = new TextEncoder().encode("TSPP/derive/v1".padEnd(32, "\0")).subarray(0, 32);
-      expect(() => key.sign(payload)).toThrow(KeypairError);
-    }
-    const ed25519Key = SigningKey.generate("ed25519");
+    const ed25519Key = SigningKey.generate();
+    const payload = new TextEncoder().encode("TSPP/derive/v1".padEnd(32, "\0")).subarray(0, 32);
+    expect(() => ed25519Key.sign(payload)).toThrow(KeypairError);
     const message = ed25519DerivationMessage(ed25519Key.publicKey().ed25519());
     expect(() => ed25519Key.sign(message)).toThrow(KeypairError);
   });

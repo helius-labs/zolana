@@ -49,18 +49,12 @@ export class SigningKey {
     this.#secret = secret;
   }
 
-  static generate(type: SignatureType = "ed25519"): SigningKey {
-    if (type !== "ed25519") throw new KeypairError("KEYPAIR_INVALID_SIGNATURE_TYPE", { type });
+  static generate(): SigningKey {
     return new SigningKey(randomBytes(32));
   }
 
   static fromEd25519Bytes(bytes: Bytes32): SigningKey {
     return new SigningKey(checkedBytes<Bytes32>(bytes, 32, "Ed25519 signing secret"));
-  }
-
-  /** Mirrors `SigningKey::is_ed25519`: which rail this key signs on. */
-  isEd25519(): boolean {
-    return true;
   }
 
   signatureType(): SignatureType {

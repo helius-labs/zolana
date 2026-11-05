@@ -1,7 +1,6 @@
 import { getBase64Encoder } from "@solana/kit";
 
 import { reserveEntries } from "../flows/reserve.js";
-import type { Bytes32 } from "../interface/types.js";
 import { TransactionError } from "../transaction/error.js";
 import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
@@ -26,19 +25,6 @@ export function reserveWalletEntries(
 }
 
 const base64Encoder = getBase64Encoder();
-
-export function copy32(value: Uint8Array, field: string): Bytes32 {
-  if (!(value instanceof Uint8Array) || value.length !== 32) {
-    throw new WalletError("WALLET_INVALID_LENGTH", {
-      details: {
-        field,
-        expected: 32,
-        actual: value instanceof Uint8Array ? value.length : -1,
-      },
-    });
-  }
-  return new Uint8Array(value) as Bytes32;
-}
 
 /** Bytes per `String.fromCharCode` call: a spread of a whole megabyte-sized array overflows the stack. */
 const BASE64_CHUNK = 0x8000;

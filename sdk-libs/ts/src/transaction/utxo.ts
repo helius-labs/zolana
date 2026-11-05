@@ -1,5 +1,3 @@
-import { address } from "@solana/kit";
-
 import { equalBytes, isZero } from "../interface/bytes.js";
 import type { Address, Bytes32 } from "../interface/types.js";
 import {
@@ -17,7 +15,7 @@ import { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../keypair/shielded.js";
 
 import { Data, type DataRecord } from "./data.js";
-import { Mint } from "./asset.js";
+import { Mint, SOL_MINT } from "./asset.js";
 import { TransactionError } from "./error.js";
 import {
   ZERO_32,
@@ -380,7 +378,7 @@ export class ProofInputUtxo {
     seed: Bytes32,
     treeId: TreeId = DEFAULT_TREE_ID,
   ): ProofInputUtxo {
-    const utxo = new Utxo({ owner, asset: DUMMY_ASSET, amount: 0n, blinding: seed });
+    const utxo = new Utxo({ owner, asset: SOL_MINT, amount: 0n, blinding: seed });
     const checkedTree = checkedTreeId(treeId);
     const hash = addressUtxoHash(utxo, checkedTree);
     return new ProofInputUtxo({
@@ -432,7 +430,7 @@ export class ProofInputUtxo {
     const checkedTree = checkedTreeId(treeId);
     const utxo = new Utxo({
       owner: ShieldedPublicKey.zeroed(),
-      asset: DUMMY_ASSET,
+      asset: SOL_MINT,
       amount: 0n,
       blinding: checked<Bytes32>(blinding, 32, "dummy blinding"),
     });
@@ -455,7 +453,7 @@ export class ProofInputUtxo {
     const checkedTree = checkedTreeId(treeId);
     const utxo = new Utxo({
       owner: ShieldedPublicKey.zeroed(),
-      asset: DUMMY_ASSET,
+      asset: SOL_MINT,
       amount: 0n,
       blinding: copy(ZERO_32),
     });
@@ -648,7 +646,7 @@ function addressUtxoHash(utxo: Utxo, treeId: TreeId): Bytes32 {
 
 /** The first field an address input carries that its commitment cannot hold. */
 function nonEmptyAddressField(input: ProofInputUtxo): string | undefined {
-  if (input.utxo.asset !== DUMMY_ASSET) return "asset";
+  if (input.utxo.asset !== SOL_MINT) return "asset";
   if (input.utxo.amount !== 0n) return "amount";
   if (!input.utxo.data.isEmpty()) return "data";
   if (input.utxo.ringProgramId !== undefined) return "ring_program_id";
@@ -656,8 +654,6 @@ function nonEmptyAddressField(input: ProofInputUtxo): string | undefined {
   if (input.ringDataHash !== undefined) return "ring_data_hash";
   return undefined;
 }
-
-const DUMMY_ASSET = address("11111111111111111111111111111111");
 
 /**
  * What the commitment folds in. An absent hash and an explicit zero reach
@@ -670,7 +666,7 @@ function committedHash(hash?: Bytes32): Bytes32 {
 }
 
 function noncanonicalDummyField(input: ProofInputUtxo): string | undefined {
-  if (input.utxo.asset !== DUMMY_ASSET) return "asset";
+  if (input.utxo.asset !== SOL_MINT) return "asset";
   if (input.utxo.amount !== 0n) return "amount";
   if (!input.utxo.data.isEmpty()) return "data";
   if (input.utxo.ringProgramId !== undefined) return "ring_program_id";

@@ -66,7 +66,7 @@ import {
   type Bytes128,
 } from "../src/interface/index.js";
 import { treeWithBump } from "../src/interface/pda/index.js";
-import { internalUserRecordPda } from "../src/wallet/registry.js";
+import { userRecordAddress } from "../src/wallet/registry.js";
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = getTreeAddress(0);
@@ -143,7 +143,7 @@ describe("public package surface", () => {
       SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(9) as Bytes32),
     );
     const recipient = keypair.shieldedAddress().solanaAddress();
-    const pda = await internalUserRecordPda(recipient);
+    const pda = await userRecordAddress(recipient);
     const data = Uint8Array.of(
       1,
       ...getAddressEncoder().encode(recipient),
@@ -252,7 +252,7 @@ describe("public package surface", () => {
       ViewingKey.generate(),
     );
     const owner = replacement.shieldedAddress().solanaAddress();
-    const pda = await internalUserRecordPda(owner);
+    const pda = await userRecordAddress(owner);
     const data = Uint8Array.of(
       1,
       ...getAddressEncoder().encode(owner),
@@ -283,7 +283,7 @@ describe("public package surface", () => {
       SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32),
     );
     const owner = keypair.shieldedAddress().solanaAddress();
-    const pda = await internalUserRecordPda(owner);
+    const pda = await userRecordAddress(owner);
     const payer = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
     const transaction = await buildRegistrationTransaction({
       client: {
@@ -317,7 +317,7 @@ describe("public package surface", () => {
       ViewingKey.generate(),
     );
     const owner = replacement.shieldedAddress().solanaAddress();
-    const pda = await internalUserRecordPda(owner);
+    const pda = await userRecordAddress(owner);
     const payer = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
     const data = Uint8Array.of(
       1,

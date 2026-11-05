@@ -26,8 +26,6 @@ import { WalletError, wrapWalletError } from "./error.js";
 import { reserveWalletEntries } from "./internal.js";
 import { resolveRegisteredAddress } from "./registry.js";
 
-export { resolveWithdrawalSettlement as resolveWithdrawal };
-
 interface UnsignedSpendInput {
   readonly entry: WalletUtxo;
 }

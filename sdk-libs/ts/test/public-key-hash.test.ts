@@ -3,8 +3,8 @@ import { expect, it, vi } from "vitest";
 import * as hasher from "../src/hasher/index.js";
 import { ShieldedKeypair, ShieldedPublicKey } from "../src/keypair/index.js";
 
-it.each(["ed25519"] as const)("reuses the %s identity without sharing bytes", (curve) => {
-  const owner = ShieldedKeypair.generate(curve);
+it("reuses the Ed25519 identity without sharing bytes", () => {
+  const owner = ShieldedKeypair.generate();
   try {
     const bytes = owner.signingPublicKey().toBytes();
     const key = ShieldedPublicKey.fromBytes(bytes);

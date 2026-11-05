@@ -7,7 +7,6 @@ import { MERGE_INPUT_COUNT } from "../src/interface/constants.js";
 import { InstructionTag } from "../src/interface/program.js";
 import { INPUT_TREES, MAX_INPUT_TREES } from "../src/interface/tree-slot.js";
 import { VIEW_TAG_LENGTH } from "../src/keypair/index.js";
-import { VIEW_TAG_LEN } from "../src/transaction/index.js";
 
 describe("shared constants vector", () => {
   it("matches the Rust-pinned values", () => {
@@ -18,7 +17,6 @@ describe("shared constants vector", () => {
     expect(InstructionTag.transact).toBe(vector.transactTag);
     expect(InstructionTag.mergeTransact).toBe(vector.mergeTransactTag);
     expect(VIEW_TAG_LENGTH).toBe(vector.viewTagLength);
-    expect(VIEW_TAG_LEN).toBe(vector.viewTagLength);
     expect(INPUT_TREES).toBe(vector.inputTrees);
     expect(MAX_INPUT_TREES).toBe(vector.maxInputTrees);
     expect(MAX_SPEND_INPUTS).toBe(vector.maxSpendInputs);

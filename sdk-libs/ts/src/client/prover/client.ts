@@ -101,8 +101,6 @@ const PROVING_KEYS_PATH = "/proving-keys";
 const ATTESTATION_PATH = "/attestation";
 type Delivery = "inResponse" | "queued";
 type Route = "sync" | "queued" | "indexed";
-/** Maps an indexed refusal body to the caller's error, `undefined` keeps the prover's own. */
-export type ProverRefusal = (body: Readonly<Record<string, unknown>>) => Error | undefined;
 
 /// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
 /// returns a job handle instead of a proof, and the client polls the proving
@@ -408,7 +406,6 @@ export class ProverClient {
     route: Route,
     key: ExpectedProvingKey,
     context?: RequestContext,
-    refusal?: ProverRefusal,
   ): Promise<unknown> {
     // Under a runtime set, a circuit outside it fails before any HTTP.
     if (route === "indexed") this.#indexedAllowed();
@@ -447,7 +444,7 @@ export class ProverClient {
             }
             // Rust fails fast on any non-success status; only a transport failure retries.
             if (!response.ok) {
-              if (route === "indexed") throw await indexedHttpFailure(response, attempt, refusal);
+              if (route === "indexed") throw await indexedHttpFailure(response, attempt);
               throw new ClientError("CLIENT_PROVER_HTTP", {
                 details: {
                   method: "prove",
@@ -470,7 +467,7 @@ export class ProverClient {
               typeof value["jobId"] === "string" &&
               value["proof"] === undefined
             ) {
-              return await this.#poll(value["jobId"], signal, route, key, refusal);
+              return await this.#poll(value["jobId"], signal, route, key);
             }
             return value;
           } finally {
@@ -503,7 +500,6 @@ export class ProverClient {
     signal: ComposedSignal,
     route: Route,
     key: ExpectedProvingKey,
-    refusal: ProverRefusal | undefined,
   ): Promise<unknown> {
     if (!/^[A-Za-z0-9_-]{1,256}$/u.test(jobId)) {
       throw new ClientError("CLIENT_PROVER_JOB", { details: { method: "prove" } });
@@ -572,7 +568,7 @@ export class ProverClient {
         const status = isObject(value) ? value["status"] : undefined;
         if (status === "failed") {
           throw (
-            (route === "indexed" ? indexedFailure(value, refusal) : undefined) ??
+            (route === "indexed" ? indexedFailure(value) : undefined) ??
             new ClientError("CLIENT_PROVER_SERVER", {
               details: { method: "proveStatus", status: "failed" },
             })
@@ -944,28 +940,16 @@ async function proverReason(response: Response): Promise<Readonly<{ reason?: str
 }
 
 /** Indexed failures carry caller data in their message, only the `code` is read. */
-async function indexedHttpFailure(
-  response: Response,
-  attempt: number,
-  refusal: ProverRefusal | undefined,
-): Promise<Error> {
-  const body = await errorBody(response);
-  const typed = indexedFailure(body, refusal);
+async function indexedHttpFailure(response: Response, attempt: number): Promise<ClientError> {
+  const typed = indexedFailure(await errorBody(response));
   if (typed !== undefined) return typed;
-  // An old prover has no indexed route and answers a bare 404. A coded one, such
-  // as a key the prover does not serve, is reported as it is.
-  if (response.status === 404 && !(isObject(body) && typeof body["code"] === "string")) {
-    return new ClientError("CLIENT_PROVER_INDEXER_UNCONFIGURED");
-  }
   return new ClientError("CLIENT_PROVER_HTTP", {
     details: { method: "prove", status: response.status, attempts: attempt },
   });
 }
 
-function indexedFailure(body: unknown, refusal: ProverRefusal | undefined): Error | undefined {
+function indexedFailure(body: unknown): ClientError | undefined {
   if (!isObject(body)) return undefined;
-  const refused = refusal?.(body);
-  if (refused !== undefined) return refused;
   switch (body["code"]) {
     case "indexer_not_ready":
       return new ClientError("CLIENT_INDEXER_PROOF_DATA_NOT_READY");

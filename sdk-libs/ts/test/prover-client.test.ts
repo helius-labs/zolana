@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ClientError } from "../src/client/error.js";
 import {
   asField,
-  asInteger,
   createDummyTransferInput,
   createOutput,
   treeSlotFields,
@@ -18,7 +17,6 @@ import {
   ProverClient,
   mergeProverRequestBody,
   proverRequestBody,
-  type ProverRefusal,
 } from "../src/client/prover/client.js";
 import { TeeSession } from "../src/client/prover/tee/session.js";
 import { readTeePolicy } from "./helpers/tee-policy.js";
@@ -958,7 +956,7 @@ describe("dummy prover inputs", () => {
 describe("indexed prover failures", () => {
   const SERVER_TEXT = "photon echoed caller data";
 
-  function prove(fetch: typeof globalThis.fetch, refusal?: ProverRefusal): Promise<unknown> {
+  function prove(fetch: typeof globalThis.fetch): Promise<unknown> {
     const prover = new ProverClient({
       url: "http://127.0.0.1:3001",
       fetch,
@@ -968,8 +966,6 @@ describe("indexed prover failures", () => {
       "{}",
       "indexed",
       expectedProvingKey({ circuit: "transfer-confidential", nInputs: 2, nOutputs: 2 }),
-      undefined,
-      refusal,
     );
   }
 
@@ -983,11 +979,7 @@ describe("indexed prover failures", () => {
   }
 
   it.each([
-    [
-      404,
-      new Response("404 page not found", { status: 404 }),
-      "CLIENT_PROVER_INDEXER_UNCONFIGURED",
-    ],
+    [404, new Response("404 page not found", { status: 404 }), "CLIENT_PROVER_HTTP"],
     [
       404,
       Response.json({ code: "indexer_unconfigured", message: SERVER_TEXT }, { status: 404 }),
@@ -1017,22 +1009,6 @@ describe("indexed prover failures", () => {
     expect(JSON.stringify(error)).not.toContain(SERVER_TEXT);
   });
 
-  it("maps a refusal through the caller's hook whether proved in the response or queued", async () => {
-    const mapped = new Error("mapped");
-    const refusal: ProverRefusal = (body) => (body["code"] === "caller_code" ? mapped : undefined);
-    for (const fetch of [
-      vi.fn<typeof globalThis.fetch>(async () =>
-        Response.json({ code: "caller_code", message: SERVER_TEXT }, { status: 422 }),
-      ),
-      queued({ code: "caller_code" }),
-    ]) {
-      await expect(prove(fetch, refusal)).rejects.toBe(mapped);
-    }
-    await expect(prove(queued({ code: "indexer_not_ready" }), refusal)).rejects.toMatchObject({
-      code: "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
-    });
-  });
-
   it("branches a failed job on its code, never on its error text", async () => {
     await expect(prove(queued({ code: "indexer_not_ready" }))).rejects.toMatchObject({
       code: "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
@@ -1049,20 +1025,18 @@ describe("error details", () => {
     const [input] = transferInputs().payload.inputs;
     if (input === undefined) throw new Error("missing fixture input");
     const transfer = transferInputs();
+    // A JavaScript caller can hand any bigint where the types expect a `Field`.
+    const forgedInput = { ...input };
+    Reflect.set(forgedInput, "nullifierSecret", secret);
+    const forgedMerge = { ...mergeInputs() };
+    Reflect.set(forgedMerge, "userNullifierSecret", secret);
     const requests = [
       () =>
         proverRequestBody({
           ...transfer,
-          payload: {
-            ...transfer.payload,
-            inputs: [{ ...input, nullifierSecret: asInteger(secret) }],
-          },
+          payload: { ...transfer.payload, inputs: [forgedInput] },
         }),
-      () =>
-        mergeProverRequestBody({
-          ...mergeInputs(),
-          userNullifierSecret: asInteger(secret),
-        }),
+      () => mergeProverRequestBody(forgedMerge),
     ];
     for (const [index, request] of requests.entries()) {
       let error: unknown;

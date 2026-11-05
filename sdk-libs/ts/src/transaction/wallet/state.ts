@@ -126,12 +126,6 @@ export interface SyncReport {
    * known.
    */
   readonly unknownAssetIds: readonly bigint[];
-  /**
-   * Merge asset fields that could not be resolved through the wallet's
-   * registry. The client sync layer backfills the registry only when this or
-   * `unknownAssetIds` is non-empty.
-   */
-  readonly unknownAssetFields: readonly Bytes32[];
 }
 
 /**
