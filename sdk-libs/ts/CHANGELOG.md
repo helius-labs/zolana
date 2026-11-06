@@ -26,6 +26,7 @@ Breaking
 - `SignedTeePolicy` reads only the two-part policy file and refuses it once either part expires, when a freshness part runs longer than its release allows, or when it is issued more than a day past the device clock → upgrade before the network publishes the two-part file, which earlier releases refuse; `publicKeys` and `threshold` still pin the release signers.
 - `TreeFeeSchedule.feePerNullifier` becomes `feePerTree`, a flat fee a transact or merge payer pays once to every tree the transaction writes, and `defaultTreeFees()` takes no argument and returns 5,000 lamports per tree with forester reimbursements at cost → rename the field, drop the ZKP batch size argument, and fund payers for the per-tree fee.
 - `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` are removed → use `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS`, `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS` and `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+- `SprClient.confirmTransaction` asks again after a failed status read and fails a transaction that failed on chain with `CLIENT_TRANSACTION_FAILED`, whose `details` carry the chain's error and a program's `customCode`, and `confirmPrivateTransaction` fails a confirmed transaction the indexer does not show with `CLIENT_TRANSACTION_NOT_INDEXED`, whose cause is the indexer failure → branch on these codes instead of `CLIENT_RPC` and `CLIENT_INDEXER_TIMEOUT`, and wait for the indexer instead of sending a transaction that is not indexed again.
 
 Added
 
@@ -37,13 +38,13 @@ Added
 Changed
 
 - The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
-- `SprIndexer` reads given a freshness wait retry Photon's `-32016` minimum-context-slot and `-32603` internal errors until the wait ends and fail with `CLIENT_INDEXER_NOT_CAUGHT_UP` when the final answer is still behind, every indexer read reports `-32601` as `CLIENT_UNSUPPORTED_RPC_METHOD`, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
+- `SprIndexer` reads given a freshness wait retry Photon's `-32016` minimum-context-slot and `-32603` internal errors until the wait ends and fail with `CLIENT_INDEXER_NOT_CAUGHT_UP` when the final answer is still behind, `timeoutMs` bounds such a wait and the confirmation waits as a whole, every indexer read reports `-32601` as `CLIENT_UNSUPPORTED_RPC_METHOD`, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
 - `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits and failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note; it now omits those history rows and stores the note.
-- `ProverClient` failed a proof on a full prover queue, waited up to 600 s on one status poll and had no deadline on `health()`, `checkProvingKeys()` and `fetchProvingKeySet()`; it now asks a full queue up to three times and bounds each status poll and each of those reads at 30 s, the reads unless the caller sets `timeoutMs`.
+- `ProverClient` failed a proof on a full prover queue, waited up to 600 s on one status poll, had no deadline on `health()`, `checkProvingKeys()` and `fetchProvingKeySet()`, threw an untyped error for an answer cut off mid-body and kept polling a status that is not UTF-8; it now asks a full queue up to three times, bounds each status poll and each of those reads at 30 s, the reads unless the caller sets `timeoutMs`, asks again for a status or attestation cut off mid-body, fails any other cut-off answer with `CLIENT_REQUEST` and a non-UTF-8 status at once, reports a deadline that ends a wait between attempts as `CLIENT_TIMEOUT`, and an invalid `proverTee` fails `new SprClient` naming its own field.
 - `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
 
 ## 0.8.0-alpha — 2026-11-03

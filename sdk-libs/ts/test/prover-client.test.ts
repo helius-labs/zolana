@@ -338,6 +338,112 @@ describe("prover deadlines and retries", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(longer).toMatchObject({ code: "CLIENT_TIMEOUT" });
   });
+
+  /** An answer whose status arrives and whose body is cut off. */
+  function cutOff(): Response {
+    return new Response(
+      new ReadableStream({
+        pull: (controller) => controller.error(new TypeError("connection reset")),
+      }),
+      { headers: json },
+    );
+  }
+
+  /** A queued proof whose status polls answer `status`, counting them. */
+  function queued(status: () => Response) {
+    let polls = 0;
+    const fetch = vi.fn(async (_input: URL | string, init?: RequestInit): Promise<Response> => {
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ jobId: "job-1" }), { status: 202, headers: json });
+      }
+      polls += 1;
+      return status();
+    }) as typeof globalThis.fetch;
+    return { fetch, polls: () => polls };
+  }
+
+  it("asks again for a status whose body is cut off", async () => {
+    let answers = 0;
+    const { fetch, polls } = queued(() =>
+      answers++ === 0
+        ? cutOff()
+        : new Response(JSON.stringify({ status: "completed", result: TRANSFER_PROOF }), {
+            headers: json,
+          }),
+    );
+    const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
+
+    const proof = prover.prove(transferInputs()).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await proof).not.toBeInstanceOf(Error);
+    expect(polls()).toBe(2);
+  });
+
+  it("fails a status that is not UTF-8 without asking again", async () => {
+    const { fetch, polls } = queued(
+      () => new Response(new Uint8Array([0x7b, 0xff, 0x7d]), { headers: json }),
+    );
+    const prover = new ProverClient({
+      url: "http://127.0.0.1:3001",
+      fetch,
+      asyncPoll: { pollIntervalCapMs: 1_000, maxWaitMs: 5_000 },
+    });
+
+    const proof = prover.prove(transferInputs()).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(5_100);
+    expect(await proof).toMatchObject({ code: "CLIENT_PROVER_TEXT" });
+    expect(polls()).toBe(1);
+  });
+
+  it("reports a proof or health answer cut off mid-body as a request failure, asked once", async () => {
+    const fetch = vi.fn(async () => cutOff()) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
+
+    const proof = prover.prove(transferInputs()).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await proof).toMatchObject({
+      code: "CLIENT_REQUEST",
+      details: { method: "prove", retryable: true },
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(prover.health()).rejects.toMatchObject({
+      code: "CLIENT_REQUEST",
+      details: { method: "health", retryable: true },
+    });
+  });
+
+  it("reports a caller deadline during the retry delay as a timeout", async () => {
+    const fetch = vi.fn(
+      async () => new Response("busy", { status: 429 }),
+    ) as typeof globalThis.fetch;
+    const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
+
+    const proof = prover
+      .prove(transferInputs(), { timeoutMs: 1_000 })
+      .catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(1_001);
+    expect(await proof).toMatchObject({
+      code: "CLIENT_TIMEOUT",
+      details: { method: "prove", retryable: true },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a caller deadline between status polls as a timeout", async () => {
+    const { fetch } = queued(
+      () => new Response(JSON.stringify({ status: "processing" }), { headers: json }),
+    );
+    const prover = new ProverClient({ url: "http://127.0.0.1:3001", fetch });
+
+    const proof = prover
+      .prove(transferInputs(), { timeoutMs: 100 })
+      .catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(101);
+    expect(await proof).toMatchObject({
+      code: "CLIENT_TIMEOUT",
+      details: { method: "prove", retryable: true },
+    });
+  });
 });
 
 describe("prover request routing", () => {

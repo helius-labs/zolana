@@ -315,6 +315,9 @@ export class ProverClient {
           circuits.filter((circuit): circuit is string => typeof circuit === "string"),
         ),
       });
+    } catch (error) {
+      if (isBodyLost(error)) throw requestError("health", request);
+      throw error;
     } finally {
       request.cleanup();
     }
@@ -350,6 +353,9 @@ export class ProverClient {
         decodeProverKeys(await decodeResponse(response)),
         this.#provingKeys === undefined ? pins : setPins(this.#provingKeys),
       );
+    } catch (error) {
+      if (isBodyLost(error)) throw requestError("provingKeys", request);
+      throw error;
     } finally {
       request.cleanup();
     }
@@ -381,6 +387,9 @@ export class ProverClient {
         throw error;
       }
       return provingKeySetFromCatalog(value);
+    } catch (error) {
+      if (isBodyLost(error)) throw requestError("provingKeys", request);
+      throw error;
     } finally {
       request.cleanup();
     }
@@ -419,7 +428,7 @@ export class ProverClient {
     try {
       deliveryAttempt: for (;;) {
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-          if (attempt > 1) await sleep(RETRY_DELAY_MS, { signal: signal.signal });
+          if (attempt > 1) await wait(RETRY_DELAY_MS, signal);
           const request = composeSignal(
             { signal: signal.signal, timeoutMs: REQUEST_TIMEOUT_MS },
             "prove",
@@ -462,14 +471,7 @@ export class ProverClient {
                 },
               });
             }
-            let value: unknown;
-            try {
-              value = await decodeResponse(response);
-            } catch (error) {
-              if (signal.signal.aborted) throw requestError("prove", signal);
-              if (request.timedOut()) throw requestError("prove", request);
-              throw error;
-            }
+            const value = await decodeResponse(response);
             if (
               isObject(value) &&
               typeof value["jobId"] === "string" &&
@@ -478,6 +480,11 @@ export class ProverClient {
               return await this.#poll(value["jobId"], signal, route, key, refusal);
             }
             return value;
+          } catch (error) {
+            // The status arrived, so the prover may be proving: as in Rust, a
+            // proof whose body was lost is not asked for again.
+            if (!isBodyLost(error)) throw error;
+            throw requestError("prove", signal.signal.aborted ? signal : request);
           } finally {
             request.cleanup();
           }
@@ -502,9 +509,10 @@ export class ProverClient {
 
   /**
    * Mirrors `poll_async`: request the status, then wait between attempts, with
-   * the total wall-clock duration bounded by `maxWaitMs`. A 4xx is final, a 5xx
-   * or a transport failure is transient, and every other status has its body
-   * read. Each status GET is bounded by `GET_TIMEOUT_MS` and the remaining wait.
+   * the total wall-clock duration bounded by `maxWaitMs`. A 4xx is final; a 5xx,
+   * a transport failure and a body lost mid-read are transient; every other
+   * status has its body read, and a body that is not JSON is final. Each status
+   * GET is bounded by `GET_TIMEOUT_MS` and the remaining wait.
    */
   async #poll(
     jobId: string,
@@ -532,7 +540,7 @@ export class ProverClient {
       const remaining = remainingMs();
       if (remaining === 0) timeout();
       const sleepMs = Math.min(interval, remaining);
-      await sleep(BigInt(sleepMs), { signal: signal.signal });
+      await wait(BigInt(sleepMs), signal);
       interval = Math.min(interval * 2, intervalCap);
     };
     for (;;) {
@@ -562,17 +570,7 @@ export class ProverClient {
           await waitOrTimeout();
           continue;
         }
-        let value: unknown;
-        try {
-          value = await decodeResponse(response);
-        } catch (error) {
-          if (signal.signal.aborted) throw requestError("prove", signal);
-          // Rust retries when reading the body fails and fails outright when the
-          // body is not JSON, so only the read failure is transient here.
-          if (!(error instanceof ClientError && error.code === "CLIENT_PROVER_TEXT")) throw error;
-          await waitOrTimeout();
-          continue;
-        }
+        const value = await decodeResponse(response);
         const status = isObject(value) ? value["status"] : undefined;
         if (status === "failed") {
           throw (
@@ -592,10 +590,26 @@ export class ProverClient {
         }
         // queued / processing / pending / unknown: keep polling until the bound.
         await waitOrTimeout();
+      } catch (error) {
+        if (signal.signal.aborted) throw requestError("prove", signal);
+        // Rust asks again for a status whose body was lost and fails outright
+        // on one that is not UTF-8 or not JSON.
+        if (!isBodyLost(error)) throw error;
+        await waitOrTimeout();
       } finally {
         request.cleanup();
       }
     }
+  }
+}
+
+/** Waits between proof requests; the caller's deadline or cancellation ends the proof. */
+async function wait(delayMs: bigint, signal: ComposedSignal): Promise<void> {
+  try {
+    await sleep(delayMs, { signal: signal.signal });
+  } catch (error) {
+    if (signal.signal.aborted) throw requestError("prove", signal);
+    throw error;
   }
 }
 
@@ -924,16 +938,22 @@ function hexes(values: readonly Field[], name: string): readonly string[] {
   return values.map((value) => hex(value, name));
 }
 
+/** A body lost mid-read stays a transport failure, for the caller to classify. */
 async function decodeResponse(response: Response): Promise<unknown> {
   try {
     return await readBoundedJson(response, MAX_RESPONSE_BYTES);
   } catch (error) {
-    if (!(error instanceof TransportFailure)) throw error;
+    if (!(error instanceof TransportFailure) || error.kind === "read") throw error;
     if (error.kind === "responseTooLarge")
       throw new ClientError("CLIENT_PROVER_RESPONSE_TOO_LARGE");
     if (error.kind === "text") throw new ClientError("CLIENT_PROVER_TEXT");
     throw new ClientError("CLIENT_PROVER_JSON");
   }
+}
+
+/** The status arrived and the body was lost on the way. */
+function isBodyLost(error: unknown): boolean {
+  return error instanceof TransportFailure && error.kind === "read";
 }
 
 const MAX_REASON_CHARS = 200;

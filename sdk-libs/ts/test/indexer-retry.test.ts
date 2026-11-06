@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SprApi } from "../src/api/index.js";
 import { ClientError } from "../src/client/error.js";
@@ -83,6 +83,35 @@ describe("indexer JSON-RPC errors", () => {
       code: "CLIENT_POLL_TIMED_OUT",
       details: { attempts: 2, lastCause: { category: "indexer" } },
     });
+  });
+});
+
+describe("a poll's deadline", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("bounds a slot poll as a whole, its waits included", async () => {
+    const { indexer: client, fetch } = indexer(Array.from({ length: 6 }, () => ({ slot: 9 })));
+    let settled: unknown = "pending";
+    void client
+      .getMerkleProofs(TREE, [LEAF], atSlot(10n, createIndexerPollConfig(5, 1_000n, 1_000n)), {
+        timeoutMs: 1_500,
+      })
+      .then(
+        (value) => (settled = value),
+        (error: unknown) => (settled = error),
+      );
+    await vi.advanceTimersByTimeAsync(1_501);
+    expect(settled).toMatchObject({
+      code: "CLIENT_TIMEOUT",
+      details: { method: "getMerkleProofs", retryable: true },
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -2,7 +2,7 @@ import { extractCauseCode } from "../errors/internal.js";
 import type { RequestContext } from "../interface/types.js";
 
 import { ClientError, isClientError, type RetryErrorCause } from "./error.js";
-import { composeSignal } from "./internal.js";
+import { composeSignal, requestError } from "./internal.js";
 import type { ProofDataSource } from "./ports.js";
 
 export type { RetryErrorCause } from "./error.js";
@@ -124,7 +124,10 @@ export function* backoff(config: IndexerPollConfig): IterableIterator<bigint> {
 
 export interface PollUntilOptions {
   readonly config?: IndexerPollConfig;
+  /** Its `timeoutMs` bounds the whole poll, waits included, not each attempt. */
   readonly context?: RequestContext;
+  /** Names the poll in the error its deadline or cancellation ends it with. */
+  readonly method?: string;
   readonly retryErrors?: boolean;
   /**
    * Build the error for an exhausted schedule. Receives the cause of the final
@@ -133,61 +136,66 @@ export interface PollUntilOptions {
   readonly onTimeout?: (config: IndexerPollConfig, lastCause: RetryErrorCause | undefined) => Error;
 }
 
+/**
+ * Asks `request` on the poll schedule until `accept` takes an answer. One
+ * signal bounds the whole poll: every attempt receives only that signal, and a
+ * poll its deadline or the caller's signal ends fails with `CLIENT_TIMEOUT` or
+ * `CLIENT_ABORTED` under `method`.
+ */
 export async function pollUntil<T>(
-  request: () => Promise<T>,
+  request: (context: RequestContext) => Promise<T>,
   accept: (response: T) => boolean,
   options: PollUntilOptions = {},
 ): Promise<T> {
   if (typeof request !== "function") throw invalidPollConfig("request");
   if (typeof accept !== "function") throw invalidPollConfig("accept");
   const poll = validatePollConfig(options.config ?? DEFAULT_INDEXER_POLL_CONFIG);
-  let lastCause: RetryErrorCause | undefined;
-  for (const delay of pollSchedule(poll)) {
-    if (delay !== 0n) await sleep(delay, options.context);
-    try {
-      const response = await request();
-      if (accept(response)) return response;
-      // A clean answer clears a recovered blip, so the exhausted schedule is
-      // classified by the final attempt rather than by an earlier failure.
-      lastCause = undefined;
-    } catch (cause) {
-      if (options.retryErrors === false) throw cause;
-      const transient = retryCause(cause);
-      if (transient === undefined) throw cause;
-      lastCause = transient;
+  const method = options.method ?? "pollUntil";
+  const operation = composeSignal(options.context, method);
+  const attempt: RequestContext = Object.freeze({ signal: operation.signal });
+  try {
+    let lastCause: RetryErrorCause | undefined;
+    for (const delay of pollSchedule(poll)) {
+      if (delay !== 0n) await sleep(delay, attempt);
+      try {
+        const response = await request(attempt);
+        if (accept(response)) return response;
+        // A clean answer clears a recovered blip, so the exhausted schedule is
+        // classified by the final attempt rather than by an earlier failure.
+        lastCause = undefined;
+      } catch (cause) {
+        if (operation.signal.aborted || options.retryErrors === false) throw cause;
+        const transient = retryCause(cause);
+        if (transient === undefined) throw cause;
+        lastCause = transient;
+      }
     }
-  }
 
-  if (options.onTimeout !== undefined) throw options.onTimeout(poll, lastCause);
-  throw new ClientError("CLIENT_POLL_TIMED_OUT", {
-    details: {
-      attempts: attempts(poll),
-      ...(lastCause === undefined ? {} : { lastCause }),
-    },
-  });
+    if (options.onTimeout !== undefined) throw options.onTimeout(poll, lastCause);
+    throw pollTimeout(poll, lastCause, pollTimedOut(poll));
+  } catch (cause) {
+    if (operation.signal.aborted) throw requestError(method, operation);
+    throw cause;
+  } finally {
+    operation.cleanup();
+  }
 }
 
 /**
  * Classify an exhausted poll by how the final attempt went, since that is the
- * freshest evidence of what the indexer is doing now. An attempt that answered
- * without the transaction means the indexer is behind; one that failed means it
- * never answered, which is not a lag report the caller should act on.
+ * freshest evidence of what the service is doing now, as Rust `poll_timeout`.
+ * An attempt that answered without a match means the service is behind
+ * (`behind`); one that failed means it never answered, which is not a lag
+ * report the caller should act on.
  */
-export function indexerPollTimeout(
+export function pollTimeout(
   config: IndexerPollConfig,
   lastCause: RetryErrorCause | undefined,
-  signature?: string,
+  behind: ClientError,
 ): ClientError {
-  if (lastCause !== undefined) {
-    return new ClientError("CLIENT_POLL_TIMED_OUT", {
-      details: { attempts: attempts(config), lastCause },
-    });
-  }
-  return new ClientError("CLIENT_INDEXER_TIMEOUT", {
-    details: {
-      attempts: attempts(config),
-      ...(signature === undefined ? {} : { signature }),
-    },
+  if (lastCause === undefined) return behind;
+  return new ClientError("CLIENT_POLL_TIMED_OUT", {
+    details: { attempts: attempts(config), lastCause },
   });
 }
 
@@ -241,6 +249,7 @@ export async function waitForProjection<T>(
       {
         config: poll,
         context: attemptContext,
+        method: "waitForProjection",
         retryErrors: false,
         onTimeout: (config) => last ?? pollTimedOut(config),
       },

@@ -115,6 +115,24 @@ describe("caller-supplied prover policy", () => {
     );
   });
 
+  it("names the policy field an invalid proverTee fails on", () => {
+    const policy = readTeePolicy(
+      new URL("../../../prover/tee/deployments/mainnet-v0.6.0-alpha.json", import.meta.url),
+    );
+    expect(
+      () =>
+        new SprClient({
+          solanaRpcUrl: "https://rpc.example",
+          proverTee: { ...policy, maxAgeSecs: 0 },
+        }),
+    ).toThrow(
+      expect.objectContaining({
+        code: "CLIENT_INVALID_CONFIG",
+        details: { field: "proverTee.max_age_secs" },
+      }),
+    );
+  });
+
   it("permits plaintext only for loopback development", async () => {
     for (const url of ["http://127.0.0.1:3001", "http://localhost:3001"]) {
       const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({}));
