@@ -199,8 +199,8 @@ fn transfer_round_trip_outputs_and_slots() {
         &tx,
         &sender,
         &[
-            (recipient.shielded_address().unwrap(), Mint::SOL, 60),
             (sender.shielded_address().unwrap(), Mint::SOL, 40),
+            (recipient.shielded_address().unwrap(), Mint::SOL, 60),
         ],
     );
     assert!(tx.external_data.interface_transfers.is_empty());
@@ -276,8 +276,8 @@ fn assemble_carries_ciphertext_and_decrypts() {
         &tx,
         &sender,
         &[
-            (recipient.shielded_address().unwrap(), Mint::SOL, 60),
             (sender.shielded_address().unwrap(), Mint::SOL, 40),
+            (recipient.shielded_address().unwrap(), Mint::SOL, 60),
         ],
     );
 }

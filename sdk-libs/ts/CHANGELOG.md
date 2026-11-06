@@ -42,7 +42,7 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
-- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows.
+- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows, and read the change of a transfer to another wallet as sent unless it led the outputs; `privateTransactions()` now leaves every output that returns to the sender out of the sent amount, wherever its slot sits, and names a single other recipient as the counterparty.
 - `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note, and now stores the note.
 - `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
 

@@ -57,13 +57,17 @@ impl ConfidentialTransaction {
         Ok(self)
     }
 
-    /// Pad all UTXOs without reordering existing slots.
+    /// Put the change outputs first and pad all UTXOs. The caller's outputs
+    /// follow the change in the order they were added.
     ///
     /// Steps:
     /// 1. Reject repeated padding and validate the shape, input count and public
     ///    transfers.
     /// 2. Require at most three assets and calculate change for each one.
-    /// 3. Append nonzero change in asset first-use order, using the transaction's ring.
+    /// 3. Lead with nonzero change, using the transaction's ring: SPL change in
+    ///    asset first-use order, then SOL change. This is the spec's slot order,
+    ///    which every SDK builds; another order would tell observers which SDK
+    ///    built the transaction.
     /// 4. Check output capacity, append dummy outputs that publish a
     ///    participant's view tag and verify balance. A transaction naming no
     ///    participant keeps a zero-amount SOL change for the sender.
@@ -116,23 +120,27 @@ impl ConfidentialTransaction {
         self.validate_interface_transfers()?;
 
         // 2. Validate the asset count and calculate change for each asset.
-        let changes = self
+        let mut changes = self
             .assets(&self.outputs)?
             .into_iter()
             .map(|asset| Ok((asset, self.change(&asset)?)))
             .collect::<Result<Vec<_>, TransactionError>>()?;
 
-        // 3. Append nonzero change in asset first-use order, using the transaction's ring.
-        let mut outputs = self.outputs.clone();
-        for (asset, amount) in changes.into_iter().filter(|(_, amount)| *amount > 0) {
-            outputs.push(SppProofOutputUtxo {
+        // 3. Lead with nonzero change, SPL in first-use order before SOL.
+        changes.retain(|(_, amount)| *amount > 0);
+        changes.sort_by_key(|(asset, _)| asset.asset == Mint::SOL.asset);
+        let change_count = changes.len();
+        let mut outputs: Vec<_> = changes
+            .into_iter()
+            .map(|(asset, amount)| SppProofOutputUtxo {
                 owner_address: Some(*sender),
                 asset,
                 amount,
                 ring_program_id: self.ring_program_id,
                 ..Default::default()
-            });
-        }
+            })
+            .collect();
+        outputs.extend(self.outputs.iter().cloned());
 
         // 4. Check output capacity, append dummy outputs and verify balance.
         let dummy_owner_tag = if self.compact_padding {
@@ -143,13 +151,17 @@ impl ConfidentialTransaction {
                 // Published padding must name a participant. Fixed outputs
                 // cannot add change solely to carry that participant's tag.
                 None if fixed_outputs => return Err(TransactionError::NoDummyOwnerTagParticipant),
+                // The zero-amount SOL change takes the SOL change slot.
                 None => {
-                    outputs.push(SppProofOutputUtxo {
-                        owner_address: Some(*sender),
-                        asset: Mint::SOL,
-                        ring_program_id: self.ring_program_id,
-                        ..Default::default()
-                    });
+                    outputs.insert(
+                        change_count,
+                        SppProofOutputUtxo {
+                            owner_address: Some(*sender),
+                            asset: Mint::SOL,
+                            ring_program_id: self.ring_program_id,
+                            ..Default::default()
+                        },
+                    );
                     sender.signing_pubkey.confidential_view_tag()?
                 }
             })

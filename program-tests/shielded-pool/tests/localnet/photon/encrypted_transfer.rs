@@ -150,7 +150,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
 
     // Independently reconstruct the expected recipient UTXO: the author re-derives
     // the transaction viewing key and decrypts the recipient slot (output position
-    // 0) directly, reading its committed blinding out. Each slot's borsh
+    // 1, after the change output) directly, reading its committed blinding out. Each slot's borsh
     // `OutputDataEncoding` carries a scheme byte plus the per-scheme ciphertext
     // body.
     let tx_key = sender
@@ -161,7 +161,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     }
     let recipient_slot = indexed
         .output_slots
-        .first()
+        .get(1)
         .ok_or_else(|| anyhow!("indexed transfer missing recipient slot"))?;
     let recipient_blob = match recipient_slot
         .output_data()
@@ -175,7 +175,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         .split_first()
         .ok_or_else(|| anyhow!("recipient slot missing scheme byte"))?;
     let recipient_plaintext =
-        Confidential::decrypt_with_tx_key(&tx_key, recipient_ciphertext, salt, 0)?;
+        Confidential::decrypt_with_tx_key(&tx_key, recipient_ciphertext, salt, 1)?;
     let expected_utxo = Utxo {
         owner: recipient_address.signing_pubkey,
         asset: Mint::SOL,
@@ -226,7 +226,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         leaf_index: output_context.leaf_index,
         slot: indexed.slot,
         tx_signature: indexed.tx_signature,
-        slot_index: 0,
+        slot_index: 1,
         nullifier: expected_nullifier,
         tx_viewing_key: None,
         data_hash: None,

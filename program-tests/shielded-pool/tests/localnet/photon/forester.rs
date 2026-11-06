@@ -430,7 +430,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
             .expect("first output slot")
             .payload
             .is_empty(),
-        "SPL change slot should carry a payload"
+        "SOL change output should carry an encrypted UTXO payload"
     );
     assert!(
         !indexed
@@ -439,7 +439,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
             .expect("second output slot")
             .payload
             .is_empty(),
-        "SOL change output should carry an encrypted UTXO payload"
+        "recipient output should carry an encrypted UTXO payload"
     );
     assert!(
         !indexed
@@ -448,7 +448,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
             .expect("third output slot")
             .payload
             .is_empty(),
-        "recipient output should carry an encrypted UTXO payload"
+        "padding output should carry a ciphertext-length payload"
     );
 
     let tx_viewing_pk = indexed
@@ -459,8 +459,8 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         .ok_or_else(|| anyhow!("indexed queue tx missing salt"))?;
 
     // Every output slot carries its own ciphertext; the author re-derives the
-    // transaction viewing key and decrypts the SOL change (slot 1) and the
-    // recipient (slot 2) directly, reading each committed blinding back out.
+    // transaction viewing key and decrypts the SOL change (slot 0) and the
+    // recipient (slot 1) directly, reading each committed blinding back out.
     let tx_key = ctx
         .sender
         .viewing_key
@@ -491,8 +491,8 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
             slot_index as u32,
         )?)
     };
-    let change_plaintext = decode_output(1)?;
-    let recipient_plaintext = decode_output(0)?;
+    let change_plaintext = decode_output(0)?;
+    let recipient_plaintext = decode_output(1)?;
 
     let change_utxo = Utxo {
         owner: ctx.payer_public_key,
@@ -528,7 +528,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         change_utxo.hash,
         indexed
             .output_slots
-            .get(1)
+            .first()
             .expect("change output slot")
             .output_context
             .hash,
@@ -538,7 +538,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         recipient_utxo.hash,
         indexed
             .output_slots
-            .first()
+            .get(1)
             .expect("recipient output slot")
             .output_context
             .hash,

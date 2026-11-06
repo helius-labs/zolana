@@ -123,13 +123,13 @@ fn a_client_over_the_harness_sends_a_transfer_with_account_tagged_padding() {
         2
     );
     let expected_tags = vec![
+        OwnerTag::Account(0), // Change.
         OwnerTag::Inline(
             recipient
                 .signing_pubkey()
                 .confidential_view_tag()
                 .expect("recipient tag"),
         ),
-        OwnerTag::Account(0), // Change.
         OwnerTag::Account(0), // Padding.
         OwnerTag::Account(0), // Padding.
     ];

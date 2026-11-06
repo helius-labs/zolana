@@ -534,7 +534,7 @@ fn failed_padding_is_atomic_and_repairable_without_losing_configuration() {
     tx.pad_utxos(Shape::IN1_OUT4, &sender).unwrap();
     assert_eq!(
         tx.outputs().iter().map(|o| o.amount).collect::<Vec<_>>(),
-        [3, 1, 1, 0]
+        [1, 3, 1, 0]
     );
     let notes = vec![
         wallet_utxo(&owner, Mint::SOL, 2, 7, 1),
@@ -586,7 +586,7 @@ fn failed_padding_is_atomic_and_repairable_without_losing_configuration() {
     tx.pad_utxos(Shape::IN2_OUT2, &sender).unwrap();
     assert_eq!(
         tx.outputs().iter().map(|o| o.amount).collect::<Vec<_>>(),
-        [1, u64::MAX]
+        [u64::MAX, 1]
     );
 }
 
@@ -609,7 +609,7 @@ fn asset_limit_ignores_zero_private_slots_and_failure_retains_configurability() 
             .iter()
             .map(|o| (o.asset, o.amount))
             .collect::<Vec<_>>(),
-        [(mint(4), 0), (Mint::SOL, 1), (mint(2), 1), (mint(3), 1)]
+        [(mint(2), 1), (mint(3), 1), (Mint::SOL, 1), (mint(4), 0)]
     );
     let mut excessive = notes;
     excessive.push(wallet_utxo(&owner, mint(4), 1, 7, 4));
@@ -633,7 +633,7 @@ fn asset_limit_ignores_zero_private_slots_and_failure_retains_configurability() 
 }
 
 #[test]
-fn explicit_output_fields_survive_padding_and_change_uses_asset_first_use_order() {
+fn change_leads_spl_before_sol_and_explicit_outputs_follow_with_their_fields() {
     let owner = keypair(1);
     let recipient = keypair(2);
     let sender = owner.shielded_address().unwrap();
@@ -648,19 +648,16 @@ fn explicit_output_fields_survive_padding_and_change_uses_asset_first_use_order(
     tx.deposit_sol(5, payer(&owner)).unwrap();
     tx.deposit(mint(3), 4, payer(&owner)).unwrap();
     tx.pad_utxos(Shape::IN4_OUT4, &sender).unwrap();
-    assert_eq!(tx.outputs().first(), Some(&output));
-    let change = tx.outputs().iter().skip(1);
-    for (actual, (asset, amount)) in change.zip([(mint(2), 8), (Mint::SOL, 2), (mint(3), 4)]) {
-        assert_eq!(
-            actual,
-            &SppProofOutputUtxo {
-                asset,
-                amount,
-                owner_address: Some(sender),
-                ..Default::default()
-            }
-        );
-    }
+    // SPL change in asset first-use order (input, then deposit), then SOL.
+    let change =
+        [(mint(2), 8), (mint(3), 4), (Mint::SOL, 2)].map(|(asset, amount)| SppProofOutputUtxo {
+            asset,
+            amount,
+            owner_address: Some(sender),
+            ..Default::default()
+        });
+    assert_eq!(tx.outputs()[..3], change);
+    assert_eq!(tx.outputs().get(3), Some(&output));
     let mut full = builder(&owner, 5);
     full.transfer_sol(&address, 5).unwrap();
     full.pad_utxos(Shape::IN1_OUT2, &sender).unwrap();
@@ -1079,16 +1076,17 @@ fn generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output(
         tx.transfer(&receiver, mint(2).asset, spl_transfer).unwrap();
         let sol_change = sol_in + deposit - withdrawal - transfer;
         let spl_change = spl_in + spl_deposit - spl_withdrawal - spl_transfer;
-        let mut expected = vec![
-            (Mint::SOL, transfer, receiver, None, Data::default()),
-            (mint(2), spl_transfer, receiver, None, Data::default()),
-        ];
-        if sol_change > 0 {
-            expected.push((Mint::SOL, sol_change, sender, None, Data::default()));
-        }
+        let mut expected = vec![];
         if spl_change > 0 {
             expected.push((mint(2), spl_change, sender, None, Data::default()));
         }
+        if sol_change > 0 {
+            expected.push((Mint::SOL, sol_change, sender, None, Data::default()));
+        }
+        expected.extend([
+            (Mint::SOL, transfer, receiver, None, Data::default()),
+            (mint(2), spl_transfer, receiver, None, Data::default()),
+        ]);
         let expected_shape = if case % 2 == 0 {
             Shape::IN4_OUT4
         } else {
@@ -1210,10 +1208,10 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
         tx.pad_utxos(Shape::IN1_OUT8, &sender).unwrap();
         let proof = tx.encrypt(&owner).unwrap();
         let expected = vec![
+            (Mint::SOL, 4, sender, Some(ring), Data::default()),
             (Mint::SOL, 2, receiver, Some(ring), Data::default()),
             (Mint::SOL, 3, receiver, None, Data::default()),
             (Mint::SOL, 1, receiver, Some(other_ring), Data::default()),
-            (Mint::SOL, 4, sender, Some(ring), Data::default()),
         ];
         assert_recovery(&proof, &key, &[&owner, &recipient], &expected);
         assert_dummies(
@@ -1228,14 +1226,14 @@ fn mixed_rings_and_relayed_owner_tags_match_recovered_owners() {
             Some(ring),
             slot_len(&proof, 0),
         );
-        for output in proof.external_data.outputs.iter().take(3) {
+        for output in proof.external_data.outputs.iter().skip(1).take(3) {
             assert_eq!(
                 output.owner_tag,
                 OwnerTag::Inline(receiver.confidential_view_tag().unwrap())
             );
         }
         assert_eq!(
-            proof.external_data.outputs.get(3).unwrap().owner_tag,
+            proof.external_data.outputs.first().unwrap().owner_tag,
             if relayed {
                 OwnerTag::Inline(sender.confidential_view_tag().unwrap())
             } else {
@@ -1346,6 +1344,115 @@ fn padding_tags_match_real_outputs_in_shared_vectors() {
             .unwrap()
             .1;
         assert_eq!(participant.owner_tag, encoding, "{}", case.name);
+    }
+}
+
+/// The TS SDK builds the same real output slots from the same vectors, so the
+/// slot order does not tell which SDK built a transaction.
+#[test]
+fn change_leads_the_outputs_in_shared_vectors() {
+    #[derive(serde::Deserialize)]
+    struct Vectors {
+        sender_seed: u8,
+        recipient_seeds: Vec<u8>,
+        spl_mint: String,
+        spl_asset_id: u64,
+        cases: Vec<Case>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Case {
+        name: String,
+        inputs: Vec<Amount>,
+        #[serde(default)]
+        sends: Vec<Send>,
+        withdrawal: Option<Amount>,
+        outputs: Vec<Output>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Amount {
+        asset: String,
+        amount: u64,
+    }
+    #[derive(serde::Deserialize)]
+    struct Send {
+        recipient: usize,
+        asset: String,
+        amount: u64,
+    }
+    #[derive(serde::Deserialize)]
+    struct Output {
+        owner: String,
+        recipient: Option<usize>,
+        asset: String,
+        amount: u64,
+    }
+    let vectors: Vectors = serde_json::from_str(include_str!(
+        "../../../test-vectors/transfer_output_order.json"
+    ))
+    .unwrap();
+    let spl = Mint {
+        asset: vectors.spl_mint.parse().unwrap(),
+        asset_id: vectors.spl_asset_id,
+    };
+    let asset = |name: &str| match name {
+        "sol" => Mint::SOL,
+        "spl" => spl,
+        _ => panic!("invalid vector asset {name}"),
+    };
+    let owner = keypair(vectors.sender_seed);
+    let sender = owner.shielded_address().unwrap();
+    let recipients: Vec<_> = vectors
+        .recipient_seeds
+        .iter()
+        .map(|seed| keypair(*seed).shielded_address().unwrap())
+        .collect();
+    for case in vectors.cases {
+        let notes = case
+            .inputs
+            .iter()
+            .zip(1..)
+            .map(|(input, nonce)| wallet_utxo(&owner, asset(&input.asset), input.amount, 7, nonce))
+            .collect();
+        let mut tx = ConfidentialTransaction::new(notes, payer(&owner)).unwrap();
+        for send in &case.sends {
+            let recipient = &recipients[send.recipient];
+            match asset(&send.asset) {
+                Mint::SOL => tx.transfer_sol(recipient, send.amount),
+                mint => tx.transfer(recipient, mint.asset, send.amount),
+            }
+            .unwrap();
+        }
+        if let Some(withdrawal) = &case.withdrawal {
+            match asset(&withdrawal.asset) {
+                Mint::SOL => tx.withdraw_sol(withdrawal.amount, payer(&owner)),
+                mint => tx.withdraw(mint.asset, withdrawal.amount, payer(&owner)),
+            }
+            .unwrap();
+        }
+        let finalized = tx.finalize(&sender).unwrap();
+        let (real, padding) = finalized.output_utxos().split_at(case.outputs.len());
+        let expected: Vec<_> = case
+            .outputs
+            .iter()
+            .map(|output| {
+                let address = match output.owner.as_str() {
+                    "sender" => sender,
+                    "recipient" => recipients[output.recipient.unwrap()],
+                    _ => panic!("invalid vector owner {}", output.owner),
+                };
+                (Some(address), asset(&output.asset), output.amount)
+            })
+            .collect();
+        let actual: Vec<_> = real
+            .iter()
+            .map(|output| (output.owner_address, output.asset, output.amount))
+            .collect();
+        assert_eq!(actual, expected, "{}", case.name);
+        assert!(
+            padding.iter().all(SppProofOutputUtxo::is_dummy),
+            "{}",
+            case.name
+        );
     }
 }
 
@@ -1530,8 +1637,8 @@ fn key_holder_errors_and_empty_response_propagate_and_requests_use_first_input()
             .pubkey()
     );
     let expected = [
-        (Mint::SOL, 2, receiver, None, Data::default()),
         (Mint::SOL, 1, sender, None, Data::default()),
+        (Mint::SOL, 2, receiver, None, Data::default()),
     ];
     assert_recovery(&proof, &keys.key, &[&owner, &recipient], &expected);
     let mut explicit = ConfidentialTransaction::new(vec![input], payer(&owner)).unwrap();
@@ -1613,15 +1720,11 @@ fn builder_automatically_selects_every_supported_boundary() {
                 .sum::<u128>(),
             20 * shape.n_inputs() as u128
         );
-        assert!(proof
-            .output_utxos
-            .iter()
-            .take(shape.n_outputs() - 1)
-            .all(|o| o.amount == 1));
         assert_eq!(
-            proof.output_utxos.last().unwrap().amount,
+            proof.output_utxos.first().unwrap().amount,
             20 * shape.n_inputs() as u64 - (shape.n_outputs() - 1) as u64
         );
+        assert!(proof.output_utxos.iter().skip(1).all(|o| o.amount == 1));
     }
 }
 
@@ -1710,8 +1813,8 @@ fn another_mints_surplus_cannot_fund_private_or_public_spl_deficits() {
             ]
         } else {
             vec![
-                (mint(2), 5),
                 (Mint::SOL, 100),
+                (mint(2), 5),
                 (Mint::SOL, 0),
                 (Mint::SOL, 0),
             ]

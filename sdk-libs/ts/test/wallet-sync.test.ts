@@ -2117,6 +2117,121 @@ describe("wallet sync", () => {
     );
   });
 
+  /**
+   * Sync `sender`'s wallet over one spend of a 10 SOL note whose confidential
+   * outputs sit in the given slot order.
+   */
+  async function syncAuthoredOutputs(
+    sender: ShieldedKeypair,
+    outputs: readonly Readonly<{ owner: ShieldedKeypair; amount: bigint }>[],
+  ): Promise<Wallet> {
+    const wallet = new Wallet({ identity: sender.shieldedAddress() });
+    const inputBlinding = bytes(36);
+    const input = new Utxo({
+      owner: sender.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: inputBlinding,
+    });
+    const inputHash = input.hash(sender.nullifierPublicKey(), DEFAULT_TREE_ID);
+    const nullifier = sender.nullifier(inputHash, inputBlinding);
+    wallet._replace({
+      ...wallet._state(),
+      utxos: [
+        {
+          utxo: input,
+          outputContext: { hash: inputHash, tree: TREE, leafIndex: 0n },
+          nullifier,
+          spent: false,
+        },
+      ],
+    });
+    const txKey = sender.transactionViewingKey(nullifier);
+    const salt = new Uint8Array(16).fill(5) as Bytes16;
+    const outputSlots = outputs.map(({ owner, amount }, index) => {
+      const utxo = new Utxo({
+        owner: owner.signingPublicKey(),
+        asset: SOL_MINT,
+        amount,
+        blinding: bytes(37 + index),
+      });
+      return {
+        viewTag: owner.signingPublicKey().confidentialViewTag(),
+        outputContext: {
+          hash: utxo.hash(owner.nullifierPublicKey(), DEFAULT_TREE_ID),
+          tree: TREE,
+          leafIndex: BigInt(index + 1),
+        },
+        payload: encodeOutputData(
+          EncryptedScheme.confidential,
+          encryptConfidential(
+            txKey,
+            owner.viewingPublicKey(),
+            { assetId: 1n, amount, blinding: utxo.blinding, data: utxo.data },
+            salt,
+            index,
+          ),
+          "encrypted",
+        ),
+      };
+    });
+    await decryptWithKeys(LocalShieldedKeys.fromKeypair(sender), {
+      wallet,
+      transactions: [
+        {
+          slot: 3n,
+          txSignature: SIGNATURE,
+          txViewingPublicKey: txKey.publicKey(),
+          salt,
+          outputSlots,
+          messages: [],
+          nullifiers: [nullifier],
+          proofless: false,
+        },
+      ],
+    });
+    return wallet;
+  }
+
+  it("reads the change of a transfer that pays another wallet at any slot", async () => {
+    const sender = ShieldedKeypair.generate();
+    const recipient = ShieldedKeypair.generate();
+    const wallet = await syncAuthoredOutputs(sender, [
+      { owner: recipient, amount: 7n },
+      { owner: sender, amount: 3n },
+    ]);
+
+    expect(wallet.privateTransactions()).toMatchObject([
+      { kind: "privateTransfer", direction: "outbound", asset: SOL_MINT, amount: 7n },
+    ]);
+    expect(wallet.privateTransactions()[0]?.counterpartyViewingPublicKey?.toBytes()).toEqual(
+      recipient.viewingPublicKey().toBytes(),
+    );
+    expect(
+      wallet
+        .utxos()
+        .filter((entry) => !entry.spent)
+        .map((entry) => entry.utxo.amount),
+    ).toEqual([3n]);
+  });
+
+  it("counts what a transfer pays back to the wallet as kept, not as sent", async () => {
+    const sender = ShieldedKeypair.generate();
+    const recipient = ShieldedKeypair.generate();
+    const wallet = await syncAuthoredOutputs(sender, [
+      { owner: sender, amount: 5n },
+      { owner: sender, amount: 1n },
+      { owner: recipient, amount: 4n },
+    ]);
+
+    expect(wallet.privateTransactions()).toMatchObject([
+      { kind: "privateTransfer", direction: "outbound", asset: SOL_MINT, amount: 4n },
+    ]);
+    expect(wallet.privateTransactions()[0]?.counterpartyViewingPublicKey?.toBytes()).toEqual(
+      recipient.viewingPublicKey().toBytes(),
+    );
+  });
+
   it("records no outbound row for an authored anonymous transfer", async () => {
     const sender = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: sender.shieldedAddress() });

@@ -10,7 +10,6 @@ import { initializePoseidon } from "../../hasher/index.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress } from "../internal.js";
-import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
 import type { IndexedShieldedTransaction, OutputContext } from "../instructions/transact.js";
 import {
   EncryptedScheme,
@@ -207,6 +206,17 @@ function covered(spent: ReadonlyMap<Address, bigint>, kept: readonly Utxo[]): bo
   if (spent.size === 0) return false;
   const byAsset = amountsByAsset(kept);
   return [...spent].every(([asset, amount]) => (byAsset.get(asset) ?? 0n) >= amount);
+}
+
+/**
+ * Whether an own output at `position` is change in the spec's slot order, given
+ * the change before it: the change outputs lead, one per asset, SPL before SOL.
+ */
+function leadsAsChange(position: number, utxo: Utxo, change: readonly Utxo[]): boolean {
+  return (
+    position === change.length &&
+    change.every((kept) => kept.asset !== utxo.asset && kept.asset !== SOL_MINT)
+  );
 }
 
 function sameAmounts(spent: ReadonlyMap<Address, bigint>, kept: readonly Utxo[]): boolean {
@@ -615,8 +625,10 @@ class SyncPass {
   }
 
   #decodeOutboundSlots(tx: IndexedShieldedTransaction, txKey: ViewingKey, salt: Bytes16): void {
-    const change: Utxo[] = [];
-    const recipients: Array<Readonly<{ key: X25519PublicKey; utxo: Utxo }>> = [];
+    // An own output opens to this wallet's key and reproduces its published
+    // commitment; every other output pays another wallet.
+    const own: Array<Readonly<{ position: number; key: X25519PublicKey; utxo: Utxo }>> = [];
+    const others: Array<Readonly<{ key: X25519PublicKey; utxo: Utxo }>> = [];
     tx.outputSlots.forEach((slot, position) => {
       try {
         const frame = readOutputData(slot.payload);
@@ -628,32 +640,29 @@ class SyncPass {
           return;
         }
         const plaintext = decryptConfidentialAsSender(txKey, frame.body, salt, position);
-        const recipientKey = X25519PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
-        if (position < SENDER_SLOT_COUNT) {
-          const candidate = confidentialUtxo(plaintext, this.#owner, this.#assets);
-          if (
-            this.#isSelf(recipientKey) &&
-            (position === 0 ||
-              (candidate.asset === SOL_MINT &&
-                change.length === 1 &&
-                change[0]?.asset !== SOL_MINT)) &&
-            equalBytes(
-              candidate.hash(this.#nullifierPublicKey, SYNC_TREE_ID),
-              slot.outputContext.hash,
-            )
-          ) {
-            change.push(candidate);
-            return;
-          }
+        const key = X25519PublicKey.fromBytes(frame.body.slice(0, 33) as Bytes33);
+        const utxo = confidentialUtxo(plaintext, this.#owner, this.#assets);
+        if (
+          this.#isSelf(key) &&
+          equalBytes(utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID), slot.outputContext.hash)
+        ) {
+          own.push({ position, key, utxo });
+        } else {
+          others.push({ key, utxo });
         }
-        recipients.push({
-          key: recipientKey,
-          utxo: confidentialUtxo(plaintext, this.#owner, this.#assets),
-        });
       } catch {
         // A dummy slot fails the transaction-key decrypt; skip it.
       }
     });
+    // Change is value that came back to this wallet. Next to a payment to
+    // another wallet, every own output is change, whichever slot it sits in.
+    // Without one, only the slot order tells change from a payment to itself.
+    const change: Utxo[] = [];
+    const recipients = [...others];
+    for (const { position, key, utxo } of own) {
+      if (others.length > 0 || leadsAsChange(position, utxo, change)) change.push(utxo);
+      else recipients.push({ key, utxo });
+    }
 
     const spent = this.#spentAmounts(tx.nullifiers);
     // Paying yourself keeps every output, so nothing distinguishes it from
