@@ -307,16 +307,15 @@ impl LifecycleHarness {
         // `Wallet::sync`) so `assert_utxos` is a real cross-check of the synced
         // wallet, not a comparison of sync to itself.
 
+        // Change leads, SPL in first-use order before SOL; the recipients follow.
         let mut expected = Vec::new();
-        for (to, keypair) in recipients.iter().zip(&recipient_keypairs) {
-            expected.push((*to, keypair.signing_pubkey(), send_asset, amount));
-        }
         let mut assets = Vec::new();
         for input in &inputs {
             if !assets.contains(&input.asset.asset) {
                 assets.push(input.asset.asset);
             }
         }
+        assets.sort_by_key(|asset| *asset == SOL_MINT);
         for asset in assets {
             let total: u64 = inputs
                 .iter()
@@ -327,6 +326,9 @@ impl LifecycleHarness {
             if change > 0 {
                 expected.push((from, from_keypair.signing_pubkey(), asset, change));
             }
+        }
+        for (to, keypair) in recipients.iter().zip(&recipient_keypairs) {
+            expected.push((*to, keypair.signing_pubkey(), send_asset, amount));
         }
         assert_eq!(indexed.output_slots.len(), finalized_outputs.len());
         assert!(finalized_outputs

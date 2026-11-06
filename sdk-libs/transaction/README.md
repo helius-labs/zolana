@@ -75,8 +75,9 @@ implementation differences.
         3. pad both sides, validate balance, and fix slot order and tree
            assignment: real inputs keep the caller's order, which may
            interleave trees, and dummies follow them, each built for its
-           assigned tree. Output padding appends dummy outputs after the
-           caller's outputs and the change. Each dummy publishes the view tag
+           assigned tree. The change outputs lead, SPL change before SOL
+           change, the caller's outputs follow in their order, and output
+           padding appends dummy outputs after them. Each dummy publishes the view tag
            of an input owner other than the fee payer, else of a real output
            owner; a transaction naming neither keeps a zero-amount SOL change
            for the sender. A transaction built with `new_compact` pads with
