@@ -105,12 +105,12 @@ fn published(owner: &ShieldedKeypair, note: &WalletUtxo) -> ShieldedTransaction 
     }
 }
 
-fn data_note(owner: &ShieldedKeypair, amount: u64, nonce: u8) -> WalletUtxo {
+fn ring_note(owner: &ShieldedKeypair, amount: u64, nonce: u8) -> WalletUtxo {
     let mut note = wallet_utxo(owner, Mint::SOL, amount, 3, nonce);
-    note.data_hash = Some([1; 32]);
+    note.ring_data_hash = Some([1; 32]);
     note.utxo_hash = note
         .utxo
-        .hash(&note.nullifier_pubkey, &[1; 32], &[0; 32], note.tree_id)
+        .hash(&note.nullifier_pubkey, &[0; 32], &[1; 32], note.tree_id)
         .unwrap();
     note.nullifier = owner
         .nullifier(&note.utxo_hash, &note.utxo.blinding)
@@ -130,7 +130,7 @@ fn synced_publications(owner: &ShieldedKeypair) -> Vec<ShieldedTransaction> {
     vec![
         published(owner, &wallet_utxo(owner, Mint::SOL, 10, 3, 1)),
         published(owner, &wallet_utxo(owner, spl(), 7, 3, 2)),
-        published(owner, &data_note(owner, 5, 3)),
+        published(owner, &ring_note(owner, 5, 3)),
         published(owner, &wallet_utxo(owner, Mint::SOL, 20, 3, 4)),
     ]
 }
@@ -141,7 +141,7 @@ fn spendable_notes(result: &mut SpendableDecryptionResult) -> Vec<&mut WalletUtx
         .assets
         .iter_mut()
         .flat_map(|balance| balance.utxos.iter_mut())
-        .chain(result.utxos_with_data.iter_mut())
+        .chain(result.ring_utxos.iter_mut())
         .collect()
 }
 
@@ -172,7 +172,7 @@ fn spendable_utxos_attach_every_notes_first_input_key_in_one_request() {
         });
     }
     assert_eq!(expected_requests.len(), 4);
-    assert_eq!(expected.utxos_with_data.len(), 1);
+    assert_eq!(expected.ring_utxos.len(), 1);
     assert_eq!(synced, expected);
     assert_eq!(keys.calls(), vec![expected_requests]);
 }

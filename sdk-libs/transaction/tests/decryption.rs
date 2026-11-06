@@ -15,6 +15,7 @@ use spr_transaction::{
         merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
         MERGE_DEFAULT_INPUT_COUNT,
     },
+    select_spend,
     serialization::{
         confidential::{Confidential, ConfidentialEncode},
         plaintext::{PlaintextTransfer, TransferPlaintextUtxos},
@@ -166,7 +167,7 @@ fn sparse_encrypted_slots_preserve_metadata_and_separate_candidates_from_verifie
         balances: Balances {
             assets: vec![balance(vec![first.clone(), second.clone()], Mint::SOL, 78)],
         },
-        utxos_with_data: vec![],
+        ring_utxos: vec![],
         ..Default::default()
     };
     assert_eq!(
@@ -188,7 +189,7 @@ fn sparse_encrypted_slots_preserve_metadata_and_separate_candidates_from_verifie
             balances: Balances {
                 assets: vec![balance(vec![second], Mint::SOL, 47)],
             },
-            utxos_with_data: vec![],
+            ring_utxos: vec![],
             ..Default::default()
         }
     );
@@ -300,7 +301,7 @@ fn verification_filters_each_untrusted_field_without_losing_the_valid_control() 
                 balances: Balances {
                     assets: vec![balance(vec![control.clone()], Mint::SOL, 29)],
                 },
-                utxos_with_data: vec![],
+                ring_utxos: vec![],
                 ..Default::default()
             }
         );
@@ -331,7 +332,7 @@ fn verification_filters_each_untrusted_field_without_losing_the_valid_control() 
 }
 
 #[test]
-fn unique_notes_sort_by_metadata_and_separate_ring_and_data_from_balances() {
+fn unique_notes_sort_by_metadata_and_separate_ring_bound_notes_from_balances() {
     let owner = keypair(16);
     let spl = Mint::new(Address::new_from_array([17; 32]), 9);
     let sol_a = wallet_utxo(&owner, Mint::SOL, 10, 3, 1);
@@ -390,11 +391,11 @@ fn unique_notes_sort_by_metadata_and_separate_ring_and_data_from_balances() {
         SpendableDecryptionResult {
             balances: Balances {
                 assets: vec![
-                    balance(vec![sol_a, sol_b, sol_c, sol_d], Mint::SOL, 100),
+                    balance(vec![sol_a, sol_b, sol_c, sol_d, hash_only], Mint::SOL, 160),
                     balance(vec![spl_note], spl, 7)
                 ]
             },
-            utxos_with_data: vec![ring, hash_only, ring_hash_only, preimages],
+            ring_utxos: vec![ring, ring_hash_only, preimages],
             ..Default::default()
         }
     );
@@ -858,11 +859,11 @@ fn shuffled_multi_asset_publications_recover_unique_balances_and_data_notes() {
     let expected = SpendableDecryptionResult {
         balances: Balances {
             assets: vec![
-                balance(vec![sol], Mint::SOL, 13),
+                balance(vec![sol, data], Mint::SOL, 32),
                 balance(vec![token], spl, 17),
             ],
         },
-        utxos_with_data: vec![data, ring],
+        ring_utxos: vec![ring],
         ..Default::default()
     };
     for _ in 0..publications.len() {
@@ -875,6 +876,39 @@ fn shuffled_multi_asset_publications_recover_unique_balances_and_data_notes() {
         );
         publications.rotate_left(1);
     }
+}
+
+/// A default-ring note that carries data is one spend selection takes, so the
+/// balance counts it: the whole balance selects.
+#[test]
+fn a_balance_counts_the_data_notes_a_spend_selects() {
+    let owner = keypair(201);
+    let plain = wallet_utxo(&owner, Mint::SOL, 5, 2, 1);
+    let mut data = wallet_utxo(&owner, Mint::SOL, 3, 2, 2);
+    data.utxo.data = Data::new(vec![DataRecord::UtxoData(vec![1])]);
+    data.data_hash = Some([1; 32]);
+    refresh_commitment(&owner, &mut data);
+    let spendable = verify_spendable(
+        &owner,
+        &DecryptionResult {
+            utxos: vec![plain.clone(), data.clone()],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let balance = spendable.balances.get_balance(Mint::SOL.asset).unwrap();
+    assert_eq!(balance.amount, 8);
+    assert_eq!(balance.utxos, [plain, data]);
+    let selected = select_spend(spendable.utxos(), Mint::SOL.asset, balance.amount, 1).unwrap();
+    assert_eq!(selected.len(), balance.utxos.len());
+    assert_eq!(
+        select_spend(spendable.utxos(), Mint::SOL.asset, balance.amount + 1, 1),
+        Err(TransactionError::InsufficientBalance {
+            requested: 9,
+            available: 8,
+        })
+    );
 }
 
 #[test]
@@ -898,7 +932,7 @@ fn altered_encryption_context_and_ciphertext_cannot_create_spendable_notes() {
             balances: Balances {
                 assets: vec![balance(vec![control.clone(), note.clone()], Mint::SOL, 98)],
             },
-            utxos_with_data: vec![],
+            ring_utxos: vec![],
             ..Default::default()
         }
     );
@@ -922,7 +956,7 @@ fn altered_encryption_context_and_ciphertext_cannot_create_spendable_notes() {
         balances: Balances {
             assets: vec![balance(vec![control], Mint::SOL, 31)],
         },
-        utxos_with_data: vec![],
+        ring_utxos: vec![],
         ..Default::default()
     };
     for (case, altered) in [
@@ -1080,7 +1114,7 @@ fn merge_outputs_decrypt_from_the_batch_in_any_order() {
         balances: Balances {
             assets: vec![balance(vec![chained_output], Mint::SOL, 42)],
         },
-        utxos_with_data: vec![],
+        ring_utxos: vec![],
         ..Default::default()
     };
     assert_eq!(decrypt_spendable(&owner, &txs, &assets).unwrap(), expected);

@@ -1,6 +1,7 @@
-//! Which UTXOs a spend takes: largest first, at most `MAX_SPEND_INPUTS` from
-//! at most `MAX_INPUT_TREES` trees, leaving out excluded and zero-amount UTXOs.
-//! Which a merge takes: the smallest plain UTXOs of one tree.
+//! Which UTXOs a spend takes: largest first, at most what the widest shape for
+//! its outputs holds (`max_spend_inputs`) from at most `MAX_INPUT_TREES`
+//! trees, leaving out excluded and zero-amount UTXOs. Which a merge takes: the
+//! smallest plain UTXOs of one tree.
 mod common;
 
 use std::collections::HashSet;
@@ -10,7 +11,10 @@ use solana_address::Address;
 use spr_interface::MAX_INPUT_TREES;
 use spr_transaction::{
     error::TransactionError,
-    instructions::{merge::MAX_MERGE_INPUTS, transact::MAX_SPEND_INPUTS},
+    instructions::{
+        merge::MAX_MERGE_INPUTS,
+        transact::{max_spend_inputs, MAX_SPEND_INPUTS},
+    },
     select_merge, select_spend, select_spend_excluding, Mint, WalletUtxo,
 };
 
@@ -29,7 +33,7 @@ fn takes_the_largest_utxos_of_the_asset_until_the_amount_is_covered() {
         wallet_utxo(&owner, Mint::SOL, 30, 0, 3),
         wallet_utxo(&owner, TOKEN, 500, 0, 4),
     ];
-    let select = |amount| select_spend(&wallet, Mint::SOL.asset, amount);
+    let select = |amount| select_spend(&wallet, Mint::SOL.asset, amount, 1);
     assert_eq!(amounts(&select(40).unwrap()), [50]);
     assert_eq!(amounts(&select(60).unwrap()), [50, 30]);
     assert_eq!(
@@ -41,7 +45,7 @@ fn takes_the_largest_utxos_of_the_asset_until_the_amount_is_covered() {
     );
     assert_eq!(select(0), Err(TransactionError::ZeroSpendAmount));
     assert_eq!(
-        amounts(&select_spend(&wallet, TOKEN.asset, 500).unwrap()),
+        amounts(&select_spend(&wallet, TOKEN.asset, 500, 1).unwrap()),
         [500]
     );
 }
@@ -55,7 +59,7 @@ fn leaves_out_excluded_utxos() {
         wallet_utxo(&owner, Mint::SOL, 20, 0, 3),
     ];
     let excluded = HashSet::from([wallet[0].nullifier]);
-    let select = |amount| select_spend_excluding(&wallet, Mint::SOL.asset, amount, &excluded);
+    let select = |amount| select_spend_excluding(&wallet, Mint::SOL.asset, amount, 1, &excluded);
     assert_eq!(amounts(&select(40).unwrap()), [30, 20]);
     assert_eq!(
         select(60),
@@ -73,7 +77,7 @@ fn leaves_out_excluded_utxos() {
     let only = vec![wallet_utxo(&owner, Mint::SOL, 100, 0, 4)];
     let excluded = HashSet::from([only[0].nullifier]);
     assert_eq!(
-        select_spend_excluding(&only, Mint::SOL.asset, 50, &excluded),
+        select_spend_excluding(&only, Mint::SOL.asset, 50, 1, &excluded),
         Err(TransactionError::SpendNeedsExcludedUtxos { amount: 50 })
     );
 }
@@ -91,7 +95,7 @@ fn leaves_out_zero_amount_and_ring_bound_utxos() {
         wallet_utxo(&owner, Mint::SOL, 0, 0, 3),
         wallet_utxo(&owner, Mint::SOL, 10, 0, 4),
     ];
-    let select = |amount| select_spend(&wallet, Mint::SOL.asset, amount);
+    let select = |amount| select_spend(&wallet, Mint::SOL.asset, amount, 1);
     assert_eq!(amounts(&select(10).unwrap()), [10]);
     assert_eq!(
         select(11),
@@ -101,7 +105,7 @@ fn leaves_out_zero_amount_and_ring_bound_utxos() {
         })
     );
     assert_eq!(
-        select_spend(&wallet[..3], Mint::SOL.asset, 1),
+        select_spend(&wallet[..3], Mint::SOL.asset, 1, 1),
         Err(TransactionError::NoSpendableBalance {
             asset: Mint::SOL.asset
         })
@@ -116,11 +120,11 @@ fn spans_at_most_max_input_trees() {
         .map(|tree| wallet_utxo(&owner, Mint::SOL, 10, tree, u8::try_from(tree).unwrap()))
         .collect();
     let fits = 10 * u64::try_from(MAX_INPUT_TREES).unwrap();
-    let selected = select_spend(&wallet, Mint::SOL.asset, fits).unwrap();
+    let selected = select_spend(&wallet, Mint::SOL.asset, fits, 1).unwrap();
     let trees: HashSet<u16> = selected.iter().map(WalletUtxo::tree_id).collect();
     assert_eq!(trees.len(), MAX_INPUT_TREES);
     assert_eq!(
-        select_spend(&wallet, Mint::SOL.asset, fits + 1),
+        select_spend(&wallet, Mint::SOL.asset, fits + 1, 1),
         Err(TransactionError::TooManyInputTrees {
             got: MAX_INPUT_TREES + 1,
             max: MAX_INPUT_TREES,
@@ -222,10 +226,69 @@ fn needs_a_merge_beyond_max_spend_inputs() {
         .collect();
     let amount = 10 * u64::from(count);
     assert_eq!(
-        select_spend(&wallet, Mint::SOL.asset, amount),
+        select_spend(&wallet, Mint::SOL.asset, amount, 1),
         Err(TransactionError::SpendNeedsMerge {
             amount,
             max_inputs: MAX_SPEND_INPUTS
+        })
+    );
+}
+
+#[test]
+fn the_widest_shape_for_the_outputs_caps_the_inputs() {
+    let widths: Vec<_> = [0, 1, 2, 3, 4, 5, 8, 9, 16, 17]
+        .into_iter()
+        .map(max_spend_inputs)
+        .collect();
+    assert_eq!(widths, [40, 40, 40, 24, 24, 16, 16, 8, 8, 0]);
+}
+
+/// A spend proves its outputs and, when the UTXOs exceed the amount, its
+/// change: the inputs fit the widest shape for that many outputs, or the
+/// balance merges first.
+#[test]
+fn needs_a_merge_beyond_the_widest_shape_for_its_outputs() {
+    let owner = keypair(1);
+    let wallet: Vec<_> = (1..=30)
+        .map(|nonce| wallet_utxo(&owner, Mint::SOL, 10, 0, nonce))
+        .collect();
+    let select = |amount, outputs| select_spend(&wallet, Mint::SOL.asset, amount, outputs);
+
+    // Two payments and change take 30 UTXOs, more than 4-output keys hold.
+    assert_eq!(
+        select(295, 2),
+        Err(TransactionError::SpendNeedsMerge {
+            amount: 295,
+            max_inputs: 24
+        })
+    );
+    assert_eq!(select(295, 1).unwrap().len(), 30);
+    // Four payments without change prove on 4-output keys; change needs 8.
+    assert_eq!(select(240, 4).unwrap().len(), 24);
+    assert_eq!(
+        select(235, 4),
+        Err(TransactionError::SpendNeedsMerge {
+            amount: 235,
+            max_inputs: 16
+        })
+    );
+    // No merge fixes outputs no shape holds.
+    assert_eq!(select(80, 16).unwrap().len(), 8);
+    assert_eq!(
+        select(75, 16),
+        Err(TransactionError::UnsupportedShape { n_in: 8, n_out: 17 })
+    );
+    assert_eq!(
+        select(10, 17),
+        Err(TransactionError::UnsupportedShape { n_in: 1, n_out: 17 })
+    );
+
+    let excluded = HashSet::from([wallet[0].nullifier]);
+    assert_eq!(
+        select_spend_excluding(&wallet, Mint::SOL.asset, 245, 3, &excluded),
+        Err(TransactionError::SpendNeedsMerge {
+            amount: 245,
+            max_inputs: 24
         })
     );
 }
@@ -242,7 +305,7 @@ fn a_merge_is_reported_even_when_excluded_utxos_would_cover_the_amount() {
     wallet.push(large);
     let amount = 10 * u64::from(count);
     assert_eq!(
-        select_spend_excluding(&wallet, Mint::SOL.asset, amount, &excluded),
+        select_spend_excluding(&wallet, Mint::SOL.asset, amount, 1, &excluded),
         Err(TransactionError::SpendNeedsMerge {
             amount,
             max_inputs: MAX_SPEND_INPUTS

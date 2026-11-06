@@ -68,6 +68,19 @@ pub(crate) fn is_transact_shape(shape: Shape) -> bool {
 /// does not. A wider balance merges first.
 pub const MAX_SPEND_INPUTS: usize = 40;
 
+/// Notes a spend proving `outputs` outputs, its change included, selects at
+/// most: the widest of [`auto_shapes`] holding that many outputs, capped at
+/// [`MAX_SPEND_INPUTS`]. Zero when no shape holds them. A transfer with two
+/// payments and change proves on 4-output keys, which take at most 24 notes.
+pub fn max_spend_inputs(outputs: usize) -> usize {
+    auto_shapes()
+        .filter(|shape| shape.n_outputs() >= outputs)
+        .map(|shape| shape.n_inputs())
+        .max()
+        .unwrap_or(0)
+        .min(MAX_SPEND_INPUTS)
+}
+
 /// Shapes automatic selection may pick: every supported shape, in proving
 /// cost order, so the first one that fits is the cheapest.
 pub fn auto_shapes() -> impl Iterator<Item = Shape> {

@@ -427,6 +427,13 @@ pub enum ClientError {
     #[error("indexer temporarily unavailable: {0}")]
     IndexerUnavailable(String),
 
+    /// The indexer refused to send a response this large (Photon's
+    /// `-32008`). The same page at a smaller limit can succeed, so
+    /// [`UtxoScan::fetch`](crate::UtxoScan::fetch) asks again at half the
+    /// limit.
+    #[error("indexer response too large: {0}")]
+    IndexerResponseTooLarge(String),
+
     #[error("rpc backend does not implement method `{0}`")]
     UnsupportedRpcMethod(&'static str),
 
