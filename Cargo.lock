@@ -3295,7 +3295,6 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "bytemuck",
- "groth16-solana",
  "light-program-profiler",
  "pinocchio 0.11.2",
  "pinocchio-system",
@@ -3304,17 +3303,9 @@ dependencies = [
  "spr-hasher",
  "spr-interface",
  "spr-program",
+ "spr-transaction",
  "thiserror 2.0.20",
  "wincode",
-]
-
-[[package]]
-name = "dynamic-swap-prover"
-version = "0.1.0"
-dependencies = [
- "spr-client",
- "spr-gnark-ffi-prover",
- "spr-gnark-ffi-prover-build",
 ]
 
 [[package]]
@@ -3324,7 +3315,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "dynamic-swap-program",
- "dynamic-swap-prover",
+ "once_cell",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-pubkey 4.2.1",
@@ -3335,6 +3326,7 @@ dependencies = [
  "spr-program",
  "spr-test-utils",
  "spr-transaction",
+ "tempfile",
  "wincode",
 ]
 
@@ -3346,7 +3338,6 @@ dependencies = [
  "bincode 1.3.3",
  "bytemuck",
  "dynamic-swap-program",
- "dynamic-swap-prover",
  "dynamic-swap-sdk",
  "light-program-profiler",
  "mollusk-svm",
@@ -3355,6 +3346,7 @@ dependencies = [
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
+ "solana-program-error",
  "solana-pubkey 4.2.1",
  "solana-rpc-client",
  "solana-signature",
@@ -3370,6 +3362,7 @@ dependencies = [
  "spr-transaction",
  "spr-tree",
  "spr-user-registry-interface",
+ "wincode",
 ]
 
 [[package]]

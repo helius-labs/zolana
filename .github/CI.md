@@ -91,7 +91,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     23. `spr-rpc-http`: `cargo nextest run`.
     24. `spr-gnark-ffi-prover`: `cargo nextest run`.
     25. `swap-prover`: `cargo nextest run`.
-    26. `dynamic-swap-prover`: `cargo nextest run`.
+    26. `dynamic-swap-program` and `dynamic-swap-sdk`: `cargo test --release`.
     27. `sdk-libs/gnark-sdk`: `go test`.
     28. `spr-zk-standalone-fixture`: `cargo test`.
     29. `spr-macros`: `cargo test`.
@@ -114,6 +114,13 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     46. Compression: `just test-compression-validator`.
     47. RFQ settlement: `just test-rfq-validator`.
     48. Coverage: `just coverage`.
+
+    `just test-spr-program-release` generates native escrow and dynamic-swap
+    proving keys, checks the committed verifier modules, and runs their Rust
+    circuit tests. It also runs the dynamic-swap SDK's checked-key loading smoke
+    test. The localnet tools job uploads dynamic-swap `.pk` files and checksum
+    sidecars as `dynamic-swap-zk-keys-${{ github.sha }}`; lifecycle jobs download
+    them to `target/zk/dynamic-swap-program`.
 
     `just test-feature-gate` checks the feature-gate crate and shielded-pool
     admission with `confidential-eddsa` disabled and explicitly enabled, plus

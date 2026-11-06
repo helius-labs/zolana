@@ -30,6 +30,9 @@ pub fn process_update_price_ix(accounts: &mut [AccountView], data: &[u8]) -> Pro
     if !address_eq(&pair.authority, authority.address()) {
         return Err(DynamicSwapError::Unauthorized.into());
     }
+    if price < pair.price_tolerance {
+        return Err(DynamicSwapError::PriceBelowTolerance.into());
+    }
     pair.price = price;
     Ok(())
 }

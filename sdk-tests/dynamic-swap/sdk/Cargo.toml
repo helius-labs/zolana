@@ -7,8 +7,8 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 borsh = { workspace = true }
-dynamic-swap-program = { path = "../program" }
-dynamic-swap-prover = { path = "../prover" }
+dynamic-swap-program = { path = "../program", features = ["circuits"] }
+once_cell = { workspace = true }
 solana-address = { workspace = true }
 solana-instruction = { workspace = true }
 solana-pubkey = { workspace = true }
@@ -16,9 +16,10 @@ solana-system-interface = { workspace = true }
 wincode = { workspace = true }
 spr-client = { workspace = true }
 spr-interface = { workspace = true }
-spr-program = { workspace = true, features = ["shielded-pda"] }
+spr-program = { workspace = true, features = ["client", "shielded-pda"] }
 spr-keypair = { workspace = true }
 spr-transaction = { workspace = true }
 
 [dev-dependencies]
+tempfile = "3"
 spr-test-utils.workspace = true
