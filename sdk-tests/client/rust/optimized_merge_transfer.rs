@@ -70,9 +70,10 @@ const MERGE_CU_LIMIT: u32 = 400_000;
 /// - **Sender** owns the UTXOs. It signs the transfer, which proves it owns
 ///   every input the transfer draws from the cache.
 /// - **Rent sponsor** funds the cache account and is its write authority. It
-///   creates the cache and sends the merge, paying the nullifier PDAs and the
-///   forester fee, and is refunded when the cache closes. It holds no spending
-///   key: a record that has opted into merging can be merged by any caller.
+///   creates the cache and sends the merge, paying the flat `fee_per_tree` of
+///   each tree the merge writes (the tree funds the nullifier PDAs), and is
+///   refunded the cache rent when the cache closes. It holds no spending key: a
+///   record that has opted into merging can be merged by any caller.
 ///
 /// The run prints its own timeline. The order it shows is the point:
 ///

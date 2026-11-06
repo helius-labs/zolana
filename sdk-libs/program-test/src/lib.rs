@@ -4,15 +4,17 @@
 //! helpers used by integration tests.
 //!
 //! Usage:
-//! ```ignore
-//! use spr_program_test::SprProgramTest;
+//! ```no_run
 //! use solana_keypair::Keypair;
+//! use spr_program_test::{ProgramTestError, SprProgramTest};
 //!
 //! let mut test = SprProgramTest::new()?;
 //! let authority = Keypair::new();
 //! test.create_protocol_config(&authority)?;
 //! let tree = test.create_tree(&authority)?;
-//! let root = test.state_root(&tree)?;
+//! let root = test.state_root(&tree).expect("the tree account exists");
+//! # let _ = root;
+//! # Ok::<(), ProgramTestError>(())
 //! ```
 
 use std::path::{Path, PathBuf};

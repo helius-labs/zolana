@@ -228,8 +228,9 @@ pub fn setup_merge_scenario(utxo_count: usize, amount: u64) -> Result<MergeScena
     // The recipient is kept as a keypair here, not just an address, so the
     // example can decrypt what it received.
     let recipient = new_wallet(&mut rpc)?;
-    // The sponsor pays for the merge as well as the cache rent: the nullifier
-    // PDAs and the forester fee come out of this balance.
+    // The sponsor pays for the merge as well as the cache rent: the transaction
+    // fee and each written tree's flat `fee_per_tree` come out of this balance.
+    // The tree funds the nullifier PDAs.
     let rent_sponsor = Keypair::new();
     rpc.airdrop(&rent_sponsor.pubkey(), 2_000_000_000)?;
 
