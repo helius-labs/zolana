@@ -331,7 +331,7 @@ impl AsyncRpc for AsyncSprIndexer {
                     .await
                     .map_err(indexer_error)?;
 
-                convert_user_records_response(response)
+                convert_user_records_response(response, &owners)
             },
         )
         .await

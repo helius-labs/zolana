@@ -192,18 +192,29 @@ pub(super) fn convert_non_inclusion_proof(proof: spr_api::NonInclusionProof) -> 
     }
 }
 
+/// One record slot per requested owner, in request order, each answering for
+/// the owner asked at its position.
 pub(super) fn convert_user_records_response(
     response: spr_api::GetUserRecordsResponse,
+    owners: &[Address],
 ) -> Result<GetUserRecordsResponse, ClientError> {
+    if response.records.len() != owners.len() {
+        return Err(ClientError::Rpc(format!(
+            "invalid indexer field records: expected {} records, got {}",
+            owners.len(),
+            response.records.len()
+        )));
+    }
     Ok(GetUserRecordsResponse {
         context: convert_context(response.context),
         records: response
             .records
             .into_iter()
+            .zip(owners)
             .enumerate()
-            .map(|(index, record)| {
+            .map(|(index, (record, owner))| {
                 record
-                    .map(|record| convert_user_record(index, record))
+                    .map(|record| convert_user_record(index, *owner, record))
                     .transpose()
             })
             .collect::<Result<_, _>>()?,
@@ -214,9 +225,16 @@ pub(super) fn convert_user_records_response(
 /// the canonical one even though it is not on the wire.
 fn convert_user_record(
     index: usize,
+    owner: Address,
     record: spr_api::UserRecord,
 ) -> Result<UserRecord, ClientError> {
     let field = |name: &str| format!("records[{index}].{name}");
+    if record.owner.0 != owner {
+        return Err(ClientError::Rpc(format!(
+            "invalid indexer field {}: a record for another owner",
+            field("owner")
+        )));
+    }
     Ok(UserRecord {
         owner: record.owner.0,
         bump: user_record_pda(&record.owner.0).1,
@@ -321,6 +339,49 @@ mod tests {
         )
         .unwrap()
         .is_some());
+    }
+
+    /// A record answers for the owner asked at its position; one owner's key
+    /// off the curve is that owner's registration and leaves the batch intact.
+    #[test]
+    fn user_records_answer_the_requested_owners_in_order() {
+        let first = solana_address::Address::new_from_array([1; 32]);
+        let second = solana_address::Address::new_from_array([2; 32]);
+        let mut off_curve = [255u8; 33];
+        off_curve[0] = 4;
+        let record = |owner: solana_address::Address| spr_api::UserRecord {
+            owner: spr_api::SerializablePubkey(owner),
+            nullifier_pubkey: spr_api::Hash::from([3; 32]),
+            viewing_pubkey: Base64String(off_curve.to_vec()),
+            merge_encryption: 0,
+        };
+        let response = |records| spr_api::GetUserRecordsResponse {
+            context: spr_api::Context {
+                block_time: 0,
+                slot: 9,
+            },
+            records,
+        };
+
+        let records = super::convert_user_records_response(
+            response(vec![None, Some(record(second))]),
+            &[first, second],
+        )
+        .unwrap()
+        .records;
+        assert_eq!(records[0], None);
+        assert_eq!(records[1].as_ref().unwrap().viewing_pubkey, off_curve);
+
+        for (records, owners) in [
+            (vec![Some(record(second)), None], vec![first, second]),
+            (vec![Some(record(first))], vec![first, second]),
+            (vec![Some(record(first)), None], vec![first]),
+        ] {
+            assert!(
+                super::convert_user_records_response(response(records), &owners).is_err(),
+                "{owners:?}"
+            );
+        }
     }
 
     #[test]

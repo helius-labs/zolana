@@ -1,4 +1,3 @@
-import type { X25519PublicKey } from "../keypair/x25519.js";
 import type { Address, Commitment, Signature } from "@solana/kit";
 
 import { equalBytes } from "../interface/bytes.js";
@@ -11,6 +10,7 @@ import type {
   TransactProof,
   TransactWithdrawal,
   Bytes32,
+  Bytes33,
 } from "../interface/types.js";
 import type { MergeEncryptionScheme } from "../interface/state.js";
 import type { ShieldedAddress, ShieldedKeypairLike } from "../keypair/shielded.js";
@@ -76,7 +76,11 @@ export interface RegistryRecord {
   readonly owner: Address;
   /** Wallet-wide nullifier pubkey. Never rotates. */
   readonly nullifierPublicKey: Bytes32;
-  readonly viewingPublicKey: X25519PublicKey;
+  /**
+   * The tagged X25519 viewing key as registered. The registry accepts any 33
+   * bytes, so decode it with `X25519PublicKey.fromBytes` where it is used.
+   */
+  readonly viewingPublicKey: Bytes33;
   /**
    * Merge opt-in and scheme: `Disabled` refuses `merge_transact`, any other
    * scheme lets any caller merge this owner's UTXOs with exactly that scheme.

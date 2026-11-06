@@ -1036,6 +1036,29 @@ pub struct GetShieldedTransactionsBySignatureResponse {
     pub transactions: Vec<IndexedShieldedTransaction>,
 }
 
+impl GetShieldedTransactionsBySignatureResponse {
+    /// Whether this answers a read of `signature`: every event belongs to that
+    /// transaction, in its one slot no later than `context.slot`, and carries
+    /// its own event index, strictly ascending.
+    pub fn answers(&self, signature: Signature) -> bool {
+        let slot = self
+            .transactions
+            .first()
+            .map(|event| event.transaction.slot);
+        let mut previous = None;
+        self.transactions.iter().all(|event| {
+            let transaction = &event.transaction;
+            let ordered = previous.is_none_or(|previous| event.event_index > previous);
+            previous = Some(event.event_index);
+            ordered
+                && transaction.tx_signature.0 == signature
+                && transaction.event_index == Some(event.event_index)
+                && Some(transaction.slot) == slot
+                && transaction.slot <= self.context.slot
+        })
+    }
+}
+
 pub type GetShieldedTransactionsByNullifiersResponse = Page<TransactionEvents<ShieldedTransaction>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1523,6 +1546,55 @@ mod tests {
         };
         let value = serde_json::to_value(request).unwrap();
         assert_eq!(value["txSignature"], signature.to_string());
+    }
+
+    #[test]
+    fn a_signature_answer_holds_only_that_transaction_in_event_order() {
+        let requested = Signature::from([7u8; 64]);
+        let event = |event_index: u16, signature: Signature, inner: Option<u16>, slot: u64| {
+            IndexedShieldedTransaction {
+                event_index,
+                transaction: ShieldedTransaction {
+                    slot,
+                    tx_signature: SerializableSignature(signature),
+                    event_index: inner,
+                    tx_viewing_pk: None,
+                    salt: None,
+                    output_slots: Vec::new(),
+                    messages: Vec::new(),
+                    nullifiers: Vec::new(),
+                    proofless: false,
+                    ring_config: None,
+                    ring_program_id: None,
+                },
+            }
+        };
+        let at = |index: u16| event(index, requested, Some(index), 5);
+        let answers = |transactions: Vec<IndexedShieldedTransaction>| {
+            GetShieldedTransactionsBySignatureResponse {
+                context: Context {
+                    block_time: 0,
+                    slot: 5,
+                },
+                output_tree_id: None,
+                transactions,
+            }
+            .answers(requested)
+        };
+        assert!(answers(Vec::new()));
+        assert!(answers(vec![at(0), at(2)]));
+        let other = Signature::from([8u8; 64]);
+        for refused in [
+            vec![event(0, other, Some(0), 5)],
+            vec![event(0, requested, Some(1), 5)],
+            vec![event(0, requested, None, 5)],
+            vec![at(1), at(1)],
+            vec![at(2), at(1)],
+            vec![at(0), event(1, requested, Some(1), 4)],
+            vec![event(0, requested, Some(0), 6)],
+        ] {
+            assert!(!answers(refused.clone()), "{refused:?}");
+        }
     }
 
     #[test]

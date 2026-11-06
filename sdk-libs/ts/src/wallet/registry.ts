@@ -17,7 +17,7 @@ import { compileUnsignedTransaction } from "../flows/compile.js";
 import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { BlockhashProvider, ChainReader } from "../client/ports.js";
 import type { RpcAccount } from "../client/rpc.js";
-import { equalBytes, bytesKey } from "../interface/bytes.js";
+import { equalBytes } from "../interface/bytes.js";
 import {
   SYSTEM_PROGRAM,
   signerAddress,
@@ -41,7 +41,6 @@ import { ShieldedAddress, type ShieldedKeypair } from "../keypair/shielded.js";
 import { WalletError, wrapWalletError } from "./error.js";
 
 type AccountReader = Pick<ChainReader, "getAccount">;
-type ProgramAccountReader = Pick<ChainReader, "getProgramAccounts">;
 
 const RECORD_SEED = new TextEncoder().encode("zolana/registry/v0");
 const REGISTER = 0;
@@ -272,35 +271,6 @@ export async function isWalletRegistered(
 
 function signingPublicKeyFromRecord(owner: Address): ShieldedPublicKey {
   return ShieldedPublicKey.fromEd25519(new Uint8Array(addressEncoder.encode(owner)) as Bytes32);
-}
-
-/** The key format of `fetchViewingKeyOwners`, the compressed viewing key as hex. */
-export function viewingKeyIndex(viewingPublicKey: Uint8Array | X25519PublicKey): string {
-  return bytesKey(
-    viewingPublicKey instanceof X25519PublicKey ? viewingPublicKey.toBytes() : viewingPublicKey,
-  );
-}
-
-/**
- * Reads the whole registry in one call. Records this version cannot decode are
- * skipped.
- */
-export async function fetchViewingKeyOwners(
-  input: Readonly<{ rpc: ProgramAccountReader }>,
-  context?: RequestContext,
-): Promise<ReadonlyMap<string, Address>> {
-  const accounts = await input.rpc.getProgramAccounts(USER_REGISTRY_PROGRAM_ID, context);
-  const owners = new Map<string, Address>();
-  for (const { account } of accounts) {
-    let record: UserRecord;
-    try {
-      record = decodeUserRecordAccount(account);
-    } catch {
-      continue;
-    }
-    owners.set(viewingKeyIndex(record.viewingPublicKey), record.owner);
-  }
-  return owners;
 }
 
 export function resolvedAddressFromRecord(owner: Address, record: UserRecord): ResolvedAddress {

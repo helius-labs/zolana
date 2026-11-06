@@ -414,6 +414,9 @@ pub enum ApiError {
         message: &'static str,
     },
     MissingResult(&'static str),
+    /// The method's answer is about something other than what was asked, such
+    /// as another transaction's events.
+    InvalidResponse(&'static str),
     InvalidPage,
     MinimumContextSlot {
         context_slot: u64,
@@ -441,6 +444,9 @@ impl fmt::Display for ApiError {
                 format!("minimum context slot has not been reached; context slot is {context_slot}")
             }
             Self::InvalidPage => "invalid pagination response".to_owned(),
+            Self::InvalidResponse(method) => {
+                format!("JSON-RPC response from {method} does not answer the request")
+            }
             Self::MissingResult(method) => {
                 format!("JSON-RPC response from {method} omitted result")
             }
@@ -620,10 +626,17 @@ impl SprApi {
         &self,
         tx_signature: SerializableSignature,
     ) -> Result<GetShieldedTransactionsBySignatureResponse, ApiError> {
-        self.call::<GetShieldedTransactionsBySignature>(GetShieldedTransactionsBySignatureRequest {
-            tx_signature,
-        })
-        .await
+        let response = self
+            .call::<GetShieldedTransactionsBySignature>(GetShieldedTransactionsBySignatureRequest {
+                tx_signature,
+            })
+            .await?;
+        if !response.answers(tx_signature.0) {
+            return Err(ApiError::InvalidResponse(
+                GetShieldedTransactionsBySignature::NAME,
+            ));
+        }
+        Ok(response)
     }
 
     pub async fn get_shielded_transactions(
@@ -1353,6 +1366,49 @@ mod tests {
         let error = call(0, "").unwrap_err();
         assert!(matches!(error, ApiError::HttpClient(_)));
         assert_eq!(error.to_string(), "HTTP client error: offline");
+    }
+
+    /// An answer about another transaction, or out of event order, is refused
+    /// rather than handed to a caller that reads it as the requested one's.
+    #[test]
+    fn a_signature_read_refuses_an_answer_about_another_transaction() {
+        let requested = SerializableSignature::default();
+        let other: SerializableSignature = format!("{}2", "1".repeat(63)).parse().unwrap();
+        let event = |outer: u16, signature: SerializableSignature, inner: u16, slot: u64| {
+            format!(
+                r#"{{"eventIndex":{outer},"transaction":{{"slot":{slot},"txSignature":"{signature}","eventIndex":{inner},"txViewingPk":null,"salt":null,"outputSlots":[],"messages":[],"nullifiers":[],"proofless":false}}}}"#
+            )
+        };
+        let read = |events: Vec<String>| {
+            let body = format!(
+                r#"{{"jsonrpc":"2.0","id":"test-account","result":{{"context":{{"blockTime":0,"slot":5}},"transactions":[{}]}}}}"#,
+                events.join(",")
+            );
+            BlockingSprApi::with_client(
+                "https://rpc.example.test",
+                FakeClient::answering(200, body.leak()),
+            )
+            .get_shielded_transactions_by_signature(requested)
+        };
+        let answer = read(vec![event(0, requested, 0, 5), event(2, requested, 2, 5)]).unwrap();
+        assert_eq!(answer.transactions.len(), 2);
+        for refused in [
+            vec![event(0, other, 0, 5)],
+            vec![event(0, requested, 1, 5)],
+            vec![event(1, requested, 1, 5), event(1, requested, 1, 5)],
+            vec![event(2, requested, 2, 5), event(1, requested, 1, 5)],
+            vec![event(0, requested, 0, 5), event(1, requested, 1, 4)],
+            vec![event(0, requested, 0, 6)],
+        ] {
+            let error = read(refused).unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    ApiError::InvalidResponse("getShieldedTransactionsBySignature")
+                ),
+                "{error}"
+            );
+        }
     }
 
     #[test]
