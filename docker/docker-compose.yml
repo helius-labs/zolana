@@ -218,7 +218,7 @@ services:
     environment:
       RUST_LOG: ${PHOTON_RUST_LOG:-info}
       PHOTON_RPC_URL: ${PHOTON_RPC_URL:-http://host.docker.internal:8899}
-      DATABASE_URL: postgres://${POSTGRES_USER:-photon}:${POSTGRES_PASSWORD:-photon}@postgres:5432/${POSTGRES_DB:-photon}
+      PHOTON_DATABASE_URL: postgres://${POSTGRES_USER:-photon}:${POSTGRES_PASSWORD:-photon}@postgres:5432/${POSTGRES_DB:-photon}
       # Slot for the initial backfill; blank resumes from the DB's last-indexed
       # slot (or the network tip on a fresh DB).
       PHOTON_START_SLOT: ${PHOTON_START_SLOT:-}
@@ -227,7 +227,7 @@ services:
       - sh
       - -c
       - |
-        set -- photon --port 8784 --rpc-url "$$PHOTON_RPC_URL" --db-url "$$DATABASE_URL"
+        set -- photon --port 8784
         if [ -n "$$PHOTON_START_SLOT" ]; then set -- "$$@" --start-slot "$$PHOTON_START_SLOT"; fi
         echo "exec: $$*"
         exec "$$@"
