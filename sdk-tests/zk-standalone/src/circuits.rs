@@ -85,7 +85,8 @@ pub struct Withdrawal {
 }
 
 impl Withdrawal {
-    /// A note of 250 paid to a destination of seven bytes, with its commitment.
+    /// A note of 250 paid to a destination whose 32 bytes are all 7, with its
+    /// commitment.
     pub fn example() -> Self {
         let destination = Address::new_from_array([7u8; 32]);
         let mut preimage = vec![constant(250u64), constant(99u64)];

@@ -15,8 +15,8 @@ use solana_signature::Signature;
 use solana_transaction_error::TransactionError;
 
 /// Compact, content-addressed account state. Keeping digests instead of raw
-/// tree bytes makes an unbounded transaction journal practical even when every
-/// operation touches a megabyte-sized tree account.
+/// tree bytes keeps an unbounded transaction journal small even though every
+/// operation touches the 40 KB tree account.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountSnapshot {
     pub lamports: u64,

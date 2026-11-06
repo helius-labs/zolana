@@ -43,9 +43,10 @@ const MERGE_CU_LIMIT: u32 = 400_000;
 /// Two actors, the same as in the optimized flow:
 ///
 /// - **Sender** owns the UTXOs and signs the transfer.
-/// - **Merge payer** pays for and sends the merge, covering the nullifier PDAs
-///   and the forester fee. It holds no spending key: a record that has opted
-///   into merging can be merged by any caller.
+/// - **Merge payer** pays for and sends the merge: the transaction fee and the
+///   flat `fee_per_tree` of each tree it writes. The tree funds the nullifier
+///   PDAs. It holds no spending key: a record that has opted into merging can
+///   be merged by any caller.
 ///
 /// The run prints its own timeline:
 ///
