@@ -297,13 +297,7 @@ describe("buildKeyUpdateTransaction", () => {
     });
     const instruction = onlyInstruction(transaction!);
 
-    expect(instruction.data).toEqual(
-      Uint8Array.of(
-        2,
-        ...replacement.nullifierPublicKey(),
-        ...replacement.viewingPublicKey().toBytes(),
-      ),
-    );
+    expect(instruction.data).toEqual(Uint8Array.of(2, ...replacement.viewingPublicKey().toBytes()));
     expect(accountsOf(instruction)).toEqual([
       { address: await getUserRecordAddress(owner), role: AccountRole.WRITABLE },
       { address: owner, role: AccountRole.WRITABLE_SIGNER },

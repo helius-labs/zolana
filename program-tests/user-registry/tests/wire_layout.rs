@@ -16,7 +16,6 @@ fn error_codes_are_stable() {
         (UserRegistryError::OwnerMismatch, 3),
         (UserRegistryError::InvalidRecordAccount, 4),
         (UserRegistryError::InvalidSystemProgram, 5),
-        (UserRegistryError::NullifierPubkeyRotation, 9),
     ];
     for (variant, code) in pinned {
         assert_eq!(variant as u32, code, "{}", variant.name());

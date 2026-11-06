@@ -14,9 +14,10 @@ pub struct RegisterData {
     pub viewing_pubkey: [u8; VIEWING_PUBKEY_LEN],
 }
 
+/// Carries only the viewing pubkey: the nullifier pubkey is fixed at
+/// registration and has no update path.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct UpdateKeysData {
-    pub nullifier_pubkey: [u8; NULLIFIER_PUBKEY_LEN],
     pub viewing_pubkey: [u8; VIEWING_PUBKEY_LEN],
 }
 
@@ -92,7 +93,7 @@ mod builders {
     }
 
     /// Accounts: `[user_record (writable), owner (signer)]`. The owner may rotate the
-    /// shielded keys stored in its existing record without changing the PDA.
+    /// viewing pubkey stored in its existing record without changing the PDA.
     pub fn update_keys(user_record: Pubkey, owner: Pubkey, data: UpdateKeysData) -> Instruction {
         let accounts = vec![
             AccountMeta::new(user_record, false),

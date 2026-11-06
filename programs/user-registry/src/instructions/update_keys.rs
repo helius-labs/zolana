@@ -4,7 +4,8 @@ use spr_user_registry_interface::instruction::UpdateKeysData;
 use super::common::{check_record_pda_with_bump, read_record, write_record};
 use crate::error::{fail, UserRegistryError};
 
-/// Updates the shielded keys stored in an existing user record.
+/// Updates the viewing pubkey stored in an existing user record. The nullifier
+/// pubkey is set once by `register` and has no update path.
 pub fn process_update_keys(
     program_id: &Address,
     accounts: &mut [AccountView],
@@ -25,13 +26,6 @@ pub fn process_update_keys(
     check_record_pda_with_bump(record, state.owner.as_array(), state.bump, program_id)?;
     if state.owner.as_array() != owner.address().as_array() {
         return Err(fail(UserRegistryError::OwnerMismatch));
-    }
-    // The nullifier pubkey is wallet-wide and part of the published owner hash,
-    // so rotating it in place would replace the record's shielded identity while
-    // every UTXO already addressed to the old one stays behind. Rejecting before
-    // writing leaves the record untouched.
-    if data.nullifier_pubkey != state.nullifier_pubkey {
-        return Err(fail(UserRegistryError::NullifierPubkeyRotation));
     }
 
     state.viewing_pubkey = data.viewing_pubkey;
