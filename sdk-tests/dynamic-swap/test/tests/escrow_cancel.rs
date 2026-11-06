@@ -477,12 +477,13 @@ fn assert_queue(env: &TestEnv, pair: Pubkey, next: u64, head: u64, context: &str
 //   6. Cancel B ahead of the head: B is refunded and its reservation released,
 //      but its account stays as a cancellation marker. A second cancel ->
 //      EscrowCancelled.
-//   7. Skip B -> NotQueueHead. Skip A (open, expired) -> the head moves to B
-//      and A stays open for its refund. Skip B (marker) -> the marker closes
-//      and the head moves past it.
+//   7. Skip B -> NotQueueHead. Skip A (open, expired) -> the head moves to B,
+//      A's reservation is released, and A stays open for its refund. Skip B
+//      (marker) -> the marker closes and the head moves past it.
 //   8. Cancel C at the head -> C closes and advances the head immediately.
-//   9. Cancel A behind the head -> A closes. All refunds are wallet-discoverable
-//      by the taker and the pool returns to its deposit.
+//   9. Cancel A behind the head -> A closes without releasing its reservation
+//      again. All refunds are wallet-discoverable by the taker and the pool
+//      returns to its deposit.
 #[test]
 fn queue_cancel_and_skip_after_expiry() -> Result<()> {
     let (env, pair) = setup_with_pair(6, PRICE, EXPIRY_SLOTS, MAX_ORDER_SIZE)?;
@@ -637,10 +638,12 @@ fn queue_cancel_and_skip_after_expiry() -> Result<()> {
     assert_eq!(
         read_pair(&env, pair)?,
         dynamic_swap_program::state::Pair {
+            available_liquidity: pair_before_skip.available_liquidity + MAX_ORDER_SIZE,
+            open_reservations: pair_before_skip.open_reservations - 1,
             head_order_id: 1,
             ..pair_before_skip
         },
-        "advancing an expired open head must retain its reservation"
+        "skipping an expired open head must release its reservation once"
     );
     assert_eq!(
         read_escrow(&env, order_a.escrow)?,
@@ -756,13 +759,20 @@ fn queue_cancel_and_skip_after_expiry() -> Result<()> {
         "a cancelled head must close without a separate cleanup instruction"
     );
 
-    // 9. Cancel A behind the head: refunded and closed.
+    // 9. Cancel A behind the head: refunded and closed. Skipping A already
+    // released its reservation, so the pair does not change.
+    let pair_before_cancel_skipped = read_pair(&env, pair)?;
     send(env.localnet.client.rpc(), user_solana, &[], cancel_a.ix)
         .map_err(|e| anyhow!("send cancel A: {e:?}"))?;
     env.leaf_index(cancel_a.refund_out_hash);
     assert!(
         read_escrow(&env, order_a.escrow)?.is_none(),
         "a cancel behind the head must close the escrow"
+    );
+    assert_eq!(
+        read_pair(&env, pair)?,
+        pair_before_cancel_skipped,
+        "cancelling a skipped order must not release its reservation again"
     );
     assert_liquidity(&env, pair, POOL_DEPOSIT, 0, "after cancel A")?;
     assert_queue(&env, pair, 3, 3, "after all refunds")?;

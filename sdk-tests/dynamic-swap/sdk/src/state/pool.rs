@@ -74,7 +74,7 @@ pub fn pool_authority_identity(
 /// directly -- the portion of `amount` the public `available_liquidity` already
 /// counts (`amount - booked` is unpublished surplus). Created by
 /// `deposit_liquidity` (booked = amount, the amount public), `settle` (change,
-/// booked clamped down by `max_order_size`), and `rebalance_liquidity`.
+/// booked reduced by `max_order_size`), and `rebalance_liquidity`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PoolUtxo {
     /// The pair's destination asset -- what the pool pays out.

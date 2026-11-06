@@ -42,11 +42,11 @@ circuit list and development commands.
 
 3. User: open the order. The user proves that the order meets the pair's minimum amount and that its largest possible payout within the accepted window fits the maximum payout. The transaction locks the source tokens, returns the user's change, and uses the SDK to encrypt the order opening to the maker. The program assigns the next order ID, records the live pair price as the execution price, stores a checked absolute expiry slot, and reserves the pair's maximum payout. Later price updates do not change this order's execution price or deadline.
 
-4. Market maker: recover the order. The maker decrypts the order opening and selects a pool note large enough to fund the payout. It constructs a proof for the committed order terms and the recorded execution price.
+4. Market maker: recover the order. The maker decrypts the order opening and selects a pool note that can fund the payout and whose counted value covers the order's reservation. It constructs a proof for the committed order terms and the recorded execution price.
 
 5. Market maker: settle before expiry, oldest order first. Settlement accepts only the order at the pair's queue head. If its execution price meets the private minimum, the user receives destination tokens and the maker receives the locked source tokens. Otherwise, the user receives all the source tokens back. Both outcomes return any pool change, release the reservation, advance the head, close the order, and return its account rent to the user.
 
-6. User: cancel after expiry if settlement did not happen. The user proves a full source-token refund to the order's committed recipient. Cancellation releases the reservation without requiring the maker's signature, regardless of the order's queue position. An order at the head advances the queue and closes; an order behind the head closes immediately. An order ahead of the head stays as a refunded marker until the queue reaches it, when anyone can remove it and return its account rent to the user. A holder of the order opening can also submit the refund proof, but cannot change the refund destination.
+6. User: cancel after expiry if settlement did not happen. The user proves a full source-token refund to the order's committed recipient. Cancellation does not require the maker's signature. It releases the reservation unless `skip_expired` already did. An order at the head advances the queue and closes; an order behind the head closes immediately. An order ahead of the head stays as a refunded marker until the queue reaches it, when anyone can remove it and return its account rent to the user. A holder of the order opening can also submit the refund proof, but cannot change the refund destination.
 
 The user can derive the settlement payout or cancellation refund note from the order opening and the published order nullifier. Recovery does not depend on the maker supplying a payout ciphertext.
 
@@ -54,7 +54,7 @@ The user can derive the settlement payout or cancellation refund note from the o
 
 Each pair stores `next_order_id` and `head_order_id`, both initially zero. Opening an order assigns `next_order_id` and increments it. Its escrow address is derived from `["escrow", pair, order_id.to_le_bytes()]`. Only `head_order_id` can settle; successful settlement advances the head by one. The queue adds public order metadata and leaves the pool-note openings used to prove settlement private.
 
-If the maker withholds settlement, later orders on that pair cannot settle until the head expires. Anyone can then call `skip_expired` to advance past it. An expired order that has not refunded keeps its escrow and liquidity reservation until cancellation; a refunded marker closes when skipped. Queue advancement and refund are separate operations. An empty queue can still have expired orders awaiting refund.
+If the maker withholds settlement, later orders on that pair cannot settle until the head expires. Anyone can then call `skip_expired` to advance past it. Skipping an expired open order releases its liquidity reservation, so the maker recovers that liquidity even when it cannot read the order opening; the escrow stays open until the user cancels. A refunded marker closes when skipped. Queue advancement and refund are separate operations. An empty queue can still have expired orders awaiting refund.
 
 Refusal costs the maker trading opportunities on that pair until expiry. Execution still depends on the maker supplying a proof, and the maker can resume after the queue advances or continue trading through other pairs. Deadlines run from creation rather than from reaching the head, so several queued orders can expire during one stall. The delay is not a fixed penalty for each refused order.
 
@@ -100,7 +100,7 @@ For public floor `F` and tolerance `X`, the private minimum is at most `F + X`. 
 
 1. Reservations: every open order reserves the configured maximum payout, even when its actual payout is smaller. The program rejects new orders when available liquidity cannot cover another reservation.
 2. Concurrency: settlements land in queue order, and one settlement spends one pool note. Splitting inventory into several notes lets the maker prepare consecutive settlements in parallel without spending the same note twice.
-3. Note sizing: keep notes large enough to fund intended orders. Aggregate pool liquidity can cover an order while individual notes still need consolidation before settlement.
+3. Note sizing: settlement spends one pool note, which must fund the payout and count at least the maximum payout, because settlement removes the full reservation from that note's counted value. Aggregate pool liquidity can cover an order while individual notes still need consolidation before settlement.
 4. Recovery: retain the preimages of rebalance outputs, which are published without ciphertexts. Confidential pool outputs that carry encrypted payloads use the pool viewing key, separately from the escrow handoff key.
 
 ### Rebalance
@@ -110,4 +110,4 @@ For public floor `F` and tolerance `X`, the private minimum is at most `F + X`. 
 3. Replenish liquidity. The maker can deposit more destination tokens whenever it needs additional payout capacity.
 4. Withdraw free liquidity. The maker can withdraw destination tokens to its own token account, up to the publicly available liquidity. Open-order reservations remain covered.
 
-For every pool note, the counted value must not exceed its token amount. Across the pool, counted value covers available liquidity plus all open-order reservations. Deposits, withdrawals, rebalances, settlements, and cancellations preserve this guarantee.
+For every pool note, the counted value must not exceed its token amount. Across the pool, counted value equals available liquidity plus all open-order reservations. Deposits, withdrawals, rebalances, settlements, cancellations, and skips preserve this equality, so every counted token is either withdrawable or reserved.

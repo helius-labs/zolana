@@ -1243,7 +1243,8 @@ fn bench_skip_expired(
     }
     .instruction();
 
-    // The open head order has expired; it stays open for its refund.
+    // The open head order has expired: skipping releases its reservation and
+    // leaves it open for its refund.
     mollusk.sysvars.clock.slot = CREATED_AT + EXPIRY_SLOTS + 1;
     let fixtures = vec![
         (

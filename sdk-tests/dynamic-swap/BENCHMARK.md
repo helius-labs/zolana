@@ -2,9 +2,6 @@
 
 Compute unit profiling for the dynamic-swap create_pair/update_price/create_escrow/settle/cancel/withdraw_liquidity/rebalance_liquidity instructions, replayed under mollusk. Every PDA account (Pair, Escrow) and the shielded-pool tree account are built directly, as if the prior instruction chain already ran -- only the ONE instruction under measurement is actually replayed. Only the dynamic-swap program is profiled; the shielded-pool program is built plain, so the CU its CPI consumes is charged to the `cpi_spp_*` row as a black box and its internal functions do not appear here. update_price never verifies a proof or CPI into SPP at all (the whole point of keeping it cheap), and neither does skip_expired, which advances the FIFO order queue past an expired head; deposit_liquidity (the maker's shielded note into a pool note, IN1_OUT2 with one compact output), create_escrow (taker-only, IN1_OUT2), settle (pool-funded, maker-only, IN2_OUT4 with one compact output), cancel (after expiry, IN1_OUT2 with one compact output), withdraw_liquidity (IN1_OUT2 with one compact output and an SPL withdrawal), and rebalance_liquidity (IN5_OUT4, dummy-padded) each verify their own Groth16 proof and then CPI SPP `transact`, which verifies its own. Each proof-carrying instruction's section also records its proving times (SPP transfer proof plus the dynamic-swap circuit proof) and the serialized size of the version 1 transaction these instructions are sent as, which states its compute ceilings in the message header and may run to 4096 bytes.
 
-These measurements are the baseline from the former gnark application circuits.
-The Rust `spr-program` circuit migration changes proof generation and verifier
-keys; the tables have not been measured again for that implementation.
 Regenerate with `just bench-dynamic-swap`.
 
 ## Definitions
@@ -28,13 +25,13 @@ Regenerate with `just bench-dynamic-swap`.
 
 | Function                         |   Total CU |     Net CU |
 | -------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed_multi`  |    140,910 |    140,910 |
-| `process_cancel_ix`              |    242,529 |    101,619 |
+| `cpi_spp_transact_signed_multi`  |    141,047 |    141,047 |
+| `process_cancel_ix`              |    241,394 |    100,347 |
 
 **Proving Time**
 | SPP transfer proof | Dynamic-swap circuit proof | Total  |
 | ------------------ | -------------------------- | ------ |
-|             106 ms |                      61 ms | 168 ms |
+|              87 ms |                     889 ms | 977 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | v1 Tx      |
@@ -45,24 +42,24 @@ Regenerate with `just bench-dynamic-swap`.
 
 | Function                         |   Total CU |     Net CU |
 | -------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed_multi`  |    140,608 |    140,608 |
-| `process_create_escrow_ix`       |    251,256 |    110,648 |
+| `cpi_spp_transact_signed_multi`  |    143,046 |    143,046 |
+| `process_create_escrow_ix`       |    254,388 |    111,342 |
 
 **Proving Time**
-| SPP transfer proof | Dynamic-swap circuit proof | Total  |
-| ------------------ | -------------------------- | ------ |
-|             152 ms |                     152 ms | 304 ms |
+| SPP transfer proof | Dynamic-swap circuit proof | Total   |
+| ------------------ | -------------------------- | ------- |
+|              92 ms |                    1074 ms | 1167 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | v1 Tx      |
 | ---------------- | -------- | ---------- |
-|        824 bytes |       11 | 1241 bytes |
+|        824 bytes |       12 | 1242 bytes |
 
 ## 3. Create Pair
 
 | Function                         |   Total CU |     Net CU |
 | -------------------------------- | ---------- | ---------- |
-| `process_create_pair_ix`         |      3,194 |      3,194 |
+| `process_create_pair_ix`         |      3,224 |      3,224 |
 
 **Transaction Size**
 | Instruction Data | Accounts | v1 Tx     |
@@ -73,30 +70,30 @@ Regenerate with `just bench-dynamic-swap`.
 
 | Function                         |   Total CU |     Net CU |
 | -------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed_multi`  |    139,474 |    139,474 |
-| `process_deposit_liquidity_ix`   |    241,499 |    102,025 |
+| `cpi_spp_transact_signed_multi`  |    141,182 |    141,182 |
+| `process_deposit_liquidity_ix`   |    243,571 |    102,389 |
 
 **Proving Time**
 | SPP transfer proof | Dynamic-swap circuit proof | Total  |
 | ------------------ | -------------------------- | ------ |
-|             109 ms |                      45 ms | 154 ms |
+|              88 ms |                     680 ms | 768 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | v1 Tx      |
 | ---------------- | -------- | ---------- |
-|        635 bytes |        8 | 1017 bytes |
+|        635 bytes |        9 | 1018 bytes |
 
 ## 5. Rebalance Liquidity
 
 | Function                         |   Total CU |     Net CU |
 | -------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed_multi`  |    161,674 |    161,674 |
-| `process_rebalance_liquidity_ix` |    264,049 |    102,375 |
+| `cpi_spp_transact_signed_multi`  |    157,871 |    157,871 |
+| `process_rebalance_liquidity_ix` |    275,553 |    117,682 |
 
 **Proving Time**
-| SPP transfer proof | Dynamic-swap circuit proof | Total  |
-| ------------------ | -------------------------- | ------ |
-|             333 ms |                     233 ms | 566 ms |
+| SPP transfer proof | Dynamic-swap circuit proof | Total   |
+| ------------------ | -------------------------- | ------- |
+|             299 ms |                    2494 ms | 2793 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | v1 Tx      |
@@ -107,13 +104,13 @@ Regenerate with `just bench-dynamic-swap`.
 
 | Function                         |   Total CU |     Net CU |
 | -------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed_multi`  |    149,513 |    149,513 |
-| `process_settle_ix`              |    258,747 |    109,234 |
+| `cpi_spp_transact_signed_multi`  |    151,449 |    151,449 |
+| `process_settle_ix`              |    262,854 |    111,405 |
 
 **Proving Time**
-| SPP transfer proof | Dynamic-swap circuit proof | Total  |
-| ------------------ | -------------------------- | ------ |
-|             192 ms |                     164 ms | 356 ms |
+| SPP transfer proof | Dynamic-swap circuit proof | Total   |
+| ------------------ | -------------------------- | ------- |
+|             169 ms |                    1922 ms | 2092 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | v1 Tx      |
@@ -124,7 +121,7 @@ Regenerate with `just bench-dynamic-swap`.
 
 | Function                         |   Total CU |     Net CU |
 | -------------------------------- | ---------- | ---------- |
-| `process_skip_expired_ix`        |        322 |        322 |
+| `process_skip_expired_ix`        |        286 |        286 |
 
 **Transaction Size**
 | Instruction Data | Accounts | v1 Tx     |
@@ -135,7 +132,7 @@ Regenerate with `just bench-dynamic-swap`.
 
 | Function                         |   Total CU |     Net CU |
 | -------------------------------- | ---------- | ---------- |
-| `process_update_price_ix`        |         69 |         69 |
+| `process_update_price_ix`        |         68 |         68 |
 
 **Transaction Size**
 | Instruction Data | Accounts | v1 Tx     |
@@ -146,13 +143,13 @@ Regenerate with `just bench-dynamic-swap`.
 
 | Function                         |   Total CU |     Net CU |
 | -------------------------------- | ---------- | ---------- |
-| `cpi_spp_transact_signed_multi`  |    144,465 |    144,465 |
-| `process_withdraw_liquidity_ix`  |    261,718 |    117,253 |
+| `cpi_spp_transact_signed_multi`  |    145,122 |    145,122 |
+| `process_withdraw_liquidity_ix`  |    247,716 |    102,594 |
 
 **Proving Time**
 | SPP transfer proof | Dynamic-swap circuit proof | Total  |
 | ------------------ | -------------------------- | ------ |
-|             118 ms |                      50 ms | 168 ms |
+|              85 ms |                     676 ms | 762 ms |
 
 **Transaction Size**
 | Instruction Data | Accounts | v1 Tx      |

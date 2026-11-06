@@ -2,7 +2,7 @@
 
 - Price updates are cheap: `update_price` touches only the pair account, and `create_escrow` prices the order at creation by reading that price.
 - Unidirectional trading pairs (e.g. SOL -> USDC), each with its own authority (the maker) who sets the price.
-- Committed liquidity: the pool is every UTXO owned by the pair's `pool_authority` PDA (destination asset). Each pool note's confidential data contains `booked`: the portion of its amount that the public accounting already counts. The pair account tracks a public `available_liquidity` and `open_reservations`. Invariants: per note `0 <= booked <= amount`, and globally `sum(booked) >= available_liquidity + open_reservations * max_order_size`. Each open escrow holds a `max_order_size` reservation, covered by funds the maker cannot withdraw.
+- Committed liquidity: the pool is every UTXO owned by the pair's `pool_authority` PDA (destination asset). Each pool note's confidential data contains `booked`: the portion of its amount that the public accounting already counts. The pair account tracks a public `available_liquidity` and `open_reservations`. Invariants: per note `0 <= booked <= amount`, and globally `sum(booked) == available_liquidity + open_reservations * max_order_size`. Each open escrow holds a `max_order_size` reservation, covered by funds the maker cannot withdraw.
 - Order amounts are confidential, so the accounting is conservative: `create_escrow` reserves the worst case (`max_order_size`), and settle publicly changes nothing except closing the reservation. The unspent part of the reservation (`max_order_size - owed`) stays inside the pool change note as surplus (`amount - booked`).
 - Rebalancing is the only place surplus becomes public liquidity again: `rebalance_liquidity` restructures pool notes (many in, many out) and lets the maker declare a public `credit`, adding exactly that much of the spent notes' surplus to `available_liquidity`. Timing and granularity are maker-chosen; a zero credit restructures the pool (merge, split, re-blind) with no public effect.
 - `max_order_size` is immutable per pair: cancel must release exactly what create_escrow reserved. It is denominated in the destination asset. `escrow_open` proves the reservation covers the order at the public window's highest price.
@@ -50,14 +50,14 @@ verifier modules; see the [ZK program SDK setup documentation](../../sdk-libs/pr
 | 4 | withdraw_liquidity | 4 | One 1-in/1-out `pool_withdraw` proof (SPP shape IN1_OUT2, the second output compact padding) spends one pool UTXO into a pool change UTXO (back to `pool_authority`, with a maker-held private blinding and `booked_out = booked_in - amount`; the proof rejects a negative result) and a public `amount` unshielded to the authority's SPL token account. Rejects `amount = 0` and `amount > available_liquidity`; `available_liquidity -= amount`. | — | pair account | Pair authority signs |
 | 5 | rebalance_liquidity | 5 | One `pool_rebalance` proof restructures the pool: it spends one to five pool UTXOs into one to four pool UTXOs (back to `pool_authority`, maker-held private blindings). The proof checks `sum(amount_out) = sum(amount_in)`, per output `booked <= amount`, and, for the public input `credit`, `sum(booked_out) = sum(booked_in) + credit`. The program applies `available_liquidity += credit`. `credit = 0` restructures with no public effect (merge, split, re-blind). The circuit is compiled once at the largest supported shape (IN5_OUT4); unused slots hold dummy notes. | — | pair account | Pair authority signs |
 | 6 | create_escrow | 6 | Creates and prices an exact-input sell escrow at the back of the pair's order queue: `order_id = pair.next_order_id`, then `next_order_id += 1`; the escrow account is the PDA `["escrow", pair, order_id.to_le_bytes()]`. Stores `expires_at = current_slot + expiry_slots`, rejecting overflow. Instruction data contains `public_price_floor = F`; the program rejects unless `F <= pair.price <= F + 2 * price_tolerance` and the fixed reservation is available. The IN1_OUT2 proof privately enforces `order_amount >= min_order_amount`, `F <= min_price <= F + price_tolerance`, and `order_amount * (F + 2 * price_tolerance) <= max_order_size`; it does not check the live price or encrypted handoff delivery. The order data hash commits `Poseidon(recipient_owner_hash, min_price)`, and the SDK's encrypted handoff includes both values. | — | pair account, user escrow account (created) | Taker signs (fee payer) |
-| 7 | settle | 7 | Resolves the order at the queue head (`order_id == pair.head_order_id`, else `NotQueueHead`) before expiry and advances the head, with a 2-in/3-out proof (SPP shape IN2_OUT4, the fourth output compact padding). The circuit derives `fills = execution_price >= min_price`. On fill, the recipient gets `order_amount * execution_price` destination tokens and the maker gets the fixed source amount. On refund, the recipient gets the fixed source amount, the pool amount is unchanged, and the maker gets a real zero-amount source UTXO. Both outcomes return pool change, reduce `booked` by `max_order_size` (clamped at zero), apply the same public state delta, and expose the same transaction shape. | — | pair account, user escrow account (closed) | Pair authority signs; the destinations are fixed by the proof |
-| 8 | cancel | 8 | Refunds one escrow after expiry. An order at the head advances the head and closes; an order behind the head closes. An order ahead of the head stays as a refunded cancellation marker (`cancelled = 1`) until `skip_expired` passes it. A marker cannot be cancelled again (`EscrowCancelled`). One 1-in/1-out `escrow_cancel` proof (SPP shape IN1_OUT2, the second output compact padding) spends the order UTXO back to the confidential recipient committed in its data hash: the full `order_amount` in the source asset, with the refund blinding derived from the order opening (see [Settlement Recovery](#settlement-recovery)). Applies `available_liquidity += max_order_size` and `open_reservations -= 1` exactly once. `rent_recipient` must be the escrow's `owner`. | — | pair account, user escrow account (closed or marked cancelled) | Permissionless: only a holder of the order UTXO data (the taker, or the maker via the handoff) can build the proof, and the destination is fixed by the proof |
-| 9 | skip_expired | 9 | Advances the queue head by one past the head order once it can no longer settle: an expired open order retains its escrow and reservation for a later refund, and a cancellation marker closes with its rent returned to the escrow `owner` (`rent_recipient`). Rejects an order that is not the head (`NotQueueHead`) or an open head that has not expired (`NotYetExpired`). Requires no proof or CPI. | — | pair account, user escrow account (closed if a marker) | Permissionless |
+| 7 | settle | 7 | Resolves the order at the queue head (`order_id == pair.head_order_id`, else `NotQueueHead`) before expiry and advances the head, with a 2-in/3-out proof (SPP shape IN2_OUT4, the fourth output compact padding). The circuit derives `fills = execution_price >= min_price`. On fill, the recipient gets `order_amount * execution_price` destination tokens and the maker gets the fixed source amount. On refund, the recipient gets the fixed source amount, the pool amount is unchanged, and the maker gets a real zero-amount source UTXO. The spent pool note must book at least `max_order_size`. Both outcomes return pool change, reduce `booked` by `max_order_size`, apply the same public state delta, and expose the same transaction shape. | — | pair account, user escrow account (closed) | Pair authority signs; the destinations are fixed by the proof |
+| 8 | cancel | 8 | Refunds one escrow after expiry. An order at the head advances the head and closes; an order behind the head closes. An order ahead of the head stays as a refunded cancellation marker (`cancelled = 1`) until `skip_expired` passes it. A marker cannot be cancelled again (`EscrowCancelled`). One 1-in/1-out `escrow_cancel` proof (SPP shape IN1_OUT2, the second output compact padding) spends the order UTXO back to the confidential recipient committed in its data hash: the full `order_amount` in the source asset, with the refund blinding derived from the order opening (see [Settlement Recovery](#settlement-recovery)). An order at or ahead of the head applies `available_liquidity += max_order_size` and `open_reservations -= 1`; an order behind the head was skipped, which already released its reservation. `rent_recipient` must be the escrow's `owner`. | — | pair account, user escrow account (closed or marked cancelled) | Permissionless: only a holder of the order UTXO data (the taker, or the maker via the handoff) can build the proof, and the destination is fixed by the proof |
+| 9 | skip_expired | 9 | Advances the queue head by one past the head order once it can no longer settle: an expired open order releases its reservation (`available_liquidity += max_order_size`, `open_reservations -= 1`) and keeps its escrow for a later refund, and a cancellation marker closes with its rent returned to the escrow `owner` (`rent_recipient`). Rejects an order that is not the head (`NotQueueHead`) or an open head that has not expired (`NotYetExpired`). Requires no proof or CPI. | — | pair account, user escrow account (closed if a marker) | Permissionless |
 
 ## Liquidity Accounting
 
 Per-note invariant: `0 <= booked <= amount`. Global invariant:
-`sum(booked) >= available_liquidity + open_reservations * max_order_size`, which
+`sum(booked) == available_liquidity + open_reservations * max_order_size`, which
 together give `sum(pool UTXO amounts) >= available_liquidity + open_reservations *
 max_order_size`.
 
@@ -68,18 +68,24 @@ max_order_size`.
 | rebalance_liquidity | += credit | — | — |
 | create_escrow | -= max_order_size (reject if bound < max_order_size) | += 1 | — |
 | settle | — | -= 1 | -= owed on fill; unchanged on refund |
-| cancel | += max_order_size | -= 1 | — |
-| skip_expired | — | — | — |
+| cancel (order at or ahead of the head) | += max_order_size | -= 1 | — |
+| cancel (skipped order behind the head) | — | — | — |
+| skip_expired (open order) | += max_order_size | -= 1 | — |
+| skip_expired (cancellation marker) | — | — | — |
 
 The notes record the `booked` bookkeeping and the proofs maintain it: a
 deposit starts with `booked = amount`, a withdrawal consumes booked value, a
-settle moves up to `max_order_size` out of booked (clamped at zero) while only
-`owed` leaves the note, and a rebalance raises booked by the declared public
-`credit`, capped by the spent notes' surplus (`sum(amount) - sum(booked)`).
-The credit is bounded by surplus that is provably present and not yet counted,
-so no value is counted twice; the other transitions only lower booked or match
-a public delta, so the bound stays a lower bound on the pool total. Settle does
-not change the bound, so the public record of the maker's liquidity is
+settle moves exactly `max_order_size` out of booked while only `owed` leaves
+the note, and a rebalance raises booked by the declared public `credit`,
+capped by the spent notes' surplus (`sum(amount) - sum(booked)`). Each change
+to `sum(booked)` matches the public change, so the equality holds and every
+booked token is either withdrawable or reserved. A settle that spent a note
+booked below `max_order_size` would release more than it removed from booked
+and leave counted value the maker could neither withdraw nor credit, so the
+`pool_settle` proof rejects it; the maker merges booked value with a
+zero-credit rebalance first. The credit is bounded by surplus that is provably
+present and not yet counted, so no value is counted twice. Settle does not
+change `available_liquidity`, so the public record of the maker's liquidity is
 deposits, withdrawals, and the credits the maker publishes.
 
 ## State Machine
@@ -93,9 +99,9 @@ accepting funds. `settle` accepts `slot <= expires_at`; `cancel` and
 |--------------------------|-------------|---------------|--------------|--------------------|
 | open at the head, not expired | `settle` | closes after the proven fill or price-based refund; rent returns to owner | head advances by one | consumed by settlement |
 | open at the head, expired | `cancel` | refunds the source amount and closes; rent returns to owner | head advances by one | released to available liquidity |
-| open behind the head, expired | `cancel` | refunds the source amount and closes; rent returns to owner | unchanged | released to available liquidity |
+| open behind the head, expired | `cancel` | refunds the source amount and closes; rent returns to owner | unchanged | unchanged; released when skipped |
 | open ahead of the head, expired | `cancel` | refunds the source amount and becomes a marker (`cancelled = 1`) | unchanged | released to available liquidity |
-| open at the head, expired | `skip_expired` | stays open and refundable | head advances by one | retained until cancellation |
+| open at the head, expired | `skip_expired` | stays open and refundable | head advances by one | released to available liquidity |
 | cancellation marker at the head | `skip_expired` | closes; rent returns to owner | head advances by one | unchanged; already released |
 
 `owed = order_amount * execution_price`; `max = pair.max_order_size`.
@@ -110,7 +116,7 @@ Each pair keeps two counters, initially zero. `next_order_id` is the ID assigned
 by `create_escrow` and then incremented; `head_order_id` is the only order
 `settle` accepts. IDs increase with checked arithmetic and are not reused.
 `head_order_id <= next_order_id`, and equality means the queue is empty. Expired
-orders behind the head can still retain escrows and reservations pending refund.
+orders behind the head can still hold escrows pending refund.
 
 An escrow account is the PDA `["escrow", pair, order_id.to_le_bytes()]`. The
 account stores its `order_id`, pair, order UTXO hash, recorded execution price,
@@ -132,11 +138,14 @@ valid.
 
 The head advances one position at a time through settlement, cancellation of
 the expired head, or permissionless `skip_expired`. There is no maker-controlled
-skip for an unexpired order. Skipping an expired open order preserves the
-escrow and reservation: `cancel` can later refund it after the queue has moved
-on. Cancelling an expired order ahead of the head retains its refunded marker
-so the head can later find that queue position. Removing that marker returns
-its rent and does not release its reservation again.
+skip for an unexpired order. Skipping an expired open order releases its
+reservation and keeps the escrow: `cancel` can later refund it after the queue
+has moved on, without releasing the reservation again. An order that can no
+longer settle therefore stops holding liquidity once it is skipped, even if
+nobody can build its refund proof. Cancelling an expired order ahead of the
+head retains its refunded marker so the head can later find that queue
+position. Removing that marker returns its rent and does not release its
+reservation again.
 
 An order's deadline is fixed when it opens. With immutable `expiry_slots` and
 creation slots from the Clock, deadlines are nondecreasing in order ID. Waiting
@@ -156,7 +165,8 @@ The SDK encrypts the order opening to `maker_encryption_pubkey`. The current
 `escrow_open` proof checks the committed recipient, amount, and minimum price;
 it does not prove that the configured maker key can decrypt a matching opening.
 A valid commitment with an unreadable handoff can therefore halt the pair until
-expiry. FIFO is safe against hostile order creators only once delivery is
+expiry. Its reservation is released when `skip_expired` passes it, so the
+liquidity lock ends at the same point. FIFO is safe against hostile order creators only once delivery is
 proven, which the queue does not do. `min_order_amount` and the cost of opening
 an escrow make such an order expensive, but they do not prove the handoff
 decrypts.

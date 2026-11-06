@@ -17,10 +17,13 @@ use crate::{
 // Permissionless: anyone may move the queue once its head has expired, which
 // is what lets later orders settle after the maker let the head lapse.
 //
-// An expired open order stays open: only its refund proof can spend the order
-// UTXO, and `cancel` closes it once it is behind the head. A cancellation
-// marker has nothing left to refund, so this closes it and returns its rent to
-// the taker.
+// An expired open order can no longer settle, so this releases its
+// reservation; the maker does not need the order opening to recover that
+// liquidity. The order stays open: only its refund proof can spend the order
+// UTXO, and `cancel` closes it once it is behind the head without releasing
+// the reservation again. A cancellation marker already released its
+// reservation and has nothing left to refund, so this closes it and returns
+// its rent to the taker.
 //
 // Steps:
 // 1. Check that the pair, escrow, and rent recipient accounts are present and
@@ -32,7 +35,7 @@ use crate::{
 // 5. Check that the escrow is the queue head.
 // 6. Check that the rent recipient is the escrow's owner.
 // 7. Check that the escrow is a cancellation marker or has expired.
-// 8. Advance the queue head.
+// 8. Release an open order's reservation and advance the queue head.
 // 9. Close a cancellation marker to the rent recipient.
 #[inline(never)]
 #[profile]
@@ -70,7 +73,10 @@ pub fn process_skip_expired_ix(accounts: &mut [AccountView], data: &[u8]) -> Pro
         return Err(DynamicSwapError::NotYetExpired.into());
     }
 
-    // Step 8: Advance the queue head.
+    // Step 8: Release an open order's reservation and advance the queue head.
+    if !cancelled {
+        pair.release_reservation()?;
+    }
     pair.head_order_id = escrow
         .order_id
         .checked_add(1)

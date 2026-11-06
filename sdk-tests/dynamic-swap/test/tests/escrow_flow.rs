@@ -59,7 +59,7 @@ const EXPIRY_SLOTS: u64 = 100_000;
 //      creation; the reservation moves MAX_ORDER_SIZE out of the bound.
 //   4. settle: the maker recovers the order and pool notes purely from Solana
 //      and the indexer, and spends order + pool -> recipient paid OWED of the
-//      destination asset, pool change re-locked with booked clamped down by
+//      destination asset, pool change re-locked with booked reduced by
 //      MAX_ORDER_SIZE, maker receipt (the full escrowed SPL). Maker-only.
 //   5. rebalance_liquidity: the maker publishes the settle surplus
 //      (MAX_ORDER_SIZE - OWED) back into available_liquidity.
@@ -331,7 +331,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
 
     // 4. settle: the payout is funded from the committed pool. The recipient is
     // paid `order_amount * execution_price` of the destination asset; the pool
-    // change re-locks with its booked value clamped down by the reservation;
+    // change re-locks with its booked value reduced by the reservation;
     // the maker receipt (the full escrowed SPL) goes to the pair's stored
     // receipt owner-hash.
     let (recipient_out_hash, pool_change) = {
@@ -465,9 +465,9 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .try_into()
             .map_err(|_| anyhow!("settle derives three output blindings"))?;
 
-        // The pool change: booked drops by the full reservation (clamped at
-        // zero) while only owed actually leaves -- the gap stays in the note as
-        // surplus, published later by the rebalance below.
+        // The pool change: booked drops by the full reservation while only
+        // owed leaves, so the gap stays in the note as surplus, published
+        // later by the rebalance below.
         let pool_change_note = PoolUtxo {
             asset: env.destination_mint(),
             amount: pool_in_note
@@ -475,7 +475,11 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 .amount
                 .checked_sub(owed)
                 .ok_or_else(|| anyhow!("owed exceeds the pool note amount"))?,
-            booked: pool_in_note.note.booked.saturating_sub(MAX_ORDER_SIZE),
+            booked: pool_in_note
+                .note
+                .booked
+                .checked_sub(MAX_ORDER_SIZE)
+                .ok_or_else(|| anyhow!("the pool note books less than the reservation"))?,
             blinding: change_blinding,
         };
 

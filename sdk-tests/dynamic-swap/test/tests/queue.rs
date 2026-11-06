@@ -181,7 +181,7 @@ fn empty_transact() -> TransactIxData {
 }
 
 #[test]
-fn skip_rejects_at_deadline_and_preserves_the_refund_after_it() -> Result<()> {
+fn skip_rejects_at_deadline_and_releases_the_reservation_after_it() -> Result<()> {
     let fixture = QueueFixture::new();
     let accounts = fixture.accounts();
     let mut mollusk = runtime(fixture.escrow.expires_at)?;
@@ -203,13 +203,15 @@ fn skip_rejects_at_deadline_and_preserves_the_refund_after_it() -> Result<()> {
         .find(|(address, _)| *address == fixture.pair_address)
         .ok_or_else(|| anyhow!("missing pair fixture"))?;
     pair_account.1 = state_account(&Pair {
+        available_liquidity: fixture.pair.available_liquidity + fixture.pair.max_order_size,
+        open_reservations: fixture.pair.open_reservations - 1,
         head_order_id: 1,
         ..fixture.pair
     });
     assert_eq!(
         (skipped.program_result, skipped.resulting_accounts),
         (ProgramResult::Success, expected),
-        "skipping must change only the head, retaining the refund and reservation"
+        "skipping must advance the head and release the reservation, leaving the escrow open"
     );
     Ok(())
 }

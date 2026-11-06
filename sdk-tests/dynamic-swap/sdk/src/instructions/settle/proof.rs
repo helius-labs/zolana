@@ -46,8 +46,9 @@ pub struct SettleProofInputParams {
     /// `state::pool_authority_owner_hash`); the program recomputes and binds
     /// the same value to the pool input and change.
     pub pool_authority_owner_hash: [u8; 32],
-    /// The pair's immutable `max_order_size`; enters the change note's booked
-    /// clamp.
+    /// The pair's immutable `max_order_size`. The change note books
+    /// `pool_booked_in - max_order_size`, so `pool_booked_in` must be at least
+    /// this value.
     pub max_order_size: u64,
     /// The `Pair` account's on-chain `maker_receipt_owner_hash`; the receipt
     /// destination.
@@ -120,8 +121,13 @@ impl SettleProofInputParams {
         }
 
         // The pool change: the unspent pool value, re-locked under the
-        // pool_authority with booked reduced by the full reservation (clamped
-        // at zero) -- the circuit's `max(booked_in - max_order_size, 0)`.
+        // pool_authority with booked reduced by the full reservation. A pool
+        // note booked below `max_order_size` cannot settle; merge booked value
+        // into one note with `rebalance_liquidity` first.
+        let expected_booked = self
+            .pool_booked_in
+            .checked_sub(self.max_order_size)
+            .ok_or_else(|| err("pool_in books less than max_order_size"))?;
         let settled_owed = if fills { owed } else { 0 };
         let expected_change = self
             .pool_in
@@ -129,7 +135,6 @@ impl SettleProofInputParams {
             .amount
             .checked_sub(settled_owed)
             .ok_or_else(|| err("owed exceeds the pool note amount"))?;
-        let expected_booked = self.pool_booked_in.saturating_sub(self.max_order_size);
         let change_owner = check_pool_output_utxo(
             "pool_change",
             &self.pool_change,

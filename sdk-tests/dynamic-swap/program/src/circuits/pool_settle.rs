@@ -81,7 +81,7 @@ impl Circuit for PoolSettleCircuit {
             &public.destination_asset,
             "the pool note holds another destination asset",
         )?;
-        let booked = U64::from_var(&pool.data_hash, "the pool booked amount overflows u64")?;
+        let _ = U64::from_var(&pool.data_hash, "the pool booked amount overflows u64")?;
 
         let blinding_seed = order_blinding_seed(SETTLE_BLINDING_DOMAIN, &order.blinding)?;
         check_transaction_blindings(
@@ -132,12 +132,15 @@ impl Circuit for PoolSettleCircuit {
             "the pool change does not conserve the payout",
         )?;
         let _ = U64::from_var(&change.amount, "the pool cannot fund the order payout")?;
-        let covers_reservation = public.max_order_size.is_less_or_equal(&booked)?;
-        let booked_out =
-            covers_reservation.select(&booked.var().minus(&public.max_order_size.var()), &zero());
+        // The order's reservation leaves `booked` in full, so the pool's booked
+        // total drops by exactly what closing the reservation releases.
         change.data_hash.assert_equal(
-            &booked_out,
+            &pool.data_hash.minus(&public.max_order_size.var()),
             "the pool change does not consume the full reservation",
+        )?;
+        let _ = U64::from_var(
+            &change.data_hash,
+            "the pool note books less than the order reservation",
         )?;
 
         receipt.assert_default_ring()?;

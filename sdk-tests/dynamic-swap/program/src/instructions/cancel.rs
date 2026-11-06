@@ -33,10 +33,11 @@ pub struct CancelIxData {
 /// handoff) can build a valid proof, and the refund destination is fixed by
 /// the proof.
 ///
-/// An order behind the queue head closes. Cancelling the head advances it and
-/// closes the account. An order ahead of the head stays as a cancellation
-/// marker until `skip_expired` passes it, so the queue can advance past an
-/// order that was refunded out of order.
+/// An order behind the queue head closes; `skip_expired` already released its
+/// reservation. Cancelling the head advances it and closes the account. An
+/// order ahead of the head stays as a cancellation marker until `skip_expired`
+/// passes it, so the queue can advance past an order that was refunded out of
+/// order. The head and every order ahead of it release their reservation here.
 #[inline(never)]
 #[profile]
 pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
@@ -88,16 +89,11 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     .verify()
     .map_err(|_| DynamicSwapError::ProofVerificationFailed)?;
 
-    // Release the reservation in full: the order was never filled, so the
-    // exact `max_order_size` taken at create_escrow returns to the bound.
-    pair.available_liquidity = pair
-        .available_liquidity
-        .checked_add(pair.max_order_size)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    pair.open_reservations = pair
-        .open_reservations
-        .checked_sub(1)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
+    // An open order behind the head was passed by `skip_expired`, which
+    // already released its reservation. Any other order releases it here.
+    if escrow.order_id >= pair.head_order_id {
+        pair.release_reservation()?;
+    }
     // An order at or behind the head closes; cancelling the head advances it.
     // An order ahead of the head stays as a marker for `skip_expired`.
     let closes = escrow.order_id <= pair.head_order_id;

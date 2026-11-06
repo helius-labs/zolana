@@ -39,14 +39,15 @@ pub struct Pair {
     /// Minimum exact source-asset amount a taker must lock. Enforced privately
     /// by escrow_open so a dust order cannot reserve `max_order_size`.
     pub min_order_amount: u64,
-    /// Public lower bound on the pool's counted liquidity (destination asset).
-    /// Invariant: `sum(booked over pool notes) >= available_liquidity +
-    /// open_reservations * max_order_size`, maintained purely by public
-    /// deltas -- deposits and rebalance credits raise it, withdrawals and
-    /// escrow reservations lower it, settle leaves it untouched.
+    /// The pool's counted liquidity (destination asset) not reserved by an
+    /// order. Invariant: `sum(booked over pool notes) == available_liquidity +
+    /// open_reservations * max_order_size`. Deposits and rebalance credits
+    /// raise it, withdrawals and escrow reservations lower it, and releasing a
+    /// reservation returns `max_order_size` to it.
     pub available_liquidity: u64,
-    /// Number of open escrows, each holding a `max_order_size` reservation
-    /// carved out of `available_liquidity`. Settle and cancel each release one.
+    /// Number of escrows holding a `max_order_size` reservation carved out of
+    /// `available_liquidity`. Settle consumes one; cancel or skipping an
+    /// expired order releases one.
     pub open_reservations: u64,
     /// The id `create_escrow` assigns to the next order, then increments.
     /// Orders form a FIFO queue per pair: ids are assigned in execution order,
@@ -86,6 +87,19 @@ pub struct Pair {
 impl Pair {
     pub const SIZE: usize = core::mem::size_of::<Self>();
     pub const SEED_PREFIX: &'static [u8] = b"pair";
+
+    /// Returns one unfilled order's `max_order_size` to `available_liquidity`.
+    pub fn release_reservation(&mut self) -> Result<(), ProgramError> {
+        self.available_liquidity = self
+            .available_liquidity
+            .checked_add(self.max_order_size)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        self.open_reservations = self
+            .open_reservations
+            .checked_sub(1)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        Ok(())
+    }
 
     pub fn check_discriminator(&self) -> Result<(), ProgramError> {
         (self.discriminator == PAIR)

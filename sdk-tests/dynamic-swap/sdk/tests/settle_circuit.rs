@@ -144,7 +144,7 @@ fn sample_settle(execution_price: u64) -> SettleProofInputParams {
     let pool_change = PoolUtxo {
         asset: destination(),
         amount: POOL_AMOUNT - settled,
-        booked: POOL_BOOKED.saturating_sub(MAX_ORDER_SIZE),
+        booked: POOL_BOOKED - MAX_ORDER_SIZE,
         blinding: change_blinding,
     }
     .output_utxo(&pool_address)
@@ -482,13 +482,13 @@ fn cancel_rejects_diverted_refund_or_changed_order_opening() {
 }
 
 #[test]
-fn settlement_clamps_booked_change_at_the_reservation_boundary() {
+fn settlement_consumes_the_full_reservation_from_booked() {
     for price in PRICES {
-        for booked in [MAX_ORDER_SIZE - 1, MAX_ORDER_SIZE, MAX_ORDER_SIZE + 1] {
+        for booked in [MAX_ORDER_SIZE, MAX_ORDER_SIZE + 1] {
             let mut params = sample_settle(price);
             params.pool_booked_in = booked;
             params.pool_in.data_hash = Some(u64_right_align(booked));
-            let expected_booked = booked.saturating_sub(MAX_ORDER_SIZE);
+            let expected_booked = booked - MAX_ORDER_SIZE;
             params.pool_change.data_hash = Some(u64_right_align(expected_booked));
             let good = params.to_proof_inputs().unwrap();
             good.check_constraints().unwrap_or_else(|error| {
@@ -504,6 +504,55 @@ fn settlement_clamps_booked_change_at_the_reservation_boundary() {
                     .to_string()
                     .contains("the pool change does not consume the full reservation"),
                 "unexpected rejection at booked={booked}, price={price}: {error}"
+            );
+        }
+    }
+}
+
+/// `p - 1` for the BN254 scalar field: the field value of `-1`.
+const FIELD_NEGATIVE_ONE: [u8; 32] = [
+    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x00,
+];
+
+/// A pool note booked below `max_order_size` would release more reservation
+/// than it books, stranding counted liquidity. The SDK refuses to build the
+/// witness, and the circuit rejects both the old clamped change (`booked = 0`)
+/// and the wrapped `booked_in - max_order_size`.
+#[test]
+fn settlement_rejects_pool_note_booked_below_the_reservation() {
+    let booked = MAX_ORDER_SIZE - 1;
+    for price in PRICES {
+        let mut params = sample_settle(price);
+        params.pool_booked_in = booked;
+        params.pool_in.data_hash = Some(u64_right_align(booked));
+        let error = params.to_proof_inputs().unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("pool_in books less than max_order_size"),
+            "unexpected SDK rejection at price={price}: {error}"
+        );
+
+        let good = sample_settle(price).to_proof_inputs().unwrap();
+        for (change_booked, message) in [
+            (
+                u64_right_align(0),
+                "the pool change does not consume the full reservation",
+            ),
+            (
+                FIELD_NEGATIVE_ONE,
+                "the pool note books less than the order reservation",
+            ),
+        ] {
+            let mut forged = good.clone();
+            forged.private.pool_in.data_hash = u64_right_align(booked);
+            forged.private.pool_change.data_hash = change_booked;
+            refresh_settle_hashes(&mut forged);
+            let error = forged.check_constraints().unwrap_err();
+            assert!(
+                error.to_string().contains(message),
+                "expected '{message}' at price={price}, got: {error}"
             );
         }
     }
