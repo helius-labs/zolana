@@ -11129,6 +11129,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "spr-client",
  "spr-prover-tee",
  "tokio",
 ]
