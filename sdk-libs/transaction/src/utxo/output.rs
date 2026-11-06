@@ -177,6 +177,10 @@ impl SppProofOutputUtxo {
     /// Attach a free-form memo to the output. The memo is encrypted into the
     /// recipient's note but not bound by the commitment, so unlike
     /// `with_utxo_data`/`with_ring_data` it sets no `data_hash`.
+    /// This makes the UTXO's data non-empty, so [`super::WalletUtxo::is_plain`]
+    /// returns false and default wallet operations exclude it. UTXO data is
+    /// for application state; put payment memos in the transaction's
+    /// [`crate::instructions::transact::ExternalData::messages`] instead.
     pub fn with_memo(mut self, memo: Vec<u8>) -> Self {
         self.set_data_record(DataRecord::Memo(memo));
         self

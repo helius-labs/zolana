@@ -36,6 +36,7 @@ Added
 
 Changed
 
+- `ProofOutputUtxo.withMemo` documentation directs payment memos to transaction messages and explains why default wallet builders exclude UTXOs with attached data.
 - The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
 - `SprIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 

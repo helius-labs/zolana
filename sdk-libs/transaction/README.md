@@ -157,6 +157,13 @@ by `encrypt`, then authorization, proving, and submission.
 
 ## Construction invariants
 
+Use `ExternalData::messages` for payment memos and invoice IDs. UTXO `data`
+is for application state. `SppProofOutputUtxo::with_memo` makes that data
+non-empty, so `WalletUtxo::is_plain` returns false and default wallet operations
+exclude it. Keep the payment UTXO's data empty and attach the memo as a
+transaction message. Message bytes are published as supplied; the application
+must encrypt private content and decode it when reading the transaction.
+
 An input's commitment and nullifier must agree with its UTXO fields, tree id,
 and data hashes. Build through `SppProofInputUtxoParams` or convert from a
 verified `SpendableUtxo`, and do not modify the committed fields afterwards. A
