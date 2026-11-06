@@ -3,7 +3,7 @@ use sha2::{Digest, Sha384};
 
 use super::{
     platform::TeePlatform,
-    policy::hex_list,
+    policy::{hex_list, lower_hex, objects},
     verify::{Claims, Measured},
     TeeError,
 };
@@ -16,15 +16,16 @@ pub struct Dstack;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DstackPolicy {
-    #[serde(with = "hex")]
+    #[serde(with = "lower_hex")]
     pub app_id: [u8; 20],
-    #[serde(with = "hex")]
+    #[serde(with = "lower_hex")]
     pub hpke_public_key: [u8; 32],
     /// The `id` the key-provider event names, the KMS root the app keys derive from.
-    #[serde(with = "hex")]
+    #[serde(with = "lower_hex")]
     pub key_provider_id: Vec<u8>,
     #[serde(with = "hex_list")]
     pub os_image_hashes: Vec<[u8; 32]>,
+    #[serde(deserialize_with = "objects")]
     pub measurements: Vec<TdxMeasurement>,
     #[serde(with = "hex_list")]
     pub compose_hashes: Vec<[u8; 32]>,
@@ -35,13 +36,13 @@ pub struct DstackPolicy {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TdxMeasurement {
-    #[serde(with = "hex")]
+    #[serde(with = "lower_hex")]
     pub mrtd: [u8; 48],
-    #[serde(with = "hex")]
+    #[serde(with = "lower_hex")]
     pub rtmr0: [u8; 48],
-    #[serde(with = "hex")]
+    #[serde(with = "lower_hex")]
     pub rtmr1: [u8; 48],
-    #[serde(with = "hex")]
+    #[serde(with = "lower_hex")]
     pub rtmr2: [u8; 48],
 }
 

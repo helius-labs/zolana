@@ -8,7 +8,10 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{TeeError, TeePolicy, MAX_INTEGER};
+use super::{
+    policy::{lowercase_hex, object, objects, Object},
+    TeeError, TeePolicy, MAX_INTEGER,
+};
 
 /// Prefixes the release payload bytes a release signer signs.
 pub const RELEASE_DOMAIN: &[u8] = b"zolana/prover-tee/v2/release";
@@ -88,7 +91,9 @@ impl PolicySigners {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SignedPolicyFile {
+    #[serde(deserialize_with = "object")]
     pub release: SignedPart,
+    #[serde(deserialize_with = "object")]
     pub freshness: SignedPart,
 }
 
@@ -98,6 +103,7 @@ pub struct SignedPolicyFile {
 pub struct SignedPart {
     /// Hex of the payload bytes.
     pub payload: String,
+    #[serde(deserialize_with = "objects")]
     pub signatures: Vec<PolicySignature>,
 }
 
@@ -116,6 +122,7 @@ pub struct ReleasePayload {
     pub version: u64,
     /// Unix seconds.
     pub expires_at: u64,
+    #[serde(deserialize_with = "object")]
     pub freshness: FreshnessSigners,
     pub policy: TeePolicy,
 }
@@ -149,7 +156,6 @@ pub struct FreshnessPayload {
 impl ReleasePayload {
     /// The freshness keys, refusing what a TypeScript client reads differently.
     fn check(&self) -> Result<Keys, TeeError> {
-        let max_age = self.policy.max_age().as_secs();
         let FreshnessSigners {
             public_keys,
             threshold,
@@ -158,8 +164,6 @@ impl ReleasePayload {
         if self.version == 0
             || self.version > MAX_INTEGER
             || self.expires_at > MAX_INTEGER
-            || max_age == 0
-            || max_age > MAX_INTEGER
             || *max_lifetime_secs == 0
             || *max_lifetime_secs > MAX_INTEGER
         {
@@ -228,7 +232,8 @@ impl SignedPolicyFile {
         signers: &PolicySigners,
         now: u64,
     ) -> Result<VerifiedPolicy, TeeError> {
-        let file: Self = serde_json::from_slice(file).map_err(|_| refused("malformed"))?;
+        let Object(file) =
+            serde_json::from_slice::<Object<Self>>(file).map_err(|_| refused("malformed"))?;
         let (freshness_payload, freshness_signatures) = file.freshness.decode()?;
         let (release, release_payload, freshness_keys) = file.release.release(signers, now)?;
 
@@ -236,8 +241,9 @@ impl SignedPolicyFile {
         if !freshness_keys.signed(&message, &freshness_signatures) {
             return Err(refused("freshness"));
         }
-        let freshness: FreshnessPayload =
-            serde_json::from_slice(&freshness_payload).map_err(|_| refused("malformed"))?;
+        let Object(freshness) =
+            serde_json::from_slice::<Object<FreshnessPayload>>(&freshness_payload)
+                .map_err(|_| refused("malformed"))?;
         freshness.check()?;
         let binds = FreshnessPayload::of(
             &release_payload,
@@ -306,8 +312,8 @@ impl SignedPart {
         if !signers.release.signed(&message, &signatures) {
             return Err(refused("signature"));
         }
-        let release: ReleasePayload =
-            serde_json::from_slice(&payload).map_err(|_| refused("malformed"))?;
+        let Object(release) = serde_json::from_slice::<Object<ReleasePayload>>(&payload)
+            .map_err(|_| refused("malformed"))?;
         let freshness_keys = release.check()?;
         if release.network != signers.network {
             return Err(refused("network"));
@@ -397,7 +403,7 @@ fn fixed<const N: usize>(hex: &str) -> Result<[u8; N], TeeError> {
 }
 
 fn lower_hex(hex: &str) -> Result<Vec<u8>, TeeError> {
-    if !hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+    if !lowercase_hex(hex) {
         return Err(refused("malformed"));
     }
     hex::decode(hex).map_err(|_| refused("malformed"))
