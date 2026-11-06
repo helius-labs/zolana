@@ -63,7 +63,7 @@ fn counter_increment_prove_and_verify() {
         public: IncrementPublicInputs { step: 3 },
     };
     let spp_proof_inputs = increment
-        .create_proof_inputs_and_encrypt_with_keys(&owner, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&owner, payer)
         .expect("increment proof inputs");
     assert_eq!(
         spp_proof_inputs

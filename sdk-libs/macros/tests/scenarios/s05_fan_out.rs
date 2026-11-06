@@ -89,7 +89,7 @@ fn fan_out_prove_and_verify() {
         public: FanOutPublicInputs { total: 280 },
     };
     let spp_proof_inputs = fan_out
-        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer)
         .expect("fan-out proof inputs");
     assert_eq!(
         spp_proof_inputs

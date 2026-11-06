@@ -84,7 +84,7 @@ fn a_program_using_an_external_gadget_proves_and_verifies() {
         public: SquareRootSweepPublicInputs { root: 4 },
     };
     let spp_proof_inputs = sweep
-        .create_proof_inputs_and_encrypt_with_keys(&sender, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&sender, payer)
         .expect("sweep proof inputs");
     let private_tx_hash = spp_proof_inputs
         .padding_independent_private_tx_hash()

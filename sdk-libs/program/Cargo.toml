@@ -8,7 +8,6 @@ repository.workspace = true
 publish = ["crates-io"]
 
 [dependencies]
-ark-bn254 = { version = "0.6", optional = true }
 ark-ff = { version = "0.6", optional = true }
 borsh = { workspace = true, optional = true }
 groth16-solana = { workspace = true, optional = true }
@@ -16,14 +15,12 @@ pinocchio = { workspace = true, features = ["cpi"], optional = true }
 solana-address = { workspace = true }
 solana-program-error = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 serde-wasm-bindgen = { workspace = true, optional = true }
-sha2 = { workspace = true, optional = true }
 solana-signature = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
 tsify = { workspace = true, optional = true }
 wasm-bindgen = { workspace = true, optional = true }
-wincode = { workspace = true }
+wincode = { workspace = true, optional = true }
 zeroize = { workspace = true, optional = true }
 spr-hasher = { workspace = true }
 spr-instruction = { workspace = true }
@@ -42,17 +39,15 @@ default = []
 cpi = ["spr-instruction/cpi"]
 # Compressed accounts for pinocchio programs: program state kept as SPP UTXOs,
 # the tree and nullifier PDA checks of a read, and their transact CPI.
-compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:spr-tree", "dep:thiserror"]
+compression = ["cpi", "dep:borsh", "dep:pinocchio", "dep:spr-tree", "dep:thiserror", "dep:wincode"]
 # Experimental: `ShieldedPda`, a shielded identity owned by a program-derived
 # address. Needs `std`, since it links `spr-keypair`.
 shielded-pda = ["dep:spr-keypair", "dep:zeroize"]
 circuit = [
-    "dep:ark-bn254",
     "dep:ark-ff",
     "dep:borsh",
     "dep:solana-signature",
     "dep:thiserror",
-    "shielded-pda",
     "dep:spr-macros",
     "dep:spr-transaction",
     "dep:spr-zk-gadgets",
@@ -64,10 +59,9 @@ circuit = [
 client = [
     "circuit",
     "verifier",
-    "dep:sha2",
     "spr-zk-dsl/client",
 ]
-setup = ["client", "groth16-solana/circom-vk", "dep:serde_json", "spr-zk-dsl/setup"]
+setup = ["client", "groth16-solana/circom-vk", "spr-zk-dsl/setup"]
 parallel = [
     "client",
     "spr-zk-dsl/parallel",
@@ -106,6 +100,7 @@ external-tools = []
 test-support = ["client", "spr-zk-dsl/test-support"]
 
 [dev-dependencies]
+ark-bn254 = { workspace = true }
 ark-circom = { version = "0.6.0", default-features = false }
 borsh = { workspace = true }
 groth16-solana = { workspace = true, features = ["gnark-vk"] }
@@ -136,7 +131,7 @@ required-features = ["client"]
 
 [[test]]
 name = "unit"
-required-features = ["test-support", "setup"]
+required-features = ["test-support", "setup", "shielded-pda"]
 
 [[test]]
 name = "external_gadget"

@@ -111,7 +111,7 @@ fn cast_vote_prove_and_verify() {
         },
     };
     let spp_proof_inputs = vote
-        .create_proof_inputs_and_encrypt_with_keys(&voter, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&voter, payer)
         .expect("vote proof inputs");
     assert_eq!(
         spp_proof_inputs

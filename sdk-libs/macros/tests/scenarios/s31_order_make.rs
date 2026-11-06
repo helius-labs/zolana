@@ -74,11 +74,7 @@ pub(crate) fn order_utxo(
             expiry,
         },
     }
-    .create_proof_inputs_and_encrypt_with_keys(
-        maker,
-        address.solana_address().expect("payer"),
-        u64::MAX,
-    )
+    .create_proof_inputs_and_encrypt_with_keys(maker, address.solana_address().expect("payer"))
     .expect("make proof inputs");
     let output = spp_proof_inputs
         .output_utxos
@@ -143,7 +139,7 @@ fn order_make_prove_and_verify() {
         },
     };
     let spp_proof_inputs = make
-        .create_proof_inputs_and_encrypt_with_keys(&maker, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&maker, payer)
         .expect("make proof inputs");
     let terms = OrderTerms {
         maker_hash: address.address_hash().expect("maker address hash"),

@@ -85,7 +85,7 @@ fn order_cancel_prove_and_verify() {
         },
     };
     let spp_proof_inputs = cancel
-        .create_proof_inputs_and_encrypt_with_keys(&maker, payer, u64::MAX)
+        .create_proof_inputs_and_encrypt_with_keys(&maker, payer)
         .expect("cancel proof inputs");
     assert_eq!(
         spp_proof_inputs

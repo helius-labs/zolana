@@ -57,17 +57,14 @@ pub trait ZkProgramCircuit:
         &self,
         shielded_keys: &impl ShieldedKeys,
         payer: Address,
-        expiry_unix_ts: u64,
     ) -> Result<SppProofInputs, ClientError> {
         let sender = shielded_keys
             .address()
             .map_err(ClientErrorKind::Transaction)?;
-        let mut spp_proof_inputs = self
+        Ok(self
             .create_finalized_transaction(&sender, payer)?
             .encrypt_with_keys(shielded_keys)
-            .map_err(ClientErrorKind::Transaction)?;
-        spp_proof_inputs.external_data.expiry_unix_ts = expiry_unix_ts;
-        Ok(spp_proof_inputs)
+            .map_err(ClientErrorKind::Transaction)?)
     }
 }
 
