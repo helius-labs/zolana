@@ -3,7 +3,8 @@
 //!
 //! Environment: NETWORK, BUCKET, KEY_ID (the network's freshness KMS key),
 //! FRESHNESS_SECONDS and METRICS_NAMESPACE, where each run records
-//! ReleaseDaysLeft; the missing-run alarm watches that metric.
+//! ReleaseDaysLeft; the missing-run alarm watches that metric. SERVED_KEY
+//! names the object clients download, `tee-policy/<NETWORK>.json` when unset.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -27,6 +28,8 @@ async fn main() -> Result<(), lambda_runtime::Error> {
     let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
     let network = env("NETWORK")?;
     let (signers, _) = pins::pinned(&network)?;
+    let served_key =
+        std::env::var("SERVED_KEY").unwrap_or_else(|_| format!("tee-policy/{network}.json"));
     let freshener = Freshener {
         store: S3Store {
             client: aws_sdk_s3::Client::new(&config),
@@ -34,6 +37,7 @@ async fn main() -> Result<(), lambda_runtime::Error> {
         },
         signer: KmsSigner::new(aws_sdk_kms::Client::new(&config), env("KEY_ID")?).await?,
         network,
+        served_key,
         signers,
         lifetime_secs: env("FRESHNESS_SECONDS")?
             .parse()

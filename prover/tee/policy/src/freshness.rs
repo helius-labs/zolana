@@ -1,6 +1,7 @@
 //! Keeps a release in force: signs a short-lived freshness part over the release
 //! part in `tee-policy-release/<network>.json` and publishes both as the file
-//! clients download, `tee-policy/<network>.json`.
+//! clients download, `tee-policy/<network>.json` unless the function serves
+//! another key.
 //!
 //! A run publishes only a file `SignedPolicyFile::verify` accepts under the
 //! release keys the SDK pins, never one whose release is older than the one
@@ -55,6 +56,8 @@ pub struct Freshener<S, K> {
     pub store: S,
     pub signer: K,
     pub network: String,
+    /// Where clients download the file, `tee-policy/<network>.json` by default.
+    pub served_key: String,
     /// The release keys the SDK pins for `network`.
     pub signers: PolicySigners,
     /// How long each part runs, at most the release's `max_lifetime_secs`.
@@ -66,14 +69,10 @@ impl<S: Store, K: Ed25519Signer> Freshener<S, K> {
         format!("tee-policy-release/{}.json", self.network)
     }
 
-    pub fn served_key(&self) -> String {
-        format!("tee-policy/{}.json", self.network)
-    }
-
     /// Publishes the release part with a freshness part issued at `now`.
     pub async fn publish(&self, now: u64) -> Result<Published> {
         for _ in 0..ATTEMPTS {
-            let served = self.store.get(&self.served_key()).await?;
+            let served = self.store.get(&self.served_key).await?;
             let release = self
                 .store
                 .get(&self.release_key())
@@ -92,7 +91,7 @@ impl<S: Store, K: Ed25519Signer> Freshener<S, K> {
             let (file, published) = self.freshen(part, approved, &payload, now).await?;
             if self
                 .store
-                .put_if(&self.served_key(), file, served.map(|served| served.etag))
+                .put_if(&self.served_key, file, served.map(|served| served.etag))
                 .await?
             {
                 return Ok(published);
@@ -100,7 +99,7 @@ impl<S: Store, K: Ed25519Signer> Freshener<S, K> {
         }
         bail!(
             "{} changed {ATTEMPTS} times while this run published",
-            self.served_key()
+            self.served_key
         )
     }
 
@@ -346,6 +345,7 @@ mod tests {
             store,
             signer: LocalSigner::seed(5),
             network: "fixture".into(),
+            served_key: "tee-policy/fixture.json".into(),
             signers: signers(),
             lifetime_secs: 3 * 86_400,
         }
@@ -373,6 +373,25 @@ mod tests {
         freshener.publish(NOW + 86_400).await.unwrap();
     }
 
+    /// A function serving another key never writes the default one, which may
+    /// hold a file in another format for older clients.
+    #[tokio::test]
+    async fn a_function_serving_another_key_leaves_the_default_one() {
+        let mut freshener = freshener(4).await;
+        freshener.served_key = "tee-policy/v2/fixture.json".into();
+        let older = b"{\"payload\":\"\",\"signatures\":[]}".to_vec();
+        Memory::set(
+            &mut freshener.store.objects.lock().unwrap(),
+            "tee-policy/fixture.json",
+            older.clone(),
+        );
+        freshener.publish(NOW).await.unwrap();
+        let objects = freshener.store.objects.lock().unwrap();
+        assert_eq!(objects["tee-policy/fixture.json"].0, older);
+        SignedPolicyFile::verify(&objects["tee-policy/v2/fixture.json"].0, &signers(), NOW)
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn a_run_that_raced_a_newer_release_publishes_that_release() {
         let freshener = freshener(4).await;
@@ -383,6 +402,7 @@ mod tests {
             store: Memory::default(),
             signer: LocalSigner::seed(5),
             network: "fixture".into(),
+            served_key: "tee-policy/fixture.json".into(),
             signers: signers(),
             lifetime_secs: 3 * 86_400,
         };
@@ -413,6 +433,7 @@ mod tests {
             store: Memory::default(),
             signer: LocalSigner::seed(5),
             network: "fixture".into(),
+            served_key: "tee-policy/fixture.json".into(),
             signers: signers(),
             lifetime_secs: 3 * 86_400,
         };
