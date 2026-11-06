@@ -17,7 +17,10 @@ use spr_transaction::{
     },
     serialization::{
         confidential::{Confidential, ConfidentialEncode},
-        plaintext::{PlaintextTransfer, TransferPlaintextUtxos},
+        plaintext::{
+            PlaintextTransfer, TransferPlaintextRecipient, TransferPlaintextSender,
+            TransferPlaintextUtxos,
+        },
         proofless::{Proofless, ProoflessEncode},
     },
     verify_owned, verify_spendable, Address, AssetBalance, AssetRegistry, Balances, Data,
@@ -1216,6 +1219,17 @@ fn a_merge_output_decrypts_only_under_its_owners_key_and_commitment() {
     // A ring program on a merge whose payload carries no ring data hash.
     let (mut program_without_ring, _) = merge_publication(&owner, &[&held], 15, None);
     program_without_ring.ring_program_id = Some(Address::new_from_array([8; 32]));
+    // A ring merge publishes its ring data hash unverified; one that is no
+    // field element hashes to no commitment.
+    let (mut unhashable_ring, _) = merge_publication(&owner, &[&held], 16, Some([4; 32]));
+    unhashable_ring.ring_program_id = Some(Address::new_from_array([8; 32]));
+    edit_payload(&mut unhashable_ring, &|payload| {
+        let start = payload
+            .windows(32)
+            .position(|window| window == [4; 32])
+            .expect("ring data hash");
+        payload.splice(start..start + 32, [0xff; 32]);
+    });
 
     for (case, merge, remaining) in [
         ("foreign merge", foreign_merge, vec![&held]),
@@ -1231,6 +1245,7 @@ fn a_merge_output_decrypts_only_under_its_owners_key_and_commitment() {
             program_without_ring,
             vec![],
         ),
+        ("unhashable ring hash", unhashable_ring, vec![]),
     ] {
         let decrypted = decrypt(&owner, &[received(&owner, &held), merge], &assets).unwrap();
         assert!(decrypted.unknown_asset_ids.is_empty(), "{case}");
@@ -1328,4 +1343,144 @@ fn low_order_transaction_keys_leave_the_scan_intact() {
 
     let candidates = decrypt(&owner, &batch, &assets).unwrap();
     assert_eq!(candidates.utxos, vec![note]);
+}
+
+#[test]
+fn an_output_that_cannot_be_hashed_skips_its_slot_without_failing_the_scan() {
+    let owner = keypair(55);
+    let tx_key = keypair(56).viewing_key;
+    let assets = AssetRegistry::default();
+    let valid = wallet_utxo(&owner, Mint::SOL, 50, 2, 1);
+    let control = publication(&valid, vec![proofless_slot(&valid, &owner)]);
+    // No proof binds a sender's plaintext and the program never parses output
+    // data, so any sender can publish a field that is no field element.
+    let crafted = wallet_utxo(&owner, Mint::SOL, 0, 2, 2);
+    let mut blinding = crafted.clone();
+    blinding.utxo.blinding = [0xff; 32];
+    let mut data_hash = crafted.clone();
+    data_hash.data_hash = Some([0xff; 32]);
+    let mut ring_data_hash = crafted.clone();
+    ring_data_hash.ring_data_hash = Some([0xff; 32]);
+    // The indexer publishes the commitment a nullifier derives from.
+    let mut commitment = crafted.clone();
+    commitment.utxo_hash = [0xff; 32];
+    let mut confidential = publication(
+        &crafted,
+        vec![confidential_slot(
+            &blinding,
+            owner.viewing_pubkey(),
+            &tx_key,
+            0,
+        )],
+    );
+    confidential.tx_viewing_pk = Some(tx_key.pubkey());
+    confidential.salt = Some([7; 16]);
+    let proofless = |note: &WalletUtxo| publication(note, vec![proofless_slot(note, &owner)]);
+    for (case, crafted) in [
+        ("confidential blinding", confidential),
+        ("proofless blinding", proofless(&blinding)),
+        ("proofless data hash", proofless(&data_hash)),
+        ("proofless ring data hash", proofless(&ring_data_hash)),
+        ("published commitment", proofless(&commitment)),
+    ] {
+        let txs = [control.clone(), crafted];
+        assert_eq!(
+            decrypt(&owner, &txs, &assets).unwrap().utxos,
+            vec![valid.clone()],
+            "{case}"
+        );
+        assert_eq!(
+            decrypt_spendable(&owner, &txs, &assets)
+                .unwrap()
+                .balances
+                .assets,
+            vec![balance(vec![valid.clone()], Mint::SOL, 50)],
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn a_plaintext_bundle_places_each_output_at_the_slot_of_its_commitment() {
+    let owner = keypair(57);
+    let foreign = keypair(58);
+    let assets = AssetRegistry::default();
+    let first_nullifier = wallet_utxo(&owner, Mint::SOL, 40, 2, 1).nullifier;
+    let recipient = |owner: &ShieldedKeypair, amount| TransferPlaintextRecipient {
+        owner_pubkey: owner.signing_pubkey(),
+        asset_id: Mint::SOL.asset_id,
+        amount,
+        data: Data::default(),
+    };
+    let plaintext = TransferPlaintextUtxos {
+        type_prefix: TRANSFER_PLAINTEXT,
+        blinding_seed: [3; 32],
+        sender: Some(TransferPlaintextSender {
+            owner_pubkey: owner.signing_pubkey(),
+            spl: None,
+            sol_amount: Some(11),
+            spl_data: Data::default(),
+            sol_data: Data::default(),
+        }),
+        recipient_slots: vec![recipient(&foreign, 7), recipient(&owner, 22)],
+    };
+    let utxos = PlaintextTransfer::into_utxos(
+        plaintext.clone(),
+        &OwnerCx {
+            first_nullifier: Some(first_nullifier),
+            ..owner_cx(&owner, &assets)
+        },
+    )
+    .unwrap();
+    let [change, paid, received] = <[Utxo; 3]>::try_from(utxos).unwrap();
+    let note = |holder: &ShieldedKeypair, utxo: Utxo, slot_index: u32| {
+        let nullifier_pubkey = holder.shielded_address().unwrap().nullifier_pubkey;
+        let utxo_hash = utxo.hash(&nullifier_pubkey, &[0; 32], &[0; 32], 2).unwrap();
+        WalletUtxo {
+            nullifier: holder.nullifier(&utxo_hash, &utxo.blinding).unwrap(),
+            utxo,
+            nullifier_pubkey,
+            utxo_hash,
+            tx_viewing_key: None,
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id: 2,
+            leaf_index: 20 + u64::from(slot_index),
+            latest_tree_id: None,
+            slot: 9,
+            tx_signature: Signature::from([9; 64]),
+            slot_index,
+        }
+    };
+    let change = note(&owner, change, 0);
+    let paid = note(&foreign, paid, 1);
+    let received = note(&owner, received, 2);
+    let mut blob = vec![EncryptedScheme::PlaintextTransfer.as_byte()];
+    blob.extend(PlaintextTransfer::serialize(&plaintext).unwrap());
+    let bundle = borsh::to_vec(&OutputDataEncoding::Plaintext(blob)).unwrap();
+    // The bundle rides in the change slot; the other slots carry no data.
+    let mut tx = publication(
+        &change,
+        vec![
+            slot(&change, bundle),
+            slot(&paid, vec![]),
+            slot(&received, vec![]),
+        ],
+    );
+    tx.nullifiers = vec![first_nullifier];
+
+    let owned = vec![change, received];
+    assert_eq!(
+        decrypt(&owner, std::slice::from_ref(&tx), &assets)
+            .unwrap()
+            .utxos,
+        owned
+    );
+    assert_eq!(
+        decrypt_spendable(&owner, &[tx], &assets)
+            .unwrap()
+            .balances
+            .assets,
+        vec![balance(owned, Mint::SOL, 33)]
+    );
 }
