@@ -48,6 +48,7 @@ export interface MergeParams {
   readonly keys: ShieldedKeys;
   readonly asset: Address;
   readonly inputs?: readonly Bytes32[];
+  readonly expiryUnixTs?: bigint;
 }
 
 /** @internal */
@@ -104,6 +105,7 @@ export async function createMerge(
         keys: params.keys,
         inputs,
         invalidAnswers: () => new WalletError("WALLET_KEYS_BATCH_MISMATCH"),
+        ...(params.expiryUnixTs === undefined ? {} : { expiryUnixTs: params.expiryUnixTs }),
       },
       context,
     );
@@ -163,8 +165,17 @@ export interface MergeTransactionParams {
   readonly asset?: Address;
   /** Up to `MAX_MERGE_INPUTS` named notes, else the `MERGE_INPUT_COUNT` smallest. */
   readonly inputs?: readonly Bytes32[];
+  /**
+   * The unix time after which the program refuses the merge, ten minutes
+   * after the build by default. Anyone who holds the proof can send it until
+   * then.
+   */
+  readonly expiryUnixTs?: bigint;
   readonly approve?: ApprovalHandler;
 }
+
+/** How long a merge proof can be sent, in seconds; the mobile SDK uses the same. */
+const MERGE_LIFETIME_SECONDS = 600n;
 
 export async function buildMergeTransaction(
   input: MergeTransactionParams,
@@ -180,6 +191,8 @@ export async function buildMergeTransaction(
         keys: input.keys,
         asset: input.asset ?? SOL_MINT,
         ...(input.inputs === undefined ? {} : { inputs: input.inputs }),
+        expiryUnixTs:
+          input.expiryUnixTs ?? BigInt(Math.floor(Date.now() / 1_000)) + MERGE_LIFETIME_SECONDS,
       },
       context,
     );

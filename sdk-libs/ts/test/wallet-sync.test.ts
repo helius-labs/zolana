@@ -39,6 +39,7 @@ import {
   serializeWallet,
   splitBundleFromUtxos,
   transactOutputBlinding,
+  type IndexedShieldedTransaction,
   type ShieldedKeys,
 } from "../src/transaction/index.js";
 import {
@@ -252,6 +253,54 @@ function remoteOver(keys: ShieldedKeys): ShieldedKeys {
     derive: (requests) => keys.derive(requests),
     transactionKeys: (requests) => keys.transactionKeys(requests),
   };
+}
+
+/**
+ * A proofless deposit of `amount` under the wallet's bootstrap tag, at slot
+ * and leaf `position`. Storing it asks the key holder for its nullifier.
+ */
+function prooflessDeposit(keypair: ShieldedKeypair, amount: bigint, position: number) {
+  const blinding = bytes(position + 40);
+  const utxo = new Utxo({ owner: keypair.signingPublicKey(), asset: SOL_MINT, amount, blinding });
+  const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
+  const outputSlot = {
+    viewTag: keypair.viewingKey().recipientBootstrapViewTag(),
+    outputContext: { hash, tree: TREE, leafIndex: BigInt(position) },
+    payload: encodeOutputData(
+      EncryptedScheme.proofless,
+      encodeProofless({
+        owner: keypair.signingPublicKey().ownerProofInputHash(),
+        blinding,
+        asset: SOL_MINT,
+        amount,
+      }),
+      "plaintext",
+    ),
+  };
+  return {
+    outputSlot,
+    transaction: {
+      slot: BigInt(position),
+      txSignature: SIGNATURE,
+      outputSlots: [outputSlot],
+      messages: [],
+      nullifiers: [],
+      proofless: true,
+    },
+  };
+}
+
+/** Holds every derivation until `release`, as a remote key holder still answering. */
+function heldDerivations(keys: ShieldedKeys) {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const derive = vi.fn(async (requests: Parameters<ShieldedKeys["derive"]>[0]) => {
+    await gate;
+    return keys.derive(requests);
+  });
+  return { keys: { ...remoteOver(keys), derive }, derive, release: () => release() };
 }
 
 function decryptWithKeys(
@@ -525,6 +574,68 @@ describe("wallet sync atomicity", () => {
       causeCode: "TRANSACTION_WALLET_STATE_STALE",
     });
     expect(wallet.lastSynced).toBe(42n);
+  });
+
+  it("refuses a direct decrypt overtaken by another writer and keeps the newer state", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const local = LocalShieldedKeys.fromKeypair(keypair);
+    const held = heldDerivations(local);
+    try {
+      const decrypt = decryptTransactions({
+        wallet,
+        keys: held.keys,
+        transactions: [prooflessDeposit(keypair, 42n, 1).transaction],
+      });
+      await vi.waitFor(() => expect(held.derive).toHaveBeenCalled());
+      // An out-of-band writer lands while the key holder answers.
+      wallet._replace({ utxos: [], transactions: [], nullifiers: new Set(), lastSynced: 7n });
+      const newer = serializeWallet(wallet);
+      held.release();
+
+      await expect(decrypt).rejects.toMatchObject({ code: "TRANSACTION_WALLET_STATE_STALE" });
+      expect(serializeWallet(wallet)).toBe(newer);
+    } finally {
+      local.destroy();
+    }
+  });
+
+  it("runs a sync started during a direct decrypt after it and keeps both deposits", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const local = LocalShieldedKeys.fromKeypair(keypair);
+    const held = heldDerivations(local);
+    const synced = prooflessDeposit(keypair, 7n, 2);
+    const getEncryptedUtxosByTags = vi.fn(async () => ({
+      context: { blockTime: 1n, slot: 10n },
+      data: outputItems([
+        { slot: synced.transaction.slot, txSignature: SIGNATURE, outputSlot: synced.outputSlot },
+      ]),
+      paginationToken: null,
+    }));
+    try {
+      const decrypt = decryptTransactions({
+        wallet,
+        keys: held.keys,
+        transactions: [prooflessDeposit(keypair, 42n, 1).transaction],
+      });
+      await vi.waitFor(() => expect(held.derive).toHaveBeenCalled());
+      const sync = syncWallet({
+        wallet,
+        keys: local,
+        client: syncReads({ getEncryptedUtxosByTags }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // The sync waits for the decrypt to commit before it reads anything.
+      expect(getEncryptedUtxosByTags).not.toHaveBeenCalled();
+      held.release();
+      await decrypt;
+      await sync;
+
+      expect(wallet.utxos().map((entry) => entry.utxo.amount)).toEqual([42n, 7n]);
+    } finally {
+      local.destroy();
+    }
   });
 
   it("resumes from persisted checkpoints after a restart", async () => {
@@ -1638,6 +1749,78 @@ describe("wallet sync", () => {
 
     return { wallet, keys, indexedTransactions, keypair };
   }
+
+  it("adds up two sends of one Solana transaction into one row", async () => {
+    // Rust reads one balance change per Solana transaction; each event's row
+    // must not replace the other's.
+    const keypair = ShieldedKeypair.generate();
+    const identity = keypair.shieldedAddress();
+    const wallet = new Wallet({ identity });
+    const held = [bytes(14), bytes(15)].map((blinding, leafIndex) => {
+      const utxo = new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 100n,
+        blinding,
+      });
+      const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
+      return {
+        utxo,
+        outputContext: { hash, tree: TREE, leafIndex: BigInt(leafIndex) },
+        nullifier: keypair.nullifier(hash, blinding),
+        spent: false,
+      };
+    });
+    wallet._replace({ ...wallet._state(), utxos: held });
+    const events = [40n, 30n].map((amount, eventIndex) => {
+      const transfer = new ConfidentialTransfer(
+        identity,
+        [ProofInputUtxo.fromKeypair(held[eventIndex]!.utxo, keypair)],
+        identity.solanaAddress(),
+      );
+      transfer.send(ShieldedKeypair.generate().shieldedAddress(), SOL_MINT, amount);
+      const signed = transfer.sign(keypair, wallet.registry);
+      const external = signed.externalData;
+      return {
+        slot: 1n,
+        txSignature: SIGNATURE,
+        eventIndex,
+        txViewingPublicKey: external.txViewingPublicKey,
+        salt: external.salt,
+        outputSlots: external.outputs.map((output, index) => ({
+          viewTag: external.resolvedOwnerTags[index]!,
+          outputContext: {
+            hash: output.utxoHash,
+            tree: TREE,
+            leafIndex: BigInt(2 + 8 * eventIndex + index),
+          },
+          payload: output.data ?? new Uint8Array(),
+        })),
+        messages: [],
+        nullifiers: signed.inputContexts().map((input) => input.nullifier),
+        proofless: false,
+      };
+    });
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
+
+    await decryptWithKeys(keys, { wallet, transactions: events });
+    const expected = [
+      {
+        id: { signature: SIGNATURE, slot: 1n },
+        kind: "privateTransfer",
+        direction: "outbound",
+        asset: SOL_MINT,
+        amount: 70n,
+      },
+    ];
+    expect(wallet.privateTransactions()).toMatchObject(expected);
+    expect(wallet.balance(SOL_MINT).amount).toBe(130n);
+
+    // Read again, the transaction is still one row of the same amount.
+    await decryptWithKeys(keys, { wallet, transactions: events });
+    expect(wallet.privateTransactions()).toMatchObject(expected);
+    expect(wallet.privateTransactions()).toHaveLength(1);
+  });
 
   it("classifies a confidential send to the same wallet as a self transfer", async () => {
     const { wallet, keys, indexedTransactions, keypair } = await syncConfidentialSelfSend(
@@ -2838,6 +3021,102 @@ describe("wallet sync", () => {
       causeCode: "CLIENT_INVALID_RPC_RESPONSE",
     });
     expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(2);
+  });
+
+  it("follows a chain of ring merges until a lookup finds nothing", async () => {
+    // Each ring merge is published under its first input's nullifier, so only
+    // the nullifier lookup of the UTXO it spends finds it.
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const nullifierKey = keypair.nullifierKey();
+    const entry = (utxo: Utxo, leafIndex: bigint) => {
+      const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
+      return {
+        utxo,
+        outputContext: { hash, tree: TREE, leafIndex },
+        nullifier: utxo.nullifier(hash, nullifierKey),
+        spent: false,
+      };
+    };
+    const held = entry(
+      new Utxo({
+        owner: keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 42n,
+        blinding: bytes(1),
+        ringProgramId: OWNER,
+      }),
+      0n,
+    );
+    wallet._replace({ ...wallet._state(), utxos: [held] });
+    const merges: IndexedShieldedTransaction[] = [];
+    let input = held;
+    for (const step of [1, 2, 3]) {
+      const firstNullifier = input.nullifier;
+      const output = entry(
+        new Utxo({
+          owner: keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 42n,
+          blinding: mergeOutputBlinding(nullifierKey, firstNullifier),
+          ringProgramId: OWNER,
+        }),
+        BigInt(step),
+      );
+      merges.push({
+        slot: BigInt(step + 1),
+        txSignature: String(step + 1).repeat(64) as Signature,
+        outputSlots: [
+          {
+            viewTag: firstNullifier,
+            outputContext: output.outputContext,
+            payload: mergePayload(keypair, firstNullifier, 42n, new Uint8Array(32) as Bytes32),
+          },
+        ],
+        ringProgramId: OWNER,
+        messages: [],
+        nullifiers: [
+          firstNullifier,
+          ...Array.from({ length: 7 }, (_, offset) =>
+            mergeDummyNullifier(nullifierKey, firstNullifier, offset + 1),
+          ),
+        ],
+        proofless: false,
+      });
+      input = output;
+    }
+    const last = input;
+    const getShieldedTransactionsByNullifiers = vi.fn(
+      async (request: Readonly<{ nullifiers: readonly Bytes32[] }>) => {
+        const asked = new Set(request.nullifiers.map((nullifier) => nullifier.join(",")));
+        return {
+          context: { blockTime: 1n, slot: 10n },
+          data: transactionItems(
+            merges.filter((merge) => asked.has(merge.nullifiers[0]!.join(","))),
+          ),
+          paginationToken: null,
+        };
+      },
+    );
+
+    await syncWallet({
+      wallet,
+      keys: LocalShieldedKeys.fromKeypair(keypair),
+      client: syncReads({ getShieldedTransactionsByNullifiers }),
+    });
+
+    // The held UTXO, then each merge output; the last lookup finds nothing.
+    expect(getShieldedTransactionsByNullifiers).toHaveBeenCalledTimes(4);
+    expect(wallet.utxos()).toHaveLength(4);
+    expect(
+      wallet
+        .utxos()
+        .filter((utxo) => !utxo.spent)
+        .map((utxo) => utxo.outputContext.hash),
+    ).toEqual([last.outputContext.hash]);
+    expect(wallet.ringBalances()).toMatchObject([
+      { ringProgramId: OWNER, assets: [{ mint: SOL_MINT, amount: 42n }] },
+    ]);
   });
 
   it("performs one follow-up nullifier lookup for a newly discovered UTXO", async () => {
