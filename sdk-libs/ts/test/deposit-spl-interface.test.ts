@@ -11,6 +11,7 @@ import {
   InstructionTag,
   SHIELDED_POOL_PROGRAM_ID,
   SPL_TOKEN_2022_PROGRAM_ID,
+  SPL_TOKEN_PROGRAM_ID,
 } from "../src/interface/index.js";
 import { decodeProtocolConfigAccount } from "../src/interface/codecs/index.js";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
@@ -83,6 +84,7 @@ function splDepositParams(
     asset: MINT,
     amount: 5n,
     splTokenAccount: OTHER,
+    splTokenProgram: SPL_TOKEN_PROGRAM_ID,
     ...overrides,
   };
 }

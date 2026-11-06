@@ -10,6 +10,7 @@ import {
   type AuthorizedPrivateTransactionMaterial,
 } from "../src/client/ports.js";
 import { treeAddress } from "../src/interface/pda/index.js";
+import { SPL_TOKEN_PROGRAM_ID } from "../src/interface/program.js";
 import { type Bytes32 } from "../src/interface/types.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import { Data, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
@@ -100,6 +101,7 @@ async function authorize(
               recipient: RECIPIENT,
               asset,
               amount,
+              splTokenProgram: SPL_TOKEN_PROGRAM_ID,
             })
           ).transaction
         : createSplit({ wallet, payer: feePayer, asset, parts: 2 }).transaction;
@@ -177,7 +179,7 @@ describe("authorized transaction binding", () => {
   it("binds SPL withdrawal accounts to the approved mint", async () => {
     const withdrawal = (await authorize("withdrawal")).material;
     const accounts = withdrawal.withdrawal;
-    if (accounts?.kind !== "spl") throw new Error("expected SPL withdrawal");
+    if (accounts?.kind !== "splWithdrawal") throw new Error("expected SPL withdrawal");
     expectMismatch(
       Object.freeze({
         ...withdrawal,

@@ -11067,6 +11067,7 @@ name = "spr-protocol-instructions"
 version = "0.8.0"
 dependencies = [
  "borsh",
+ "serde_json",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-pubkey 4.2.1",

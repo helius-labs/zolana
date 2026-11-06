@@ -27,11 +27,12 @@ import {
   defaultTreeFees,
   encodeTreeFeeSchedule,
 } from "../src/interface/index.js";
-import { protocolConfigAddress } from "../src/interface/pda/index.js";
+import { programDataAddress, protocolConfigAddress } from "../src/interface/pda/index.js";
 
 const SYSTEM = address("11111111111111111111111111111111");
 const TREE = address("2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr");
 const AUTHORITY = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
+const UPGRADE_AUTHORITY = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
 
 function filled(byte: number, length = 32): Uint8Array {
   return new Uint8Array(length).fill(byte);
@@ -176,9 +177,9 @@ describe("protocol config fee authority", () => {
   });
 
   it("appends the fee authority to create_protocol_config data", async () => {
-    const authority = { address: AUTHORITY } as TransactionSigner;
     const instruction = await createProtocolConfigInstruction({
-      authority,
+      feePayer: AUTHORITY,
+      initializationAuthority: UPGRADE_AUTHORITY,
       protocolAuthority: filledAddress(1),
       treeCreationAuthority: filledAddress(2),
       treeCreationIsPermissionless: true,
@@ -202,10 +203,15 @@ describe("protocol config fee authority", () => {
         ...filled(5),
       ),
     );
+    // The program binds initialization to its upgrade authority through its
+    // own loader accounts, so both follow the system program.
     expect(instruction.accounts?.map((account) => [account.address, account.role])).toEqual([
       [AUTHORITY, AccountRole.WRITABLE_SIGNER],
+      [UPGRADE_AUTHORITY, AccountRole.READONLY_SIGNER],
       [await protocolConfigAddress(), AccountRole.WRITABLE],
       [SYSTEM, AccountRole.READONLY],
+      [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
+      [await programDataAddress(), AccountRole.READONLY],
     ]);
   });
 

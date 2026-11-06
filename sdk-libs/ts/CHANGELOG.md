@@ -20,12 +20,12 @@ Breaking
 - `ZolanaClient`, `ZolanaClientConfig`, `createZolanaClient`, `ZolanaIndexer`, `ZolanaApi`, `ZolanaApiConfig` and `ZOLANA_GATEWAY_PATH` become `SprClient`, `SprClientConfig`, `createSprClient`, `SprIndexer`, `SprApi`, `SprApiConfig` and `SPR_GATEWAY_PATH` → rename them in imports and code.
 - `SprIndexer.getShieldedTransactionsByTags`, `getShieldedTransactionsByNullifiers` and `getEncryptedUtxosByTags` take `PageOptions` (`paginationToken`, `limit`, `filters.slot`, `minContextSlot`) and return a `Page` of `{context, data, paginationToken}` with the events or outputs of each Solana transaction grouped in `data` → upgrade Photon with the SDK, pass `paginationToken` back until it is `null`, and resume a later scan that has no `lt` or `lte` bound with `filters: { slot: { gt } }` set to the final page's `context.slot`.
 - `serializeWallet` writes snapshot version 5 with slot checkpoints, and `SerializedCursor` and `SerializedSyncCursors` become `SerializedSyncCheckpoint` and `SerializedSyncCheckpoints` → restore earlier snapshots with `deserializeWallet`, which keeps the wallet state and rescans history once.
-- `Prover` requires `proveAnonymousRingTransact` → implement the method on custom provers.
-- `ProverInputs`, `IndexedProofInputs` and `CircuitId` add anonymous ring variants → forward them in custom `ProofService` and `ProofAuthority` implementations.
+- `Prover` requires `proveAnonymousRingTransact`, and `ProverInputs`, `IndexedProofInputs` and `CircuitId` add anonymous ring variants → implement the method on custom provers and forward the variants in custom `ProofService` and `ProofAuthority` implementations.
 - `ShieldedPda`, `ProgramOwner`, `bindProgramTransaction`, `decodeProgramTransaction`, `toProgramWalletUtxo`, `transactCpiAccounts` and the `Program*` types move to the experimental `@heliuslabs/spr/program` subpath and may change in any release → import them from `@heliuslabs/spr/program` instead of `/keypair`, `/transaction` and `/interface`.
 - `SignedTeePolicy` reads only the two-part policy file and refuses it once either part expires, when a freshness part runs longer than its release allows, or when it is issued more than a day past the device clock → upgrade before the network publishes the two-part file, which earlier releases refuse; `publicKeys` and `threshold` still pin the release signers.
 - `TreeFeeSchedule.feePerNullifier` becomes `feePerTree`, a flat fee a transact or merge payer pays once to every tree the transaction writes, and `defaultTreeFees()` takes no argument and returns 5,000 lamports per tree with forester reimbursements at cost → rename the field, drop the ZKP batch size argument, and fund payers for the per-tree fee.
 - `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` are removed → use `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS`, `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS` and `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+- `getCreateProtocolConfigInstructionAsync` takes `feePayer` and `initializationAuthority`, the shielded pool's upgrade authority, in place of `authority`, and `transactInstruction` (`getTransactInstructionAsync`), `transactCpiAccounts` and `ringTransactAccounts` take `settlements`, one `TransactSettlement` per interface transfer in its order and of its kind, in place of `withdrawal`, so each lists the accounts the program reads and refuses a mismatch with `INTERFACE_INVALID_SHAPE` → pass both signers, replace `withdrawal: TransactWithdrawal.sol({ recipient })` with `settlements: [TransactSettlement.solWithdrawal({ recipient })]`, and pass `ringTransactAccounts` the `interfaceTransfers` of its payload.
 
 Added
 
@@ -42,9 +42,9 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
-- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows.
-- `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note, and now stores the note.
+- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits and failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note; it now omits those history rows and stores the note.
 - `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
+- `buildDepositTransaction` and `buildWithdrawalTransaction` settled a Token-2022 mint through the classic Token program when `splTokenProgram` was omitted, so the withdrawal failed on chain after proving; they now read the token program from the mint account and fail with `WALLET_ASSET_METADATA` when neither token program owns it.
 
 ## 0.8.0-alpha — 2026-11-03
 

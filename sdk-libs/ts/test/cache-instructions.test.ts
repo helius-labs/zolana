@@ -386,6 +386,7 @@ describe("transact cache accounts", () => {
       ringAuth: RING_AUTH,
       inputs: data.inputs,
       treeContexts: data.treeContexts,
+      interfaceTransfers: data.interfaceTransfers,
       cache: TransactCacheAccounts.write({ cache: CACHE, writer: WRITER }),
     });
     expect(lastAccounts(accounts, 2)).toEqual([

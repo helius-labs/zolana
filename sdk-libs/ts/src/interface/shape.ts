@@ -83,6 +83,11 @@ function count(value: number, name: string): number {
 /** The widest input count of any supported shape, Rust `MAX_TRANSACT_INPUTS`. */
 export const MAX_TRANSACT_INPUTS = Math.max(...SPP_SUPPORTED_SHAPES.map((entry) => entry.inputs));
 
+/** The widest output count of any supported shape, Rust `MAX_OUTPUTS`. */
+export const MAX_OUTPUTS = Math.max(
+  ...[...SPP_SUPPORTED_SHAPES, ...CONFIDENTIAL_EDDSA_SHAPES].map((entry) => entry.outputs),
+);
+
 /**
  * Square widths the ring authority rail has keys for, ascending, mirroring Rust
  * `RING_AUTHORITY_WIDTHS`.

@@ -1,0 +1,49 @@
+{
+  "description": "The create_protocol_config instruction the TypeScript SDK must reproduce. Regenerate with `cargo test -p spr-protocol-instructions --test protocol_config_vectors print_protocol_config_vectors -- --ignored --nocapture`.",
+  "feeAuthority": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+  "feePayer": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+  "foresterAuthority": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+  "initializationAuthority": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+  "instruction": {
+    "accounts": [
+      {
+        "address": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+        "signer": true,
+        "writable": true
+      },
+      {
+        "address": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+        "signer": true,
+        "writable": false
+      },
+      {
+        "address": "EienwBSpsbAetT3RAAMzVA9rB5RHgCF7yTH7FFST6AK5",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "11111111111111111111111111111111",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "CMV9fRyA66cwi1ce4bynyXR9zDU7f99gXZWCUNesp8xr",
+        "signer": false,
+        "writable": false
+      }
+    ],
+    "data": "0001010101010101010101010101010101010101010101010101010101010101010202020202020202020202020202020202020202020202020202020202020202010303030303030303030303030303030303030303030303030303030303030303040404040404040404040404040404040404040404040404040404040404040400010505050505050505050505050505050505050505050505050505050505050505",
+    "programAddress": "ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW"
+  },
+  "protocolAuthority": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+  "ringActivationIsPermissionless": false,
+  "ringCreationAuthority": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+  "splInterfaceCreationIsPermissionless": true,
+  "treeCreationAuthority": "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR",
+  "treeCreationIsPermissionless": true
+}

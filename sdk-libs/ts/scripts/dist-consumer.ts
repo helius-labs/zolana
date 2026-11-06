@@ -81,6 +81,9 @@ export { encodeTransactInstructionData } from "@heliuslabs/spr/interface";
 export { transactCpiAccounts } from "@heliuslabs/spr/program";
 export type { TransactAccountsInput, TransactInstructionData } from "@heliuslabs/spr/interface";
 export type { TransactAccountsInput as InstructionsTransactAccountsInput } from "@heliuslabs/spr/instructions";
+export { TransactSettlement } from "@heliuslabs/spr/interface";
+export { TransactSettlement as InstructionsTransactSettlement } from "@heliuslabs/spr/instructions";
+export type { TransactWithdrawal } from "@heliuslabs/spr/interface";
 export { bytes16, bytes31, bytes32, bytes33, bytes34, bytes64 } from "@heliuslabs/spr/keypair";
 export type {
   DecodedProgramTransaction,

@@ -25,6 +25,7 @@ import { SOL_MINT } from "../transaction/asset.js";
 
 import { resolveDepositSettlement } from "../flows/settlement.js";
 
+import { resolveSplTokenProgram } from "./asset-metadata.js";
 import { WalletError, wrapWalletError } from "./error.js";
 import { resolveShieldedRecipient } from "./registry.js";
 
@@ -134,6 +135,7 @@ export interface DepositTransactionParams {
   readonly asset?: Address;
   readonly amount: bigint;
   readonly splTokenAccount?: Address;
+  /** The mint's token program; read from the mint account when omitted. */
   readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
   /**
@@ -208,13 +210,19 @@ export async function buildDepositTransaction(
     const depositor = input.depositor ?? input.feePayer;
     const tree = input.tree ?? input.client.tree;
     const asset = input.asset ?? SOL_MINT;
+    const tokenProgram = await resolveSplTokenProgram(
+      input.client,
+      asset,
+      input.splTokenProgram,
+      context,
+    );
     const deposit = await createDeposit({
       recipient,
       asset,
       amount: input.amount,
       depositor,
       ...(input.splTokenAccount === undefined ? {} : { splTokenAccount: input.splTokenAccount }),
-      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
+      ...(tokenProgram === undefined ? {} : { splTokenProgram: tokenProgram }),
       ...(input.memo === undefined ? {} : { memo: input.memo }),
     });
     const createInterface =
@@ -227,9 +235,7 @@ export async function buildDepositTransaction(
             await createSplInterfaceInstruction({
               authority: depositor,
               mint: asset,
-              ...(input.splTokenProgram === undefined
-                ? {}
-                : { tokenProgram: input.splTokenProgram }),
+              ...(tokenProgram === undefined ? {} : { tokenProgram }),
             }),
           ]
         : []),

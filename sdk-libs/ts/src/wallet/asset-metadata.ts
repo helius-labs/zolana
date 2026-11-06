@@ -13,12 +13,15 @@ export interface AssetMetadata {
   readonly decimals: number;
 }
 
-export async function fetchAssetMetadata(
+/**
+ * The mint account: one that SPL Token or Token-2022 owns and that decodes as
+ * an initialized mint.
+ */
+async function readMint(
   client: Pick<ChainReader, "getAccount">,
   mint: Address,
   context?: RequestContext,
-): Promise<AssetMetadata> {
-  if (mint === SOL_MINT) return Object.freeze({ mint, decimals: 9 });
+): Promise<Readonly<{ tokenProgram: Address; decimals: number }>> {
   let account: RpcAccount | undefined;
   try {
     account = await client.getAccount(mint, context);
@@ -38,10 +41,36 @@ export async function fetchAssetMetadata(
     if (account.data.length < getMintSize()) throw new Error();
     const decoded = getMintDecoder().decode(account.data.subarray(0, getMintSize()));
     if (!decoded.isInitialized) throw new Error();
-    return Object.freeze({ mint, decimals: decoded.decimals });
+    return { tokenProgram: account.owner, decimals: decoded.decimals };
   } catch {
     throw new WalletError("WALLET_ASSET_METADATA", { details: { mint, reason: "data" } });
   }
+}
+
+export async function fetchAssetMetadata(
+  client: Pick<ChainReader, "getAccount">,
+  mint: Address,
+  context?: RequestContext,
+): Promise<AssetMetadata> {
+  if (mint === SOL_MINT) return Object.freeze({ mint, decimals: 9 });
+  const { decimals } = await readMint(client, mint, context);
+  return Object.freeze({ mint, decimals });
+}
+
+/**
+ * @internal The token program an SPL deposit or withdrawal of `asset` settles
+ * through: `splTokenProgram` when the caller names it, otherwise the program
+ * that owns the mint account. `undefined` for SOL.
+ */
+export async function resolveSplTokenProgram(
+  client: Pick<ChainReader, "getAccount">,
+  asset: Address,
+  splTokenProgram: Address | null | undefined,
+  context?: RequestContext,
+): Promise<Address | undefined> {
+  if (asset === SOL_MINT) return undefined;
+  if (splTokenProgram !== undefined && splTokenProgram !== null) return splTokenProgram;
+  return (await readMint(client, asset, context)).tokenProgram;
 }
 
 export class AssetMetadataCache {

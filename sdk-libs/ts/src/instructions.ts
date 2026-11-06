@@ -27,7 +27,7 @@ export {
 export {
   DepositAsset,
   MergeEncryptionScheme,
-  TransactWithdrawal,
+  TransactSettlement,
   type AssetDeposit,
   type CacheAccess,
   type CreateCacheData,

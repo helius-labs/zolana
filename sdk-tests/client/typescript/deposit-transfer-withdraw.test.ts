@@ -6,7 +6,7 @@ import {
   depositInstruction,
   transactInstruction,
   DepositAsset,
-  TransactWithdrawal,
+  TransactSettlement,
 } from "@heliuslabs/spr/interface";
 import {
   AssetRegistry,
@@ -173,7 +173,7 @@ describe("example: deposit, transfer, withdraw", () => {
       ownerSigners: [senderSigner],
       inputTree: client.tree,
       outputTree: client.tree,
-      withdrawal: TransactWithdrawal.sol({ recipient: senderSigner.address }),
+      settlements: [TransactSettlement.solWithdrawal({ recipient: senderSigner.address })],
       data: withdrawalData,
     });
 

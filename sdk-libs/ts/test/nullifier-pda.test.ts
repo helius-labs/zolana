@@ -19,6 +19,7 @@ import {
   MergeEncryptionScheme,
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
+  TransactSettlement,
 } from "../src/interface/index.js";
 import { nullifierPdaAddress, nullifierPda } from "../src/interface/pda/index.js";
 import type {
@@ -80,6 +81,13 @@ function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
   };
 }
 
+/** A SOL withdrawal leg to `OWNER` and the settlement group the program reads for it. */
+const SOL_WITHDRAWAL = [TransactSettlement.solWithdrawal({ recipient: OWNER })];
+
+function withdrawalData(inputs: readonly InputUtxo[]): TransactInstructionData {
+  return { ...transactData(inputs), interfaceTransfers: [{ kind: "solWithdrawal", amount: 5n }] };
+}
+
 async function nullifierPdas(inputs: readonly InputUtxo[]) {
   const accounts = await nullifierPdaAccounts(
     TREE,
@@ -115,6 +123,7 @@ describe("nullifier PDA accounts", () => {
             ringAuth: RING_AUTH,
             inputs: data.inputs,
             treeContexts: data.treeContexts,
+            interfaceTransfers: data.interfaceTransfers,
           }),
         ).rejects.toMatchObject({ code: "INTERFACE_INVALID_SHAPE" });
       }
@@ -155,8 +164,8 @@ describe("nullifier PDA accounts", () => {
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
       ownerSigners: [],
-      withdrawal: { kind: "sol", recipient: OWNER },
-      data: transactData(inputs),
+      settlements: SOL_WITHDRAWAL,
+      data: withdrawalData(inputs),
     });
 
     const [first, second] = await nullifierPdas(inputs);
@@ -183,8 +192,8 @@ describe("nullifier PDA accounts", () => {
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
       ownerSigners: [OWNER_SIGNER],
-      withdrawal: { kind: "sol", recipient: OWNER },
-      data: transactData(inputs),
+      settlements: SOL_WITHDRAWAL,
+      data: withdrawalData(inputs),
     });
 
     const [pda] = await nullifierPdas(inputs);
@@ -203,8 +212,8 @@ describe("nullifier PDA accounts", () => {
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
       ownerSigners: [PAYER, OWNER],
-      withdrawal: { kind: "sol", recipient: OWNER },
-      data: transactData(inputs),
+      settlements: SOL_WITHDRAWAL,
+      data: withdrawalData(inputs),
     });
 
     const [first, second] = await nullifierPdas(inputs);
@@ -249,10 +258,10 @@ describe("nullifier PDA accounts", () => {
       inputTree: TREE,
       outputTree: OUTPUT_TREE,
       ownerSigners: [OWNER_SIGNER],
-      withdrawal: { kind: "sol", recipient: OWNER },
+      settlements: SOL_WITHDRAWAL,
       cache: TransactCacheAccounts.read(CACHE),
       data: {
-        ...transactData(inputs),
+        ...withdrawalData(inputs),
         circuit: {
           kind: "confidentialSignerCached",
           inputs: 2,
@@ -320,6 +329,7 @@ describe("nullifier PDA accounts", () => {
       ringAuth: RING_AUTH,
       inputs,
       treeContexts: [context, context],
+      interfaceTransfers: [],
     });
     expect(accounts.slice(5).map((meta) => [meta.address, meta.role])).toEqual([
       [TREE, AccountRole.WRITABLE],
@@ -335,6 +345,7 @@ describe("nullifier PDA accounts", () => {
         ringAuth: RING_AUTH,
         inputs,
         treeContexts: [context, context],
+        interfaceTransfers: [],
       }),
     ).rejects.toMatchObject({ code: "INTERFACE_INVALID_SHAPE" });
   });
@@ -348,6 +359,7 @@ describe("nullifier PDA accounts", () => {
       ringAuth: RING_AUTH,
       inputs,
       treeContexts: transactData(inputs).treeContexts,
+      interfaceTransfers: [],
       ownerSigners: [OWNER],
     });
 

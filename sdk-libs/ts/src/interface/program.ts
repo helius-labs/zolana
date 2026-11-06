@@ -37,6 +37,10 @@ export const SHIELDED_POOL_CPI_AUTHORITY = encodeBase58(
 export const SPL_TOKEN_PROGRAM_ID = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 export const SPL_TOKEN_2022_PROGRAM_ID = address("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 export const ASSOCIATED_TOKEN_PROGRAM_ID = address("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+/** The upgradeable loader that owns the shielded pool and its ProgramData account. */
+export const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = address(
+  "BPFLoaderUpgradeab1e11111111111111111111111",
+);
 export const DUMMY_DOMAIN = 1 as const;
 export const ADDRESS_DOMAIN = 2 as const;
 export const UTXO_DOMAIN = 3 as const;

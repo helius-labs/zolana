@@ -1,0 +1,409 @@
+{
+  "description": "Account layouts of a transact with one settlement group per interface transfer, which the TypeScript SDK must reproduce: the instruction, the CPI account list with a signing PDA, and the ring transact sent to the ring program. Regenerate with `cargo test -p spr-instruction --test settlement_vectors print_settlement_vectors -- --ignored --nocapture`.",
+  "inputTree": "2DYKaRPBeNM5WdW8rNsYEktjPrnd89Mm4Lzp3qonSzoj",
+  "interfaceTransfers": [
+    {
+      "amount": "4000",
+      "kind": "splWithdrawal",
+      "splInterfaceBump": 255
+    },
+    {
+      "amount": "1000",
+      "kind": "solDeposit"
+    },
+    {
+      "amount": "2000",
+      "kind": "splDeposit",
+      "splInterfaceBump": 255
+    },
+    {
+      "amount": "3000",
+      "kind": "solWithdrawal"
+    }
+  ],
+  "outputTree": "2HTciirCEfeJeikeHgCTXdfVe1zpoD3ackfU7DrPCL8S",
+  "ownerSigner": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+  "payer": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+  "ringAuth": "3i4EhcYGQCm1z2xybUvQmHxkPoGMYeYCQLwFCtYmQnRp",
+  "ringProgramId": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+  "ringTransact": {
+    "accounts": [
+      {
+        "address": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+        "signer": true,
+        "writable": true
+      },
+      {
+        "address": "2HTciirCEfeJeikeHgCTXdfVe1zpoD3ackfU7DrPCL8S",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "11111111111111111111111111111111",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "3i4EhcYGQCm1z2xybUvQmHxkPoGMYeYCQLwFCtYmQnRp",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "2DYKaRPBeNM5WdW8rNsYEktjPrnd89Mm4Lzp3qonSzoj",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "9spe4wZxXhjGNcqXQhND4rFx8jsxAfvcnuPrewFFrLxj",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "4PTz8TrwLDSNmwuJjVGetqZc1hfCv4EXzaMiPX1Auaec",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+        "signer": true,
+        "writable": false
+      },
+      {
+        "address": "CaM8DbtJ2mSecgaHYo9xeT7VSKq7AnaqEUm5p7e5LW4a",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "4NwnA4HWZurKyXWNowJwYmb9CwX4gBKzwQKov1ExMf8M",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "AN69rEXt3kQDrx2rcAs5pe9MEgUSXrzWaA8Gz2zpqiyR",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "5PjDJaGfSPJj4tFzMRCiuuAasKg5n8dJKXKenhuwZexx",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "CiNmas621VuyofiDSrEPfTXHKrdZuB6jMKECyNiMpLXE",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "5TeWSsjg2gbxCyWVniXeCmwM7UtHTCK7svzJr5xYJzHf",
+        "signer": true,
+        "writable": true
+      },
+      {
+        "address": "4K2V1kpVycZ6qSFsNdz2FtpNxnJs17eBNzf9rdCMcKoe",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "14VJfbEYEsYHbXRe7PHhn3gm29eGJFBfqTgdgDoznrYr",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "5XZobBCgcyuBM4m1E1rZVei7Me6V8FzwSLexuU194KcN",
+        "signer": true,
+        "writable": false
+      },
+      {
+        "address": "5bV6jUfhDHCQVA1WfKBUnXUsboJgoKgkzkKcxr3joew5",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "CiNmas621VuyofiDSrEPfTXHKrdZuB6jMKECyNiMpLXE",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn",
+        "signer": false,
+        "writable": true
+      }
+    ],
+    "data": "134d00000000000000030303030303030303030303030303030303030303030303030303030303030303040404040404040404040404040404040403a00f000000000000ff00e80300000000000002d007000000000000ff01b80b0000000000000000000000050505050505050505050505050505050505050505050505050505050505050000020203060606060606060606060606060606060606060606060606060606060606060607070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070808080808080808080808080808080808080808080808080808080808080808020010101010101010101010101010101010101010101010101010101010101010000011111111111111111111111111111111111111111111111111111111111111000109000a00",
+    "programAddress": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z"
+  },
+  "settlements": [
+    {
+      "kind": "splWithdrawal",
+      "mint": "4NwnA4HWZurKyXWNowJwYmb9CwX4gBKzwQKov1ExMf8M",
+      "recipientTokenAccount": "5PjDJaGfSPJj4tFzMRCiuuAasKg5n8dJKXKenhuwZexx",
+      "splTokenInterface": "AN69rEXt3kQDrx2rcAs5pe9MEgUSXrzWaA8Gz2zpqiyR",
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+    },
+    {
+      "depositor": "5TeWSsjg2gbxCyWVniXeCmwM7UtHTCK7svzJr5xYJzHf",
+      "kind": "solDeposit"
+    },
+    {
+      "kind": "splDeposit",
+      "mint": "4K2V1kpVycZ6qSFsNdz2FtpNxnJs17eBNzf9rdCMcKoe",
+      "sourceTokenAccount": "5bV6jUfhDHCQVA1WfKBUnXUsboJgoKgkzkKcxr3joew5",
+      "splTokenInterface": "14VJfbEYEsYHbXRe7PHhn3gm29eGJFBfqTgdgDoznrYr",
+      "tokenAuthority": "5XZobBCgcyuBM4m1E1rZVei7Me6V8FzwSLexuU194KcN",
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    },
+    {
+      "kind": "solWithdrawal",
+      "recipient": "5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn"
+    }
+  ],
+  "signerPda": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+  "transact": {
+    "accounts": [
+      {
+        "address": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+        "signer": true,
+        "writable": true
+      },
+      {
+        "address": "2HTciirCEfeJeikeHgCTXdfVe1zpoD3ackfU7DrPCL8S",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "11111111111111111111111111111111",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "2DYKaRPBeNM5WdW8rNsYEktjPrnd89Mm4Lzp3qonSzoj",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "9spe4wZxXhjGNcqXQhND4rFx8jsxAfvcnuPrewFFrLxj",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "4PTz8TrwLDSNmwuJjVGetqZc1hfCv4EXzaMiPX1Auaec",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+        "signer": true,
+        "writable": false
+      },
+      {
+        "address": "CaM8DbtJ2mSecgaHYo9xeT7VSKq7AnaqEUm5p7e5LW4a",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "4NwnA4HWZurKyXWNowJwYmb9CwX4gBKzwQKov1ExMf8M",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "AN69rEXt3kQDrx2rcAs5pe9MEgUSXrzWaA8Gz2zpqiyR",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "5PjDJaGfSPJj4tFzMRCiuuAasKg5n8dJKXKenhuwZexx",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "CiNmas621VuyofiDSrEPfTXHKrdZuB6jMKECyNiMpLXE",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "5TeWSsjg2gbxCyWVniXeCmwM7UtHTCK7svzJr5xYJzHf",
+        "signer": true,
+        "writable": true
+      },
+      {
+        "address": "4K2V1kpVycZ6qSFsNdz2FtpNxnJs17eBNzf9rdCMcKoe",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "14VJfbEYEsYHbXRe7PHhn3gm29eGJFBfqTgdgDoznrYr",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "5XZobBCgcyuBM4m1E1rZVei7Me6V8FzwSLexuU194KcN",
+        "signer": true,
+        "writable": false
+      },
+      {
+        "address": "5bV6jUfhDHCQVA1WfKBUnXUsboJgoKgkzkKcxr3joew5",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "signer": false,
+        "writable": false
+      },
+      {
+        "address": "CiNmas621VuyofiDSrEPfTXHKrdZuB6jMKECyNiMpLXE",
+        "signer": false,
+        "writable": true
+      },
+      {
+        "address": "5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn",
+        "signer": false,
+        "writable": true
+      }
+    ],
+    "data": "104d00000000000000030303030303030303030303030303030303030303030303030303030303030303040404040404040404040404040404040403a00f000000000000ff00e80300000000000002d007000000000000ff01b80b0000000000000000000000050505050505050505050505050505050505050505050505050505050505050000020203060606060606060606060606060606060606060606060606060606060606060607070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070808080808080808080808080808080808080808080808080808080808080808020010101010101010101010101010101010101010101010101010101010101010000011111111111111111111111111111111111111111111111111111111111111000109000a00",
+    "programAddress": "ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW"
+  },
+  "transactCpiAccounts": [
+    {
+      "address": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+      "signer": true,
+      "writable": true
+    },
+    {
+      "address": "2HTciirCEfeJeikeHgCTXdfVe1zpoD3ackfU7DrPCL8S",
+      "signer": false,
+      "writable": true
+    },
+    {
+      "address": "ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW",
+      "signer": false,
+      "writable": false
+    },
+    {
+      "address": "11111111111111111111111111111111",
+      "signer": false,
+      "writable": false
+    },
+    {
+      "address": "2DYKaRPBeNM5WdW8rNsYEktjPrnd89Mm4Lzp3qonSzoj",
+      "signer": false,
+      "writable": true
+    },
+    {
+      "address": "9spe4wZxXhjGNcqXQhND4rFx8jsxAfvcnuPrewFFrLxj",
+      "signer": false,
+      "writable": true
+    },
+    {
+      "address": "4PTz8TrwLDSNmwuJjVGetqZc1hfCv4EXzaMiPX1Auaec",
+      "signer": false,
+      "writable": true
+    },
+    {
+      "address": "2MNus2KCpxwXnp19iyXNpWSFtBD2UGjQBAL8AbtywfT9",
+      "signer": true,
+      "writable": false
+    },
+    {
+      "address": "2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr",
+      "signer": false,
+      "writable": false
+    },
+    {
+      "address": "CaM8DbtJ2mSecgaHYo9xeT7VSKq7AnaqEUm5p7e5LW4a",
+      "signer": false,
+      "writable": false
+    },
+    {
+      "address": "4NwnA4HWZurKyXWNowJwYmb9CwX4gBKzwQKov1ExMf8M",
+      "signer": false,
+      "writable": false
+    },
+    {
+      "address": "AN69rEXt3kQDrx2rcAs5pe9MEgUSXrzWaA8Gz2zpqiyR",
+      "signer": false,
+      "writable": true
+    },
+    {
+      "address": "5PjDJaGfSPJj4tFzMRCiuuAasKg5n8dJKXKenhuwZexx",
+      "signer": false,
+      "writable": true
+    },
+    {
+      "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "signer": false,
+      "writable": false
+    },
+    {
+      "address": "CiNmas621VuyofiDSrEPfTXHKrdZuB6jMKECyNiMpLXE",
+      "signer": false,
+      "writable": true
+    },
+    {
+      "address": "5TeWSsjg2gbxCyWVniXeCmwM7UtHTCK7svzJr5xYJzHf",
+      "signer": true,
+      "writable": true
+    },
+    {
+      "address": "4K2V1kpVycZ6qSFsNdz2FtpNxnJs17eBNzf9rdCMcKoe",
+      "signer": false,
+      "writable": false
+    },
+    {
+      "address": "14VJfbEYEsYHbXRe7PHhn3gm29eGJFBfqTgdgDoznrYr",
+      "signer": false,
+      "writable": true
+    },
+    {
+      "address": "5XZobBCgcyuBM4m1E1rZVei7Me6V8FzwSLexuU194KcN",
+      "signer": true,
+      "writable": false
+    },
+    {
+      "address": "5bV6jUfhDHCQVA1WfKBUnXUsboJgoKgkzkKcxr3joew5",
+      "signer": false,
+      "writable": true
+    },
+    {
+      "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "signer": false,
+      "writable": false
+    },
+    {
+      "address": "CiNmas621VuyofiDSrEPfTXHKrdZuB6jMKECyNiMpLXE",
+      "signer": false,
+      "writable": true
+    },
+    {
+      "address": "5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn",
+      "signer": false,
+      "writable": true
+    }
+  ]
+}
