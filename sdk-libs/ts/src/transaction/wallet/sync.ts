@@ -239,6 +239,23 @@ function rowKey(row: PrivateTransaction): string {
   return `${row.id.signature}|${row.id.slot}|${row.id.index}`;
 }
 
+type Recipient = Readonly<{ key: X25519PublicKey; utxo: Utxo }>;
+
+/**
+ * What this wallet authored in one Solana transaction, over every event of it
+ * the wallet authored: its sender rows are read from the sum, as Rust reads
+ * one balance change per Solana transaction.
+ */
+interface AuthoredSend {
+  /** Any of the events; the rows take its signature and slot. */
+  readonly tx: IndexedShieldedTransaction;
+  /** Each event's first nullifier, so an event listed twice counts once. */
+  readonly events: Set<string>;
+  readonly nullifiers: Bytes32[];
+  readonly change: Utxo[];
+  readonly recipients: Recipient[];
+}
+
 /**
  * The UTXOs and history rows one sync produces, accumulated across every
  * viewing key the wallet's keys hold. This is the counterpart of Rust
@@ -266,6 +283,8 @@ class SyncPass {
   readonly #outputHashes: Set<string>;
   readonly #processedSlots = new Set<string>();
   readonly #processedOutbound = new Set<number>();
+  /** By Solana signature and slot. */
+  readonly #sends = new Map<string, AuthoredSend>();
   readonly #unknownAssetsBySite = new Map<
     string,
     Readonly<{ ids: Set<bigint>; fields: Map<string, Bytes32> }>
@@ -519,9 +538,10 @@ class SyncPass {
   }
 
   /**
-   * One row per asset the transaction moved out, netted down by the change it
-   * paid back to this wallet. A row whose net is zero is dropped but still
-   * consumes its row index, so the surviving rows keep the indices they had.
+   * One row per asset the Solana transaction moved out, netted down by the
+   * change it paid back to this wallet. A row whose net is zero is dropped but
+   * still consumes its row index, so the surviving rows keep the indices they
+   * had.
    */
   #recordOutboundTransfer(
     tx: IndexedShieldedTransaction,
@@ -616,7 +636,7 @@ class SyncPass {
 
   #decodeOutboundSlots(tx: IndexedShieldedTransaction, txKey: ViewingKey, salt: Bytes16): void {
     const change: Utxo[] = [];
-    const recipients: Array<Readonly<{ key: X25519PublicKey; utxo: Utxo }>> = [];
+    const recipients: Recipient[] = [];
     tx.outputSlots.forEach((slot, position) => {
       try {
         const frame = readOutputData(slot.payload);
@@ -654,15 +674,44 @@ class SyncPass {
         // A dummy slot fails the transaction-key decrypt; skip it.
       }
     });
+    this.#addSend(tx, change, recipients);
+  }
 
-    const spent = this.#spentAmounts(tx.nullifiers);
+  /** Two events of one Solana transaction add up to one send. */
+  #addSend(
+    tx: IndexedShieldedTransaction,
+    change: readonly Utxo[],
+    recipients: readonly Recipient[],
+  ): void {
+    const firstNullifier = tx.nullifiers[0];
+    if (firstNullifier === undefined) return;
+    const key = `${tx.txSignature}|${String(tx.slot)}`;
+    let send = this.#sends.get(key);
+    if (send === undefined) {
+      send = { tx, events: new Set(), nullifiers: [], change: [], recipients: [] };
+      this.#sends.set(key, send);
+    }
+    if (send.events.has(bytesKey(firstNullifier))) return;
+    send.events.add(bytesKey(firstNullifier));
+    send.nullifiers.push(...tx.nullifiers);
+    send.change.push(...change);
+    send.recipients.push(...recipients);
+  }
+
+  /** Once every slot is decoded, so each send nets against every UTXO it spent. */
+  #recordSends(): void {
+    for (const send of this.#sends.values()) this.#recordSend(send);
+  }
+
+  #recordSend({ tx, nullifiers, change, recipients }: AuthoredSend): void {
+    const spent = this.#spentAmounts(nullifiers);
     // Paying yourself keeps every output, so nothing distinguishes it from
     // change except that the change covers the whole spend.
     if (recipients.length === 0 && covered(spent, change)) {
       this.#recordSplit(tx, spent);
       return;
     }
-    const entry = this.#isRingEntry(tx.nullifiers, change, recipients);
+    const entry = this.#isRingEntry(nullifiers, change, recipients);
     const kind = entry
       ? "ringEntry"
       : recipients.length === 0
@@ -682,7 +731,7 @@ class SyncPass {
   #isRingEntry(
     nullifiers: readonly Bytes32[],
     change: readonly Utxo[],
-    recipients: readonly Readonly<{ key: X25519PublicKey; utxo: Utxo }>[],
+    recipients: readonly Recipient[],
   ): boolean {
     const inputs = this.#spentEntries(nullifiers);
     const rings = new Set(recipients.map(({ utxo }) => utxo.ringProgramId));
@@ -816,7 +865,7 @@ class SyncPass {
       this.#processedSlots.add(siteKey);
       if (!this.#processedOutbound.has(site.transaction)) {
         this.#processedOutbound.add(site.transaction);
-        this.#recordSplit(tx, this.#spentAmounts(tx.nullifiers));
+        this.#addSend(tx, utxos, []);
       }
       return;
     }
@@ -993,6 +1042,7 @@ class SyncPass {
         this.recordConfidentialSend(tx, position, viewingPublicKey);
       });
     }
+    this.#recordSends();
   }
 }
 
@@ -1008,9 +1058,19 @@ export async function decryptTransactions(
 ): Promise<SyncReport> {
   await initializePoseidon();
   checkKeysIdentity(input.keys, input.wallet.identity);
+  // The pass reads the wallet, waits on the key holder, then writes the
+  // wallet: it queues behind every sync of the wallet, and a write that lands
+  // while it waits refuses the commit instead of being overwritten.
+  return input.wallet._withSyncLock(() => decryptLocked(input));
+}
+
+async function decryptLocked(
+  input: Parameters<typeof decryptTransactions>[0],
+): Promise<SyncReport> {
   const identity = input.keys.address();
   const viewingPublicKeys = checkViewingPublicKeys(input.keys, identity);
   const current = input.wallet._state();
+  const revision = input.wallet._revision;
   const index = buildTagIndex(input.transactions);
   // Before the pass, which needs the full key set: seeded with the identity's
   // key and extended with every key held, so it holds every key this wallet
@@ -1038,7 +1098,7 @@ export async function decryptTransactions(
         continue;
       }
       pass.assertOwnedMergesDecoded(mergeSites, identityTag);
-      return commitPass(input, pass, index, viewingKeyHistory);
+      return commitPass(input, pass, index, viewingKeyHistory, revision);
     }
     throw new TransactionError("TRANSACTION_KEYS_UNRESOLVED");
   } finally {
@@ -1055,7 +1115,11 @@ function commitPass(
   pass: SyncPass,
   index: TagIndex,
   viewingKeyHistory: readonly ViewingKeyEntry[],
+  revision: number,
 ): SyncReport {
+  if (input.wallet._revision !== revision) {
+    throw new TransactionError("TRANSACTION_WALLET_STATE_STALE");
+  }
   const current = input.wallet._state();
   const nullifiers = new Set(current.nullifiers);
   for (const tx of input.transactions) {

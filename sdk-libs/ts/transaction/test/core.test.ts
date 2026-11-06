@@ -35,6 +35,7 @@ import {
   privateTxBlinding,
   resolveShape,
   transactOutputBlinding,
+  WithdrawalTarget,
 } from "../../src/transaction/index.js";
 import { decodeAddress, hashBytes, rightAlign } from "../../src/transaction/internal.js";
 import { encodeData } from "../../src/transaction/serialization/index.js";
@@ -645,5 +646,50 @@ describe("transaction core", () => {
       payload: { value: 7 },
     });
     expect(JSON.stringify(error)).not.toContain("hidden");
+  });
+});
+
+describe("transfer balance", () => {
+  it("reports what goes out against what comes in when the inputs fall short", () => {
+    const { keypair, nullifier } = ed25519Material();
+    const owner = keypair.shieldedAddress();
+    const payer = owner.solanaAddress();
+    const transfer = (): ConfidentialTransfer =>
+      new ConfidentialTransfer(
+        owner,
+        [
+          ProofInputUtxo.fromNullifierKey(
+            new Utxo({
+              owner: keypair.signingPublicKey(),
+              asset: SOL_MINT,
+              amount: 100n,
+              blinding: scalar(6),
+            }),
+            nullifier,
+          ),
+        ],
+        payer,
+      );
+    const recipient = ShieldedKeypair.generate().shieldedAddress();
+
+    const overspent = transfer();
+    overspent.send(recipient, SOL_MINT, 150n);
+    expect(() => overspent.prepare()).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_INSUFFICIENT_BALANCE",
+        details: { asset: SOL_MINT, requested: "150", available: "100" },
+      }),
+    );
+
+    // A withdrawal goes out beside the outputs, as Rust counts it.
+    const overdrawn = transfer();
+    overdrawn.send(recipient, SOL_MINT, 80n);
+    overdrawn.withdraw(SOL_MINT, 30n, WithdrawalTarget.sol({ recipient: payer }));
+    expect(() => overdrawn.prepare()).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_INSUFFICIENT_BALANCE",
+        details: { asset: SOL_MINT, requested: "110", available: "100" },
+      }),
+    );
   });
 });

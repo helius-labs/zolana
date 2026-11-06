@@ -199,6 +199,14 @@ function u64Amount(amount: bigint): void {
   }
 }
 
+/** A spend of nothing is refused before any UTXO is reserved, as Rust `select_spend` refuses it. */
+function spendAmount(amount: bigint): void {
+  u64Amount(amount);
+  if (amount === 0n) {
+    throw new WalletError("WALLET_INVALID_AMOUNT", { details: { amount: "0" } });
+  }
+}
+
 const walletSelectionErrors: SpendSelectionErrors = {
   insufficient: ({ requested, available }) =>
     new WalletError("WALLET_INSUFFICIENT_BALANCE", {
@@ -290,10 +298,7 @@ function selectSpendInputs(
 }
 
 export async function createWithdrawal(params: WithdrawalParams): Promise<CreatedWithdrawal> {
-  u64Amount(params.amount);
-  if (params.amount === 0n) {
-    throw new WalletError("WALLET_INVALID_AMOUNT", { details: { amount: "0" } });
-  }
+  spendAmount(params.amount);
   const resolved = await resolveWithdrawalSettlement(
     params.recipient,
     params.asset,
@@ -327,7 +332,7 @@ export async function createTransfer(
   params: TransferParams,
   context?: RequestContext,
 ): Promise<CreatedTransfer> {
-  u64Amount(params.amount);
+  spendAmount(params.amount);
   try {
     const recipient = await resolveTransferRecipient(params.recipient, params.client, context);
     return Object.freeze({
@@ -362,10 +367,7 @@ export async function createMultiTransfer(
       if (typeof payment !== "object" || payment === null) {
         throw new WalletError("WALLET_INVALID_PAYMENT", { details: { index } });
       }
-      u64Amount(payment.amount);
-      if (payment.amount === 0n) {
-        throw new WalletError("WALLET_INVALID_AMOUNT", { details: { amount: "0" } });
-      }
+      spendAmount(payment.amount);
       total += payment.amount;
     });
     u64Amount(total);
