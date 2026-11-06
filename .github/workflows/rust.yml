@@ -274,6 +274,17 @@ jobs:
           path: target/deploy/*.so
           if-no-files-found: error
           retention-days: 1
+      # The escrow suite proves at runtime from the circuits and test keys
+      # build-test-programs compiled next to its verifier.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: escrow-circuits-${{ github.sha }}
+          path: |
+            target/zk/timelock-escrow-program/programs.json
+            target/zk/timelock-escrow-program/escrow
+            target/zk/timelock-escrow-program/withdraw
+          if-no-files-found: error
+          retention-days: 1
 
   build-localnet-tools:
     name: build / localnet tools
@@ -314,7 +325,10 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dynamic-swap-zk-keys-${{ github.sha }}
-          path: target/zk/dynamic-swap-program/*.pk*
+          # Each circuit and its proving key, under the circuit's directory.
+          path: |
+            target/zk/dynamic-swap-program/*/circuit.xbc
+            target/zk/dynamic-swap-program/*/pk.bin
           if-no-files-found: error
           retention-days: 1
 
@@ -433,6 +447,11 @@ jobs:
         with:
           name: localnet-programs-${{ github.sha }}
           path: target/deploy
+      - name: Download escrow circuits
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: escrow-circuits-${{ github.sha }}
+          path: target/zk/timelock-escrow-program
       - name: Download prebuilt tools
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:

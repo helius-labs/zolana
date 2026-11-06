@@ -1,53 +1,53 @@
-use std::{fs, ptr, sync::OnceLock};
+use std::{fs, ptr};
 
-use dynamic_swap_program::circuits::PoolDeposit;
-use spr_keypair::hash::sha256;
-use spr_program::{Groth16Keys, R1cs, ZkCircuit};
+use dynamic_swap_program::verifier::pool_deposit::VERIFYINGKEY_PROVING_KEY_SHA256;
 
-use super::{load_prover, CachedProver};
+use super::{artifacts, load_circuit, CachedCircuit};
 
-fn encoded_keys() -> &'static (Vec<u8>, [u8; 32]) {
-    static KEYS: OnceLock<(Vec<u8>, [u8; 32])> = OnceLock::new();
-    KEYS.get_or_init(|| {
-        let circuit = R1cs::from_bytes(&PoolDeposit::export_r1cs().unwrap()).unwrap();
-        let keys = Groth16Keys::new_with_test_setup(&circuit).unwrap();
-        let bytes = keys.to_bytes().unwrap();
-        let checksum = sha256(&bytes);
-        (bytes, checksum)
-    })
+/// A copy of the built pool deposit circuit without its proving key, and the
+/// key's bytes. `build-zk-program` writes the originals.
+fn circuit_without_key() -> (tempfile::TempDir, Vec<u8>) {
+    let built = artifacts("pool_deposit");
+    let directory = tempfile::tempdir().unwrap();
+    fs::copy(
+        built.join("circuit.xbc"),
+        directory.path().join("circuit.xbc"),
+    )
+    .expect("run `just ensure-dynamic-swap-keys` first");
+    let key = fs::read(built.join("pk.bin")).expect("run `just ensure-dynamic-swap-keys` first");
+    (directory, key)
 }
 
 #[test]
 fn missing_proving_key_can_be_created_and_retried() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("pool_deposit.pk");
-    let cache = CachedProver::<PoolDeposit>::new();
-    let (bytes, checksum) = encoded_keys();
+    let (directory, key) = circuit_without_key();
+    let cache = CachedCircuit::new();
+    let checksum = &VERIFYINGKEY_PROVING_KEY_SHA256;
 
-    assert!(load_prover(&cache, &path, checksum).is_err());
-    fs::write(&path, bytes).unwrap();
-    let loaded = load_prover(&cache, &path, checksum)
+    assert!(load_circuit(&cache, directory.path(), checksum).is_err());
+    fs::write(directory.path().join("pk.bin"), &key).unwrap();
+    let loaded = load_circuit(&cache, directory.path(), checksum)
         .expect("creating the missing key must let the same cache retry");
-
-    fs::remove_file(&path).unwrap();
-    let reused = load_prover(&cache, &path, checksum)
-        .expect("a successful load remains cached after the key file is removed");
-    assert!(
-        ptr::eq(loaded, reused),
-        "reuse the successfully loaded prover"
-    );
+    let reused = load_circuit(&cache, directory.path(), checksum).unwrap();
+    assert!(ptr::eq(loaded, reused), "reuse the parsed circuit");
 }
 
 #[test]
-fn mismatched_proving_key_can_be_repaired_and_retried() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("pool_deposit.pk");
-    let cache = CachedProver::<PoolDeposit>::new();
-    let (bytes, checksum) = encoded_keys();
+fn mismatched_proving_key_is_refused_even_after_a_successful_load() {
+    let (directory, key) = circuit_without_key();
+    let cache = CachedCircuit::new();
+    let checksum = &VERIFYINGKEY_PROVING_KEY_SHA256;
+    let path = directory.path().join("pk.bin");
 
     fs::write(&path, b"an incomplete proving key").unwrap();
-    assert!(load_prover(&cache, &path, checksum).is_err());
+    assert!(load_circuit(&cache, directory.path(), checksum).is_err());
+    fs::write(&path, &key).unwrap();
+    load_circuit(&cache, directory.path(), checksum)
+        .expect("repairing the key must let the same cache retry");
 
-    fs::write(&path, bytes).unwrap();
-    load_prover(&cache, &path, checksum).expect("repairing the key must let the same cache retry");
+    fs::write(&path, b"a key swapped after loading").unwrap();
+    assert!(
+        load_circuit(&cache, directory.path(), checksum).is_err(),
+        "each proof reads the key again, so each load checks it"
+    );
 }

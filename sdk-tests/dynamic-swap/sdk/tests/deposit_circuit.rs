@@ -1,6 +1,4 @@
-use dynamic_swap_program::{
-    circuits::PoolDeposit, instructions::shared::u64_right_align, verifier::pool_deposit,
-};
+use dynamic_swap_program::{circuits::PoolDeposit, verifier::pool_deposit};
 use dynamic_swap_sdk::{
     instructions::deposit_liquidity::DepositProofInputParams,
     shared::{pad_spp_outputs, transaction_blindings},
@@ -8,13 +6,15 @@ use dynamic_swap_sdk::{
 };
 use solana_pubkey::Pubkey;
 use spr_keypair::{ShieldedKeypair, ViewingKey};
-use spr_program::{CompressedProof, Groth16Prover, ZkCircuit};
+use spr_program::{checked, Field};
 use spr_transaction::{
     instructions::transact::{asset_field, ExternalData, PrivateTxHash, SppProofInputs},
     utxo::SppProofInputUtxo,
     Address, Data, Mint, Utxo,
 };
-use std::sync::OnceLock;
+
+mod support;
+use support::{bytes, check, field, private_tx_hash, prove};
 
 const INPUT_TREE_ID: u16 = 3;
 const OUTPUT_TREE_ID: u16 = 7;
@@ -70,37 +70,32 @@ fn sample() -> DepositProofInputParams {
 
 fn public_hash(inputs: &PoolDeposit) -> [u8; 32] {
     pool_deposit::PublicInputs {
-        pool_authority_owner_hash: inputs.public.pool_authority_owner_hash,
-        destination_asset: inputs.public.destination_asset,
+        pool_authority_owner_hash: bytes(&inputs.public.pool_authority_owner_hash),
+        destination_asset: bytes(&inputs.public.destination_asset),
         amount: inputs.public.amount,
     }
-    .hash(&inputs.private.private_tx_hash)
+    .hash(&bytes(&inputs.private.private_tx_hash))
     .unwrap()
 }
 
 // Keep transcript hashes consistent so attacks reach the circuit's own checks.
 fn refresh_hashes(inputs: &mut PoolDeposit) {
-    inputs.private.private_tx_hash = PrivateTxHash::new(
-        &[inputs.private.source_in.hash().unwrap()],
-        &[inputs.private.pool_out.hash().unwrap()],
-        &inputs.private.private_tx_blinding,
-    )
-    .hash()
-    .unwrap();
+    let private = &mut inputs.private;
+    private.private_tx_hash = private_tx_hash(
+        &[private.source_in.hash().unwrap()],
+        &[private.pool_out.hash().unwrap()],
+        &private.private_tx_blinding,
+    );
 }
 
 #[test]
 fn deposit_proves_and_verifies() {
     let inputs = sample().to_proof_inputs().unwrap();
-    inputs
-        .check_constraints()
-        .expect("valid deposit constraints");
-    static PROVER: OnceLock<Groth16Prover<PoolDeposit>> = OnceLock::new();
-    let prover = PROVER.get_or_init(|| Groth16Prover::new_with_test_setup().unwrap());
-    let proof = prover.prove(&inputs).expect("prove deposit");
-    let compressed = CompressedProof::try_from(&proof.proof).expect("compress deposit proof");
+    let native = checked(|| inputs.execute()).expect("valid deposit");
+    assert_eq!(bytes(native.public_hash()), public_hash(&inputs));
+    check("pool_deposit", &inputs, public_hash(&inputs)).expect("valid deposit constraints");
     spr_program::verifier::verify_groth16(
-        &compressed,
+        &prove("pool_deposit", &inputs, public_hash(&inputs)),
         public_hash(&inputs),
         &pool_deposit::VERIFYINGKEY,
     )
@@ -147,33 +142,33 @@ fn spp_padding_leaves_the_private_tx_hash_unchanged() {
     )
     .hash()
     .unwrap();
-    assert_eq!(spp_hash, inputs.private.private_tx_hash);
+    assert_eq!(spp_hash, bytes(&inputs.private.private_tx_hash));
 }
 
 #[test]
 fn deposit_rejects_unbacked_or_misbooked_pool_notes() {
     let good = sample().to_proof_inputs().unwrap();
-    good.check_constraints().expect("positive control");
+    check("pool_deposit", &good, public_hash(&good)).expect("positive control");
     for attack in 0..7 {
-        let mut inputs = good.clone();
+        let mut inputs = good;
         match attack {
             // Re-depositing a pool note would book the same tokens twice.
             0 => inputs.private.source_in.owner_hash = inputs.public.pool_authority_owner_hash,
             // A source smaller than the booked deposit.
-            1 => inputs.private.source_in.amount = u64_right_align(AMOUNT - 1),
+            1 => inputs.private.source_in.amount = Field::from(AMOUNT - 1),
             // A source in another asset.
-            2 => inputs.private.source_in.asset = [1; 32],
+            2 => inputs.private.source_in.asset = field(&[1; 32]),
             // Books less than it holds, or holds less than it books.
-            3 => inputs.private.pool_out.data_hash = u64_right_align(AMOUNT - 1),
-            4 => inputs.private.pool_out.amount = u64_right_align(AMOUNT - 1),
+            3 => inputs.private.pool_out.data_hash = Field::from(AMOUNT - 1),
+            4 => inputs.private.pool_out.amount = Field::from(AMOUNT - 1),
             // A note outside the pool.
-            5 => inputs.private.pool_out.owner_hash = [1; 32],
+            5 => inputs.private.pool_out.owner_hash = field(&[1; 32]),
             // Claims more liquidity than the note carries.
             _ => inputs.public.amount = AMOUNT + 1,
         }
         refresh_hashes(&mut inputs);
         assert!(
-            inputs.check_constraints().is_err(),
+            check("pool_deposit", &inputs, public_hash(&inputs)).is_err(),
             "accepted deposit attack {attack}"
         );
     }

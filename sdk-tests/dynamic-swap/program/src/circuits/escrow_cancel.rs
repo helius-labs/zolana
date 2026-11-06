@@ -1,7 +1,5 @@
 use spr_program::{
-    circuit::{poseidon, zero, Assert, Circuit, PublicInputs},
-    conversion::ProofInput,
-    CircuitError, ZkProgramCircuit,
+    circuit::PublicInputs, input, poseidon, require_eq, CircuitError, Field, ZkProgram,
 };
 
 use super::{
@@ -12,83 +10,69 @@ use super::{
     Commitment, ProofInputUtxo,
 };
 
-#[derive(Clone, Debug, ZkProgramCircuit)]
+#[input]
+#[derive(ZkProgram)]
+#[zk_program(raw_client)]
 pub struct EscrowCancel {
     pub private: EscrowCancelPrivateInputs,
     pub public: EscrowCancelPublicInputs,
 }
 
-#[derive(Clone, Debug, ProofInput)]
+#[input]
 pub struct EscrowCancelPrivateInputs {
-    pub private_tx_hash: [u8; 32],
+    pub private_tx_hash: Field,
     pub order_amount: u64,
-    pub recipient_owner_hash: [u8; 32],
+    pub recipient_owner_hash: Field,
     pub min_price: u64,
     pub order_in: ProofInputUtxo,
     pub refund_out: ProofInputUtxo,
-    pub private_tx_blinding: [u8; 32],
+    pub private_tx_blinding: Field,
 }
 
-#[derive(Clone, Debug, PublicInputs)]
+#[input]
+#[derive(PublicInputs)]
 pub struct EscrowCancelPublicInputs {
-    pub order_in_hash: [u8; 32],
-    pub first_nullifier: [u8; 32],
+    pub order_in_hash: Field,
+    pub first_nullifier: Field,
 }
 
-impl Circuit for EscrowCancelCircuit {
-    type Output = Commitment;
-
-    fn circuit(&self) -> Result<Self::Output, CircuitError> {
+impl EscrowCancel {
+    pub fn execute(&self) -> Result<Commitment, CircuitError> {
         let private = &self.private;
         let public = &self.public;
         let order = &private.order_in;
         let refund = &private.refund_out;
-        order.assert_default_ring()?;
-        order.amount.assert_equal(
-            &private.order_amount.var(),
-            "the order opening has another amount",
-        )?;
-        order.data_hash.assert_equal(
-            &poseidon(&[
-                private.recipient_owner_hash.clone(),
-                private.min_price.var(),
-            ])?,
-            "the order opening changes the recipient or minimum price",
-        )?;
+        let order_amount = Field::from(private.order_amount);
+        order.assert_default_ring();
+        require_eq(order.amount, order_amount);
+        // The opening keeps the order's recipient and minimum price.
+        require_eq(
+            order.data_hash,
+            poseidon(&[private.recipient_owner_hash, Field::from(private.min_price)])?,
+        );
         let order_hash = order.hash()?;
-        order_hash.assert_equal(
-            &public.order_in_hash,
-            "the refunded order is not the escrow's order",
-        )?;
+        require_eq(order_hash, public.order_in_hash);
 
-        refund.assert_default_ring()?;
-        refund
-            .data_hash
-            .assert_equal(&zero(), "the refund is not a token note")?;
-        refund
-            .asset
-            .assert_equal(&order.asset, "the refund changes the order's source asset")?;
-        refund.amount.assert_equal(
-            &private.order_amount.var(),
-            "the refund does not return the full order amount",
-        )?;
-        refund.owner_hash.assert_equal(
-            &private.recipient_owner_hash,
-            "the refund belongs to another recipient",
-        )?;
+        // The refund returns the full order, in its source asset, to its
+        // recipient.
+        refund.assert_default_ring();
+        require_eq(refund.data_hash, Field::zero());
+        require_eq(refund.asset, order.asset);
+        require_eq(refund.amount, order_amount);
+        require_eq(refund.owner_hash, private.recipient_owner_hash);
 
-        let blinding_seed = order_blinding_seed(CANCEL_BLINDING_DOMAIN, &order.blinding)?;
+        let blinding_seed = order_blinding_seed(CANCEL_BLINDING_DOMAIN, order.blinding)?;
         check_transaction_blindings(
-            &public.first_nullifier,
-            &blinding_seed,
-            &private.private_tx_blinding,
-            &[&refund.blinding],
+            public.first_nullifier,
+            blinding_seed,
+            private.private_tx_blinding,
+            &[refund.blinding],
         )?;
         check_private_tx_hash(
             &[order_hash],
             &[refund.hash()?],
-            &private.private_tx_blinding,
-            &private.private_tx_hash,
+            private.private_tx_blinding,
+            private.private_tx_hash,
         )?;
         Ok(Commitment(public.hash(&private.private_tx_hash)?))
     }

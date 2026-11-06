@@ -1,0 +1,23 @@
+error: client inputs do not convert collections of this type; arrays, tuples and ArrayVec hold plain values, and ArrayVec<Utxo, N> is the one collection that converts
+ --> tests/client_inputs/fail/unconverted.rs:7:17
+  |
+7 |     pub nested: [[Utxo; 2]; 2],
+  |                 ^^^^^^^^^^^^^^
+
+error: client inputs do not convert collections of this type; arrays, tuples and ArrayVec hold plain values, and ArrayVec<Utxo, N> is the one collection that converts
+ --> tests/client_inputs/fail/unconverted.rs:8:15
+  |
+8 |     pub pair: (Utxo, u64),
+  |               ^^^^^^^^^^^
+
+error: unsupported client input type; use a plain value (an integer, bool or String, or an array or tuple of them), TxContext, Utxo, ShieldedAddress, Asset, Field, UtxoOwner, SigningPubkey, ArrayVec, or another input struct without generic arguments
+ --> tests/client_inputs/fail/unconverted.rs:9:19
+  |
+9 |     pub optional: Option<Utxo>,
+  |                   ^^^^^^^^^^^^
+
+error: client inputs do not convert collections of this type; arrays, tuples and ArrayVec hold plain values, and ArrayVec<Utxo, N> is the one collection that converts
+  --> tests/client_inputs/fail/unconverted.rs:10:17
+   |
+10 |     pub fields: ArrayVec<Field, 2>,
+   |                 ^^^^^^^^^^^^^^^^^^

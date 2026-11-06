@@ -1,7 +1,6 @@
 use spr_program::{
-    circuit::{constant, nonzero_hash_chain, poseidon, zero, Assert, CircuitVar, PublicHashOutput},
-    conversion::ProofInput,
-    CircuitError, DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
+    circuit::nonzero_hash_chain, input, poseidon, require, require_eq, CircuitError, Field,
+    DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
 };
 
@@ -18,143 +17,119 @@ pub const CANCEL_BLINDING_DOMAIN: [u8; 4] = *b"DCNL";
 /// spends the order.
 pub(super) fn order_blinding_seed(
     domain: [u8; 4],
-    order_blinding: &CircuitVar,
-) -> Result<CircuitVar, CircuitError> {
-    poseidon(&[
-        constant(u64::from(u32::from_be_bytes(domain))),
-        order_blinding.clone(),
-    ])
+    order_blinding: Field,
+) -> Result<Field, CircuitError> {
+    poseidon(&[Field::from(u32::from_be_bytes(domain)), order_blinding])
+}
+
+/// Requires `value < 2^64`: a token amount or booked total that a field
+/// subtraction must not have wrapped.
+pub(super) fn require_u64(value: Field) {
+    let _ = value.to_bits::<64>();
+}
+
+/// Requires a checked `u64` operation not to overflow. Native execution
+/// records the failure and continues with zero.
+pub(super) fn require_some(value: Option<u64>) -> u64 {
+    require(value.is_some());
+    value.unwrap_or(0)
 }
 
 /// A utxo opening with already committed owner and asset identities. The
 /// shielded pool proves ownership and inclusion of the same utxo hashes.
-#[derive(Clone, Debug, Default, PartialEq, Eq, ProofInput)]
+#[input]
 pub struct ProofInputUtxo {
-    pub domain: [u8; 32],
-    pub tree_id: [u8; 32],
-    pub owner_hash: [u8; 32],
-    pub asset: [u8; 32],
-    pub amount: [u8; 32],
-    pub blinding: [u8; 32],
-    pub data_hash: [u8; 32],
-    pub ring_data_hash: [u8; 32],
-    pub ring_program_id: [u8; 32],
+    pub domain: Field,
+    pub tree_id: Field,
+    pub owner_hash: Field,
+    pub asset: Field,
+    pub amount: Field,
+    pub blinding: Field,
+    pub data_hash: Field,
+    pub ring_data_hash: Field,
+    pub ring_program_id: Field,
 }
 
 impl ProofInputUtxo {
-    pub fn hash(&self) -> Result<[u8; 32], spr_transaction::TransactionError> {
-        spr_transaction::utxo::ProofInputUtxo {
-            domain: self.domain,
-            tree_id: self.tree_id,
-            owner_hash: self.owner_hash,
-            asset: self.asset,
-            amount: self.amount,
-            blinding: self.blinding,
-            data_hash: self.data_hash,
-            ring_data_hash: self.ring_data_hash,
-            ring_program_id: self.ring_program_id,
-        }
-        .hash()
-    }
-}
-
-impl From<spr_transaction::utxo::ProofInputUtxo> for ProofInputUtxo {
-    fn from(utxo: spr_transaction::utxo::ProofInputUtxo) -> Self {
-        Self {
-            domain: utxo.domain,
-            tree_id: utxo.tree_id,
-            owner_hash: utxo.owner_hash,
-            asset: utxo.asset,
-            amount: utxo.amount,
-            blinding: utxo.blinding,
-            data_hash: utxo.data_hash,
-            ring_data_hash: utxo.ring_data_hash,
-            ring_program_id: utxo.ring_program_id,
-        }
-    }
-}
-
-impl ProofInputUtxoCircuit {
-    pub(super) fn assert_default_ring(&self) -> Result<(), CircuitError> {
-        self.domain.assert_equal(
-            &constant(u64::from(spr_interface::UTXO_DOMAIN)),
-            "the utxo is not a spendable utxo",
-        )?;
-        self.ring_data_hash
-            .assert_equal(&zero(), "the utxo belongs to a ring")?;
-        self.ring_program_id
-            .assert_equal(&zero(), "the utxo belongs to a ring")
+    pub(super) fn assert_default_ring(&self) {
+        require_eq(self.domain, Field::from(spr_interface::UTXO_DOMAIN));
+        require_eq(self.ring_data_hash, Field::zero());
+        require_eq(self.ring_program_id, Field::zero());
     }
 
-    pub(super) fn hash(&self) -> Result<CircuitVar, CircuitError> {
-        let ring = poseidon(&[self.ring_data_hash.clone(), self.ring_program_id.clone()])?;
-        let owner = poseidon(&[self.owner_hash.clone(), self.blinding.clone()])?;
+    pub fn hash(&self) -> Result<Field, CircuitError> {
+        let ring = poseidon(&[self.ring_data_hash, self.ring_program_id])?;
+        let owner = poseidon(&[self.owner_hash, self.blinding])?;
         poseidon(&[
-            self.domain.clone(),
-            self.tree_id.clone(),
-            self.asset.clone(),
-            self.amount.clone(),
-            self.data_hash.clone(),
+            self.domain,
+            self.tree_id,
+            self.asset,
+            self.amount,
+            self.data_hash,
             ring,
             owner,
         ])
     }
 }
 
-pub struct Commitment(pub(super) CircuitVar);
+/// What a dynamic-swap program proves: the hash of its public inputs and the
+/// private transaction hash. The generated entry circuit exposes it as the
+/// proof's one public input.
+pub struct Commitment(pub(super) Field);
 
-impl PublicHashOutput for Commitment {
-    fn public_hash(&self) -> &CircuitVar {
+impl Commitment {
+    pub fn public_hash(&self) -> &Field {
         &self.0
     }
 }
 
 pub(super) fn check_private_tx_hash(
-    inputs: &[CircuitVar],
-    outputs: &[CircuitVar],
-    blinding: &CircuitVar,
-    expected: &CircuitVar,
+    inputs: &[Field],
+    outputs: &[Field],
+    blinding: Field,
+    expected: Field,
 ) -> Result<(), CircuitError> {
-    poseidon(&[
-        nonzero_hash_chain(inputs)?,
-        nonzero_hash_chain(outputs)?,
-        zero(),
-        blinding.clone(),
-    ])?
-    .assert_equal(expected, "the proof describes another transaction")
+    require_eq(
+        poseidon(&[
+            nonzero_hash_chain(inputs)?,
+            nonzero_hash_chain(outputs)?,
+            Field::zero(),
+            blinding,
+        ])?,
+        expected,
+    );
+    Ok(())
 }
 
 pub(super) fn check_transaction_blindings(
-    first_nullifier: &CircuitVar,
-    blinding_seed: &CircuitVar,
-    private_tx_blinding: &CircuitVar,
-    output_blindings: &[&CircuitVar],
+    first_nullifier: Field,
+    blinding_seed: Field,
+    private_tx_blinding: Field,
+    output_blindings: &[Field],
 ) -> Result<(), CircuitError> {
-    poseidon(&[
-        constant(u64::from(DOMAIN_PRIVATE_TX_BLINDING_V1)),
-        first_nullifier.clone(),
-        blinding_seed.clone(),
-    ])?
-    .assert_equal(
-        private_tx_blinding,
-        "the transaction blinding does not derive from the order",
-    )?;
-    let output_seed = poseidon(&[
-        constant(u64::from(DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1)),
-        first_nullifier.clone(),
-        blinding_seed.clone(),
-    ])?;
-    for (slot, blinding) in output_blindings.iter().enumerate() {
+    require_eq(
         poseidon(&[
-            constant(u64::from(DOMAIN_TRANSACT_OUTPUT_BLINDING_V1)),
-            first_nullifier.clone(),
-            output_seed.clone(),
-            constant(slot as u64),
-        ])?
-        .assert_equal(
-            blinding,
-            "an output blinding does not derive from the order",
-        )?;
+            Field::from(DOMAIN_PRIVATE_TX_BLINDING_V1),
+            first_nullifier,
+            blinding_seed,
+        ])?,
+        private_tx_blinding,
+    );
+    let output_seed = poseidon(&[
+        Field::from(DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1),
+        first_nullifier,
+        blinding_seed,
+    ])?;
+    for (slot, blinding) in (0u64..).zip(output_blindings) {
+        require_eq(
+            poseidon(&[
+                Field::from(DOMAIN_TRANSACT_OUTPUT_BLINDING_V1),
+                first_nullifier,
+                output_seed,
+                Field::from(slot),
+            ])?,
+            *blinding,
+        );
     }
     Ok(())
 }

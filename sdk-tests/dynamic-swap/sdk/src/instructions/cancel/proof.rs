@@ -11,7 +11,7 @@ use spr_transaction::{
 use crate::{
     err,
     instructions::settle::cancel_blinding_seed,
-    shared::{check_output_utxo, transaction_blindings},
+    shared::{check_output_utxo, circuit_utxo, field, transaction_blindings},
     state::order_data_hash,
 };
 
@@ -90,17 +90,17 @@ impl CancelProofInputParams {
 
         Ok(EscrowCancel {
             private: EscrowCancelPrivateInputs {
-                private_tx_hash,
+                private_tx_hash: field(&private_tx_hash)?,
                 order_amount: self.order_amount,
-                recipient_owner_hash: self.recipient_owner_hash,
+                recipient_owner_hash: field(&self.recipient_owner_hash)?,
                 min_price: self.min_price,
-                order_in: order_in.into(),
-                refund_out: refund_out.into(),
-                private_tx_blinding: self.private_tx_blinding,
+                order_in: circuit_utxo(order_in)?,
+                refund_out: circuit_utxo(refund_out)?,
+                private_tx_blinding: field(&self.private_tx_blinding)?,
             },
             public: EscrowCancelPublicInputs {
-                first_nullifier,
-                order_in_hash,
+                first_nullifier: field(&first_nullifier)?,
+                order_in_hash: field(&order_in_hash)?,
             },
         })
     }

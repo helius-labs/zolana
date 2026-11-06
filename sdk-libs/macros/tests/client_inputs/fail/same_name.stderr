@@ -1,0 +1,44 @@
+error[E0308]: `?` operator has incompatible types
+  --> tests/client_inputs/fail/same_name.rs:16:18
+   |
+14 | #[derive(ClientInputs)]
+   |          ------------ in this derive macro expansion
+15 | pub struct Bad {
+16 |     pub deposit: local::Utxo,
+   |                  ^^^^^ expected `local::Utxo`, found `spr_program::circuit::Utxo`
+   |
+   = note: `?` operator cannot convert from `spr_program::circuit::Utxo` to `local::Utxo`
+   = note: `spr_program::circuit::Utxo` and `local::Utxo` have similar names, but are actually distinct types
+note: `spr_program::circuit::Utxo` is defined in crate `spr_circuit`
+  --> $WORKSPACE/sdk-libs/circuit/src/protocol/input_utxo.rs
+   |
+   | pub struct Utxo {
+   | ^^^^^^^^^^^^^^^
+note: `local::Utxo` is defined in the current crate
+  --> tests/client_inputs/fail/same_name.rs:8:5
+   |
+ 8 |     pub struct Utxo;
+   |     ^^^^^^^^^^^^^^^
+   = note: this error originates in the derive macro `ClientInputs` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> tests/client_inputs/fail/same_name.rs:17:18
+   |
+14 | #[derive(ClientInputs)]
+   |          ------------ in this derive macro expansion
+...
+17 |     pub creator: local::UtxoOwner,
+   |                  ^^^^^ expected `local::UtxoOwner`, found `spr_program::UtxoOwner`
+   |
+   = note: `spr_program::UtxoOwner` and `local::UtxoOwner` have similar names, but are actually distinct types
+note: `spr_program::UtxoOwner` is defined in crate `spr_circuit`
+  --> $WORKSPACE/sdk-libs/circuit/src/owner.rs
+   |
+   | pub struct UtxoOwner {
+   | ^^^^^^^^^^^^^^^^^^^^
+note: `local::UtxoOwner` is defined in the current crate
+  --> tests/client_inputs/fail/same_name.rs:10:5
+   |
+10 |     pub struct UtxoOwner;
+   |     ^^^^^^^^^^^^^^^^^^^^
+   = note: this error originates in the derive macro `ClientInputs` (in Nightly builds, run with -Z macro-backtrace for more info)
