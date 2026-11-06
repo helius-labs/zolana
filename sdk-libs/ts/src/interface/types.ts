@@ -1,4 +1,4 @@
-import type { Address } from "@solana/kit";
+import type { Address, TransactionSigner } from "@solana/kit";
 
 import type { MergeEncryptionScheme } from "./state.js";
 
@@ -288,29 +288,81 @@ export interface TransactInstructionData extends TransactExternalData {
   readonly treeContexts: readonly TreeContext[];
 }
 
-export type TransactWithdrawal =
-  | Readonly<{ kind: "sol"; recipient: Address }>
+/**
+ * The accounts one interface transfer settles against, of the same kind as the
+ * transfer. A transact lists one per entry of `interfaceTransfers`, in that
+ * order. Mirrors Rust `TransactInterfaceTransferAccounts`, whose one SOL variant
+ * serves both directions.
+ */
+export type TransactSettlement =
+  | Readonly<{ kind: "solDeposit"; depositor: Address | TransactionSigner }>
+  | Readonly<{ kind: "solWithdrawal"; recipient: Address }>
   | Readonly<{
-      kind: "spl";
+      kind: "splDeposit";
+      mint: Address;
+      splTokenInterface: Address;
+      tokenAuthority: Address | TransactionSigner;
+      sourceTokenAccount: Address;
+      tokenProgram: Address;
+    }>
+  | Readonly<{
+      kind: "splWithdrawal";
       mint: Address;
       splTokenInterface: Address;
       recipientTokenAccount: Address;
       tokenProgram: Address;
     }>;
 
-export const TransactWithdrawal = Object.freeze({
-  sol(input: Readonly<{ recipient: Address }>): Extract<TransactWithdrawal, { kind: "sol" }> {
-    return Object.freeze({ ...input, kind: "sol" });
+/** The settlement of a public withdrawal. */
+export type TransactWithdrawal = Extract<
+  TransactSettlement,
+  { kind: "solWithdrawal" | "splWithdrawal" }
+>;
+
+export const TransactSettlement = Object.freeze({
+  solDeposit(
+    input: Readonly<{ depositor: Address | TransactionSigner }>,
+  ): Extract<TransactSettlement, { kind: "solDeposit" }> {
+    return Object.freeze({ depositor: input.depositor, kind: "solDeposit" });
   },
-  spl(
+  solWithdrawal(
+    input: Readonly<{ recipient: Address }>,
+  ): Extract<TransactSettlement, { kind: "solWithdrawal" }> {
+    return Object.freeze({ recipient: input.recipient, kind: "solWithdrawal" });
+  },
+  splDeposit(
+    input: Readonly<{
+      mint: Address;
+      splTokenInterface: Address;
+      tokenAuthority: Address | TransactionSigner;
+      sourceTokenAccount: Address;
+      tokenProgram: Address;
+    }>,
+  ): Extract<TransactSettlement, { kind: "splDeposit" }> {
+    return Object.freeze({
+      mint: input.mint,
+      splTokenInterface: input.splTokenInterface,
+      tokenAuthority: input.tokenAuthority,
+      sourceTokenAccount: input.sourceTokenAccount,
+      tokenProgram: input.tokenProgram,
+      kind: "splDeposit",
+    });
+  },
+  splWithdrawal(
     input: Readonly<{
       mint: Address;
       splTokenInterface: Address;
       recipientTokenAccount: Address;
       tokenProgram: Address;
     }>,
-  ): Extract<TransactWithdrawal, { kind: "spl" }> {
-    return Object.freeze({ ...input, kind: "spl" });
+  ): Extract<TransactSettlement, { kind: "splWithdrawal" }> {
+    return Object.freeze({
+      mint: input.mint,
+      splTokenInterface: input.splTokenInterface,
+      recipientTokenAccount: input.recipientTokenAccount,
+      tokenProgram: input.tokenProgram,
+      kind: "splWithdrawal",
+    });
   },
 });
 

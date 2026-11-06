@@ -709,7 +709,7 @@ function checkWithdrawalAccounts(
   mismatch: (field: string) => Error,
 ): void {
   if (withdrawal === undefined) throw mismatch("withdrawal");
-  if (withdrawal.kind === "sol") {
+  if (withdrawal.kind === "solWithdrawal") {
     if (intent.asset !== SOL_MINT) throw mismatch("asset");
     if (withdrawal.recipient !== intent.recipient) throw mismatch("recipient");
     return;

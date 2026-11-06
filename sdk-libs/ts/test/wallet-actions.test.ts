@@ -711,7 +711,7 @@ describe("unsigned public transaction builders", () => {
       ),
     ).toBe(true);
     expect(material.withdrawal).toMatchObject({
-      kind: "spl",
+      kind: "splWithdrawal",
       tokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
     });
   });
@@ -854,7 +854,7 @@ describe("resolveWithdrawal", () => {
 
   it("derives one SPL settlement, shared by the proof side and the accounts side", async () => {
     const resolved = await resolveWithdrawal(RECIPIENT, SPL_MINT, SPL_TOKEN_2022_PROGRAM_ID);
-    if (resolved.target.kind !== "spl" || resolved.accounts.kind !== "spl") {
+    if (resolved.target.kind !== "spl" || resolved.accounts.kind !== "splWithdrawal") {
       throw new Error("an SPL mint resolves to SPL settlement");
     }
     expect(resolved.accounts.recipientTokenAccount).toBe(resolved.target.recipientTokenAccount);
@@ -871,7 +871,7 @@ describe("resolveWithdrawal", () => {
 
   it("settles SOL through the recipient account itself", async () => {
     const resolved = await resolveWithdrawal(RECIPIENT, SOL_MINT);
-    if (resolved.target.kind !== "sol" || resolved.accounts.kind !== "sol") {
+    if (resolved.target.kind !== "sol" || resolved.accounts.kind !== "solWithdrawal") {
       throw new Error("SOL resolves to SOL settlement");
     }
     expect(resolved.target.recipient).toBe(RECIPIENT);

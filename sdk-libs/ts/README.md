@@ -264,8 +264,8 @@ const deposit = await buildDepositTransaction({
 await submit(deposit, feePayer);
 ```
 
-The standard SPL Token program is used by default. For Token-2022, also pass
-`splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`.
+The deposit reads the token program, SPL Token or Token-2022, from the mint
+account. Passing `splTokenProgram` skips that read.
 
 Passing a `ShieldedAddress` skips the lookup.
 
@@ -373,9 +373,9 @@ const slot = await client.confirmTransaction(await submit(withdrawal, feePayer))
 await syncWallet({ client, wallet, keys, config: { requireSlot: slot } });
 ```
 
-For an SPL withdrawal, pass `asset: mint`. Token-2022 withdrawals also take
-`splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`; the recipient token account is
-created idempotently when needed.
+For an SPL withdrawal, pass `asset: mint`. The token program is read from the
+mint account unless `splTokenProgram` names it, and the recipient token account
+is created idempotently when needed.
 
 ### Sponsored fees
 

@@ -1248,7 +1248,7 @@ export async function buildUnsignedTransaction(
         outputTree: input.outputTree,
         ownerSigners: input.ownerSigners,
         data: input.data,
-        ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
+        settlements: input.withdrawal === undefined ? [] : [input.withdrawal],
       }),
     ],
     sizeShape: {
