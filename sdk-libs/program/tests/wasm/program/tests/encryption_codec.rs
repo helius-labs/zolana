@@ -1,29 +1,31 @@
-#![cfg(feature = "wasm")]
-
-use spr_program::{
-    circuit::UtxoData,
-    conversion::{Allocator, ProofInput},
-    EncryptionCodec,
-};
+use spr_program::{circuit::UtxoData, EncryptionCodec};
 use wasm_test_program::CompactCounter;
 
 #[test]
-fn custom_payload_reconstructs_the_full_state_for_wasm_serialization() {
+fn the_custom_payload_carries_only_the_count_and_reconstructs_the_full_state() {
     let state = CompactCounter {
         count: 21,
         doubled: 42,
     };
-    let circuit = state
-        .instantiate(&Allocator::native())
-        .expect("instantiate");
-    let payload = circuit.utxo_data().expect("validated payload");
-    let decoded = CompactCounter::deserialize_after_decryption(&payload).expect("decode");
+    let payload = state.utxo_data().unwrap();
     assert_eq!(
         (
-            payload.len(),
-            borsh::to_vec(&state).expect("full state").len(),
-            serde_json::to_value(decoded).expect("wasm state serialization"),
+            payload.clone(),
+            CompactCounter::deserialize_after_decryption(&payload).unwrap(),
         ),
-        (8, 16, serde_json::json!({ "count": 21, "doubled": 42 }))
+        (borsh::to_vec(&21u64).unwrap(), state)
+    );
+}
+
+#[test]
+fn a_count_whose_double_overflows_is_refused() {
+    let error = CompactCounter::deserialize_after_decryption(&borsh::to_vec(&u64::MAX).unwrap())
+        .unwrap_err();
+    assert_eq!(
+        (error.kind(), error.to_string()),
+        (
+            std::io::ErrorKind::InvalidData,
+            "doubled count overflows".into()
+        )
     );
 }

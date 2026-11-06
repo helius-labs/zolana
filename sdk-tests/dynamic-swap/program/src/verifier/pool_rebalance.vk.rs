@@ -12,17 +12,17 @@ use groth16_solana::groth16::Groth16Verifyingkey;
 pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
 	nr_pubinputs: 1,
 
-	vk_alpha_g1: [27u8, 152u8, 189u8, 113u8, 33u8, 5u8, 154u8, 84u8, 220u8, 52u8, 90u8, 193u8, 29u8, 154u8, 155u8, 201u8, 29u8, 172u8, 164u8, 6u8, 99u8, 181u8, 160u8, 247u8, 206u8, 74u8, 45u8, 13u8, 235u8, 20u8, 115u8, 229u8, 0u8, 131u8, 163u8, 135u8, 252u8, 2u8, 187u8, 34u8, 250u8, 125u8, 189u8, 185u8, 135u8, 78u8, 62u8, 193u8, 152u8, 235u8, 195u8, 4u8, 210u8, 143u8, 121u8, 110u8, 104u8, 139u8, 238u8, 81u8, 2u8, 179u8, 57u8, 241u8],
+	vk_alpha_g1: [27u8, 117u8, 110u8, 119u8, 57u8, 217u8, 149u8, 246u8, 75u8, 148u8, 156u8, 68u8, 1u8, 209u8, 155u8, 184u8, 123u8, 55u8, 74u8, 167u8, 115u8, 28u8, 224u8, 186u8, 17u8, 109u8, 159u8, 155u8, 250u8, 226u8, 226u8, 239u8, 5u8, 127u8, 187u8, 149u8, 31u8, 100u8, 100u8, 44u8, 249u8, 222u8, 249u8, 100u8, 156u8, 90u8, 25u8, 42u8, 137u8, 54u8, 231u8, 78u8, 237u8, 223u8, 220u8, 75u8, 207u8, 44u8, 62u8, 25u8, 73u8, 230u8, 200u8, 74u8],
 
-	vk_beta_g2: [22u8, 56u8, 125u8, 64u8, 75u8, 235u8, 170u8, 237u8, 185u8, 253u8, 253u8, 119u8, 78u8, 143u8, 8u8, 44u8, 238u8, 190u8, 166u8, 248u8, 194u8, 252u8, 149u8, 117u8, 54u8, 13u8, 8u8, 158u8, 18u8, 72u8, 249u8, 162u8, 45u8, 86u8, 73u8, 191u8, 79u8, 34u8, 136u8, 122u8, 136u8, 244u8, 5u8, 197u8, 76u8, 64u8, 63u8, 113u8, 245u8, 195u8, 240u8, 32u8, 5u8, 159u8, 179u8, 86u8, 190u8, 131u8, 195u8, 146u8, 175u8, 51u8, 101u8, 30u8, 4u8, 247u8, 5u8, 98u8, 38u8, 140u8, 31u8, 163u8, 153u8, 85u8, 67u8, 8u8, 21u8, 159u8, 1u8, 131u8, 82u8, 132u8, 175u8, 26u8, 109u8, 15u8, 204u8, 215u8, 141u8, 225u8, 187u8, 180u8, 119u8, 5u8, 93u8, 159u8, 29u8, 242u8, 135u8, 30u8, 99u8, 10u8, 76u8, 159u8, 50u8, 233u8, 77u8, 94u8, 158u8, 35u8, 225u8, 204u8, 114u8, 10u8, 162u8, 2u8, 90u8, 140u8, 44u8, 98u8, 46u8, 194u8, 47u8, 137u8, 170u8, 156u8, 102u8, 83u8],
+	vk_beta_g2: [22u8, 49u8, 253u8, 213u8, 28u8, 199u8, 127u8, 33u8, 141u8, 6u8, 106u8, 20u8, 253u8, 70u8, 97u8, 21u8, 139u8, 230u8, 33u8, 5u8, 184u8, 39u8, 252u8, 128u8, 104u8, 88u8, 81u8, 104u8, 104u8, 130u8, 135u8, 251u8, 31u8, 124u8, 62u8, 25u8, 83u8, 178u8, 217u8, 127u8, 63u8, 176u8, 249u8, 179u8, 187u8, 37u8, 97u8, 163u8, 20u8, 215u8, 10u8, 198u8, 88u8, 102u8, 252u8, 235u8, 89u8, 187u8, 30u8, 83u8, 138u8, 241u8, 214u8, 144u8, 20u8, 217u8, 97u8, 161u8, 5u8, 138u8, 53u8, 41u8, 233u8, 217u8, 52u8, 3u8, 173u8, 20u8, 241u8, 200u8, 106u8, 231u8, 226u8, 102u8, 2u8, 14u8, 177u8, 180u8, 6u8, 174u8, 0u8, 44u8, 62u8, 46u8, 1u8, 109u8, 29u8, 154u8, 56u8, 135u8, 219u8, 1u8, 53u8, 19u8, 33u8, 110u8, 164u8, 19u8, 155u8, 178u8, 152u8, 237u8, 0u8, 88u8, 109u8, 104u8, 62u8, 249u8, 128u8, 245u8, 87u8, 134u8, 149u8, 84u8, 20u8, 127u8, 187u8, 239u8],
 
-	vk_gamma_g2: [34u8, 129u8, 42u8, 157u8, 207u8, 153u8, 41u8, 13u8, 188u8, 135u8, 47u8, 92u8, 121u8, 146u8, 87u8, 232u8, 18u8, 91u8, 3u8, 228u8, 44u8, 227u8, 43u8, 237u8, 104u8, 255u8, 223u8, 227u8, 246u8, 21u8, 134u8, 187u8, 26u8, 157u8, 16u8, 230u8, 166u8, 150u8, 211u8, 30u8, 147u8, 169u8, 144u8, 226u8, 51u8, 246u8, 238u8, 138u8, 25u8, 227u8, 154u8, 75u8, 167u8, 43u8, 168u8, 183u8, 203u8, 54u8, 66u8, 146u8, 237u8, 45u8, 228u8, 23u8, 23u8, 161u8, 97u8, 39u8, 148u8, 161u8, 82u8, 13u8, 244u8, 138u8, 46u8, 69u8, 89u8, 46u8, 58u8, 41u8, 35u8, 238u8, 148u8, 58u8, 188u8, 163u8, 153u8, 10u8, 59u8, 21u8, 37u8, 43u8, 193u8, 147u8, 202u8, 165u8, 26u8, 246u8, 36u8, 97u8, 204u8, 4u8, 153u8, 17u8, 164u8, 57u8, 89u8, 14u8, 138u8, 208u8, 18u8, 134u8, 245u8, 245u8, 83u8, 102u8, 154u8, 183u8, 70u8, 243u8, 114u8, 23u8, 216u8, 203u8, 161u8, 112u8, 9u8, 226u8],
+	vk_gamma_g2: [21u8, 171u8, 8u8, 26u8, 123u8, 40u8, 185u8, 35u8, 176u8, 44u8, 163u8, 25u8, 9u8, 216u8, 54u8, 17u8, 124u8, 29u8, 178u8, 206u8, 35u8, 123u8, 213u8, 208u8, 228u8, 122u8, 148u8, 90u8, 68u8, 123u8, 175u8, 206u8, 45u8, 11u8, 195u8, 32u8, 41u8, 238u8, 180u8, 153u8, 143u8, 41u8, 35u8, 0u8, 224u8, 192u8, 181u8, 218u8, 243u8, 179u8, 111u8, 217u8, 103u8, 243u8, 203u8, 28u8, 155u8, 118u8, 167u8, 166u8, 218u8, 147u8, 169u8, 59u8, 30u8, 137u8, 223u8, 214u8, 210u8, 16u8, 234u8, 178u8, 244u8, 188u8, 6u8, 41u8, 188u8, 191u8, 92u8, 136u8, 205u8, 131u8, 74u8, 87u8, 97u8, 192u8, 18u8, 202u8, 18u8, 40u8, 5u8, 36u8, 48u8, 124u8, 208u8, 243u8, 24u8, 232u8, 180u8, 237u8, 89u8, 200u8, 92u8, 67u8, 31u8, 38u8, 69u8, 228u8, 203u8, 26u8, 158u8, 179u8, 46u8, 78u8, 139u8, 2u8, 102u8, 26u8, 111u8, 244u8, 199u8, 177u8, 106u8, 74u8, 16u8, 154u8, 6u8, 18u8],
 
-	vk_delta_g2: [30u8, 97u8, 234u8, 29u8, 12u8, 80u8, 19u8, 111u8, 74u8, 245u8, 45u8, 71u8, 167u8, 154u8, 27u8, 98u8, 250u8, 220u8, 89u8, 205u8, 166u8, 99u8, 38u8, 166u8, 33u8, 200u8, 44u8, 212u8, 22u8, 44u8, 46u8, 62u8, 47u8, 177u8, 190u8, 136u8, 190u8, 204u8, 129u8, 13u8, 90u8, 80u8, 151u8, 174u8, 27u8, 232u8, 87u8, 39u8, 157u8, 180u8, 45u8, 172u8, 87u8, 17u8, 206u8, 84u8, 149u8, 229u8, 123u8, 44u8, 183u8, 231u8, 149u8, 71u8, 5u8, 208u8, 176u8, 89u8, 81u8, 31u8, 118u8, 208u8, 109u8, 7u8, 107u8, 78u8, 165u8, 127u8, 131u8, 62u8, 64u8, 234u8, 146u8, 59u8, 239u8, 62u8, 154u8, 83u8, 15u8, 91u8, 215u8, 164u8, 68u8, 255u8, 49u8, 11u8, 21u8, 77u8, 83u8, 113u8, 29u8, 210u8, 14u8, 92u8, 29u8, 24u8, 173u8, 137u8, 231u8, 75u8, 39u8, 144u8, 116u8, 23u8, 189u8, 138u8, 243u8, 33u8, 147u8, 129u8, 212u8, 59u8, 59u8, 127u8, 141u8, 89u8, 142u8, 39u8],
+	vk_delta_g2: [29u8, 9u8, 219u8, 217u8, 231u8, 252u8, 187u8, 69u8, 115u8, 114u8, 147u8, 226u8, 233u8, 141u8, 94u8, 108u8, 57u8, 30u8, 51u8, 2u8, 55u8, 111u8, 54u8, 37u8, 141u8, 119u8, 22u8, 173u8, 45u8, 157u8, 75u8, 61u8, 47u8, 248u8, 0u8, 214u8, 25u8, 177u8, 180u8, 210u8, 103u8, 146u8, 79u8, 194u8, 124u8, 247u8, 34u8, 22u8, 12u8, 120u8, 187u8, 91u8, 236u8, 77u8, 227u8, 185u8, 30u8, 249u8, 223u8, 113u8, 59u8, 45u8, 141u8, 60u8, 9u8, 123u8, 188u8, 200u8, 118u8, 43u8, 209u8, 73u8, 193u8, 128u8, 120u8, 207u8, 144u8, 18u8, 247u8, 58u8, 134u8, 156u8, 158u8, 121u8, 211u8, 61u8, 78u8, 213u8, 234u8, 48u8, 59u8, 154u8, 42u8, 71u8, 170u8, 212u8, 37u8, 113u8, 235u8, 56u8, 249u8, 92u8, 213u8, 82u8, 103u8, 126u8, 211u8, 0u8, 192u8, 0u8, 177u8, 84u8, 85u8, 96u8, 175u8, 61u8, 111u8, 96u8, 255u8, 204u8, 55u8, 152u8, 37u8, 126u8, 188u8, 190u8, 252u8, 183u8],
 
 	vk_ic: &[
-		[16u8, 116u8, 227u8, 37u8, 121u8, 23u8, 33u8, 18u8, 173u8, 83u8, 165u8, 151u8, 210u8, 164u8, 16u8, 188u8, 166u8, 180u8, 4u8, 52u8, 171u8, 21u8, 74u8, 141u8, 61u8, 85u8, 173u8, 157u8, 162u8, 171u8, 159u8, 27u8, 46u8, 80u8, 222u8, 113u8, 107u8, 121u8, 132u8, 206u8, 198u8, 227u8, 116u8, 154u8, 72u8, 45u8, 33u8, 33u8, 95u8, 177u8, 155u8, 189u8, 42u8, 242u8, 21u8, 246u8, 88u8, 41u8, 205u8, 108u8, 24u8, 79u8, 76u8, 148u8],
-		[11u8, 71u8, 171u8, 1u8, 181u8, 93u8, 165u8, 50u8, 16u8, 2u8, 51u8, 90u8, 138u8, 97u8, 26u8, 177u8, 67u8, 108u8, 95u8, 175u8, 244u8, 116u8, 253u8, 43u8, 61u8, 13u8, 223u8, 180u8, 236u8, 158u8, 227u8, 249u8, 24u8, 16u8, 119u8, 246u8, 85u8, 56u8, 95u8, 214u8, 6u8, 76u8, 191u8, 68u8, 97u8, 104u8, 200u8, 232u8, 211u8, 255u8, 240u8, 251u8, 208u8, 216u8, 133u8, 229u8, 16u8, 231u8, 229u8, 55u8, 77u8, 177u8, 7u8, 10u8],
+		[33u8, 160u8, 124u8, 15u8, 155u8, 219u8, 195u8, 212u8, 144u8, 157u8, 190u8, 105u8, 160u8, 157u8, 93u8, 229u8, 227u8, 165u8, 32u8, 61u8, 5u8, 200u8, 246u8, 203u8, 58u8, 46u8, 225u8, 186u8, 141u8, 201u8, 239u8, 13u8, 19u8, 87u8, 39u8, 123u8, 28u8, 130u8, 135u8, 108u8, 111u8, 170u8, 242u8, 144u8, 63u8, 1u8, 142u8, 81u8, 111u8, 200u8, 126u8, 165u8, 134u8, 37u8, 67u8, 5u8, 178u8, 73u8, 146u8, 74u8, 204u8, 165u8, 250u8, 28u8],
+		[40u8, 112u8, 245u8, 170u8, 2u8, 28u8, 69u8, 21u8, 61u8, 178u8, 207u8, 123u8, 48u8, 191u8, 148u8, 171u8, 90u8, 150u8, 210u8, 106u8, 103u8, 235u8, 244u8, 123u8, 16u8, 60u8, 70u8, 186u8, 99u8, 226u8, 14u8, 55u8, 23u8, 106u8, 173u8, 200u8, 204u8, 219u8, 239u8, 60u8, 81u8, 38u8, 9u8, 251u8, 162u8, 162u8, 71u8, 101u8, 77u8, 36u8, 35u8, 142u8, 98u8, 37u8, 90u8, 17u8, 190u8, 187u8, 63u8, 203u8, 37u8, 30u8, 217u8, 5u8],
 	],
 
 	vk_commitment: None,
@@ -31,7 +31,7 @@ pub const VERIFYINGKEY: Groth16Verifyingkey = Groth16Verifyingkey {
 /// SHA-256 of the proving key file this verifying key was generated with.
 #[allow(dead_code)]
 #[rustfmt::skip]
-pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [111u8, 168u8, 38u8, 9u8, 79u8, 55u8, 95u8, 119u8, 62u8, 219u8, 225u8, 255u8, 136u8, 137u8, 32u8, 207u8, 116u8, 52u8, 206u8, 227u8, 6u8, 113u8, 82u8, 104u8, 231u8, 67u8, 246u8, 228u8, 13u8, 26u8, 110u8, 52u8];
+pub const VERIFYINGKEY_PROVING_KEY_SHA256: [u8; 32] = [40u8, 202u8, 174u8, 245u8, 55u8, 30u8, 3u8, 36u8, 149u8, 154u8, 67u8, 209u8, 101u8, 148u8, 200u8, 61u8, 88u8, 50u8, 100u8, 210u8, 222u8, 118u8, 204u8, 222u8, 165u8, 117u8, 197u8, 89u8, 27u8, 71u8, 50u8, 202u8];
 
 /// `true` for a test setup whose secret randomness is public or untrusted:
 /// whoever knows it can make this key accept a proof for any public
@@ -43,14 +43,11 @@ pub const VERIFYINGKEY_INSECURE_TEST_SETUP: bool = true;
 /// The two consts above as a delimited string, exported so it stays in
 /// the program binary; read it back with
 /// `groth16_solana::vk::setup::find_setup_txts`.
-#[unsafe(export_name = "groth16_solana_vk_setup_9e5a9a885e3b73ca")]
+#[unsafe(export_name = "groth16_solana_vk_setup_f218994d3b00ab77")]
 #[rustfmt::skip]
-pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00true\x00proving_key_sha256\x006fa826094f375f773edbe1ff888920cf7434cee306715268e743f6e40d1a6e34\x00=======END GROTH16 VK SETUP V1=======\x00";
+pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=======\x00name\x00VERIFYINGKEY\x00insecure_test_setup\x00true\x00proving_key_sha256\x0028caaef5371e0324959a43d16594c83d583264d2de76ccdea575c5591b4732ca\x00=======END GROTH16 VK SETUP V1=======\x00";
 
 #[cfg(not(feature = "insecure-test-setup"))]
 compile_error!("VERIFYINGKEY comes from an insecure test setup: whoever knows its setup randomness can make it accept a proof for any public inputs. Enable the `insecure-test-setup` feature only in test builds, not for a devnet or mainnet deployment.");
-
-pub const ZOLANA_SETUP_KIND: &str = "insecure-test";
-
-pub const ZOLANA_CIRCUIT_SHA256: &str =
-    "9d50be4ff56c5f90a2c792ebf458f7a9d29c0deddb21f234b631267f0ef82b42";
+pub const ZOLANA_VK_SHA256: &str = "3ab6d5e0a971011ccc96d1a6b34fafe8df5402781959ed7f8a719795d3da6f44";
+pub const ZOLANA_CIRCUIT_DIGEST: &str = "1a73778e17d43790cc7bdf1296afaaf9";

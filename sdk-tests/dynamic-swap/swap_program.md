@@ -31,8 +31,9 @@ metadata. The SDK prepares the same public inputs when generating a proof.
 Run `just build-dynamic-swap-program` to compile the circuits, generate keys and
 verifier modules, and build the SBF program. `just ensure-dynamic-swap-keys`
 prepares just the circuits and keys; `just regen-dynamic-swap-keys` updates those
-outputs after a circuit change. Build artifacts, including each circuit's
-`.r1cs`, `.pk`, and `.pk.sha256`, live in `target/zk/dynamic-swap-program`.
+outputs after a circuit change. Each circuit's build artifacts, including its
+Xark circuit `circuit.xbc` and proving key `pk.bin`, live in
+`target/zk/dynamic-swap-program/<circuit>`.
 `just test-spr-program-release` checks the generated verifier modules against
 the committed files and runs the Rust circuit tests.
 

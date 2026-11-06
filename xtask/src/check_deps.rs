@@ -1,11 +1,12 @@
-//! Enforces the dependency rules on the zk crates, which live in
-//! helius-labs/zk-tools (see the root CLAUDE.md):
+//! Enforces the dependency rules on the Xark circuit framework (see the root
+//! CLAUDE.md):
 //!
-//! - `spr-keypair` and `spr-transaction` reach the zk crates only through
-//!   optional dependencies (their `circuit` feature);
-//! - outside the crates that build spr-program, no crate
-//!   depends on both `spr-program` and a `spr-zk-*` crate: ZK programs go
-//!   through `spr-program`, standalone circuits use the zk crates directly.
+//! - on-chain crates (`programs/`, `program-libs/`) never link Xark or
+//!   `spr-circuit`;
+//! - the wallet SDK crates (`spr-keypair`, `spr-transaction`, `spr-instruction`)
+//!   stay free of them: circuit types live in `spr-circuit`;
+//! - `spr-program` reaches them only through optional dependencies, so its
+//!   on-chain features (`cpi`, `compression`, `verifier`) do not pull them in.
 //!
 //! These rules cover the normal and build graph, so tests may pull in what they
 //! need. Crates under `protocol-ops/` must also keep those graphs free of `sdk-libs`.
@@ -15,14 +16,15 @@ use std::{path::Path, process::Command};
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
-const ZK_PREFIX: &str = "spr-zk-";
-const OPTIONAL_ZK: &[&str] = &["spr-keypair", "spr-transaction"];
-const PROGRAM_LAYER: &[&str] = &[
-    "spr-program",
-    "spr-macros",
-    "spr-keypair",
-    "spr-transaction",
+const CIRCUIT_CRATES: &[&str] = &[
+    "spr-circuit",
+    "xark",
+    "xark-cli",
+    "xark-groth16",
+    "xark-wasm",
 ];
+const CIRCUIT_FREE_SDK: &[&str] = &["spr-keypair", "spr-transaction", "spr-instruction"];
+const OPTIONAL_CIRCUIT: &[&str] = &["spr-program"];
 
 struct Dependency {
     name: String,
@@ -35,6 +37,7 @@ struct Package {
     name: String,
     dependencies: Vec<Dependency>,
     protocol: bool,
+    onchain: bool,
 }
 
 pub fn run(root: &Path) -> Result<()> {
@@ -98,9 +101,11 @@ fn packages(root: &Path) -> Result<Vec<Package>> {
                     })
                 })
                 .collect::<Result<_>>()?;
+            let manifest = field("manifest_path")?;
             Ok(Package {
                 name: field("name")?.to_string(),
-                protocol: field("manifest_path")?.contains("/protocol-ops/"),
+                protocol: manifest.contains("/protocol-ops/"),
+                onchain: manifest.contains("/programs/") || manifest.contains("/program-libs/"),
                 dependencies,
             })
         })
@@ -119,39 +124,26 @@ fn violations(packages: &[Package]) -> Vec<String> {
                 violations.push(format!("{} depends on SDK crate {}: protocol operations use program-libs and protocol crates", package.name, dependency.name));
             }
         }
-        let zk_dependencies: Vec<&Dependency> = package
-            .dependencies
-            .iter()
-            .filter(|dependency| !dependency.dev && dependency.name.starts_with(ZK_PREFIX))
-            .collect();
-        if OPTIONAL_ZK.contains(&package.name.as_str()) {
-            violations.extend(
-                zk_dependencies
-                    .iter()
-                    .filter(|dependency| !dependency.optional)
-                    .map(|dependency| {
-                        format!(
-                            "{} depends on {} without its circuit feature",
-                            package.name, dependency.name
-                        )
-                    }),
-            );
-        }
-        let program = package
-            .dependencies
-            .iter()
-            .any(|dependency| !dependency.dev && dependency.name == "spr-program");
-        if !PROGRAM_LAYER.contains(&package.name.as_str()) && program && !zk_dependencies.is_empty()
-        {
-            violations.push(format!(
-                "{} depends on spr-program and on {}: a ZK program uses the spr-program re-exports",
-                package.name,
-                zk_dependencies
-                    .iter()
-                    .map(|dependency| dependency.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+        for dependency in package.dependencies.iter().filter(|dependency| {
+            !dependency.dev && CIRCUIT_CRATES.contains(&dependency.name.as_str())
+        }) {
+            let name = package.name.as_str();
+            if package.onchain {
+                violations.push(format!(
+                    "{name} depends on {}: on-chain crates do not link the circuit framework",
+                    dependency.name
+                ));
+            } else if CIRCUIT_FREE_SDK.contains(&name) {
+                violations.push(format!(
+                    "{name} depends on {}: circuit types live in spr-circuit",
+                    dependency.name
+                ));
+            } else if OPTIONAL_CIRCUIT.contains(&name) && !dependency.optional {
+                violations.push(format!(
+                    "{name} depends on {} unconditionally: keep it behind a client feature",
+                    dependency.name
+                ));
+            }
         }
     }
     violations
@@ -165,6 +157,7 @@ mod tests {
         let packages = [Package {
             name: "forester".into(),
             protocol: true,
+            onchain: false,
             dependencies: vec![Dependency {
                 name: "spr-client".into(),
                 optional: true,
@@ -173,5 +166,51 @@ mod tests {
             }],
         }];
         assert_eq!(violations(&packages), vec!["forester depends on SDK crate spr-client: protocol operations use program-libs and protocol crates"]);
+    }
+
+    fn package(name: &str, onchain: bool, dependency: &str, optional: bool) -> Package {
+        Package {
+            name: name.into(),
+            protocol: false,
+            onchain,
+            dependencies: vec![Dependency {
+                name: dependency.into(),
+                optional,
+                dev: false,
+                sdk: false,
+            }],
+        }
+    }
+
+    #[test]
+    fn onchain_crates_reject_the_circuit_framework() {
+        let packages = [package("shielded-pool-program", true, "spr-circuit", true)];
+        assert_eq!(violations(&packages), vec!["shielded-pool-program depends on spr-circuit: on-chain crates do not link the circuit framework"]);
+    }
+
+    #[test]
+    fn wallet_sdk_crates_reject_the_circuit_framework() {
+        let packages = [package("spr-transaction", false, "xark", true)];
+        assert_eq!(
+            violations(&packages),
+            vec!["spr-transaction depends on xark: circuit types live in spr-circuit"]
+        );
+    }
+
+    #[test]
+    fn spr_program_reaches_the_circuit_framework_only_optionally() {
+        let required = [package("spr-program", false, "xark-groth16", false)];
+        assert_eq!(violations(&required), vec!["spr-program depends on xark-groth16 unconditionally: keep it behind a client feature"]);
+        let optional = [package("spr-program", false, "xark-groth16", true)];
+        assert!(violations(&optional).is_empty());
+    }
+
+    #[test]
+    fn circuit_crates_and_dev_dependencies_are_allowed() {
+        let mut packages = [package("timelock-escrow-program", false, "xark", false)];
+        assert!(violations(&packages).is_empty());
+        packages[0].onchain = true;
+        packages[0].dependencies[0].dev = true;
+        assert!(violations(&packages).is_empty());
     }
 }

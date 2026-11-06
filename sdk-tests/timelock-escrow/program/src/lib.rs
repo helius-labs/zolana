@@ -1,18 +1,23 @@
 #[cfg(any(feature = "circuits", feature = "wasm"))]
 pub mod circuits;
-#[cfg(all(feature = "circuits", not(feature = "r1cs-export")))]
+#[cfg(all(
+    any(feature = "circuits", feature = "wasm"),
+    not(feature = "build-circuits"),
+    not(xark),
+    not(xark_client)
+))]
 pub mod client;
 pub mod error;
-#[cfg(not(feature = "r1cs-export"))]
+#[cfg(not(feature = "build-circuits"))]
 pub mod instructions;
-#[cfg(not(feature = "r1cs-export"))]
+#[cfg(not(feature = "build-circuits"))]
 pub mod verifier;
 
 use pinocchio::Address;
-#[cfg(not(feature = "r1cs-export"))]
+#[cfg(not(feature = "build-circuits"))]
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, ProgramResult};
 
-#[cfg(not(feature = "r1cs-export"))]
+#[cfg(not(feature = "build-circuits"))]
 use crate::instructions::{process_escrow_ix, process_withdraw_ix};
 
 pub mod tag {
@@ -29,7 +34,7 @@ pub fn escrow_authority_seeds(creator: &Address) -> [&[u8]; 2] {
 #[cfg(all(
     feature = "bpf-entrypoint",
     not(feature = "no-entrypoint"),
-    not(feature = "r1cs-export")
+    not(feature = "build-circuits")
 ))]
 mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
@@ -37,7 +42,7 @@ mod entrypoint {
 
 pinocchio::address::declare_id!("2ehy1rrRKT3KEVNN6pLmHeiUedwazPZezXXhwaLjCt5G");
 
-#[cfg(not(feature = "r1cs-export"))]
+#[cfg(not(feature = "build-circuits"))]
 pub fn process_instruction(
     program_id: &Address,
     accounts: &mut [AccountView],

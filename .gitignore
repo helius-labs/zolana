@@ -31,6 +31,8 @@ experiments
 docs/spec.pdf
 docs/squads_policy_program.pdf
 build
+!sdk-libs/program/src/build/
+!sdk-libs/program/src/build/**
 target-linux-x64/
 
 # `just coverage` / the CI coverage job write these at the repo root.
@@ -44,3 +46,6 @@ sdk-libs/transaction/type-lifecycle.md
 
 __pycache__/
 sdk-tests/timelock-escrow/program/tests/arkworks_prepare_inputs.rs
+
+!cli/src/zk/build/
+!cli/src/zk/build/**

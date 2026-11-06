@@ -10,7 +10,9 @@ use spr_transaction::{
 use super::settle_blinding_seed;
 use crate::{
     err,
-    shared::{check_output_utxo, check_pool_output_utxo, transaction_blindings},
+    shared::{
+        check_output_utxo, check_pool_output_utxo, circuit_utxo, field, transaction_blindings,
+    },
     state::order_data_hash,
 };
 
@@ -195,25 +197,25 @@ impl SettleProofInputParams {
 
         Ok(PoolSettle {
             private: PoolSettlePrivateInputs {
-                private_tx_hash,
+                private_tx_hash: field(&private_tx_hash)?,
                 order_amount: self.order_amount,
-                recipient_owner_hash: self.recipient_owner_hash,
+                recipient_owner_hash: field(&self.recipient_owner_hash)?,
                 min_price: self.min_price,
-                order_in: order_in.into(),
-                pool_in: pool_in.into(),
-                recipient_out: recipient_out.into(),
-                pool_change: pool_change.into(),
-                maker_receipt: maker_receipt.into(),
-                private_tx_blinding: self.private_tx_blinding,
+                order_in: circuit_utxo(order_in)?,
+                pool_in: circuit_utxo(pool_in)?,
+                recipient_out: circuit_utxo(recipient_out)?,
+                pool_change: circuit_utxo(pool_change)?,
+                maker_receipt: circuit_utxo(maker_receipt)?,
+                private_tx_blinding: field(&self.private_tx_blinding)?,
             },
             public: PoolSettlePublicInputs {
-                first_nullifier,
+                first_nullifier: field(&first_nullifier)?,
                 execution_price: self.execution_price,
-                order_in_hash,
-                destination_asset: self.destination_asset,
-                pool_authority_owner_hash: self.pool_authority_owner_hash,
+                order_in_hash: field(&order_in_hash)?,
+                destination_asset: field(&self.destination_asset)?,
+                pool_authority_owner_hash: field(&self.pool_authority_owner_hash)?,
                 max_order_size: self.max_order_size,
-                receipt_owner_hash: self.receipt_owner_hash,
+                receipt_owner_hash: field(&self.receipt_owner_hash)?,
             },
         })
     }

@@ -241,7 +241,21 @@ fn read_expected_keys(path: Option<&Path>) -> Result<Option<KeyNames>> {
 /// A verifying key marker pins its proving key's sha256, so the manifest's
 /// other files (such as `vk.bin`) have nothing to match.
 fn parse_key_manifest(manifest: &str) -> Result<KeyNames> {
-    let mut keys = KeyNames::new();
+    let keys: KeyNames = parse_sha256_manifest(manifest)?
+        .into_iter()
+        .filter(|(_, file)| {
+            file.ends_with("pk.bin") || file.ends_with(".pk") || file.ends_with(".key")
+        })
+        .collect();
+    if keys.is_empty() {
+        bail!("it names no proving key (a *pk.bin, *.pk or *.key file)");
+    }
+    Ok(keys)
+}
+
+/// Every `<sha256>  <file>` entry of a sha256sum-style manifest, in order.
+pub(crate) fn parse_sha256_manifest(manifest: &str) -> Result<Vec<([u8; 32], String)>> {
+    let mut entries = Vec::new();
     for (index, line) in manifest.lines().enumerate() {
         let line = line.trim();
         if line.is_empty() {
@@ -252,19 +266,17 @@ fn parse_key_manifest(manifest: &str) -> Result<KeyNames> {
             .split_once(char::is_whitespace)
             .ok_or_else(|| anyhow!("line {line_number}: expected `<sha256>  <file>`"))?;
         // sha256sum marks a file hashed in binary mode with a leading `*`.
-        let file = file.trim_start().trim_start_matches('*');
-        if !(file.ends_with("pk.bin") || file.ends_with(".pk") || file.ends_with(".key")) {
-            continue;
+        let file = file.trim_start();
+        let file = file.strip_prefix('*').unwrap_or(file);
+        if file.is_empty() {
+            bail!("line {line_number}: expected `<sha256>  <file>`");
         }
         let mut sha256 = [0u8; 32];
         hex::decode_to_slice(digest, &mut sha256)
             .map_err(|e| anyhow!("line {line_number}: invalid sha256 {digest}: {e}"))?;
-        keys.insert(sha256, file.to_string());
+        entries.push((sha256, file.to_string()));
     }
-    if keys.is_empty() {
-        bail!("it names no proving key (a *pk.bin, *.pk or *.key file)");
-    }
-    Ok(keys)
+    Ok(entries)
 }
 
 /// Whether the check requires exactly this build's shielded-pool keys: asked

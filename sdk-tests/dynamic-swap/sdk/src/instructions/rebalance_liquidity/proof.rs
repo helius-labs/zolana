@@ -15,7 +15,7 @@ use spr_transaction::{
 };
 
 use crate::{
-    shared::transaction_blindings,
+    shared::{circuit_utxos, field, transaction_blindings},
     state::{IndexedPoolNote, PoolUtxo},
 };
 
@@ -300,14 +300,14 @@ impl PreparedRebalance {
         Ok(RebalanceProofBundle {
             proof_inputs: PoolRebalance {
                 private: PoolRebalancePrivateInputs {
-                    private_tx_hash,
-                    inputs: inputs.map(Into::into),
-                    outputs: outputs.map(Into::into),
-                    private_tx_blinding: self.private_tx_blinding,
+                    private_tx_hash: field(&private_tx_hash)?,
+                    inputs: circuit_utxos(inputs)?,
+                    outputs: circuit_utxos(outputs)?,
+                    private_tx_blinding: field(&self.private_tx_blinding)?,
                 },
                 public: PoolRebalancePublicInputs {
-                    pool_authority_owner_hash: self.pool_authority_owner_hash,
-                    destination_asset: self.destination_asset,
+                    pool_authority_owner_hash: field(&self.pool_authority_owner_hash)?,
+                    destination_asset: field(&self.destination_asset)?,
                     credit: self.credit,
                 },
             },

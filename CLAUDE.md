@@ -34,11 +34,20 @@ prover
 - go prover server
 - rust prover client
 
-The generic ZK DSL, prover, gadgets and core derives live in
-`helius-labs/zk-tools` under `zk-dsl/`. The root Cargo manifest uses their
-matching crates.io releases. ZK programs use the `spr-program` re-exports; standalone
-circuits use the zk crates directly. `just check-deps` enforces the SDK
-layering and optional circuit dependencies.
+Circuits are written in Xark (`xark`, `xark-groth16`, `xark-wasm`,
+`xark-cli`); the root Cargo manifest pins them to one Git revision. The
+protocol circuit types and operations live in `sdk-libs/circuit`
+(`spr-circuit`). ZK programs use the `spr-program` re-exports; standalone
+circuits use `xark` and `spr-circuit` directly. `just check-deps` keeps Xark
+and `spr-circuit` out of on-chain crates and the wallet SDK crates, and
+optional in `spr-program`.
+
+Native circuit execution reports a failed `require`/`require_eq` as
+`CircuitErrorKind::RequirementFailed` only inside `spr_circuit::checked`;
+outside it the requirement panics. Client code that runs circuit logic to
+build a transaction must go through `checked`. Checks inside Xark itself
+(`xark::require_ne`, the `to_bits` range check, inversion or division by zero)
+still panic, inside `checked` too, with the compared values in the message.
 
 ## Workspace Shape
 
@@ -51,8 +60,8 @@ layering and optional circuit dependencies.
 - `protocol-ops`: operator CLI, forester and batch prover, protocol instructions,
   smart-account client, and reference Merkle trees.
 - `prover`: proof client and prover server.
-- `sdk-tests/zk-standalone`: a standalone circuit fixture for Zolana CLI,
-  wasm and SBF integration tests against the pinned zk-tools dependency.
+- `sdk-tests/zk-standalone`: a standalone Xark circuit fixture for Zolana CLI,
+  wasm and SBF integration tests.
 
 ## Project Structure
 
@@ -86,20 +95,21 @@ sdk-libs/
   instruction/         -- SBF-buildable shielded-pool instruction builders and the
                           SPP hash and blinding derivations programs recompute;
                           feature `cpi` (transact CPI)
-  keypair/             -- shielded key material and hashes; feature `circuit`
-                          (owner circuit types, ShieldedAddress as proof input)
-  macros/              -- spr-macros: the ZK program derives (UtxoState,
-                          ZkProgramCircuit, PublicInputs) over spr-zk-macros-core
-  program/             -- SDK for programs: re-exports spr-instruction and the
-                          zk crates; feature `compression` (compressed accounts,
-                          SBF-buildable) and the host-only ZK program features
-                          `circuit`, `client`, `setup`; no default features
+  circuit/             -- spr-circuit: no_std protocol circuit types and
+                          operations over Xark (owners, UTXOs, balances,
+                          transactions, Poseidon, ArrayVec, checked)
+  keypair/             -- shielded key material and hashes
+  macros/              -- spr-macros: the ZK program derives (ZkProgram,
+                          ClientInputs, PublicInputs, UtxoState)
+  program/             -- SDK for programs: re-exports spr-instruction and
+                          spr-circuit; feature `compression` (compressed
+                          accounts, SBF-buildable) and the host-only ZK program
+                          features `circuit`, `client`, `build`, `wasm`; no
+                          default features
   program-test/        -- reusable local test/indexer harness
   prover-tee/          -- the encrypted prover wire contract: attestation
                           verification, policy pins, HPKE request encryption
-  transaction/         -- wallet, UTXO, encryption, and transaction logic; feature
-                          `circuit` (asset and UTXO circuit types, Mint and
-                          WalletUtxo as proof inputs)
+  transaction/         -- wallet, UTXO, encryption, and transaction logic
 
 sdk-tests/zk-standalone/ -- standalone circuit fixture and its verifier program
                           (litesvm test: sdk-tests/zk-tests)
@@ -374,10 +384,10 @@ crate: the shielded-pool program links the interface and must not carry client
 surface. `spr-instruction` is `no_std` and SBF-buildable, so programs that
 CPI into SPP use the same builders as clients. `spr-transaction` depends on
 `spr-instruction`. It cannot depend on `spr-program`, which depends on
-`spr-transaction` for its ZK program features. The circuit types and proof
-input impls of the wallet types sit in the `circuit` features of
-`spr-keypair` and `spr-transaction`, on top of the zk crates, because the
-orphan rule keeps them out of `spr-program`. Reference: `create_spl_interface.rs`
+`spr-transaction` for its ZK program features. The circuit types live in
+`spr-circuit`; `spr-program` converts wallet types into them, so
+`spr-keypair` and `spr-transaction` stay free of Xark. Reference:
+`create_spl_interface.rs`
 
 ```rust
 use alloc::vec;

@@ -1,81 +1,26 @@
-import { expect, test } from "./harness";
+import { test, expect } from "./harness";
 import { fixture, keyUrl, type Program } from "./fixtures";
-
-const programs: Program[] = ["escrow", "withdraw"];
 const RUNS = 5;
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)] ?? Number.NaN;
-}
-
-test("proof input generation, key load and proof time against snarkjs @bench", async ({ harness }) => {
+function median(values: number[]) { return [...values].sort((a,b) => a-b)[Math.floor(values.length/2)]; }
+test("SDK transaction preparation and Xark proving @bench", async ({ harness }) => {
   const rows: string[] = [];
-  const moduleLoadMs = await harness.page.evaluate(() => window.zkProgram.moduleLoadMs);
-  rows.push(`module load: ${moduleLoadMs.toFixed(0)} ms, prover threads: ${harness.threads}`);
-  for (const program of programs) {
+  for (const program of ["escrow", "withdraw"] as Program[]) {
     const data = fixture(program);
-    const timings = await harness.page.evaluate(
-      async ({ program, arkworksUrl, zkeyUrl, data, runs }) => {
-        const { transaction } = await window.zkProgram.transaction(
-          program,
-          data.inputs,
-          data.sender,
-          data.payer,
-        );
-        const proofInputsMs: number[] = [];
-        for (let run = 0; run < runs; run += 1) {
-          proofInputsMs.push(
-            window.zkProgram.timeTransaction(program, data.inputs, data.sender, data.payer),
-          );
-        }
-        const keyLoadMs = {
-          arkworks: await window.zkProgram.timeKeyLoad(program, "arkworks", arkworksUrl),
-          zkey: await window.zkProgram.timeKeyLoad(program, "zkey", zkeyUrl),
-        };
-        await window.zkProgram.timeProof(program, "arkworks", arkworksUrl, transaction.proofInputs);
-        const proofMs: number[] = [];
-        for (let run = 0; run < runs; run += 1) {
-          proofMs.push(
-            await window.zkProgram.timeProof(program, "arkworks", arkworksUrl, transaction.proofInputs),
-          );
-        }
-        const snarkjs = await window.zkProgram.timeSnarkjs(zkeyUrl, transaction.proofInputs, runs);
-        const proof = await window.zkProgram.prove(program, "arkworks", arkworksUrl, transaction.proofInputs);
-        const verifyStart = performance.now();
-        await window.zkProgram.verify(data.verifyingKey, proof);
-        const verifyMs = performance.now() - verifyStart;
-        return {
-          verifyMs,
-          proofInputsMs,
-          keyLoadMs,
-          proofMs,
-          snarkjsMs: snarkjs.proofMs,
-          snarkjsPublicSignal: snarkjs.publicSignal,
-          publicHash: transaction.publicHash,
-        };
-      },
-      {
-        program,
-        arkworksUrl: keyUrl(program, "arkworks"),
-        zkeyUrl: keyUrl(program, "zkey"),
-        data,
-        runs: RUNS,
-      },
-    );
-    const publicHash = BigInt(
-      `0x${timings.publicHash.map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
-    ).toString();
-    expect(timings.snarkjsPublicSignal).toBe(publicHash);
-    const proofInputs = median(timings.proofInputsMs);
-    const proof = median(timings.proofMs);
-    const snarkjsProof = median(timings.snarkjsMs);
-    rows.push(
-      `${program}: proving ${(proofInputs + proof).toFixed(0)} ms (proof inputs ${proofInputs.toFixed(0)} + proof ${proof.toFixed(0)}), ` +
-        `snarkjs ${(proofInputs + snarkjsProof).toFixed(0)} ms (Rust proof inputs + snarkjs proof ${snarkjsProof.toFixed(0)}), ` +
-        `key load ${timings.keyLoadMs.arkworks.toFixed(0)} ms arkworks / ${timings.keyLoadMs.zkey.toFixed(0)} ms zkey, ` +
-        `standalone verify ${timings.verifyMs.toFixed(0)} ms (medians of ${RUNS})`,
-    );
+    const result = await harness.page.evaluate(async ({ data, program, url, runs }) => {
+      const tx = (await window.zkProgram.transaction(program, data.inputs, data.sender, data.payer)).transaction;
+      const prep = []; for (let i=0;i<runs;i++) prep.push(window.zkProgram.timeTransaction(program, data.inputs, data.sender, data.payer));
+      const modes = {};
+      for (const mode of ["streaming", "resident"]) {
+        const load = await window.zkProgram.timeKeyLoad(program, mode, url);
+        await window.zkProgram.timeProof(program, mode, url, tx.proofInputs);
+        const proof = []; for (let i=0;i<runs;i++) proof.push(await window.zkProgram.timeProof(program, mode, url, tx.proofInputs));
+        modes[mode] = { load, proof };
+      }
+      const proof = await window.zkProgram.prove(program, "streaming", url, tx.proofInputs);
+      return { prep, modes, verified: await window.zkProgram.verify(program, proof) };
+    }, { data, program, url: keyUrl(program, "streaming"), runs: RUNS });
+    expect(result.verified).toBe(true);
+    for (const [mode, value] of Object.entries(result.modes)) rows.push(`${program} ${mode}: preparation ${median(result.prep).toFixed(1)} ms, proof ${median(value.proof).toFixed(1)} ms, total ${(median(result.prep)+median(value.proof)).toFixed(1)} ms, key load ${value.load.toFixed(1)} ms, workers ${mode==="streaming"?harness.threads:1}`);
   }
   console.log(rows.join("\n"));
   test.info().annotations.push({ type: "bench", description: rows.join("; ") });

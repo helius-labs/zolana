@@ -1,2 +1,2 @@
-# The standalone fixture and its generated verifier test the zk-tools dependency.
+# The standalone Xark circuit fixture and its generated verifier test the zolana zk build.
 /sdk-tests/zk-standalone/ @ananas-block

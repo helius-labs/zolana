@@ -27,9 +27,11 @@ Breaking
 - `TreeFeeSchedule.feePerNullifier` becomes `feePerTree`, a flat fee a transact or merge payer pays once to every tree the transaction writes, and `defaultTreeFees()` takes no argument and returns 5,000 lamports per tree with forester reimbursements at cost → rename the field, drop the ZKP batch size argument, and fund payers for the per-tree fee.
 - `buildKeyUpdateTransaction` sends only the new viewing key, and the user-registry program refuses the earlier layout that also carried the nullifier key → upgrade the SDK together with the user-registry program.
 - `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` are removed → use `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS`, `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS` and `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+- `ProgramTransaction.proofInputs` is a `ProgramProofInputs` map of canonical decimal scalars instead of assignment bytes, and `bindProgramTransaction` rejects a map whose `public_hash` differs from `publicHash` with `TRANSACTION_PROGRAM_PUBLIC_HASH_MISMATCH` → regenerate the application WASM bindings and pass the map directly to the Xark prover.
 
 Added
 
+- `ProgramProofInputs` types the prover input map of a `ProgramTransaction`, and `TransactionErrorCode.TRANSACTION_PROGRAM_PUBLIC_HASH_MISMATCH` reports proof inputs bound to another public hash.
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `SprClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `SprClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.

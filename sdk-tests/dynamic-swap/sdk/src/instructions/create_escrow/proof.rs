@@ -4,7 +4,11 @@ use spr_keypair::hash::owner_hash;
 use spr_transaction::instructions::transact::{asset_field, PrivateTxHash, SppProofOutputUtxo};
 use spr_transaction::utxo::{ProofInputUtxo, SppProofInputUtxo};
 
-use crate::{err, shared::check_output_utxo, state::order_data_hash};
+use crate::{
+    err,
+    shared::{check_output_utxo, circuit_utxo, field},
+    state::order_data_hash,
+};
 
 fn validate_order_terms(
     public_price_floor: u64,
@@ -140,17 +144,17 @@ impl EscrowOpenProofInputParams {
 
         Ok(EscrowOpen {
             private: EscrowOpenPrivateInputs {
-                private_tx_hash,
+                private_tx_hash: field(&private_tx_hash)?,
                 order_amount: self.order_amount,
                 min_price: self.min_price,
-                source_in: source_in.into(),
-                order_out: order_out.into(),
-                taker_change: taker_change.into(),
-                private_tx_blinding: self.private_tx_blinding,
+                source_in: circuit_utxo(source_in)?,
+                order_out: circuit_utxo(order_out)?,
+                taker_change: circuit_utxo(taker_change)?,
+                private_tx_blinding: field(&self.private_tx_blinding)?,
             },
             public: EscrowOpenPublicInputs {
-                escrow_authority_owner_hash: self.escrow_authority_owner_hash,
-                source_asset: self.source_asset,
+                escrow_authority_owner_hash: field(&self.escrow_authority_owner_hash)?,
+                source_asset: field(&self.source_asset)?,
                 public_price_floor: self.public_price_floor,
                 price_tolerance: self.price_tolerance,
                 min_order_amount: self.min_order_amount,

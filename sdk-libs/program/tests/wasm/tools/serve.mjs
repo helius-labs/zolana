@@ -9,7 +9,7 @@ const REPO_ROOT = resolve(PACKAGE_ROOT, "../../../..");
 const WEB_ROOT = join(PACKAGE_ROOT, "web");
 const FIXTURE_ROOT = join(PACKAGE_ROOT, "tests", "fixtures");
 const TARGET_ROOT = resolve(REPO_ROOT, process.env.CARGO_TARGET_DIR ?? "target");
-const KEY_ROOT = join(TARGET_ROOT, "zk-program-wasm-fixtures");
+const KEY_ROOT = join(TARGET_ROOT, "zk", "spr-program-wasm-test-program");
 const PORT = Number(process.env.PORT ?? 4327);
 
 const CONTENT_TYPES = {

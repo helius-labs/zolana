@@ -1,0 +1,5 @@
+error: client input declarations use concrete types
+ --> tests/client_inputs/fail/generic.rs:2:11
+  |
+2 | struct Bad<T> {
+  |           ^^^
