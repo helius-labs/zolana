@@ -38,9 +38,11 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_NULLIFIER_PROOF_TREE_MISMATCH",
   "CLIENT_MISSING_OUTPUT",
   "CLIENT_RPC",
+  "CLIENT_TRANSACTION_FAILED",
   "CLIENT_INDEXER",
   "CLIENT_UNSUPPORTED_RPC_METHOD",
   "CLIENT_INDEXER_TIMEOUT",
+  "CLIENT_TRANSACTION_NOT_INDEXED",
   "CLIENT_INDEXER_NOT_CAUGHT_UP",
   "CLIENT_INDEXER_PROOF_DATA_NOT_READY",
   "CLIENT_PROVER_INDEXER_UNCONFIGURED",
@@ -99,6 +101,18 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: IndexDetails;
   readonly CLIENT_MISSING_OUTPUT: NoDetails;
   readonly CLIENT_RPC: Readonly<{ method?: string; reason?: string }>;
+  /**
+   * The transaction failed on chain. `error` names the chain's error; an
+   * instruction error adds `instructionIndex`, `instructionError` and, for a
+   * program error, its `customCode`.
+   */
+  readonly CLIENT_TRANSACTION_FAILED: Readonly<{
+    signature: string;
+    error: string;
+    instructionIndex?: number;
+    instructionError?: string;
+    customCode?: number;
+  }>;
   /** Carries no response text: an indexer body can hold caller data. */
   readonly CLIENT_INDEXER: Readonly<{ method: string; retryable: boolean }>;
   /** Indexer response exceeded the client's 10 MiB ceiling or Photon's (`-32008`). */
@@ -111,6 +125,12 @@ export interface ClientErrorDetailsMap {
         attempts?: number;
       }>
     | undefined;
+  /**
+   * Solana confirmed the transaction and the indexer did not show it; the cause
+   * says why. The transaction landed: wait for the indexer instead of sending
+   * it again.
+   */
+  readonly CLIENT_TRANSACTION_NOT_INDEXED: Readonly<{ signature: string }>;
   readonly CLIENT_INDEXER_NOT_CAUGHT_UP: Readonly<{
     target: string;
     latest: string;
@@ -410,6 +430,14 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH: { index: "number" },
   CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_RPC: { method: "string", reason: "string" },
+  CLIENT_TRANSACTION_FAILED: {
+    signature: "string",
+    error: "string",
+    instructionIndex: "number",
+    instructionError: "string",
+    customCode: "number",
+  },
+  CLIENT_TRANSACTION_NOT_INDEXED: { signature: "string" },
   CLIENT_INDEXER: { method: "string", retryable: "boolean" },
   CLIENT_INDEXER_RESPONSE_TOO_LARGE: { method: "string" },
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
@@ -471,6 +499,7 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_PROVER_SERVER: [],
   CLIENT_PROOF_PARSE: [],
   CLIENT_RPC: [],
+  CLIENT_TRANSACTION_FAILED: ["signature", "error"],
   CLIENT_FIELD_TOO_LONG: [],
   CLIENT_INDEXER_TIMEOUT: [],
   CLIENT_PROOF_PATH_LENGTH: ["got", "expected"],

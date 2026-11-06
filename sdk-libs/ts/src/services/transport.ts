@@ -6,6 +6,8 @@ export type TransportFailureKind =
   | "aborted"
   | "timeout"
   | "request"
+  /** The status arrived and the body was lost on the way. */
+  | "read"
   | "requestTooLarge"
   | "responseTooLarge"
   | "http"
@@ -187,7 +189,7 @@ export async function httpJson(request: HttpJsonRequest): Promise<unknown> {
   try {
     bytes = await readBoundedBody(response, request.maxResponseBytes);
   } catch (error) {
-    if (error instanceof TransportFailure) throw error;
+    if (error instanceof TransportFailure && error.kind !== "read") throw error;
     throw requestFailure(request.composed);
   }
 
@@ -263,7 +265,15 @@ export async function readBoundedBody(
   const chunks: Uint8Array[] = [];
   let bodyBytes = 0;
   for (;;) {
-    const next = await reader.read();
+    let next: ReadableStreamReadResult<Uint8Array>;
+    try {
+      next = await reader.read();
+    } catch {
+      throw new TransportFailure("read", "response body could not be read", {
+        bodyBytes,
+        retryable: true,
+      });
+    }
     if (next.done) break;
     bodyBytes += next.value.length;
     if (bodyBytes > maxBodyBytes) {

@@ -15,12 +15,7 @@ import {
   untilAborted,
   type ComposedSignal,
 } from "../../internal.js";
-import {
-  ATTESTATION_TIMEOUT_MS,
-  MAX_ATTEMPTS,
-  RETRY_DELAY_MS,
-  attestationRetryDelayMs,
-} from "../retry.js";
+import { GET_TIMEOUT_MS, MAX_ATTEMPTS, RETRY_DELAY_MS, attestationRetryDelayMs } from "../retry.js";
 import {
   HEADER_ENC,
   HEADER_CIPHERTEXT,
@@ -121,7 +116,10 @@ export class TeeSession {
     return flight;
   }
 
-  /** Retries a transport failure and a busy or unavailable answer, each try with a fresh nonce. */
+  /**
+   * Retries a transport failure, a body lost mid-read and a busy or unavailable
+   * answer, each try with a fresh nonce.
+   */
   async #attestWithRetries(
     fetch: typeof globalThis.fetch,
     attestationUrl: URL,
@@ -140,21 +138,26 @@ export class TeeSession {
       const nonce = randomBytes(NONCE_SIZE);
       const url = new URL(attestationUrl);
       setUrlQuery(url, "nonce", bytesToHex(nonce));
-      const request = composeSignal(
-        { signal: signal.signal, timeoutMs: ATTESTATION_TIMEOUT_MS },
-        "attest",
-      );
+      const request = composeSignal({ signal: signal.signal, timeoutMs: GET_TIMEOUT_MS }, "attest");
       try {
         let response: Response;
+        let attestation: unknown;
         try {
           // The attempt's deadline holds even for a fetch that ignores its signal.
+          const deadline = (): ClientError => requestError("attest", request);
           response = await untilAborted(
             fetch(url, { redirect: "error", signal: request.signal }),
             request,
-            () => requestError("attest", request),
+            deadline,
           );
-        } catch {
+          if (response.ok) {
+            attestation = await untilAborted(readAttestation(response), request, deadline);
+          }
+        } catch (error) {
           if (signal.signal.aborted) throw requestError("attest", signal);
+          if (error instanceof ClientError && error.code === "CLIENT_PROVER_TEE_ATTESTATION") {
+            throw error;
+          }
           if (attempt >= MAX_ATTEMPTS) {
             throw request.timedOut() ? requestError("attest", request) : refused("unavailable");
           }
@@ -174,7 +177,7 @@ export class TeeSession {
           if (delay === undefined) throw refused("unavailable");
           continue;
         }
-        return await untilAborted(this.#accept(fetch, response, nonce, signal), request, () =>
+        return await untilAborted(this.#accept(fetch, attestation, nonce, signal), request, () =>
           requestError("attest", request),
         );
       } finally {
@@ -185,17 +188,10 @@ export class TeeSession {
 
   async #accept(
     fetch: typeof globalThis.fetch,
-    response: Response,
+    attestation: unknown,
     nonce: Uint8Array,
     signal: ComposedSignal,
   ): Promise<AttestedProver> {
-    let attestation: unknown;
-    try {
-      attestation = await readBoundedJson(response, MAX_ATTESTATION_BYTES);
-    } catch (error) {
-      if (!(error instanceof TransportFailure)) throw error;
-      throw refused("malformed_attestation");
-    }
     const policy = await this.#current(fetch, signal);
     const prover = verifyAttestation(attestation, policy, nonce, Math.floor(Date.now() / 1000));
     this.#attested = Object.freeze({ key: prover.hpkePublicKey.slice(), at: Date.now(), policy });
@@ -261,7 +257,9 @@ export class TeeSession {
           call.maxResponseBytes + RESPONSE_NONCE_SIZE + STATUS_SIZE + GCM_TAG_SIZE,
         );
       } catch (error) {
-        if (!(error instanceof TransportFailure)) throw error;
+        // A body lost mid-read stays a transport failure: the caller decides
+        // whether to ask again.
+        if (!(error instanceof TransportFailure) || error.kind === "read") throw error;
         if (error.kind === "responseTooLarge")
           throw new ClientError("CLIENT_PROVER_RESPONSE_TOO_LARGE");
         throw encryptionError("response");
@@ -283,6 +281,16 @@ export class TeeSession {
       init: encryptedInit(call, encrypted),
       finish,
     });
+  }
+}
+
+/** The attestation JSON; a body lost mid-read stays a transport failure, to be asked again. */
+async function readAttestation(response: Response): Promise<unknown> {
+  try {
+    return await readBoundedJson(response, MAX_ATTESTATION_BYTES);
+  } catch (error) {
+    if (!(error instanceof TransportFailure) || error.kind === "read") throw error;
+    throw refused("malformed_attestation");
   }
 }
 
@@ -314,7 +322,10 @@ export function encryptedInit(call: ProverCall, encrypted: EncryptedRequest): Re
   };
 }
 
-/** Undefined when fetch rejects. */
+/**
+ * Undefined when fetch rejects. An encrypted answer whose body is lost mid-read
+ * rejects with a `read` `TransportFailure`, as a plaintext body read would.
+ */
 export async function sendCall(
   session: TeeSession | undefined,
   call: ProverCall,

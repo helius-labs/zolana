@@ -35,8 +35,9 @@ import type { ProofInputUtxo } from "../transaction/utxo.js";
 import { checkAuthorizedBinding, checkTransactData } from "../transaction/wallet/intent.js";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
+import { isObject } from "../services/jsonrpc.js";
 import { checkedComputeUnitLimit, checkedPriorityFee } from "../flows/internal.js";
-import { ClientError, fromClientCause } from "./error.js";
+import { ClientError, fromClientCause, isClientError } from "./error.js";
 import { checkedServiceUrl, hasProofMethods, inputTreeAddress } from "./internal.js";
 import { SprIndexer } from "./indexer.js";
 import { KeypairProofAuthority } from "./keys.js";
@@ -97,7 +98,8 @@ import { compressProof } from "./prover/proof.js";
 import type { TransactOwnerSigner, TransferCircuit, TransferInputs } from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
-  indexerPollTimeout,
+  attempts,
+  pollTimeout,
   pollUntil,
   validatePollConfig,
 } from "./retry.js";
@@ -311,9 +313,7 @@ export class SprClient
       });
     } catch (cause) {
       throw new ClientError("CLIENT_INVALID_CONFIG", {
-        details: {
-          field: input.proverAsyncPoll === undefined ? endpoints.proverField : "proverAsyncPoll",
-        },
+        details: { field: proverConfigField(cause, endpoints.proverField) },
         cause,
       });
     }
@@ -465,23 +465,36 @@ export class SprClient
 
   /**
    * Wait until Solana confirms the transaction and Photon has indexed a Rings
-   * event for it.
+   * event for it; `timeoutMs` bounds both waits together.
    *
-   * Confirming first turns a transaction that failed on chain into a chain
-   * error, instead of an indexer timeout that blames the wrong subsystem.
+   * Confirming first turns a transaction that failed on chain into
+   * `CLIENT_TRANSACTION_FAILED`, instead of an indexer timeout that blames the
+   * wrong subsystem. Once Solana has confirmed the transaction, any failure of
+   * the indexer wait is `CLIENT_TRANSACTION_NOT_INDEXED`: the transaction
+   * landed and must not be sent again.
    */
   async confirmPrivateTransaction(
     signature: Signature,
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<void> {
-    await this.confirmTransaction(signature, config, context);
-    await this.#pollIndexedTransaction(signature, config, context);
+    const remaining = remainingContext(context);
+    await this.confirmTransaction(signature, config, remaining());
+    try {
+      await this.#pollIndexedTransaction(signature, config, remaining());
+    } catch (cause) {
+      throw new ClientError("CLIENT_TRANSACTION_NOT_INDEXED", { details: { signature }, cause });
+    }
   }
 
   /**
    * Poll the RPC until the signature reaches this client's commitment; returns
    * the slot the transaction landed in, ready for `atSlot` freshness gates.
+   *
+   * As Rust `wait_for_rpc_confirmation`: a transaction that failed there throws
+   * `CLIENT_TRANSACTION_FAILED` with the chain's error, a failed status read is
+   * asked again except from an RPC without the method, and an exhausted wait is
+   * classified by its final read.
    */
   async confirmTransaction(
     signature: Signature,
@@ -490,19 +503,21 @@ export class SprClient
   ): Promise<bigint> {
     checkedSignature(signature);
     const poll = validatePollConfig(this.#configOr(config).poll);
-    // Rust's `wait_for_rpc_confirmation` propagates every RPC error with `?` and
-    // only retries a signature that is merely not confirmed yet.
     const slot = await pollUntil(
-      () => this.#signatureConfirmed(signature, context),
+      (attempt) => this.#signatureConfirmed(signature, attempt),
       (landed) => landed !== undefined,
       {
         config: poll,
         ...(context === undefined ? {} : { context }),
-        retryErrors: false,
-        onTimeout: () =>
-          new ClientError("CLIENT_RPC", {
-            details: { method: "getSignatureStatuses", reason: "signature not confirmed" },
-          }),
+        method: "confirmTransaction",
+        onTimeout: (exhausted, lastCause) =>
+          pollTimeout(
+            exhausted,
+            lastCause,
+            new ClientError("CLIENT_RPC", {
+              details: { method: "getSignatureStatuses", reason: "signature not confirmed" },
+            }),
+          ),
       },
     );
     // The accept predicate above guarantees the poll resolved with a slot.
@@ -529,17 +544,28 @@ export class SprClient
     // The poll below is the wait, so the inner request must not also gate on a slot.
     const request = Object.freeze({ poll: resolved.poll });
     await pollUntil(
-      () => this.getShieldedTransactionsBySignature(signature, request, context),
+      (attempt) => this.getShieldedTransactionsBySignature(signature, request, attempt),
       (response) => response.transactions.length > 0,
       {
         config: poll,
         ...(context === undefined ? {} : { context }),
-        onTimeout: (exhausted, lastCause) => indexerPollTimeout(exhausted, lastCause, signature),
+        method: "confirmPrivateTransaction",
+        onTimeout: (exhausted, lastCause) =>
+          pollTimeout(
+            exhausted,
+            lastCause,
+            new ClientError("CLIENT_INDEXER_TIMEOUT", {
+              details: { attempts: attempts(exhausted), signature },
+            }),
+          ),
       },
     );
   }
 
-  /** Landed slot when the signature reached this client's commitment, else undefined. */
+  /**
+   * Landed slot once the signature reached this client's commitment, else
+   * undefined; a transaction that failed there throws the chain's error.
+   */
   async #signatureConfirmed(
     signature: Signature,
     context?: RequestContext,
@@ -549,12 +575,13 @@ export class SprClient
     );
     const status = value[0];
     if (status === null || status === undefined) return undefined;
+    if (!commitmentReached(status.confirmationStatus, this.commitment)) return undefined;
     if (status.err !== null) {
-      throw new ClientError("CLIENT_RPC", {
-        details: { method: "getSignatureStatuses", reason: "transaction failed" },
+      throw new ClientError("CLIENT_TRANSACTION_FAILED", {
+        details: { signature, ...chainError(status.err) },
       });
     }
-    return commitmentReached(status.confirmationStatus, this.commitment) ? status.slot : undefined;
+    return status.slot;
   }
 
   getMerkleProofs(
@@ -1323,6 +1350,84 @@ const COMMITMENT_RANK: Readonly<Record<Commitment, number>> = Object.freeze({
 function commitmentReached(reached: Commitment | null, required: Commitment): boolean {
   if (reached === null) return false;
   return COMMITMENT_RANK[reached] >= COMMITMENT_RANK[required];
+}
+
+type ChainError = Readonly<{
+  error: string;
+  instructionIndex?: number;
+  instructionError?: string;
+  customCode?: number;
+}>;
+
+/**
+ * The chain's error for a failed transaction as bounded facts: its name and, for
+ * an instruction error, the instruction and its error, with a program's custom
+ * code. Any other text from the RPC reads as `"unknown"`.
+ */
+function chainError(err: unknown): ChainError {
+  if (typeof err === "string") return { error: errorName(err) };
+  if (typeof err !== "object" || err === null) return { error: "unknown" };
+  const entries = Object.entries(err);
+  const [name, value] = entries[0] ?? [];
+  if (entries.length !== 1 || name === undefined) return { error: "unknown" };
+  if (name !== "InstructionError" || !Array.isArray(value) || value.length !== 2) {
+    return { error: errorName(name) };
+  }
+  const [index, inner]: readonly unknown[] = value;
+  const instructionIndex = smallInteger(index);
+  const at = instructionIndex === undefined ? {} : { instructionIndex };
+  if (typeof inner === "string") {
+    return { error: name, ...at, instructionError: errorName(inner) };
+  }
+  const custom = isObject(inner) && Object.keys(inner).length === 1 ? inner["Custom"] : undefined;
+  const customCode = smallInteger(custom);
+  return customCode === undefined
+    ? { error: name, ...at, instructionError: "unknown" }
+    : { error: name, ...at, instructionError: "Custom", customCode };
+}
+
+function errorName(value: string): string {
+  return /^[A-Za-z][A-Za-z0-9]{0,63}$/u.test(value) ? value : "unknown";
+}
+
+/** A u32, which Kit hands over as a bigint. */
+function smallInteger(value: unknown): number | undefined {
+  const integer =
+    typeof value === "bigint"
+      ? value
+      : typeof value === "number" && Number.isSafeInteger(value)
+        ? BigInt(value)
+        : undefined;
+  return integer !== undefined && integer >= 0n && integer <= 0xffff_ffffn
+    ? Number(integer)
+    : undefined;
+}
+
+/** The `SprClientConfig` field a `ProverClient` refused. */
+function proverConfigField(cause: unknown, urlField: string): string {
+  if (!isClientError(cause)) return urlField;
+  if (cause.code === "CLIENT_INVALID_POLL_CONFIG") return "proverAsyncPoll";
+  const details: unknown = cause.details;
+  const field = isObject(details) ? details["field"] : undefined;
+  // `ProverClient` names its policy `tee`, the client names it `proverTee`.
+  if (typeof field === "string" && /^tee(?:\.|$)/u.test(field)) {
+    return `proverTee${field.slice("tee".length)}`;
+  }
+  return urlField;
+}
+
+/**
+ * One deadline for consecutive calls: each call made through the returned
+ * function gets what is left of `context.timeoutMs`. An invalid `timeoutMs`
+ * passes through, for the call to refuse.
+ */
+function remainingContext(context: RequestContext | undefined): () => RequestContext | undefined {
+  const timeoutMs = context?.timeoutMs;
+  if (timeoutMs === undefined || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    return () => context;
+  }
+  const deadline = Date.now() + timeoutMs;
+  return () => ({ ...context, timeoutMs: Math.max(1, deadline - Date.now()) });
 }
 
 function decodeRpcAccount(

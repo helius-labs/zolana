@@ -51,6 +51,12 @@ pub fn indexer_error(error: spr_api::ApiError) -> ClientError {
     }
 }
 
+/// Whether an indexer call is worth retrying: the indexer could not answer
+/// now and may on a later attempt. The one rule for every indexer poll.
+pub(crate) fn is_transient_indexer_error(error: &ClientError) -> bool {
+    matches!(error, ClientError::IndexerUnavailable(_))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

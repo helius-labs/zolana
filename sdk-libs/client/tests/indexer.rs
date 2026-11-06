@@ -2,7 +2,7 @@ use spr_user_registry_interface::MergeEncryptionScheme;
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    sync::mpsc,
+    sync::{mpsc, Arc, Mutex},
     thread,
     time::Duration,
 };
@@ -18,8 +18,9 @@ use spr_client::{
         AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsByTagsResponse,
-        GetUserRecordsResponse, HistoryFilters, MerkleContext, MerkleProof, NonInclusionProof,
-        OutputContext, OutputSlot, PaginationToken, Rpc, ShieldedTransaction, UserRecord,
+        GetUserRecordsResponse, HistoryFilters, IndexerPollConfig, IndexerRpcConfig, MerkleContext,
+        MerkleProof, NonInclusionProof, OutputContext, OutputSlot, PaginationToken, Rpc,
+        ShieldedTransaction, UserRecord,
     },
     ClientError,
 };
@@ -328,8 +329,18 @@ fn get_shielded_transactions_by_nullifiers_uses_dedicated_rpc() {
 }
 
 /// Answers each indexer request with the next scripted JSON-RPC result.
-#[derive(Debug)]
-struct ScriptedClient(std::sync::Mutex<Vec<Value>>);
+#[derive(Debug, Clone)]
+struct ScriptedClient(Arc<Mutex<Vec<Value>>>);
+
+impl ScriptedClient {
+    fn new(responses: Vec<Value>) -> Self {
+        Self(Arc::new(Mutex::new(responses)))
+    }
+
+    fn unanswered(&self) -> usize {
+        self.0.lock().unwrap().len()
+    }
+}
 
 impl spr_api::HttpClient for ScriptedClient {
     fn send<'a>(&'a self, _request: spr_api::HttpRequest) -> spr_api::HttpFuture<'a> {
@@ -344,14 +355,8 @@ impl spr_api::HttpClient for ScriptedClient {
     }
 }
 
-/// A transfer spends a UTXO the indexer may not have written yet, so a
-/// merkle-proof read waits until every leaf it asked for is indexed. The
-/// blocking indexer runs this same async path.
-#[tokio::test]
-async fn merkle_proofs_wait_until_every_leaf_is_indexed() {
-    let tree = Address::new_from_array(bytes32(31));
-    let leaf = bytes32(32);
-    let proof = json!({
+fn scripted_merkle_proof(tree: Address, leaf: [u8; 32]) -> Value {
+    json!({
         "leaf": encode_hash_string(leaf),
         "merkleContext": { "treeType": 1, "tree": encode_pubkey_string(tree) },
         "path": [encode_hash_string(bytes32(34))],
@@ -359,19 +364,56 @@ async fn merkle_proofs_wait_until_every_leaf_is_indexed() {
         "root": encode_hash_string(bytes32(36)),
         "rootSeq": 10,
         "rootIndex": 11,
-    });
+    })
+}
+
+/// Without `require_slot` a merkle-proof read accepts whatever the indexer
+/// has, as every other indexer read does: one request, its answer returned.
+#[tokio::test]
+async fn merkle_proofs_without_a_required_slot_make_one_request() {
+    let tree = Address::new_from_array(bytes32(31));
+    let leaf = bytes32(32);
     let context = json!({ "blockTime": 80, "slot": 1 });
-    let client = ScriptedClient(std::sync::Mutex::new(vec![
+    let client = ScriptedClient::new(vec![
         rpc_result(json!({ "context": context, "proofs": [] })),
-        rpc_result(json!({ "context": context, "proofs": [proof] })),
-    ]));
-    let api = spr_api::SprApi::with_client("http://indexer.invalid", client);
+        rpc_result(json!({ "context": context, "proofs": [scripted_merkle_proof(tree, leaf)] })),
+    ]);
+    let api = spr_api::SprApi::with_client("http://indexer.invalid", client.clone());
 
     let got = AsyncSprIndexer::with_api(api)
         .get_merkle_proofs(tree, vec![leaf], None)
         .await
         .expect("merkle proofs");
+    assert!(got.proofs.is_empty());
+    assert_eq!(client.unanswered(), 1);
+}
+
+/// With `require_slot`, a merkle-proof read polls on the config's schedule
+/// until the indexer reaches the slot.
+#[tokio::test]
+async fn merkle_proofs_poll_until_the_required_slot() {
+    let tree = Address::new_from_array(bytes32(31));
+    let leaf = bytes32(32);
+    let client = ScriptedClient::new(vec![
+        rpc_result(json!({ "context": { "blockTime": 80, "slot": 1 }, "proofs": [] })),
+        rpc_result(json!({
+            "context": { "blockTime": 81, "slot": 2 },
+            "proofs": [scripted_merkle_proof(tree, leaf)],
+        })),
+    ]);
+    let api = spr_api::SprApi::with_client("http://indexer.invalid", client.clone());
+    let config = IndexerRpcConfig {
+        poll: IndexerPollConfig::new(1, 0, 0),
+        require_slot: Some(2),
+    };
+
+    let got = AsyncSprIndexer::with_api(api)
+        .get_merkle_proofs(tree, vec![leaf], Some(config))
+        .await
+        .expect("merkle proofs");
+    assert_eq!(got.context.slot, 2);
     assert_eq!(got.proofs.len(), 1);
+    assert_eq!(client.unanswered(), 0);
 }
 
 #[test]

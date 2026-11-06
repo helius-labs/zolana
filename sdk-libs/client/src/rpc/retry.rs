@@ -1,6 +1,6 @@
 use std::{thread::sleep, time::Duration};
 
-use crate::error::ClientError;
+use crate::{error::ClientError, indexer::is_transient_indexer_error};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IndexerPollConfig {
@@ -38,9 +38,12 @@ impl IndexerPollConfig {
     }
 
     /// Poll `request` on this config's backoff schedule until `accept` matches
-    /// a response, returning that response. Transient request errors are
-    /// retried, not propagated; when the schedule is exhausted the poll fails
-    /// with [`ClientError::PollTimedOut`] carrying the last transient error.
+    /// a response, returning that response. A transient indexer failure
+    /// ([`ClientError::IndexerUnavailable`]) is retried and any other error is
+    /// returned at once. An exhausted schedule fails with
+    /// [`ClientError::PollTimedOut`], carrying the final attempt's error when
+    /// that attempt failed: a failure the indexer answered after is not
+    /// blamed for the timeout.
     pub fn poll_until<T>(
         &self,
         mut request: impl FnMut() -> Result<T, ClientError>,
@@ -53,8 +56,11 @@ impl IndexerPollConfig {
             }
             match request() {
                 Ok(response) if accept(&response) => return Ok(response),
-                Ok(_) => {}
-                Err(error) => last_error = Some(error.to_string()),
+                Ok(_) => last_error = None,
+                Err(error) if is_transient_indexer_error(&error) => {
+                    last_error = Some(error.to_string())
+                }
+                Err(error) => return Err(error),
             }
         }
         Err(ClientError::PollTimedOut {
@@ -68,7 +74,7 @@ impl IndexerPollConfig {
 pub struct IndexerRpcConfig {
     pub poll: IndexerPollConfig,
     /// Slot the indexer must have persisted before its answer is accepted.
-    /// `None` accepts whatever the indexer currently has.    
+    /// `None` accepts whatever the indexer currently has.
     pub require_slot: Option<u64>,
 }
 
@@ -79,5 +85,69 @@ impl IndexerRpcConfig {
             poll: IndexerPollConfig::default(),
             require_slot: Some(slot),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Runs `poll_until` over `script`, one entry per attempt, accepting `true`.
+    fn poll(script: Vec<Result<bool, ClientError>>) -> (Result<bool, ClientError>, usize) {
+        let mut script = script.into_iter();
+        let mut calls = 0;
+        let result = IndexerPollConfig::new(1, 0, 0).poll_until(
+            || {
+                calls += 1;
+                script.next().expect("scripted attempt")
+            },
+            |accepted| *accepted,
+        );
+        (result, calls)
+    }
+
+    fn unavailable() -> Result<bool, ClientError> {
+        Err(ClientError::IndexerUnavailable("Internal error".into()))
+    }
+
+    #[test]
+    fn a_transient_failure_is_retried() {
+        let (result, calls) = poll(vec![unavailable(), Ok(true)]);
+        assert!(result.unwrap());
+        assert_eq!(calls, 2);
+    }
+
+    #[test]
+    fn a_permanent_failure_ends_the_poll_at_once() {
+        let (result, calls) = poll(vec![Err(ClientError::Indexer("bad tag".into())), Ok(true)]);
+        assert!(matches!(result, Err(ClientError::Indexer(_))), "{result:?}");
+        assert_eq!(calls, 1);
+    }
+
+    /// The timeout carries the final attempt's failure, never one the
+    /// indexer answered after.
+    #[test]
+    fn an_exhausted_poll_carries_the_final_attempts_failure() {
+        let (result, _) = poll(vec![Ok(false), unavailable()]);
+        let Err(ClientError::PollTimedOut {
+            attempts: 2,
+            last_error: Some(last_error),
+        }) = result
+        else {
+            panic!("expected PollTimedOut, got {result:?}");
+        };
+        assert!(last_error.contains("Internal error"), "{last_error}");
+
+        let (result, _) = poll(vec![unavailable(), Ok(false)]);
+        assert!(
+            matches!(
+                result,
+                Err(ClientError::PollTimedOut {
+                    attempts: 2,
+                    last_error: None
+                })
+            ),
+            "{result:?}"
+        );
     }
 }

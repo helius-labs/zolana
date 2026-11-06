@@ -38,13 +38,13 @@ Added
 Changed
 
 - The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
-- `SprIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
+- `SprIndexer` reads given a freshness wait retry Photon's `-32016` minimum-context-slot and `-32603` internal errors until the wait ends and fail with `CLIENT_INDEXER_NOT_CAUGHT_UP` when the final answer is still behind, every indexer read reports `-32601` as `CLIENT_UNSUPPORTED_RPC_METHOD`, `SprClient.confirmTransaction` asks again after a failed status read and fails a transaction that failed on chain with `CLIENT_TRANSACTION_FAILED`, whose `details` carry the chain's error and a program's `customCode`, `confirmPrivateTransaction` fails a confirmed transaction the indexer does not show with `CLIENT_TRANSACTION_NOT_INDEXED` so it is not sent again, `timeoutMs` bounds each of these waits as a whole, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
-- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows.
-- `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note, and now stores the note.
+- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits and failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note; it now omits those history rows and stores the note.
+- `ProverClient` failed a proof on a full prover queue, waited up to 600 s on one status poll, had no deadline on `health()`, `checkProvingKeys()` and `fetchProvingKeySet()`, threw an untyped error for an answer cut off mid-body and kept polling a status that is not UTF-8; it now asks a full queue up to three times, bounds each status poll and each of those reads at 30 s, the reads unless the caller sets `timeoutMs`, asks again for a status or attestation cut off mid-body, fails any other cut-off answer with `CLIENT_REQUEST` and a non-UTF-8 status at once, reports a deadline that ends a wait between attempts as `CLIENT_TIMEOUT`, and an invalid `proverTee` fails `new SprClient` naming its own field.
 - `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
 
 ## 0.8.0-alpha — 2026-11-03
