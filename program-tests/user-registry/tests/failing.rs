@@ -170,7 +170,6 @@ fn update_keys_rejects_a_non_owner_without_mutating_the_record() {
         record_address,
         stranger.pubkey(),
         UpdateKeysData {
-            nullifier_pubkey: updated.nullifier,
             viewing_pubkey: updated.viewing,
         },
     );
@@ -179,29 +178,34 @@ fn update_keys_rejects_a_non_owner_without_mutating_the_record() {
     assert_eq!(rig.svm.get_account(&record_address), Some(before));
 }
 
-/// The nullifier pubkey is wallet-wide and feeds the published owner hash, so
-/// the record's shielded identity cannot be replaced in place: rotation means a
-/// new record. The owner signs here, so only the immutability check can reject.
+/// The instruction data carries no nullifier pubkey, so a payload in the old
+/// layout (nullifier pubkey followed by viewing pubkey) has trailing bytes and
+/// is refused before the record is touched.
 #[test]
-fn update_keys_rejects_a_rotated_nullifier_pubkey() {
+fn update_keys_rejects_a_payload_carrying_a_nullifier_pubkey() {
     let mut rig = UserRegistryTestRig::new();
     let owner = funded_keypair(&mut rig);
     register(&mut rig, &owner, keys(20));
     let record_address = user_record_pda(&owner.pubkey()).0;
     let before = rig.svm.get_account(&record_address).expect("record");
     let rotated = keys(21);
-    let ix = instruction::update_keys(
+    let mut ix = instruction::update_keys(
         record_address,
         owner.pubkey(),
         UpdateKeysData {
-            nullifier_pubkey: rotated.nullifier,
             viewing_pubkey: rotated.viewing,
         },
     );
+    ix.data = [
+        &[discriminator::UPDATE_KEYS][..],
+        &rotated.nullifier,
+        &rotated.viewing,
+    ]
+    .concat();
 
     assert_registry_error(
         rig.send(ix, &[&owner]),
-        UserRegistryError::NullifierPubkeyRotation,
+        UserRegistryError::InvalidInstructionData,
     );
     assert_eq!(rig.svm.get_account(&record_address), Some(before));
 }
@@ -283,7 +287,6 @@ fn update_keys_requires_owner_signature() {
         record_address,
         owner.pubkey(),
         UpdateKeysData {
-            nullifier_pubkey: updated.nullifier,
             viewing_pubkey: updated.viewing,
         },
     );

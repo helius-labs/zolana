@@ -184,7 +184,7 @@ fn update_keys_changes_only_the_viewing_key() {
     let before = rig.record(&owner.pubkey());
     let updated = keys(7);
     rig.send(
-        build_update_keys_ix(&owner.pubkey(), keys(6).nullifier, updated.viewing),
+        build_update_keys_ix(&owner.pubkey(), updated.viewing),
         &[&owner],
     )
     .expect("update viewing key");

@@ -39,10 +39,10 @@ fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientErro
     })
 }
 
-/// The nullifier pubkey is wallet-wide and never rotates: the program rejects an
-/// `update_keys` that carries a different one, so refuse to build the doomed
-/// instruction. A wallet whose nullifier key differs from the published record
-/// needs a new owner address, not an update.
+/// The nullifier pubkey is wallet-wide and never rotates: `update_keys` replaces
+/// only the viewing pubkey, so an update cannot publish a different one. A
+/// wallet whose nullifier key differs from the published record needs a new
+/// owner address, not an update.
 fn check_nullifier_unchanged(
     owner: Pubkey,
     record: &UserRecord,
@@ -303,7 +303,6 @@ fn update_key_instructions(
         user_record,
         owner,
         UpdateKeysData {
-            nullifier_pubkey: data.nullifier_pubkey,
             viewing_pubkey: data.viewing_pubkey,
         },
     );
@@ -1183,9 +1182,9 @@ mod tests {
         );
     }
 
-    /// The program rejects an `update_keys` that rotates the nullifier pubkey,
-    /// so the client must refuse before sending rather than build a doomed
-    /// transaction.
+    /// `update_keys` cannot change the nullifier pubkey, so a wallet with another
+    /// one must be refused rather than sent an update that leaves the record
+    /// holding a nullifier pubkey the wallet does not own.
     #[test]
     fn ensure_registered_refuses_a_rotated_nullifier_pubkey() {
         let funding = Keypair::new();

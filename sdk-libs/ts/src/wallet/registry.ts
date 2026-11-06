@@ -63,6 +63,11 @@ const registryKeysDataEncoder = getStructEncoder([
   ["viewingPublicKey", checkedBytesEncoder(33, "viewingPublicKey")],
 ]);
 
+const updateKeysDataEncoder = getStructEncoder([
+  ["discriminator", getU8Encoder()],
+  ["viewingPublicKey", checkedBytesEncoder(33, "viewingPublicKey")],
+]);
+
 const setMergeEncryptionDataEncoder = getStructEncoder([
   ["discriminator", getU8Encoder()],
   ["scheme", getU8Encoder()],
@@ -525,7 +530,6 @@ async function keyUpdateInstruction(
   }
   return updateKeysInstruction({
     owner,
-    nullifierPublicKey: shieldedAddress.nullifierPublicKey,
     viewingPublicKey: shieldedAddress.viewingPublicKey.toBytes(),
   });
 }
@@ -580,7 +584,6 @@ export async function setMergeEncryptionInstruction(
 async function updateKeysInstruction(
   input: Readonly<{
     owner: Address;
-    nullifierPublicKey: Bytes32;
     viewingPublicKey: Bytes33;
   }>,
 ): Promise<Instruction> {
@@ -591,9 +594,8 @@ async function updateKeysInstruction(
       { address: userRecord, role: AccountRole.WRITABLE },
       { address: input.owner, role: AccountRole.READONLY_SIGNER },
     ],
-    data: registryKeysDataEncoder.encode({
+    data: updateKeysDataEncoder.encode({
       discriminator: UPDATE_KEYS,
-      nullifierPublicKey: input.nullifierPublicKey,
       viewingPublicKey: input.viewingPublicKey,
     }),
   };

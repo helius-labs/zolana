@@ -15,8 +15,6 @@ pub enum UserRegistryError {
     InvalidRecordAccount,
     #[error("system program account mismatch")]
     InvalidSystemProgram,
-    #[error("nullifier pubkey does not rotate; rotation requires a new record")]
-    NullifierPubkeyRotation = 9,
 }
 
 impl UserRegistryError {
@@ -28,7 +26,6 @@ impl UserRegistryError {
             Self::OwnerMismatch => "OwnerMismatch",
             Self::InvalidRecordAccount => "InvalidRecordAccount",
             Self::InvalidSystemProgram => "InvalidSystemProgram",
-            Self::NullifierPubkeyRotation => "NullifierPubkeyRotation",
         }
     }
 }
