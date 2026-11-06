@@ -41,7 +41,6 @@ type anonymousVectorFile struct {
 // the terms a composing circuit opens; Request is the exact prover request.
 type anonymousVector struct {
 	Name        string            `json:"name"`
-	Cases       []int             `json:"cases"`
 	Description string            `json:"description"`
 	Scenario    anonymousScenario `json:"scenario"`
 	Request     json.RawMessage   `json:"request"`
@@ -55,7 +54,7 @@ type anonymousScenario struct {
 	HiddenIdentity   string `json:"hiddenIdentity"`
 	DefaultOwner     string `json:"defaultOwnerPkHash"`
 	AllowDummyInputs bool   `json:"allowDummyInputs"`
-	// Signers is the public signer vector in order, a zero entry as an empty key.
+	// Signers is the full public signer vector in order, a zero entry as an empty key.
 	Signers      []scenarioParty  `json:"signers"`
 	TreeSlots    []scenarioTree   `json:"treeSlots"`
 	OutputTreeID uint16           `json:"outputTreeId"`
@@ -226,7 +225,6 @@ type publicSpec struct {
 
 type vectorSpec struct {
 	name        string
-	cases       []int
 	description string
 	signers     []*vectorParty
 	allowDummy  bool
@@ -246,74 +244,74 @@ func anonymousVectorSpecs() []vectorSpec {
 	ring, dflt := true, false
 	return []vectorSpec{
 		{
-			name: "hidden_ring_note", cases: []int{1, 8, 22, 32, 38, 101},
+			name:        "hidden_ring_note",
 			description: "One hidden ring note pays a ring recipient and keeps ring change.",
 			inputs:      []slotSpec{hiddenNote(ring, 100)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "hidden_two_notes", cases: []int{9},
+			name:        "hidden_two_notes",
 			description: "Two hidden ring notes of the same owner.",
 			inputs:      []slotSpec{hiddenNote(ring, 100), hiddenNote(ring, 50)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 120), payTo(hiddenParty, ownerHidden, ring, 30)},
 		},
 		{
-			name: "hidden_then_signer", cases: []int{10, 11, 20},
+			name:        "hidden_then_signer",
 			description: "A hidden ring note in slot 0 beside a public signer's ring note in slot 1.",
 			signers:     signerList(&signerA),
 			inputs:      []slotSpec{hiddenNote(ring, 100), signerNote(signerA, ring, 50)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 120), payTo(signerA, ownerSigner, ring, 30)},
 		},
 		{
-			name: "signer_then_hidden", cases: []int{10},
+			name:        "signer_then_hidden",
 			description: "A public signer's ring note in slot 0 beside a hidden ring note in slot 1.",
 			signers:     signerList(&signerA),
 			inputs:      []slotSpec{signerNote(signerA, ring, 50), hiddenNote(ring, 100)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 120), payTo(hiddenParty, ownerHidden, ring, 30)},
 		},
 		{
-			name: "signer_at_last_index", cases: []int{11, 14},
+			name:        "signer_at_last_index",
 			description: "The only public signer sits at the last signer index after zero entries.",
 			signers:     signerList(nil, nil, &signerA),
 			inputs:      []slotSpec{hiddenNote(ring, 100), signerNote(signerA, ring, 50)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 150), payTo(hiddenParty, ownerHidden, ring, 0)},
 		},
 		{
-			name: "two_signers", cases: []int{12},
+			name:        "two_signers",
 			description: "A hidden note beside two public signers' notes.",
 			signers:     signerList(&signerA, &signerB),
 			inputs:      []slotSpec{hiddenNote(ring, 100), signerNote(signerA, ring, 50), signerNote(signerB, ring, 25)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 150), payTo(signerB, ownerSigner, ring, 25)},
 		},
 		{
-			name: "unused_signer", cases: []int{13},
+			name:        "unused_signer",
 			description: "The signer vector names a signer who owns no input.",
 			signers:     signerList(&signerC),
 			inputs:      []slotSpec{hiddenNote(ring, 100), hiddenNote(ring, 20)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 100), payTo(hiddenParty, ownerHidden, ring, 20)},
 		},
 		{
-			name: "no_signers", cases: []int{15},
+			name:        "no_signers",
 			description: "Every content input is hidden and the signer vector is all zero.",
 			inputs:      []slotSpec{hiddenNote(ring, 70), hiddenNote(ring, 30)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 100), payTo(hiddenParty, ownerHidden, ring, 0)},
 		},
 		{
-			name: "hidden_note_then_hidden_address", cases: []int{17, 25, 53, 57, 94},
+			name:        "hidden_note_then_hidden_address",
 			description: "A hidden ring note followed by a hidden address slot.",
 			allowDummy:  true,
 			inputs:      []slotSpec{hiddenNote(ring, 100), hiddenAddress()},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "hidden_address_then_hidden_note", cases: []int{55, 56},
+			name:        "hidden_address_then_hidden_note",
 			description: "A hidden address in slot 0 followed by a hidden ring note.",
 			allowDummy:  true,
 			inputs:      []slotSpec{hiddenAddress(), hiddenNote(ring, 100)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "hidden_address_only_with_deposit", cases: []int{23, 56, 93},
+			name:        "hidden_address_only_with_deposit",
 			description: "A hidden address is the only input; a public deposit funds a ring output.",
 			allowDummy:  true,
 			inputs:      []slotSpec{hiddenAddress()},
@@ -321,7 +319,7 @@ func anonymousVectorSpecs() []vectorSpec {
 			public:      []publicSpec{{mint: vectorMint, amount: 40}},
 		},
 		{
-			name: "signer_address_beside_hidden_note", cases: []int{18},
+			name:        "signer_address_beside_hidden_note",
 			description: "A public signer's address beside a hidden ring note.",
 			allowDummy:  true,
 			signers:     signerList(&signerA),
@@ -329,53 +327,53 @@ func anonymousVectorSpecs() []vectorSpec {
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "non_compact_dummy_input", cases: []int{19, 52},
+			name:        "non_compact_dummy_input",
 			description: "A hidden note and a dummy input that publishes its nullifier.",
 			allowDummy:  true,
 			inputs:      []slotSpec{hiddenNote(ring, 100), dummySlot()},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "compact_input_padding", cases: []int{51},
+			name:        "compact_input_padding",
 			description: "One hidden note followed by two compact input slots.",
 			inputs:      []slotSpec{hiddenNote(ring, 100), compactSlot(), compactSlot()},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "dummy_flag_without_dummies", cases: []int{54},
+			name:        "dummy_flag_without_dummies",
 			description: "The dummy-input flag is set while every input is a real note.",
 			allowDummy:  true,
 			inputs:      []slotSpec{hiddenNote(ring, 70), hiddenNote(ring, 30)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "default_hidden_deposit_into_ring", cases: []int{21, 28, 33},
+			name:        "default_hidden_deposit_into_ring",
 			description: "Two default-ring hidden notes move into the ring; the owner is published.",
 			inputs:      []slotSpec{hiddenNote(dflt, 70), hiddenNote(dflt, 30)},
 			outputs:     []slotSpec{payTo(hiddenParty, ownerHidden, ring, 100), payTo(recipientA, ownerRecipient, ring, 0)},
 		},
 		{
-			name: "default_hidden_stays_default", cases: []int{30},
+			name:        "default_hidden_stays_default",
 			description: "Every note is default-ring under a non-zero ring program id.",
 			inputs:      []slotSpec{hiddenNote(dflt, 70), hiddenNote(dflt, 30)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, dflt, 60), payTo(hiddenParty, ownerHidden, dflt, 40)},
 		},
 		{
-			name: "ring_hidden_beside_signer_default", cases: []int{26},
+			name:        "ring_hidden_beside_signer_default",
 			description: "A hidden ring note beside a public signer's default-ring note; no owner is published.",
 			signers:     signerList(&signerA),
 			inputs:      []slotSpec{hiddenNote(ring, 100), signerNote(signerA, dflt, 50)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 120), payTo(signerA, ownerSigner, ring, 30)},
 		},
 		{
-			name: "default_hidden_beside_signer_ring", cases: []int{27},
+			name:        "default_hidden_beside_signer_ring",
 			description: "A default-ring hidden note beside a public signer's ring note; the owner is published.",
 			signers:     signerList(&signerA),
 			inputs:      []slotSpec{hiddenNote(dflt, 100), signerNote(signerA, ring, 50)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 120), payTo(signerA, ownerSigner, ring, 30)},
 		},
 		{
-			name: "ring_data_hash", cases: []int{31},
+			name:        "ring_data_hash",
 			description: "Ring notes carry a non-zero ring data hash on both sides.",
 			inputs:      []slotSpec{hiddenNote(ring, 100).withData(0, 0x77)},
 			outputs: []slotSpec{
@@ -384,13 +382,13 @@ func anonymousVectorSpecs() []vectorSpec {
 			},
 		},
 		{
-			name: "exit_to_default_recipient", cases: []int{29, 34},
+			name:        "exit_to_default_recipient",
 			description: "A hidden ring note pays a default-ring recipient and keeps ring change.",
 			inputs:      []slotSpec{hiddenNote(ring, 100)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, dflt, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "deposit_and_exit_mixed", cases: []int{35},
+			name:        "deposit_and_exit_mixed",
 			description: "Ring and default notes from one hidden owner pay ring and default outputs.",
 			inputs:      []slotSpec{hiddenNote(ring, 100), hiddenNote(ring, 40), hiddenNote(ring, 10), hiddenNote(ring, 5)},
 			outputs: []slotSpec{
@@ -401,26 +399,26 @@ func anonymousVectorSpecs() []vectorSpec {
 			},
 		},
 		{
-			name: "signer_owned_data_output", cases: []int{39},
+			name:        "signer_owned_data_output",
 			description: "An output with a data hash is owned by a public signer.",
 			signers:     signerList(&signerA),
 			inputs:      []slotSpec{hiddenNote(ring, 100), signerNote(signerA, ring, 50)},
 			outputs:     []slotSpec{payTo(signerA, ownerSigner, ring, 120).withData(0x55, 0x56), payTo(hiddenParty, ownerHidden, ring, 30)},
 		},
 		{
-			name: "hidden_owned_ring_data_output", cases: []int{40},
+			name:        "hidden_owned_ring_data_output",
 			description: "A ring output with a data hash is owned by the hidden owner.",
 			inputs:      []slotSpec{hiddenNote(ring, 100)},
 			outputs:     []slotSpec{payTo(hiddenParty, ownerHidden, ring, 100).withData(0x55, 0x56), payTo(recipientA, ownerRecipient, ring, 0)},
 		},
 		{
-			name: "hidden_owned_default_data_output", cases: []int{41},
+			name:        "hidden_owned_default_data_output",
 			description: "A default-ring output with a data hash is owned by the published hidden owner.",
 			inputs:      []slotSpec{hiddenNote(dflt, 100)},
 			outputs:     []slotSpec{payTo(hiddenParty, ownerHidden, dflt, 100).withData(0x55, 0), payTo(recipientA, ownerRecipient, ring, 0)},
 		},
 		{
-			name: "recipient_outputs_without_data", cases: []int{42, 77},
+			name:        "recipient_outputs_without_data",
 			description: "Every output pays a recipient who is not a signer.",
 			inputs:      []slotSpec{hiddenNote(ring, 100)},
 			outputs: []slotSpec{
@@ -431,7 +429,7 @@ func anonymousVectorSpecs() []vectorSpec {
 			},
 		},
 		{
-			name: "dummy_output_tags", cases: []int{44, 45, 47, 49},
+			name:        "dummy_output_tags",
 			description: "Dummy outputs publish tag 0, a signer, and a real default-ring output's owner.",
 			signers:     signerList(&signerA),
 			inputs:      []slotSpec{hiddenNote(ring, 100), signerNote(signerA, ring, 50)},
@@ -443,13 +441,13 @@ func anonymousVectorSpecs() []vectorSpec {
 			},
 		},
 		{
-			name: "dummy_output_tag_default_owner", cases: []int{46},
+			name:        "dummy_output_tag_default_owner",
 			description: "A dummy output names the published default owner.",
 			inputs:      []slotSpec{hiddenNote(dflt, 100)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 100), dummyOutput(tagDefaultOwner)},
 		},
 		{
-			name: "compact_outputs", cases: []int{48, 79},
+			name:        "compact_outputs",
 			description: "Two real outputs followed by two compact output slots.",
 			inputs:      []slotSpec{hiddenNote(ring, 100)},
 			outputs: []slotSpec{
@@ -460,7 +458,7 @@ func anonymousVectorSpecs() []vectorSpec {
 			},
 		},
 		{
-			name: "trailing_dummy_outputs", cases: []int{78, 82},
+			name:        "trailing_dummy_outputs",
 			description: "One real output followed by three non-compact dummies.",
 			inputs:      []slotSpec{hiddenNote(ring, 100)},
 			outputs: []slotSpec{
@@ -469,13 +467,13 @@ func anonymousVectorSpecs() []vectorSpec {
 			},
 		},
 		{
-			name: "zero_amount_output", cases: []int{81},
+			name:        "zero_amount_output",
 			description: "A real ring output carries amount 0.",
 			inputs:      []slotSpec{hiddenNote(ring, 100)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 0), payTo(hiddenParty, ownerHidden, ring, 100)},
 		},
 		{
-			name: "inputs_across_tree_slots", cases: []int{59, 63},
+			name:        "inputs_across_tree_slots",
 			description: "Five hidden notes each spent from its own tree slot.",
 			treeIDs:     []uint16{7, 17, 19, 23, 29},
 			inputs: []slotSpec{
@@ -485,14 +483,14 @@ func anonymousVectorSpecs() []vectorSpec {
 			outputs: []slotSpec{payTo(recipientA, ownerRecipient, ring, 100), payTo(hiddenParty, ownerHidden, ring, 50)},
 		},
 		{
-			name: "same_note_in_two_trees", cases: []int{60},
+			name:        "same_note_in_two_trees",
 			description: "Notes with the same contents spent from two trees.",
 			treeIDs:     []uint16{7, 17},
 			inputs:      []slotSpec{hiddenNote(ring, 50), hiddenNote(ring, 50).withTree(1)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "tree_id_boundaries", cases: []int{61, 62},
+			name:         "tree_id_boundaries",
 			description:  "Inputs from trees 0 and 0xffff; outputs appended to tree 0xffff.",
 			treeIDs:      []uint16{0, 0xffff},
 			outputTreeID: 0xffff,
@@ -500,7 +498,7 @@ func anonymousVectorSpecs() []vectorSpec {
 			outputs:      []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "cached_input_beside_state_input", cases: []int{69, 71, 72, 73},
+			name:        "cached_input_beside_state_input",
 			description: "One input proves existence through the cache and one through the state tree.",
 			treeIDs:     []uint16{7},
 			cacheTreeID: 7,
@@ -508,7 +506,7 @@ func anonymousVectorSpecs() []vectorSpec {
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "cached_input_without_state_root", cases: []int{70, 74, 75},
+			name:        "cached_input_without_state_root",
 			description: "A default-ring hidden note read from the cache of a tree slot with no state root.",
 			treeIDs:     []uint16{0xffff},
 			noStateRoot: []int{0},
@@ -517,21 +515,21 @@ func anonymousVectorSpecs() []vectorSpec {
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 40)},
 		},
 		{
-			name: "public_deposit", cases: []int{84},
+			name:        "public_deposit",
 			description: "A public deposit tops up a hidden ring spend.",
 			inputs:      []slotSpec{hiddenNote(ring, 100)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 120), payTo(hiddenParty, ownerHidden, ring, 30)},
 			public:      []publicSpec{{mint: vectorMint, amount: 50}},
 		},
 		{
-			name: "public_withdrawal", cases: []int{85},
+			name:        "public_withdrawal",
 			description: "A hidden ring spend withdraws part of its value publicly.",
 			inputs:      []slotSpec{hiddenNote(ring, 70), hiddenNote(ring, 30)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 50), payTo(hiddenParty, ownerHidden, ring, 10)},
 			public:      []publicSpec{{mint: vectorMint, amount: 40, withdraw: true}},
 		},
 		{
-			name: "three_public_slots", cases: []int{86, 90},
+			name:        "three_public_slots",
 			description: "Three distinct public assets, deposits and a withdrawal in one transaction.",
 			inputs:      []slotSpec{hiddenNote(ring, 100), hiddenNote(ring, 80).withMint(vectorMintB)},
 			outputs: []slotSpec{
@@ -547,34 +545,34 @@ func anonymousVectorSpecs() []vectorSpec {
 			},
 		},
 		{
-			name: "public_slot_two_active", cases: []int{87, 91},
+			name:        "public_slot_two_active",
 			description: "Only the last public slot is active.",
 			inputs:      []slotSpec{hiddenNote(ring, 100)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, 60), payTo(hiddenParty, ownerHidden, ring, 30)},
 			public:      []publicSpec{{}, {}, {mint: vectorMint, amount: 10, withdraw: true}},
 		},
 		{
-			name: "max_public_deposit", cases: []int{88},
+			name:        "max_public_deposit",
 			description: "A public deposit of 2^64-1 funds one ring output.",
 			inputs:      []slotSpec{hiddenNote(ring, 0)},
 			outputs:     []slotSpec{payTo(hiddenParty, ownerHidden, ring, maxAmount), payTo(recipientA, ownerRecipient, ring, 0)},
 			public:      []publicSpec{{mint: vectorMint, amount: maxAmount}},
 		},
 		{
-			name: "max_public_withdrawal", cases: []int{88},
+			name:        "max_public_withdrawal",
 			description: "A hidden note of 2^64-1 is withdrawn publicly in full.",
 			inputs:      []slotSpec{hiddenNote(ring, maxAmount)},
 			outputs:     []slotSpec{payTo(hiddenParty, ownerHidden, ring, 0), dummyOutput(tagZero)},
 			public:      []publicSpec{{mint: vectorMint, amount: maxAmount, withdraw: true}},
 		},
 		{
-			name: "input_sum_past_u64", cases: []int{89},
+			name:        "input_sum_past_u64",
 			description: "Two notes of 2^64-1 each split across two outputs.",
 			inputs:      []slotSpec{hiddenNote(ring, maxAmount), hiddenNote(ring, maxAmount)},
 			outputs:     []slotSpec{payTo(recipientA, ownerRecipient, ring, maxAmount), payTo(hiddenParty, ownerHidden, ring, maxAmount)},
 		},
 		{
-			name: "multi_asset_private", cases: []int{90},
+			name:        "multi_asset_private",
 			description: "Three assets balance independently with no public movement.",
 			inputs: []slotSpec{
 				hiddenNote(ring, 100), hiddenNote(ring, 50).withMint(vectorMintB), hiddenNote(ring, 7).withMint(vectorSolMint),
@@ -587,7 +585,7 @@ func anonymousVectorSpecs() []vectorSpec {
 			},
 		},
 		{
-			name: "eight_inputs_eight_outputs", cases: []int{99, 102},
+			name:        "eight_inputs_eight_outputs",
 			description: "Eight hidden notes pay eight ring outputs.",
 			inputs: []slotSpec{
 				hiddenNote(ring, 10), hiddenNote(ring, 11), hiddenNote(ring, 12), hiddenNote(ring, 13),
@@ -601,7 +599,7 @@ func anonymousVectorSpecs() []vectorSpec {
 			},
 		},
 		{
-			name: "one_input_sixteen_outputs", cases: []int{99, 102},
+			name:        "one_input_sixteen_outputs",
 			description: "One hidden note pays sixteen ring outputs of one asset.",
 			inputs:      []slotSpec{hiddenNote(ring, 160)},
 			outputs:     sixteenOutputs(),
@@ -724,7 +722,8 @@ func buildAnonymousVector(t testing.TB, spec vectorSpec) anonymousVector {
 		if s.kind == slotCompact {
 			in.published = big.NewInt(0)
 		}
-		if s.kind == slotUtxo {
+		// A cached note stays out of the state tree, so only the cache proves it exists.
+		if s.kind == slotUtxo && !s.cached {
 			stateEntries[uint64(17+i)] = in.hash
 		}
 		inputs[i] = in
@@ -798,13 +797,12 @@ func buildAnonymousVector(t testing.TB, spec vectorSpec) anonymousVector {
 
 	// Signer vector and the published default owner.
 	signers := zeroFields(shape.SignerWidth())
-	scenarioSigners := make([]scenarioParty, len(spec.signers))
-	for k, p := range spec.signers {
-		if p != nil {
-			signers[k] = p.identity(t)
-			scenarioSigners[k] = scenarioParty{Key: keyHex(p.key), Identity: feHex(signers[k])}
-		} else {
-			scenarioSigners[k] = scenarioParty{Identity: feHex(big.NewInt(0))}
+	scenarioSigners := make([]scenarioParty, len(signers))
+	for k := range scenarioSigners {
+		scenarioSigners[k] = scenarioParty{Identity: feHex(big.NewInt(0))}
+		if k < len(spec.signers) && spec.signers[k] != nil {
+			signers[k] = spec.signers[k].identity(t)
+			scenarioSigners[k] = scenarioParty{Key: keyHex(spec.signers[k].key), Identity: feHex(signers[k])}
 		}
 	}
 	hiddenIdentity := hiddenParty.identity(t)
@@ -975,7 +973,7 @@ func buildAnonymousVector(t testing.TB, spec vectorSpec) anonymousVector {
 		trees[k] = scenarioTree{ID: id, HasStateRoot: treeSlots[k].UtxoRoot.Sign() != 0}
 	}
 	return anonymousVector{
-		Name: spec.name, Cases: spec.cases, Description: spec.description, Request: request,
+		Name: spec.name, Description: spec.description, Request: request,
 		Scenario: anonymousScenario{
 			NInputs: nIn, NOutputs: nOut, RingProgramID: feHex(vectorRing),
 			HiddenOwnerKey: keyHex(hiddenParty.key), HiddenIdentity: feHex(hiddenIdentity),
@@ -1058,7 +1056,7 @@ func anonymousVectorsPath(t testing.TB) string {
 func TestAnonymousEddsaAcceptingVectors(t *testing.T) {
 	file := anonymousVectorFile{
 		Description: "Transactions the transfer-eddsa-ring (CustomRingAnonymousEddsa) circuit accepts, one functional path each. " +
-			"cases name the entries of the anonymous circuit's accepting test list. scenario describes every slot in the terms a composing circuit opens; " +
+			"scenario describes every slot in the terms a composing circuit opens; " +
 			"request is the exact prover request. Produced by TestAnonymousEddsaAcceptingVectors in " +
 			"prover/server/circuits/spp_transaction/shared/anonymous_eddsa_vectors_test.go: " +
 			"UPDATE_ANONYMOUS_EDDSA_VECTORS=1 go test ./circuits/spp_transaction/shared -run TestAnonymousEddsaAcceptingVectors",
@@ -1100,6 +1098,9 @@ func TestAnonymousEddsaAcceptingVectors(t *testing.T) {
 	data := encodeAnonymousVectorFile(t, file)
 	path := anonymousVectorsPath(t)
 	if os.Getenv("UPDATE_ANONYMOUS_EDDSA_VECTORS") != "" {
+		if t.Failed() {
+			t.Fatal("a vector failed, the file keeps its committed contents")
+		}
 		if err := os.WriteFile(path, data, 0o644); err != nil {
 			t.Fatal(err)
 		}
