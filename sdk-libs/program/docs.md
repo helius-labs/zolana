@@ -581,7 +581,7 @@ await sendAndConfirm([instruction]);
 
 ### Rust
 
-The Rust example uses the same fetched UTXO and loaded key bytes. `IncrementInstruction` and `send_and_confirm` are application helpers, matching the TypeScript helpers. The finalized transaction is already typed, so Rust can encrypt its outputs directly. Proof generation accepts a slice of `ShieldedKeypairTrait` implementations and matches inputs by signing identity, independently of keypair order. `ShieldedPda` needs the experimental `shielded-pda` feature of `spr-program`.
+The Rust example uses the same fetched UTXO and loaded key bytes. `IncrementInstruction` and `send_and_confirm` are application helpers, matching the TypeScript helpers. The finalized transaction is already typed, so Rust can encrypt its outputs directly. Proof generation accepts a slice of `ShieldedKeypairTrait` implementations and matches inputs by signing identity, independently of keypair order.
 
 ```rust
 let counter = spr_program::DataUtxo::<Counter>::try_from(counter_wallet_utxo)?;
