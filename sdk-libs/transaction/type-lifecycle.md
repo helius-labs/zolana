@@ -8,7 +8,7 @@
 | | `AssetRegistry`, `Mint` | `spr-transaction` | Resolve a decrypted asset ID into its mint address and compact ID. |
 | | `Utxo` | `spr-transaction` | The decoded note: owner, mint, amount, blinding, ring and data. Its commitment is recomputed and verified. |
 | | `WalletUtxo` | `spr-transaction` | A decoded note with commitment, nullifier, data hashes and indexed context; verification is a separate step. |
-| | `DecryptionResult`, `SpendableDecryptionResult` | `spr-transaction` | `decrypt()` returns all decoded candidates. After application-specific hash reconstruction, `verify_spendable()` checks ownership, commitments and observed spends, returning ordinary balances and verified data-bearing notes separately. `decrypt_spendable()` wraps both calls. |
+| | `DecryptionResult`, `SpendableDecryptionResult` | `spr-transaction` | `decrypt()` returns all decoded candidates. After application-specific hash reconstruction, `verify_spendable()` checks ownership, commitments and observed spends, returning the default-ring balances, data-carrying notes included, and verified ring-bound notes separately. `decrypt_spendable()` wraps both calls. |
 | | `AssetBalance`, `Balances` | `spr-transaction` | Group spendable notes and amounts by asset in the stateless decryption result. |
 | **3. Select input UTXOs** | `WalletUtxo`, `SpendInputParams`, `SelectedSpendInputs` | `spr-transaction`, `spr-test-utils` (test harness) | Wallet selection consumes a spending request and returns selected proof inputs and their trees. |
 | | `WalletUtxo` | `spr-transaction` | Input accepted by the transaction builder, retaining the note, tree location and transaction-history metadata until padding. |

@@ -57,14 +57,36 @@ struct Indexer {
     page_size: usize,
     /// Answers every page with the token it was given.
     stuck_token: bool,
+    /// Refuses a page asked for with a higher limit, as Photon refuses a
+    /// response above its cap.
+    refuse_above: Option<u32>,
+    /// Each request's limit.
+    limits: RefCell<Vec<u32>>,
 }
 
 impl Indexer {
-    fn read(&self, method: &'static str, config: Option<IndexerRpcConfig>) {
+    fn read(
+        &self,
+        method: &'static str,
+        limit: Option<u32>,
+        config: Option<IndexerRpcConfig>,
+    ) -> Result<(), ClientError> {
         self.reads.borrow_mut().push(method);
         self.required_slots
             .borrow_mut()
             .push(config.and_then(|config| config.require_slot));
+        let limit = limit.expect("a scan names its page limit");
+        self.limits.borrow_mut().push(limit);
+        if self.refuse_above.is_some_and(|max| limit > max) {
+            return Err(spr_client::indexer::indexer_error(
+                spr_api::ApiError::JsonRpc {
+                    method,
+                    code: Some(-32008),
+                    message: Some("Response is too big".into()),
+                },
+            ));
+        }
+        Ok(())
     }
 
     fn reads_of(&self, method: &str) -> usize {
@@ -163,11 +185,11 @@ impl Rpc for Indexer {
         &self,
         tags: Vec<[u8; 32]>,
         token: Option<PaginationToken>,
-        _limit: Option<u32>,
+        limit: Option<u32>,
         _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.read("get_shielded_transactions_by_tags", config);
+        self.read("get_shielded_transactions_by_tags", limit, config)?;
         self.queried_tags.borrow_mut().push(tags.clone());
         let matching = self
             .tagged
@@ -199,11 +221,11 @@ impl Rpc for Indexer {
         &self,
         tags: Vec<[u8; 32]>,
         token: Option<PaginationToken>,
-        _limit: Option<u32>,
+        limit: Option<u32>,
         _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.read("get_encrypted_utxos_by_tags", config);
+        self.read("get_encrypted_utxos_by_tags", limit, config)?;
         let matching = self
             .deposits
             .iter()
@@ -230,11 +252,11 @@ impl Rpc for Indexer {
         &self,
         nullifiers: Vec<[u8; 32]>,
         token: Option<PaginationToken>,
-        _limit: Option<u32>,
+        limit: Option<u32>,
         _filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-        self.read("get_shielded_transactions_by_nullifiers", config);
+        self.read("get_shielded_transactions_by_nullifiers", limit, config)?;
         if token.is_none() {
             self.queried_nullifiers
                 .borrow_mut()
@@ -562,6 +584,67 @@ fn a_token_that_does_not_advance_fails_instead_of_paging_forever() {
         UtxoScan::new(&owner, &assets).fetch(&indexer),
         Err(ClientError::IndexerCursorNotAdvanced)
     ));
+}
+
+/// A page Photon refuses as too large (`-32008`) is asked for again at half
+/// the limit, and the rest of the fetch keeps the smaller limit.
+#[test]
+fn a_page_too_large_is_read_again_at_half_the_limit() {
+    let owner = keypair(7);
+    let owner_tag = owner
+        .shielded_address()
+        .unwrap()
+        .signing_pubkey
+        .confidential_view_tag()
+        .unwrap();
+    let (first_deposit, first) = deposit(&owner, 30, 1);
+    let (second_deposit, _) = deposit(&owner, 12, 2);
+    let (tagged_merge, _) = merge(&owner, &[&first], owner_tag, 3);
+    let indexer = || Indexer {
+        tagged: vec![tagged_merge.clone()],
+        deposits: vec![first_deposit.clone(), second_deposit.clone()],
+        spends: vec![tagged_merge.clone()],
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let expected = UtxoScan::new(&owner, &assets)
+        .fetch(&indexer())
+        .unwrap()
+        .spendable;
+
+    let dense = Indexer {
+        refuse_above: Some(250),
+        ..indexer()
+    };
+    let spendable = UtxoScan::new(&owner, &assets)
+        .fetch(&dense)
+        .unwrap()
+        .spendable;
+    assert_eq!(spendable, expected);
+    let limits = dense.limits.take();
+    assert_eq!(limits[..3], [1_000, 500, 250]);
+    assert!(limits[3..].iter().all(|limit| *limit == 250), "{limits:?}");
+}
+
+#[test]
+fn a_page_too_large_at_one_item_fails_the_fetch() {
+    let owner = keypair(7);
+    let (first_deposit, _) = deposit(&owner, 30, 1);
+    let indexer = Indexer {
+        deposits: vec![first_deposit],
+        refuse_above: Some(0),
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+
+    assert!(matches!(
+        UtxoScan::new(&owner, &assets).fetch(&indexer),
+        Err(ClientError::IndexerResponseTooLarge(_))
+    ));
+    assert_eq!(
+        indexer.limits.take(),
+        [1_000, 500, 250, 125, 62, 31, 15, 7, 3, 1]
+    );
 }
 
 #[test]

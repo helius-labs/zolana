@@ -55,7 +55,9 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let client = client(rpc, &network)?;
     let recipient = parse_pubkey(&opts.to)?;
 
-    let inputs = select_spend(ctx.spendable.utxos(), asset, opts.amount)?;
+    // One private payment, or a withdrawal with none: both fit the same
+    // number of inputs.
+    let inputs = select_spend(ctx.spendable.utxos(), asset, opts.amount, 1)?;
     let mut transaction = ConfidentialTransaction::new(inputs, payer(&ctx))?;
     let (mode, settlement_transfers) = match try_resolve_registered_address(&client, recipient)? {
         Some(registered) => {

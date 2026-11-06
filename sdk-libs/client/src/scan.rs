@@ -18,7 +18,9 @@
 //! spends; [`UtxoScan::with_indexer_config`] makes every read wait for a
 //! slot first. Every spendable UTXO carries the output tree the indexer
 //! named on the last page read, as its
-//! [`latest_tree_id`](spr_transaction::WalletUtxo::latest_tree_id).
+//! [`latest_tree_id`](spr_transaction::WalletUtxo::latest_tree_id). A page
+//! the indexer refuses as too large is asked for again at half the limit,
+//! down to one item, and the rest of the fetch keeps the smaller limit.
 
 use std::collections::HashSet;
 
@@ -38,11 +40,13 @@ use spr_transaction::{
 use crate::{
     error::ClientError,
     rpc::{
-        EncryptedUtxoMatch, HistoryFilters, IndexerRpcConfig, ProgramAccountsFilter, Rpc,
-        ShieldedTransaction,
+        EncryptedUtxoMatch, HistoryFilters, IndexerRpcConfig, Page, PaginationToken,
+        ProgramAccountsFilter, Rpc, ShieldedTransaction,
     },
 };
 
+/// The page limit a fetch starts at, and the most nullifiers one request
+/// carries.
 const PAGE_LIMIT: u32 = 1_000;
 
 /// What [`UtxoScan::fetch`] read. Outputs in unresolved assets are omitted
@@ -139,12 +143,11 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
         let mut tags = vec![address.signing_pubkey.confidential_view_tag()?];
         tags.extend(self.keys.viewing_public_keys().iter().map(X25519Pubkey::u));
 
-        // The output tree the last page read named; every page reports it.
-        let mut output_tree_id = None;
+        let mut pages = Pages::default();
         let mut seen = HashSet::new();
         let mut batch = self.unseen(
             &mut seen,
-            tagged_transactions(indexer, &tags, self.indexer_config, &mut output_tree_id)?,
+            tagged_transactions(indexer, &tags, self.indexer_config, &mut pages)?,
         );
         let mut transactions = Vec::new();
         let mut decrypted = DecryptionResult::default();
@@ -181,12 +184,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                 .collect();
             batch = self.unseen(
                 &mut seen,
-                spending_transactions(
-                    indexer,
-                    &nullifiers,
-                    self.indexer_config,
-                    &mut output_tree_id,
-                )?,
+                spending_transactions(indexer, &nullifiers, self.indexer_config, &mut pages)?,
             );
             if batch.is_empty() {
                 return Ok(Fetched {
@@ -195,7 +193,7 @@ impl<'a, K: ShieldedKeys + ?Sized> UtxoScan<'a, K> {
                     transactions,
                     owned,
                     spendable: spendable
-                        .with_latest_tree_id(output_tree_id)
+                        .with_latest_tree_id(pages.output_tree_id)
                         .with_transaction_keys(self.keys)?,
                 });
             }
@@ -299,97 +297,122 @@ struct Fetched {
     spendable: SpendableDecryptionResult,
 }
 
+/// The paging state of one fetch.
+struct Pages {
+    /// The output tree the last page read named; every page reports it.
+    output_tree_id: Option<u16>,
+    /// The limit every read asks for: [`PAGE_LIMIT`], halved each time the
+    /// indexer refuses a page as too large.
+    limit: u32,
+}
+
+impl Default for Pages {
+    fn default() -> Self {
+        Self {
+            output_tree_id: None,
+            limit: PAGE_LIMIT,
+        }
+    }
+}
+
+impl Pages {
+    /// The items of every page `read_page` returns, from the first page until
+    /// one names no next page. A page refused with
+    /// [`ClientError::IndexerResponseTooLarge`] is asked for again at half the
+    /// limit, down to one item; a page whose cursor does not advance fails
+    /// the read.
+    fn read_all<T>(
+        &mut self,
+        mut read_page: impl FnMut(Option<PaginationToken>, u32) -> Result<Page<T>, ClientError>,
+    ) -> Result<Vec<T>, ClientError> {
+        let mut items = Vec::new();
+        let mut token = None;
+        loop {
+            let page = match read_page(token, self.limit) {
+                Ok(page) => page,
+                Err(ClientError::IndexerResponseTooLarge(_)) if self.limit > 1 => {
+                    self.limit /= 2;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let next = page
+                .continuation(token)
+                .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
+            self.output_tree_id = page.output_tree_id;
+            items.extend(page.data);
+            match next {
+                Some(next) => token = Some(next),
+                None => return Ok(items),
+            }
+        }
+    }
+}
+
 /// The transactions tagged with any of `tags`. Deposits come from the
 /// encrypted-output stream, one transaction per output: a deposit transaction
-/// can shield several outputs. Each page read sets `output_tree_id` to the
-/// output tree it names.
+/// can shield several outputs.
 fn tagged_transactions<I: Rpc + ?Sized>(
     indexer: &I,
     tags: &[[u8; 32]],
     config: Option<IndexerRpcConfig>,
-    output_tree_id: &mut Option<u16>,
+    pages: &mut Pages,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
-    let mut transactions = Vec::new();
-    let mut token = None;
-    loop {
-        let page = indexer.get_shielded_transactions_by_tags(
-            tags.to_vec(),
-            token,
-            Some(PAGE_LIMIT),
-            HistoryFilters::default(),
-            config,
-        )?;
-        let next = page
-            .continuation(token)
-            .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
-        *output_tree_id = page.output_tree_id;
-        transactions.extend(
-            page.data
-                .into_iter()
-                .flat_map(|item| item.events)
-                .filter(|tx| !tx.proofless),
-        );
-        match next {
-            Some(next) => token = Some(next),
-            None => break,
-        }
-    }
-    let mut token = None;
-    loop {
-        let page = indexer.get_encrypted_utxos_by_tags(
-            tags.to_vec(),
-            token,
-            Some(PAGE_LIMIT),
-            HistoryFilters::default(),
-            config,
-        )?;
-        let next = page
-            .continuation(token)
-            .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
-        *output_tree_id = page.output_tree_id;
-        transactions.extend(
-            page.data
-                .into_iter()
-                .flat_map(|item| item.outputs)
-                .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
-        );
-        match next {
-            Some(next) => token = Some(next),
-            None => break,
-        }
-    }
+    let mut transactions: Vec<_> = pages
+        .read_all(|token, limit| {
+            indexer.get_shielded_transactions_by_tags(
+                tags.to_vec(),
+                token,
+                Some(limit),
+                HistoryFilters::default(),
+                config,
+            )
+        })?
+        .into_iter()
+        .flat_map(|item| item.events)
+        .filter(|tx| !tx.proofless)
+        .collect();
+    transactions.extend(
+        pages
+            .read_all(|token, limit| {
+                indexer.get_encrypted_utxos_by_tags(
+                    tags.to_vec(),
+                    token,
+                    Some(limit),
+                    HistoryFilters::default(),
+                    config,
+                )
+            })?
+            .into_iter()
+            .flat_map(|item| item.outputs)
+            .filter_map(EncryptedUtxoMatch::into_proofless_transaction),
+    );
     Ok(transactions)
 }
 
-/// The transactions that spent any of `nullifiers`. Each page read sets
-/// `output_tree_id` to the output tree it names.
+/// The transactions that spent any of `nullifiers`.
 fn spending_transactions<I: Rpc + ?Sized>(
     indexer: &I,
     nullifiers: &[[u8; 32]],
     config: Option<IndexerRpcConfig>,
-    output_tree_id: &mut Option<u16>,
+    pages: &mut Pages,
 ) -> Result<Vec<ShieldedTransaction>, ClientError> {
     let mut transactions = Vec::new();
     for chunk in nullifiers.chunks(PAGE_LIMIT as usize) {
-        let mut token = None;
-        loop {
-            let page = indexer.get_shielded_transactions_by_nullifiers(
-                chunk.to_vec(),
-                token,
-                Some(PAGE_LIMIT),
-                HistoryFilters::default(),
-                config,
-            )?;
-            let next = page
-                .continuation(token)
-                .map_err(|_| ClientError::IndexerCursorNotAdvanced)?;
-            *output_tree_id = page.output_tree_id;
-            transactions.extend(page.data.into_iter().flat_map(|item| item.events));
-            match next {
-                Some(next) => token = Some(next),
-                None => break,
-            }
-        }
+        transactions.extend(
+            pages
+                .read_all(|token, limit| {
+                    indexer.get_shielded_transactions_by_nullifiers(
+                        chunk.to_vec(),
+                        token,
+                        Some(limit),
+                        HistoryFilters::default(),
+                        config,
+                    )
+                })?
+                .into_iter()
+                .flat_map(|item| item.events),
+        );
     }
     Ok(transactions)
 }
