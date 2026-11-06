@@ -204,6 +204,18 @@ describe("decodeUserRecordAccount", () => {
       expect.objectContaining({ code: "WALLET_INVALID_USER_RECORD" }),
     );
   });
+
+  it("refuses a record of any other size", () => {
+    const account = recordWith(1);
+    expect(decodeUserRecordAccount(account).owner).toBe(OWNER);
+    for (const length of [99, 101, 134]) {
+      const data = new Uint8Array(length);
+      data.set(account.data.subarray(0, Math.min(length, account.data.length)));
+      expect(() => decodeUserRecordAccount({ ...account, data })).toThrow(
+        expect.objectContaining({ code: "WALLET_INVALID_USER_RECORD" }),
+      );
+    }
+  });
 });
 
 describe("buildRegistrationTransaction", () => {

@@ -36,6 +36,7 @@ fn decodes_tagged_x25519_pubkey() {
             "transaction": {
                 "slot": 1,
                 "txSignature": signature(1).to_string(),
+                "eventIndex": 0,
                 "txViewingPk": STANDARD.encode(key.as_bytes()),
                 "outputSlots": [],
                 "messages": [],
@@ -238,12 +239,13 @@ fn get_shielded_transactions_by_tags_maps_output_hashes_and_nullifiers() {
 fn get_shielded_transactions_by_signature_preserves_event_index() {
     let signature = signature(24);
     let response = rpc_result(json!({
-        "context": { "blockTime": 52, "slot": 1 },
+        "context": { "blockTime": 52, "slot": 50 },
         "transactions": [{
             "eventIndex": 3,
             "transaction": {
                 "slot": 50,
                 "txSignature": signature.to_string(),
+                "eventIndex": 3,
                 "txViewingPk": null,
                 "outputSlots": [],
                 "messages": [],
@@ -623,6 +625,7 @@ fn by_signature_error_path_includes_transaction_nesting() {
             "transaction": {
                 "slot": 1,
                 "txSignature": signature.to_string(),
+                "eventIndex": 0,
                 "salt": STANDARD.encode([1u8; 15]),
                 "outputSlots": [],
                 "messages": [],

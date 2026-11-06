@@ -76,13 +76,11 @@ export {
   decodeUserRecordAccount,
   fetchUserRecord,
   fetchUserRecordChecked,
-  fetchViewingKeyOwners,
   isWalletRegistered,
   recipientConfidentialViewTag,
   resolveRegisteredAddress,
   resolvedAddressFromRecord,
   validateRegisteredKeypair,
-  viewingKeyIndex,
   type ResolvedAddress,
   type UserRecord,
 } from "./registry.js";

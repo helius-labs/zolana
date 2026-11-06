@@ -442,12 +442,11 @@ export function indexedTransaction(value: unknown, path: string): IndexedShielde
   const salt = optional(record["salt"], `${path}.salt`, checkedBase64);
   const ringConfig = optional(record["ringConfig"], `${path}.ringConfig`, checkedAddress);
   const ringProgramId = optional(record["ringProgramId"], `${path}.ringProgramId`, checkedAddress);
+  const eventIndex = optional(record["eventIndex"], `${path}.eventIndex`, u16);
   return {
     slot: u64(record["slot"], `${path}.slot`),
     txSignature: checkedSignature(record["txSignature"], `${path}.txSignature`),
-    ...(record["eventIndex"] === undefined
-      ? {}
-      : { eventIndex: u16(record["eventIndex"], `${path}.eventIndex`) }),
+    ...(eventIndex === undefined ? {} : { eventIndex }),
     ...(txViewingPk === undefined ? {} : { txViewingPk }),
     ...(salt === undefined ? {} : { salt }),
     outputSlots: array(record["outputSlots"], `${path}.outputSlots`, outputSlot),
@@ -653,6 +652,41 @@ export function decodeShieldedTransactionsBySignatureResponse(
     context: context(record["context"], "$.context"),
     transactions: array(record["transactions"], "$.transactions", signatureIndexedTransaction),
   };
+}
+
+/**
+ * Correlates a by-signature answer with its request: every event belongs to
+ * the requested transaction, in its one slot no later than `context.slot`,
+ * and carries its own `eventIndex`, strictly ascending.
+ */
+export function validateShieldedTransactionsBySignatureResponse(
+  response: GetShieldedTransactionsBySignatureResponse,
+  request: GetShieldedTransactionsBySignatureRequest,
+): void {
+  const slot = response.transactions[0]?.transaction.slot;
+  let previous = -1;
+  response.transactions.forEach(({ eventIndex, transaction }, index) => {
+    const path = `$.transactions[${String(index)}]`;
+    if (transaction.txSignature !== request.txSignature)
+      schemaFailure(
+        "INDEXER_SCHEMA_INVALID_TYPE",
+        `${path}.transaction.txSignature`,
+        "the requested signature",
+      );
+    if (transaction.eventIndex !== eventIndex || eventIndex <= previous)
+      schemaFailure(
+        "INDEXER_SCHEMA_INVALID_TYPE",
+        `${path}.eventIndex`,
+        "the event's own index, ascending",
+      );
+    if (transaction.slot !== slot || transaction.slot > response.context.slot)
+      schemaFailure(
+        "INDEXER_SCHEMA_INVALID_TYPE",
+        `${path}.transaction.slot`,
+        "the transaction's slot, no later than the context",
+      );
+    previous = eventIndex;
+  });
 }
 
 function decodeLeavesRequest(value: unknown): GetMerkleProofsRequest {

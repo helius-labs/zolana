@@ -95,7 +95,7 @@ describe("transport configuration", () => {
     const injected = vi.fn<typeof globalThis.fetch>(() =>
       Promise.resolve(
         success({
-          context: { blockTime: 0, slot: 1 },
+          context: { blockTime: 0, slot: 2 },
           transactions: [
             {
               eventIndex: 1,

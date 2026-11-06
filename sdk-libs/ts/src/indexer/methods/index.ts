@@ -12,6 +12,7 @@ import {
   encodeShieldedTransactionsBySignatureRequest,
   decodeUserRecordsResponse,
   encodeUserRecordsRequest,
+  validateShieldedTransactionsBySignatureResponse,
 } from "../codec.js";
 import {
   GET_ENCRYPTED_UTXOS_BY_TAGS,
@@ -82,6 +83,7 @@ export const getShieldedTransactionsBySignatureMethod: MethodDescriptor<
   name: GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE,
   encodeRequest: encodeShieldedTransactionsBySignatureRequest,
   decodeResponse: decodeShieldedTransactionsBySignatureResponse,
+  validateResponse: validateShieldedTransactionsBySignatureResponse,
 };
 
 export const getMerkleProofsMethod: MethodDescriptor<

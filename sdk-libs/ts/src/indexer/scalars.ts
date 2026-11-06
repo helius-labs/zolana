@@ -106,14 +106,12 @@ export function base64Bytes(value: Base64String): Uint8Array {
  * Distinguish the two failures Rust's `ParseHashError` names: a length the
  * encoding cannot carry (`WrongSize`) against input outside the base58
  * alphabet (`Invalid`). Rust reports the over-long string and the wrongly
- * sized decode as the same `WrongSize`, so both map to the same code here.
+ * sized decode, the empty string's included, as the same `WrongSize`, so they
+ * map to the same code here.
  */
 function parseHash(value: string, path: string): Uint8Array {
   if (value.length > 44) {
     return fail("INDEXER_SCHEMA_HASH_WRONG_SIZE", path, "a base58 encoded 32-byte hash", value);
-  }
-  if (value.length === 0) {
-    return fail("INDEXER_SCHEMA_INVALID_HASH", path, "a base58 encoded 32-byte hash", value);
   }
   let bytes: Uint8Array;
   try {

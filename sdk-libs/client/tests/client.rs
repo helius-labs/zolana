@@ -786,10 +786,10 @@ fn confirm_private_transaction_sync_surfaces_the_last_transient_error() {
 fn confirm_private_transaction_sync_accepts_events_sharing_a_view_tag() {
     let signature = Signature::from([18u8; 64]);
     let server = MockIndexerServer::respond_with(vec![rpc_result(json!({
-        "context": { "blockTime": 12, "slot": 1 },
+        "context": { "blockTime": 12, "slot": 11 },
         "transactions": [
-            { "eventIndex": 0, "transaction": indexed_transaction_json(signature) },
-            { "eventIndex": 1, "transaction": indexed_transaction_json(signature) },
+            { "eventIndex": 0, "transaction": indexed_transaction_json(signature, 0) },
+            { "eventIndex": 1, "transaction": indexed_transaction_json(signature, 1) },
         ],
     }))]);
     let client = SprClient::new(
@@ -1035,10 +1035,11 @@ fn nullifier_response(tree: Address, leaf: [u8; 32]) -> Value {
     }))
 }
 
-fn indexed_transaction_json(signature: Signature) -> Value {
+fn indexed_transaction_json(signature: Signature, event_index: u16) -> Value {
     json!({
         "slot": 11,
         "txSignature": signature.to_string(),
+        "eventIndex": event_index,
         "txViewingPk": null,
         "outputSlots": [{
             "viewTag": encode_hash([0u8; 32]),
@@ -1058,10 +1059,10 @@ fn indexed_transaction_json(signature: Signature) -> Value {
 
 fn indexed_transaction_by_signature_response(signature: Signature) -> Value {
     rpc_result(json!({
-        "context": { "blockTime": 11, "slot": 1 },
+        "context": { "blockTime": 11, "slot": 11 },
         "transactions": [{
             "eventIndex": 0,
-            "transaction": indexed_transaction_json(signature),
+            "transaction": indexed_transaction_json(signature, 0),
         }],
     }))
 }

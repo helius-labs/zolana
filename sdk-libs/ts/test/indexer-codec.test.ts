@@ -1,5 +1,5 @@
 import { transactionItems, outputItems } from "./helpers/pages.js";
-import { address } from "@solana/kit";
+import { address, getBase58Decoder } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,6 +11,7 @@ import {
   decodeMerkleProofsResponse,
   decodeUserRecordsResponse,
   encodeUserRecordsRequest,
+  indexedTransaction,
   knownSchemaPath,
 } from "../src/indexer/codec.js";
 import { wireDecoder } from "../src/interface/decode.js";
@@ -19,7 +20,8 @@ import { treeAddress } from "../src/interface/pda/index.js";
 import { hash } from "../src/indexer/scalars.js";
 import { SprApi } from "../src/api/index.js";
 import { SprIndexer } from "../src/client/indexer.js";
-import { X25519Keypair } from "../src/keypair/x25519.js";
+import type { Signature } from "../src/interface/types.js";
+import { X25519Keypair, X25519PublicKey } from "../src/keypair/x25519.js";
 
 // base58 of 32 zero bytes.
 const TAG = hash("11111111111111111111111111111111");
@@ -107,7 +109,9 @@ describe("user records wire", () => {
     expect(lookup.context).toEqual({ slot: 77n, blockTime: 2n });
     expect(lookup.records[0]).toMatchObject({ owner: RING, mergeEncryption: 1 });
     expect(lookup.records[0]?.nullifierPublicKey).toEqual(new Uint8Array(32));
-    expect(lookup.records[0]?.viewingPublicKey.toBytes()[0]).toBe(0x04);
+    expect(lookup.records[0]?.viewingPublicKey).toEqual(
+      new Uint8Array(Buffer.from(X25519, "base64")),
+    );
     expect(lookup.records[1]).toBeNull();
 
     // The second record answers for an owner that was not asked second.
@@ -120,13 +124,29 @@ describe("user records wire", () => {
       code: "CLIENT_INVALID_RPC_RESPONSE",
       details: { path: "$.records" },
     });
-    // A viewing key that is not a point on the curve.
+    // The registry stores any 33 bytes, so a key off the curve is one owner's
+    // own registration: it comes back as registered and the batch still answers.
+    const offCurve = new Uint8Array([4, ...new Uint8Array(32).fill(0xff)]);
+    const mixed = await indexerFor({
+      ...page,
+      records: [
+        record,
+        { ...record, owner: OTHER, viewingPubkey: Buffer.from(offCurve).toString("base64") },
+      ],
+    }).getUserRecords([RING, OTHER]);
+    expect(mixed.records[0]?.viewingPublicKey).toEqual(lookup.records[0]?.viewingPublicKey);
+    expect(mixed.records[1]?.viewingPublicKey).toEqual(offCurve);
+    expect(() => X25519PublicKey.fromBytes(offCurve)).toThrow();
+    // A key of any other length is not a registry record.
     await expect(
       indexerFor({
         ...page,
-        records: [{ ...record, viewingPubkey: Buffer.alloc(33, 9).toString("base64") }, null],
+        records: [{ ...record, viewingPubkey: Buffer.alloc(32, 9).toString("base64") }, null],
       }).getUserRecords([RING, OTHER]),
-    ).rejects.toMatchObject({ code: "CLIENT_INVALID_RPC_RESPONSE" });
+    ).rejects.toMatchObject({
+      code: "CLIENT_INVALID_RPC_RESPONSE",
+      details: { path: "$.records[0].viewingPubkey" },
+    });
 
     // The client boundary refuses an empty, oversized, or malformed owner list
     // before any request is sent, synchronously like every other input check.
@@ -256,6 +276,94 @@ describe("shielded transactions by tags response", () => {
     { paginationToken: "invalid" },
   ])("rejects a page with a missing or inconsistent token: %j", (change) => {
     expect(() => decodeShieldedTransactionsResponse({ ...page, ...change })).toThrow();
+  });
+});
+
+describe("shielded transactions by signature", () => {
+  const base58 = getBase58Decoder();
+  const REQUESTED = base58.decode(new Uint8Array(64).fill(7)) as Signature;
+  const OTHER = base58.decode(new Uint8Array(64).fill(8));
+  const event = (eventIndex: number, change: Record<string, unknown> = {}) => ({
+    eventIndex,
+    transaction: {
+      slot: 5,
+      txSignature: REQUESTED,
+      eventIndex,
+      outputSlots: [],
+      messages: [],
+      nullifiers: [],
+      proofless: false,
+      ...change,
+    },
+  });
+  const read = (transactions: readonly unknown[]) =>
+    new SprApi({
+      url: "https://indexer.example",
+      fetch: async () =>
+        Response.json({
+          jsonrpc: "2.0",
+          id: "test-account",
+          result: { context: { blockTime: 0, slot: 5 }, transactions },
+        }),
+    }).getShieldedTransactionsBySignature({ txSignature: REQUESTED });
+
+  it("returns the requested transaction's events in event order", async () => {
+    const response = await read([event(0), event(2)]);
+    expect(response.transactions.map(({ eventIndex }) => eventIndex)).toEqual([0, 2]);
+    expect((await read([])).transactions).toEqual([]);
+  });
+
+  it.each([
+    ["another transaction's events", [event(0, { txSignature: OTHER })]],
+    ["an event index the event does not carry", [event(0, { eventIndex: 1 })]],
+    ["an event without its index", [event(0, { eventIndex: null })]],
+    ["a repeated event", [event(1), event(1)]],
+    ["events out of order", [event(2), event(1)]],
+    ["events in different slots", [event(0), event(1, { slot: 4 })]],
+    ["a slot past the answer's context", [event(0, { slot: 6 })]],
+  ])("refuses %s", async (_name, transactions) => {
+    await expect(read(transactions)).rejects.toMatchObject({ code: "API_INVALID_RESULT" });
+  });
+});
+
+describe("shielded transaction event index", () => {
+  const transaction = {
+    slot: 1,
+    txSignature: "1".repeat(64),
+    outputSlots: [],
+    messages: [],
+    nullifiers: [],
+    proofless: false,
+  };
+
+  it("reads a null event index as absent, as serde does", () => {
+    expect(indexedTransaction({ ...transaction, eventIndex: null }, "$")).not.toHaveProperty(
+      "eventIndex",
+    );
+    expect(indexedTransaction({ ...transaction, eventIndex: 3 }, "$").eventIndex).toBe(3);
+    expect(() => indexedTransaction({ ...transaction, eventIndex: -1 }, "$")).toThrowError(
+      expect.objectContaining({ code: "INDEXER_SCHEMA_INVALID_INTEGER" }),
+    );
+  });
+});
+
+describe("hash scalars", () => {
+  // `ParseHashError::WrongSize` for a string that decodes to other than 32
+  // bytes, the empty one included; `Invalid` for one outside the alphabet.
+  it("report the error Rust's ParseHashError names", () => {
+    const code = (value: string) => {
+      try {
+        hash(value);
+      } catch (error) {
+        return (error as { code?: unknown }).code;
+      }
+      return undefined;
+    };
+    expect(code("")).toBe("INDEXER_SCHEMA_HASH_WRONG_SIZE");
+    expect(code("1")).toBe("INDEXER_SCHEMA_HASH_WRONG_SIZE");
+    expect(code("1".repeat(45))).toBe("INDEXER_SCHEMA_HASH_WRONG_SIZE");
+    expect(code("0".repeat(32))).toBe("INDEXER_SCHEMA_INVALID_HASH");
+    expect(code(TAG)).toBeUndefined();
   });
 });
 

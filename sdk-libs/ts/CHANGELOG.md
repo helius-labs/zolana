@@ -26,6 +26,7 @@ Breaking
 - `SignedTeePolicy` reads only the two-part policy file and refuses it once either part expires, when a freshness part runs longer than its release allows, or when it is issued more than a day past the device clock → upgrade before the network publishes the two-part file, which earlier releases refuse; `publicKeys` and `threshold` still pin the release signers.
 - `TreeFeeSchedule.feePerNullifier` becomes `feePerTree`, a flat fee a transact or merge payer pays once to every tree the transaction writes, and `defaultTreeFees()` takes no argument and returns 5,000 lamports per tree with forester reimbursements at cost → rename the field, drop the ZKP batch size argument, and fund payers for the per-tree fee.
 - `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` are removed → use `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS`, `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS` and `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+- `fetchViewingKeyOwners` and `viewingKeyIndex` are removed, and `RegistryRecord.viewingPublicKey` from `getUserRecords` is the `Bytes33` the owner registered, so one owner's undecodable key no longer fails the other owners' lookup → look owners up with `getUserRecords` or `fetchUserRecord`, and decode a key with `X25519PublicKey.fromBytes` where it is used.
 
 Added
 
@@ -37,7 +38,7 @@ Added
 Changed
 
 - The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
-- `SprIndexer` reads ignore response fields they do not know and derive `outputContext.tree` from `treeId`; history reads given a freshness wait send it as `minContextSlot`, retry Photon's `-32016` minimum-context-slot error until the wait ends and then fail with `CLIENT_INDEXER_NOT_CAUGHT_UP`, a `-32016` outside a wait being a `CLIENT_INDEXER` whose `details.contextSlot` is the indexer's slot; and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
+- `SprIndexer` reads ignore response fields they do not know and derive `outputContext.tree` from `treeId`; `getShieldedTransactionsBySignature` refuses an answer with another transaction's events, events out of event order or a slot past `context.slot`; history reads given a freshness wait send it as `minContextSlot`, retry Photon's `-32016` minimum-context-slot error until the wait ends and then fail with `CLIENT_INDEXER_NOT_CAUGHT_UP`, a `-32016` outside a wait being a `CLIENT_INDEXER` whose `details.contextSlot` is the indexer's slot; and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 
 Fixed
 

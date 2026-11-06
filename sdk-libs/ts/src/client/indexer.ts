@@ -270,7 +270,12 @@ function copyOwners(owners: readonly Address[]): readonly Address[] {
   );
 }
 
-/** The indexer answers from the owner's canonical record, so the record's owner is the requested one. */
+/**
+ * The indexer answers from the owner's canonical record, so the record's owner
+ * is the requested one. The viewing key stays the bytes the owner registered:
+ * the registry accepts any 33, and one owner's undecodable key must not cost
+ * the other owners of the batch their records.
+ */
 function convertRegistryRecord(
   record: WireUserRecord,
   owner: Address,
@@ -278,10 +283,13 @@ function convertRegistryRecord(
   path: string,
 ): RegistryRecord {
   if (record.owner !== owner) throw invalidResponse(method, `${path}.owner`);
+  const viewingPublicKey = decodeBase64(record.viewingPubkey, `${path}.viewingPubkey`);
+  if (viewingPublicKey.length !== 33)
+    throw invalidResponse(method, `${path}.viewingPubkey`, 33, viewingPublicKey.length);
   return Object.freeze({
     owner: record.owner,
     nullifierPublicKey: hashBytes(record.nullifierPubkey),
-    viewingPublicKey: decodeX25519(record.viewingPubkey, method, `${path}.viewingPubkey`),
+    viewingPublicKey: viewingPublicKey as Bytes33,
     mergeEncryption: record.mergeEncryption,
   });
 }
@@ -542,16 +550,6 @@ function convertOutputSlot(
     }),
     payload: decodeBase64(slot.payload, "output_slot.payload"),
   });
-}
-
-export function decodeX25519(value: string, method: string, path: string): X25519PublicKey {
-  const bytes = decodeBase64(value, path);
-  if (bytes.length !== 33) throw invalidResponse(method, path, 33, bytes.length);
-  try {
-    return X25519PublicKey.fromBytes(bytes as Bytes33);
-  } catch {
-    throw invalidResponse(method, path);
-  }
 }
 
 /** Chosen by the sender, a malformed transaction key reads as absent and leaves its outputs undecryptable. */
