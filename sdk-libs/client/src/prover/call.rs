@@ -1,7 +1,7 @@
 //! One prover HTTP exchange, shared by the blocking and async clients and
 //! encrypted to the attested key when the client requires a TEE.
 
-use std::{mem, time::Duration};
+use std::{fmt, mem, time::Duration};
 
 use http::{
     header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE},
@@ -23,6 +23,17 @@ use crate::{
         },
     },
 };
+
+/// The longest prover answer a client reads, as in the TS SDK. A longer one
+/// fails as [`ClientError::ProverResponseTooLarge`].
+pub(crate) const MAX_RESPONSE_BYTES: usize = 1 << 20;
+/// An error body is a code and a message; a longer one is not read. Under a
+/// TEE policy an unencrypted failure comes from the untrusted gateway.
+const MAX_ERROR_BODY_BYTES: usize = 4 << 10;
+/// The longest reason an error carries from a prover's error body.
+const MAX_REASON_CHARS: usize = 200;
+/// The AES-GCM nonce, the status and the tag around an encrypted answer.
+const ENCRYPTION_OVERHEAD: usize = 12 + 2 + 16;
 
 pub(crate) struct Call<'a> {
     pub method: Method,
@@ -157,30 +168,100 @@ impl<'s> Prepared<'s> {
         request.headers = mem::take(&mut self.headers);
         request.body = self.body.take().unwrap_or_default();
         request.timeout = call.timeout;
+        request.body_limit = Some(self.body_limit());
         request
     }
 
+    /// The most an answer to this call carries: [`MAX_RESPONSE_BYTES`] of
+    /// plaintext, encrypted when the call is.
+    fn body_limit(&self) -> usize {
+        match self.encrypted {
+            Some(_) => MAX_RESPONSE_BYTES + ENCRYPTION_OVERHEAD,
+            None => MAX_RESPONSE_BYTES,
+        }
+    }
+
+    /// Refuses a success or an encrypted answer above [`Self::body_limit`],
+    /// and reads a failure's body only up to [`MAX_ERROR_BODY_BYTES`].
     pub fn finish(
         &self,
         status: StatusCode,
         is_encrypted: bool,
         body: &[u8],
     ) -> Result<Answer<'s>, CallError> {
-        let plain = || String::from_utf8_lossy(body).into_owned();
+        let too_large = body.len() > self.body_limit();
         let Some(Encrypted { recipient, request }) = &self.encrypted else {
-            return Ok(Answer::Done(status, plain()));
+            if too_large && status.is_success() {
+                return Err(CallError::Refused(ClientError::ProverResponseTooLarge));
+            }
+            let body = if status.is_success() {
+                body
+            } else {
+                error_body(body)
+            };
+            return Ok(Answer::Done(
+                status,
+                String::from_utf8_lossy(body).into_owned(),
+            ));
         };
-        if !is_encrypted && TeeSession::lost_key(status, body) {
+        if is_encrypted {
+            if too_large {
+                return Err(CallError::Refused(ClientError::ProverResponseTooLarge));
+            }
+            let (status, mut body) =
+                TeeSession::decrypt(request, status, true, body).map_err(CallError::Refused)?;
+            if !status.is_success() && body.len() > MAX_ERROR_BODY_BYTES {
+                body.clear();
+            }
+            return Ok(Answer::Done(status, body));
+        }
+        // A failure the gateway passed through, or a success `decrypt` refuses.
+        let body = error_body(body);
+        if TeeSession::lost_key(status, body) {
             return Ok(Answer::KeyLost {
                 recipient: *recipient,
                 status,
-                body: plain(),
+                body: String::from_utf8_lossy(body).into_owned(),
             });
         }
-        TeeSession::decrypt(request, status, is_encrypted, body)
+        TeeSession::decrypt(request, status, false, body)
             .map(|(status, body)| Answer::Done(status, body))
             .map_err(CallError::Refused)
     }
+}
+
+/// A failure's body, or nothing when it is longer than an error body.
+fn error_body(body: &[u8]) -> &[u8] {
+    if body.len() > MAX_ERROR_BODY_BYTES {
+        &[]
+    } else {
+        body
+    }
+}
+
+/// `context`, followed by the reason in a prover's `{ code, message }` error
+/// body: its code and message, cut to [`MAX_REASON_CHARS`] characters as the
+/// TS SDK cuts them. The text is untrusted, so nothing else of the body is
+/// kept, and a body longer than an error body adds nothing.
+pub(crate) fn with_reason(context: impl fmt::Display, body: impl AsRef<[u8]>) -> String {
+    let parts = serde_json::from_slice::<serde_json::Value>(error_body(body.as_ref()))
+        .map(|body| {
+            ["code", "message"]
+                .into_iter()
+                .filter_map(|field| Some(body.get(field)?.as_str()?.to_owned()))
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if parts.is_empty() {
+        return context.to_string();
+    }
+    format!("{context}: {}", truncated(&parts.join(": ")))
+}
+
+/// `text` cut to [`MAX_REASON_CHARS`] characters.
+pub(crate) fn truncated(text: &str) -> String {
+    text.chars().take(MAX_REASON_CHARS).collect()
 }
 
 fn insert(

@@ -38,7 +38,8 @@ pub(crate) struct UtxoParamsJson {
     pub ring_program_id: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// No `Debug`: it carries a nullifier secret.
+#[derive(Clone, Serialize)]
 pub(crate) struct InputParamsJson {
     #[serde(rename = "utxo")]
     pub utxo: UtxoParamsJson,
@@ -91,7 +92,8 @@ pub(crate) struct OutputParamsJson {
     pub nullifier_pk: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// No `Debug`: it carries the blinding seed.
+#[derive(Clone, Serialize)]
 pub(crate) struct TransferInputsJson {
     #[serde(rename = "circuitType")]
     pub circuit_type: String,
@@ -284,7 +286,8 @@ pub(crate) struct MergeOutputParamsJson {
     pub hash: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+/// No `Debug`: it carries the owner's nullifier secret.
+#[derive(Clone, Serialize)]
 pub(crate) struct MergeParametersJson {
     #[serde(rename = "circuitType")]
     pub circuit_type: String,

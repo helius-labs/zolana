@@ -1,3 +1,5 @@
+use std::fmt;
+
 use num_bigint::BigUint;
 use spr_interface::{tree_slot::TreeSlot, INPUT_TREES, N_PUBLIC_SLOTS};
 
@@ -32,8 +34,9 @@ impl TreeSlotFields {
     }
 }
 
-/// One spend input. Mirrors txcircuit.Input.
-#[derive(Debug, Clone)]
+/// One spend input. Mirrors txcircuit.Input. Its `Debug` redacts the
+/// nullifier secret.
+#[derive(Clone)]
 pub struct TransferInput {
     pub utxo: ProofInputUtxo,
     pub is_dummy: BigUint,
@@ -78,8 +81,9 @@ pub struct TransferOutput {
 /// prover/server/prover/merge/params.go MergeParameters. The per-input and output
 /// witness reuses [`TransferInput`]/[`TransferOutput`] (assembled the same way as
 /// a transfer); the merge circuit ignores the transfer-only `ownerPkHash`
-/// and per-input `nullifierSecret` (the secret is shared, below).
-#[derive(Debug, Clone)]
+/// and per-input `nullifierSecret` (the secret is shared, below). Its `Debug`
+/// redacts the owner's nullifier secret.
+#[derive(Clone)]
 pub struct MergeInputs {
     pub inputs: Vec<TransferInput>,
     pub output: TransferOutput,
@@ -137,7 +141,8 @@ pub struct BatchAddressAppendInputs {
 /// Flat, pre-computed witness for the Solana-only spp_transaction circuit. This
 /// Owner signatures are checked by the Solana transaction.
 /// Mirrors prover/server/prover/transfer_eddsa/params.go TransferParameters.
-#[derive(Debug, Clone)]
+/// Its `Debug` redacts the blinding seed and every input's nullifier secret.
+#[derive(Clone)]
 pub struct TransferInputs {
     pub inputs: Vec<TransferInput>,
     pub outputs: Vec<TransferOutput>,
@@ -173,4 +178,265 @@ pub struct CacheReadInputs {
     pub read_hashes: Vec<BigUint>,
     pub is_cached: Vec<bool>,
     pub read_index: Vec<usize>,
+}
+
+// The `Debug` impls below destructure every field, so a field added later
+// does not compile until it is printed or redacted here.
+
+/// Shows whether the secret is filled in, never its value.
+impl fmt::Debug for TransferInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            utxo,
+            is_dummy,
+            state_path_elements,
+            state_path_index,
+            nullifier_low_value,
+            nullifier_next_value,
+            nullifier_low_path_elements,
+            nullifier_low_path_index,
+            tree_slot,
+            nullifier,
+            owner_pk_hash,
+            nullifier_secret,
+        } = self;
+        formatter
+            .debug_struct("TransferInput")
+            .field("utxo", utxo)
+            .field("is_dummy", is_dummy)
+            .field("state_path_elements", state_path_elements)
+            .field("state_path_index", state_path_index)
+            .field("nullifier_low_value", nullifier_low_value)
+            .field("nullifier_next_value", nullifier_next_value)
+            .field("nullifier_low_path_elements", nullifier_low_path_elements)
+            .field("nullifier_low_path_index", nullifier_low_path_index)
+            .field("tree_slot", tree_slot)
+            .field("nullifier", nullifier)
+            .field("owner_pk_hash", owner_pk_hash)
+            .field(
+                "nullifier_secret",
+                &nullifier_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
+
+impl fmt::Debug for MergeInputs {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            inputs,
+            output,
+            tree_slots,
+            output_tree_id,
+            mint_chunks,
+            output_ciphertext_salt,
+            owner_pk_hash,
+            user_nullifier_pk,
+            user_nullifier_secret: _,
+            external_data_hash,
+            private_tx_hash,
+            allow_dummy_inputs,
+            public_input_hash,
+            output_ring_data_hash,
+            ring_program_id,
+        } = self;
+        formatter
+            .debug_struct("MergeInputs")
+            .field("inputs", inputs)
+            .field("output", output)
+            .field("tree_slots", tree_slots)
+            .field("output_tree_id", output_tree_id)
+            .field("mint_chunks", mint_chunks)
+            .field("output_ciphertext_salt", output_ciphertext_salt)
+            .field("owner_pk_hash", owner_pk_hash)
+            .field("user_nullifier_pk", user_nullifier_pk)
+            .field("user_nullifier_secret", &"<redacted>")
+            .field("external_data_hash", external_data_hash)
+            .field("private_tx_hash", private_tx_hash)
+            .field("allow_dummy_inputs", allow_dummy_inputs)
+            .field("public_input_hash", public_input_hash)
+            .field("output_ring_data_hash", output_ring_data_hash)
+            .field("ring_program_id", ring_program_id)
+            .finish()
+    }
+}
+
+impl fmt::Debug for TransferInputs {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            inputs,
+            outputs,
+            tree_slots,
+            output_tree_id,
+            blinding_seed: _,
+            external_data_hash,
+            private_tx_hash,
+            public_assets,
+            public_amounts,
+            ring_program_id,
+            signer_pk_hashes,
+            input_flags,
+            published_output_owner_pk_hashes,
+            cache,
+            public_input_hash,
+        } = self;
+        formatter
+            .debug_struct("TransferInputs")
+            .field("inputs", inputs)
+            .field("outputs", outputs)
+            .field("tree_slots", tree_slots)
+            .field("output_tree_id", output_tree_id)
+            .field("blinding_seed", &"<redacted>")
+            .field("external_data_hash", external_data_hash)
+            .field("private_tx_hash", private_tx_hash)
+            .field("public_assets", public_assets)
+            .field("public_amounts", public_amounts)
+            .field("ring_program_id", ring_program_id)
+            .field("signer_pk_hashes", signer_pk_hashes)
+            .field("input_flags", input_flags)
+            .field(
+                "published_output_owner_pk_hashes",
+                published_output_owner_pk_hashes,
+            )
+            .field("cache", cache)
+            .field("public_input_hash", public_input_hash)
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prover::{
+        ConfidentialEddsaTransferInputs, EddsaAuthorization, MergeProofResult, TransferProofResult,
+    };
+
+    /// No other fixture field holds it. `Debug` prints a `BigUint` in decimal.
+    fn secret() -> BigUint {
+        BigUint::from_bytes_be(&[0x5a; 32])
+    }
+
+    fn input(nullifier_secret: Option<BigUint>) -> TransferInput {
+        TransferInput {
+            utxo: ProofInputUtxo::default(),
+            is_dummy: BigUint::ZERO,
+            state_path_elements: Vec::new(),
+            state_path_index: BigUint::ZERO,
+            nullifier_low_value: BigUint::ZERO,
+            nullifier_next_value: BigUint::ZERO,
+            nullifier_low_path_elements: Vec::new(),
+            nullifier_low_path_index: BigUint::ZERO,
+            tree_slot: BigUint::ZERO,
+            nullifier: BigUint::from(9u8),
+            owner_pk_hash: BigUint::ZERO,
+            nullifier_secret,
+        }
+    }
+
+    fn output() -> TransferOutput {
+        TransferOutput {
+            utxo: ProofInputUtxo::default(),
+            is_dummy: BigUint::ZERO,
+            hash: BigUint::ZERO,
+            owner_pk_hash: BigUint::ZERO,
+            nullifier_pk: BigUint::ZERO,
+        }
+    }
+
+    fn transfer() -> TransferInputs {
+        TransferInputs {
+            inputs: vec![input(Some(secret()))],
+            outputs: vec![output()],
+            tree_slots: Default::default(),
+            output_tree_id: BigUint::ZERO,
+            blinding_seed: secret(),
+            external_data_hash: BigUint::ZERO,
+            private_tx_hash: BigUint::ZERO,
+            public_assets: Default::default(),
+            public_amounts: Default::default(),
+            ring_program_id: BigUint::ZERO,
+            signer_pk_hashes: Vec::new(),
+            input_flags: BigUint::ZERO,
+            published_output_owner_pk_hashes: Vec::new(),
+            cache: CacheReadInputs::default(),
+            public_input_hash: BigUint::ZERO,
+        }
+    }
+
+    fn merge() -> MergeInputs {
+        MergeInputs {
+            inputs: vec![input(Some(secret()))],
+            output: output(),
+            tree_slots: Default::default(),
+            output_tree_id: BigUint::ZERO,
+            mint_chunks: Default::default(),
+            output_ciphertext_salt: BigUint::ZERO,
+            owner_pk_hash: BigUint::ZERO,
+            user_nullifier_pk: BigUint::ZERO,
+            user_nullifier_secret: secret(),
+            external_data_hash: BigUint::ZERO,
+            private_tx_hash: BigUint::ZERO,
+            allow_dummy_inputs: BigUint::from(1u8),
+            public_input_hash: BigUint::ZERO,
+            output_ring_data_hash: BigUint::ZERO,
+            ring_program_id: BigUint::ZERO,
+        }
+    }
+
+    fn assert_redacted(value: &impl fmt::Debug) {
+        for printed in [format!("{value:?}"), format!("{value:#?}")] {
+            assert!(!printed.contains(&secret().to_string()), "{printed}");
+            assert!(printed.contains("<redacted>"), "{printed}");
+        }
+    }
+
+    #[test]
+    fn debug_output_redacts_every_secret() {
+        assert_redacted(&input(Some(secret())));
+        assert_redacted(&transfer());
+        assert_redacted(&merge());
+        assert_redacted(&ConfidentialEddsaTransferInputs {
+            transfer: transfer(),
+            authorization: EddsaAuthorization {
+                owner_public_key: [1; 32],
+                owner_signature: [2; 64],
+                message_digest: [3; 32],
+            },
+        });
+        assert_redacted(&TransferProofResult {
+            inputs: transfer(),
+            public_input_hash: [0; 32],
+            nullifiers: Vec::new(),
+            output_hashes: Vec::new(),
+            private_tx_hash: [0; 32],
+            tree_contexts: Vec::new(),
+            tree_ids: Vec::new(),
+            input_tree_indexes: Vec::new(),
+            cache_access: None,
+        });
+        assert_redacted(&MergeProofResult {
+            inputs: merge(),
+            public_input_hash: [0; 32],
+            nullifiers: Vec::new(),
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+            output_hash: [0; 32],
+            private_tx_hash: [0; 32],
+            external_data_hash: [0; 32],
+            expiry_unix_ts: 0,
+            cache_slot: None,
+            ring_program_id: None,
+            output_ring_data_hash: [0; 32],
+            output_ciphertext_salt: Default::default(),
+            output_ciphertext: Default::default(),
+        });
+    }
+
+    /// Whether an input still waits for its authority stays visible.
+    #[test]
+    fn debug_output_shows_a_missing_secret() {
+        assert!(format!("{:?}", input(None)).contains("nullifier_secret: None"));
+        assert!(format!("{:?}", input(Some(BigUint::ZERO)))
+            .contains(r#"nullifier_secret: Some("<redacted>")"#));
+    }
 }

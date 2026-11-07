@@ -12,7 +12,10 @@ use super::{
     SignedTeePolicy, TeeError, TeePolicy, VerifiedPolicy, HEADER_VERSION, MAX_ATTESTATION_BYTES,
     NONCE_SIZE, VERSION,
 };
-use crate::error::ClientError;
+use crate::{
+    error::ClientError,
+    prover::call::{truncated, with_reason},
+};
 
 type AttestResult = Result<AttestedProver, ClientError>;
 
@@ -233,13 +236,14 @@ impl TeeSession {
         body: &[u8],
     ) -> Result<AttestedProver, ClientError> {
         if !status.is_success() {
-            return Err(ClientError::ProverServer(format!(
-                "attestation failed with status {status}: {}",
-                String::from_utf8_lossy(body)
+            return Err(ClientError::ProverServer(with_reason(
+                format_args!("attestation failed with status {status}"),
+                body,
             )));
         }
+        // An error can quote the body, which the gateway writes.
         let attestation: Attestation = serde_json::from_slice(body)
-            .map_err(|e| TeeError::MalformedAttestation(e.to_string()))?;
+            .map_err(|e| TeeError::MalformedAttestation(truncated(&e.to_string())))?;
         let prover = verify_with(attestation, policy, nonce, now_secs()?, &self.anchors)?;
         *lock(&self.attested) = Some((prover.clone(), Instant::now(), Arc::clone(policy)));
         Ok(prover)

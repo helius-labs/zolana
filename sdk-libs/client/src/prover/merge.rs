@@ -27,6 +27,7 @@ use spr_transaction::{
     },
     utxo::program_id_proof_input_hash,
 };
+use zeroize::Zeroizing;
 
 use crate::{
     error::ClientError,
@@ -284,7 +285,8 @@ impl MergeProver {
             },
         }
         .hash(tree_slots_hash_chain(&assembled_inputs.tree_slots)?)?;
-        let user_nullifier_secret = right_align_slice(&*self.nullifier_key.secret())?;
+        let user_nullifier_secret =
+            Zeroizing::new(right_align_slice(&*self.nullifier_key.secret())?);
         let output = assembled_outputs
             .outputs
             .into_iter()

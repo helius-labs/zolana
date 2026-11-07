@@ -21,8 +21,8 @@ use crate::{
             eddsa::TransferProver,
             OwnerAuthorization,
         },
-        verify::{verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs},
-        ExpectedProvingKey, Proof, ProofCompressed, Prover, ProverExt, ProvingKeySet,
+        verify::{verify_confidential_transfer_inputs, TransferProofStatement},
+        ExpectedProvingKey, Proof, ProofCompressed, Prover, ProverExt, ProvingKeySet, Shape,
         TransferInputs,
     },
     rpc::{MerkleProof, NonInclusionProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
@@ -209,11 +209,16 @@ impl AssembledTransfer {
         match &self.authorization {
             Some(_) if keys.is_some() => Err(ClientError::ProvingKeySet("unsupported_circuit")),
             Some(authorization) => {
-                let inputs = ConfidentialEddsaTransferInputs {
-                    transfer: self.prover_inputs.clone(),
-                    authorization: authorization.clone(),
-                };
-                verify_confidential_eddsa_transfer_inputs(&inputs, self.public_input_hash, &proof)?;
+                // From the shape: a copy of the inputs would copy their secrets.
+                let shape = Shape::new(
+                    self.prover_inputs.inputs.len(),
+                    self.prover_inputs.outputs.len(),
+                );
+                TransferProofStatement {
+                    circuit: authorization.circuit(shape, None),
+                    public_input_hash: self.public_input_hash,
+                }
+                .verify(&proof)?;
                 let (transact, commitment) =
                     ProofCompressed::try_from(proof)?.into_committed_transact_parts()?;
                 match &mut self.ix.circuit {
