@@ -208,15 +208,13 @@ pub fn deposit_outputs_from_event(
 ) -> Result<Vec<DepositOutput>, ProgramTestError> {
     let general_event = general_event_from_indexed(event).map_err(|err| {
         ProgramTestError::Event(format!(
-            "invalid shielded-pool event tag={} payload_len={} error={err:?}",
-            event.tag,
+            "invalid shielded-pool event payload_len={} error={err:?}",
             event.payload.len()
         ))
     })?;
     let outputs = proofless_outputs(general_event).map_err(|err| {
         ProgramTestError::Event(format!(
-            "invalid proofless output tag={} payload_len={} error={err:?}",
-            event.tag,
+            "invalid proofless output payload_len={} error={err:?}",
             event.payload.len()
         ))
     })?;
@@ -261,8 +259,7 @@ pub fn ring_deposit_outputs_from_event(
 ) -> Result<Vec<RingDepositOutput>, ProgramTestError> {
     let general_event = general_event_from_indexed(event).map_err(|err| {
         ProgramTestError::Event(format!(
-            "invalid shielded-pool event tag={} payload_len={} error={err:?}",
-            event.tag,
+            "invalid shielded-pool event payload_len={} error={err:?}",
             event.payload.len()
         ))
     })?;
@@ -273,8 +270,7 @@ pub fn ring_deposit_outputs_from_event(
         .map(|(offset, slot)| {
             let output = decode_encrypted_ring_deposit_output_data(&slot.data).map_err(|err| {
                 ProgramTestError::Event(format!(
-                    "invalid encrypted ring output tag={} payload_len={} error={err:?}",
-                    event.tag,
+                    "invalid encrypted ring output payload_len={} error={err:?}",
                     event.payload.len()
                 ))
             })?;

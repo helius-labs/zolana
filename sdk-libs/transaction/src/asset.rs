@@ -49,23 +49,6 @@ pub struct AssetBalance {
     pub utxos: Vec<WalletUtxo>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AssetAmount {
-    pub asset_id: u64,
-    pub mint: Address,
-    pub amount: u64,
-}
-
-impl From<&AssetBalance> for AssetAmount {
-    fn from(balance: &AssetBalance) -> Self {
-        Self {
-            asset_id: balance.asset_id,
-            mint: balance.mint,
-            amount: balance.amount,
-        }
-    }
-}
-
 /// Spendable default-ring balances. Ring-bound notes are never in here; a
 /// wallet reports those separately.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -128,16 +111,6 @@ impl AssetRegistry {
             .get(mint)
             .copied()
             .ok_or(TransactionError::UnknownMint(*mint))
-    }
-
-    pub fn address_for_field(&self, field: &[u8; 32]) -> Result<Option<Address>, TransactionError> {
-        for mint in self.by_id.values() {
-            let mint_field = spr_hasher::primitives::hash_bytes(mint.as_array())?;
-            if &mint_field == field {
-                return Ok(Some(*mint));
-            }
-        }
-        Ok(None)
     }
 }
 

@@ -48,9 +48,6 @@ pub struct ProverKeys {
     pub keys: Vec<ProverKeyStatus>,
 }
 
-/// A key in the checked download catalog.
-pub type ProvingKeyCheck = ProverKeyStatus;
-
 /// The catalog returned after checking known gnark hashes.
 pub type ProvingKeyReport = ProverKeys;
 

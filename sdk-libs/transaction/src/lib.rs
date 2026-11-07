@@ -25,7 +25,7 @@ mod serde_helpers;
 pub mod serialization;
 pub mod utxo;
 
-pub use asset::{AssetAmount, AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
+pub use asset::{AssetBalance, AssetRegistry, Balances, Mint, SOL_ASSET_ID, SOL_MINT};
 pub use data::{Data, DataRecord};
 pub use decrypt::{
     decrypt, decrypt_spendable, verify_owned, verify_spendable, DecryptionResult, OwnedUtxos,
@@ -43,14 +43,11 @@ pub use selection::{select_merge, select_spend, select_spend_excluding};
 pub use serialization::{scheme::EncryptedScheme, DecodeCx, OwnerCx, UtxoSerialization};
 pub use solana_address::Address;
 pub use spr_keypair::constants::VIEW_TAG_LEN;
-pub use utxo::wallet as spendable;
 pub use utxo::{
     derive_output_blinding_seed, derive_private_tx_blinding, owner_utxo_hash, Blinding, Utxo,
     WalletUtxo,
 };
 
-pub const TRANSFER: u8 = 1;
-pub const MERGE: u8 = 3;
 pub const TRANSFER_PLAINTEXT: u8 = 4;
 
 pub(crate) struct PublicKeySchema;

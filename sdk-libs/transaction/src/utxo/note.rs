@@ -7,10 +7,7 @@ use spr_interface::tree_slot::tree_id_field;
 use spr_keypair::{NullifierKey, PublicKey};
 
 use super::{owner_utxo_hash, program_id_proof_input_hash, Blinding, UTXO_DOMAIN};
-use crate::{
-    data::Data, error::TransactionError, serialization::confidential::ConfidentialOutputPlaintext,
-    Mint,
-};
+use crate::{data::Data, error::TransactionError, Mint};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(
@@ -89,15 +86,5 @@ impl Utxo {
         nullifier_key: &NullifierKey,
     ) -> Result<[u8; 32], TransactionError> {
         Ok(nullifier_key.nullifier(utxo_hash, &self.blinding)?)
-    }
-
-    pub fn to_confidential_output_plaintext(&self) -> ConfidentialOutputPlaintext {
-        ConfidentialOutputPlaintext {
-            asset_id: self.asset.asset_id,
-            amount: self.amount,
-            blinding: self.blinding,
-            ring_program_id: self.ring_program_id,
-            data: self.data.clone(),
-        }
     }
 }

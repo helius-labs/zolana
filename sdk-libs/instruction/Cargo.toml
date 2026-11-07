@@ -1,7 +1,7 @@
 [package]
 name = "spr-instruction"
 version = "0.8.0"
-description = "SPP instructions for Solana programs and clients: shielded-pool instruction builders, the transact CPI, and the derivations a program recomputes on-chain, buildable for the SBF target."
+description = "SPR shielded-pool instructions for Solana programs and clients: instruction builders, the transact CPI, and the derivations a program recomputes on-chain, buildable for the SBF target."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -27,14 +27,6 @@ spr-hasher = { workspace = true }
 spr-interface = { workspace = true, features = ["borsh", "tree"] }
 
 [dev-dependencies]
-borsh = { workspace = true }
 bytemuck = { workspace = true }
 serde_json = { workspace = true }
 spr-account-checks = { path = "../../program-libs/account-checks", default-features = false, features = ["test-only"] }
-
-[lints.rust.unexpected_cfgs]
-level = "allow"
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]

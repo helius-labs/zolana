@@ -10,8 +10,6 @@ fn asset_registry_is_bijective_and_reserves_sol() {
         assert_eq!(registry.resolve(id).unwrap(), expected);
         assert_eq!(registry.mint(&address).unwrap(), expected);
         assert_eq!(registry.asset_id(&address).unwrap(), id);
-        let field = spr_hasher::primitives::hash_bytes(address.as_array()).unwrap();
-        assert_eq!(registry.address_for_field(&field).unwrap(), Some(address));
     }
     assert_eq!(registry.resolve(3), Err(TransactionError::UnknownAsset(3)));
     let absent = Address::new_from_array([9; 32]);
@@ -23,7 +21,6 @@ fn asset_registry_is_bijective_and_reserves_sol() {
         registry.asset_id(&absent),
         Err(TransactionError::UnknownMint(absent))
     );
-    assert_eq!(registry.address_for_field(&[255; 32]).unwrap(), None);
 }
 
 #[test]

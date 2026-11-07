@@ -294,8 +294,7 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncSprClient<R, I> {
                 .await?;
             return Ok(ProveResult {
                 proof: proved.proof,
-                public_inputs: vec![proved.public_input_hash],
-                circuit_id: 0,
+                public_input_hash: proved.public_input_hash,
             });
         }
         let witnesses =
@@ -323,11 +322,9 @@ impl<R: AsyncRpc, I: AsyncIndexer> AsyncRpc for AsyncSprClient<R, I> {
                 verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?
             }
         }
-        let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
-            public_inputs: vec![assembled.public_input_hash],
-            circuit_id,
+            public_input_hash: assembled.public_input_hash,
         })
     }
 }

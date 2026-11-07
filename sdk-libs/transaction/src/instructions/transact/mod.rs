@@ -31,7 +31,7 @@ use spr_keypair::{shielded::ShieldedAddress, viewing_key::random_blinding};
 pub use crate::indexer_types::{OutputContext, OutputSlot, ShieldedTransaction};
 pub use crate::utxo::SppProofOutputUtxo;
 pub use cache::{cache_bound_external_data_hash, cache_write_slots};
-pub use encryption::{OutputEncoder, OutputEncryption, ResolvedOwnerTag};
+pub use encryption::ResolvedOwnerTag;
 pub use external_data::{ExternalData, SettlementTransfer};
 pub use finalized::FinalizedTransaction;
 pub use inputs::pad_input_utxos;
@@ -41,7 +41,7 @@ pub use settlement::{
     SettlementTarget, BN254_MODULUS_DEC,
 };
 pub use shape::{
-    auto_shapes, canonical_shape, resolve_shape, Shape, TransactRail, CONFIDENTIAL_EDDSA_SHAPES,
+    canonical_shape, resolve_shape, Shape, TransactRail, CONFIDENTIAL_EDDSA_SHAPES,
     MAX_SPEND_INPUTS, SPP_SUPPORTED_SHAPES,
 };
 pub(crate) use transaction::real_slot_after_dummy;
