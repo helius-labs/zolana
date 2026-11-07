@@ -86,6 +86,7 @@ The checks:
 A policy is a JSON object with `platform`, the platform's pins, `gpu` (`required` or `optional`) and `max_age_secs`, the time a passed attestation is reused.
 A `dstack-tdx` policy pins `app_id`, `hpke_public_key`, `key_provider_id`, `os_image_hashes`, `measurements` (`mrtd`, `rtmr0`, `rtmr1`, `rtmr2`), `compose_hashes` and `tcb_statuses`.
 An `aws-nitro` policy pins `measurements` (`pcr0`, `pcr1`, `pcr2`) and can also pin `hpke_public_key`, which stays the same across boots only on a KMS deployment.
+Every byte pin is lowercase hex, every measurement is a JSON object, and `max_age_secs` is an integer from 1 to 2^53 minus 1, in a bare policy as in a signed one.
 
 ### Signed policy
 
@@ -178,4 +179,5 @@ In the seconds the regions move apart, a client can attest at one release and se
 `ikm` derives the prover key with RFC 9180 `DeriveKeyPair`.
 `testdata/nitro_cbor_cases.json` pins whether a client accepts each `aws-nitro` case when it trusts `root` in place of the AWS root.
 A case holds a full COSE_Sign1, or a payload the test signs with `leaf_key` into a tagged COSE_Sign1.
+`testdata/policy_cases.json` pins whether a client accepts each bare policy, alone or as the `deployment` of a pin file.
 `testdata/signed_policy.json` pins whether a client accepts each signed policy file, from test signers whose seeds it names.

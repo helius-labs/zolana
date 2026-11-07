@@ -98,7 +98,7 @@ impl TeePolicyOptions {
         .extend()?;
         let policy = TeePolicy::new(pins).with_gpu(gpu)?;
         let policy = match &current {
-            Some(current) => policy.with_max_age(current.max_age()),
+            Some(current) => policy.with_max_age(current.max_age())?,
             None => policy,
         };
 

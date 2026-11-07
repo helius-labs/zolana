@@ -23,7 +23,7 @@ use x509_cert::{
 
 use super::{
     platform::TeePlatform,
-    policy::hex_pin,
+    policy::{hex_pin, lower_hex, objects},
     verify::{Claims, Measured},
     TeeError, MAX_INTEGER,
 };
@@ -43,6 +43,7 @@ pub struct Nitro;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NitroPolicy {
+    #[serde(deserialize_with = "objects")]
     pub measurements: Vec<NitroMeasurement>,
     /// Holds across reboots only on a KMS deployment.
     #[serde(default, skip_serializing_if = "Option::is_none", with = "hex_pin")]
@@ -52,11 +53,11 @@ pub struct NitroPolicy {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NitroMeasurement {
-    #[serde(with = "hex")]
+    #[serde(with = "lower_hex")]
     pub pcr0: [u8; 48],
-    #[serde(with = "hex")]
+    #[serde(with = "lower_hex")]
     pub pcr1: [u8; 48],
-    #[serde(with = "hex")]
+    #[serde(with = "lower_hex")]
     pub pcr2: [u8; 48],
 }
 
