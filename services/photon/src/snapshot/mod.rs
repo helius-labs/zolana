@@ -145,16 +145,24 @@ where
             self.byte_buffer.drain(..len);
             return Poll::Ready(Ok(()));
         }
-        match futures::ready!(self.stream.poll_next_unpin(cx)) {
-            Some(Ok(chunk)) => {
-                self.byte_buffer.extend_from_slice(chunk.as_ref());
-                let len = std::cmp::min(self.byte_buffer.len(), buf.remaining_mut());
-                buf.put_slice(&self.byte_buffer[..len]);
-                self.byte_buffer.drain(..len);
-                Poll::Ready(Ok(()))
+        loop {
+            match futures::ready!(self.stream.poll_next_unpin(cx)) {
+                // Filling no bytes signals end of file to the reader, so an
+                // empty chunk must not end the read. A merge yields one first:
+                // the remainder after the snapshot header. Ending there
+                // uploaded the merged file as 0 bytes and then deleted its
+                // inputs.
+                Some(Ok(chunk)) if chunk.is_empty() => continue,
+                Some(Ok(chunk)) => {
+                    self.byte_buffer.extend_from_slice(chunk.as_ref());
+                    let len = std::cmp::min(self.byte_buffer.len(), buf.remaining_mut());
+                    buf.put_slice(&self.byte_buffer[..len]);
+                    self.byte_buffer.drain(..len);
+                    return Poll::Ready(Ok(()));
+                }
+                Some(Err(e)) => return Poll::Ready(Err(e)),
+                None => return Poll::Ready(Ok(())), // EOF
             }
-            Some(Err(e)) => Poll::Ready(Err(e)),
-            None => Poll::Ready(Ok(())), // EOF
         }
     }
 }
@@ -699,7 +707,12 @@ async fn try_merge_snapshots(directory_adapter: Arc<DirectoryAdapter>) -> Result
     create_snapshot_from_byte_stream(byte_stream, directory_adapter.as_ref())
         .await
         .context("Failed to create merged snapshot")?;
+    // A single input has the merged file's name and was just overwritten by it.
+    let merged = format!("snapshot-{}-{}", start_slot, end_slot);
     for snapshot_file in snapshot_files {
+        if snapshot_file.file == merged {
+            continue;
+        }
         directory_adapter
             .delete_file(snapshot_file.file.clone())
             .await
@@ -995,6 +1008,25 @@ pub async fn create_snapshot_from_byte_stream(
 mod tests {
     use super::*;
     use crate::ingester::typedefs::block_info::BlockMetadata;
+
+    #[tokio::test]
+    async fn stream_reader_reads_past_empty_chunks() {
+        use tokio::io::AsyncReadExt;
+
+        let chunks: Vec<Result<Bytes, Error>> = vec![
+            Ok(Bytes::new()),
+            Ok(Bytes::from_static(b"snap")),
+            Ok(Bytes::new()),
+            Ok(Bytes::from_static(b"shot")),
+        ];
+        let mut reader = StreamReader {
+            stream: stream::iter(chunks),
+            byte_buffer: Vec::new(),
+        };
+        let mut out = Vec::new();
+        reader.read_to_end(&mut out).await.unwrap();
+        assert_eq!(out, b"snapshot");
+    }
 
     #[test]
     fn bucket_paths_strip_only_a_complete_utf8_prefix() {
