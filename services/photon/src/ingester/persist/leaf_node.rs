@@ -2,7 +2,7 @@ use crate::common::rings_tree::RingsTreeKind;
 use crate::dao::generated::state_trees;
 use crate::ingester::error::IngesterError;
 use crate::ingester::persist::persisted_state_tree::{get_proof_nodes, zero_hash_for_level};
-use crate::ingester::persist::{compute_parent_hash, get_node_direct_ancestors};
+use crate::ingester::persist::{compute_parent_hash, get_node_direct_ancestors, MAX_SQL_INSERTS};
 use crate::migration::OnConflict;
 use sea_orm::{ConnectionTrait, DatabaseTransaction, EntityTrait, QueryTrait, Set};
 use spr_indexer_api::Hash;
@@ -210,28 +210,33 @@ pub async fn persist_leaf_nodes(
         leaf_nodes.first().map(|n| n.tree_kind)
     );
 
-    let mut query = state_trees::Entity::insert_many(models_to_updates.into_values())
-        .on_conflict(
-            OnConflict::columns([
-                state_trees::Column::Tree,
-                state_trees::Column::TreeKind,
-                state_trees::Column::NodeIdx,
-            ])
-            .update_columns([
-                state_trees::Column::Hash,
-                state_trees::Column::Seq,
-                state_trees::Column::LeafIdx,
-            ])
-            .to_owned(),
-        )
-        .build(txn.get_database_backend());
-    query.sql = format!(
-        "{} WHERE state_trees.seq IS NULL OR excluded.seq >= state_trees.seq",
-        query.sql
-    );
-    txn.execute(query).await.map_err(|e| {
-        IngesterError::DatabaseError(format!("Failed to persist path nodes: {}", e))
-    })?;
+    // Seven bind values per row: one statement for a replayed snapshot batch
+    // passed the Postgres limit of 65,535, so the rows go in chunks.
+    let models = models_to_updates.into_values().collect::<Vec<_>>();
+    for chunk in models.chunks(MAX_SQL_INSERTS) {
+        let mut query = state_trees::Entity::insert_many(chunk.iter().cloned())
+            .on_conflict(
+                OnConflict::columns([
+                    state_trees::Column::Tree,
+                    state_trees::Column::TreeKind,
+                    state_trees::Column::NodeIdx,
+                ])
+                .update_columns([
+                    state_trees::Column::Hash,
+                    state_trees::Column::Seq,
+                    state_trees::Column::LeafIdx,
+                ])
+                .to_owned(),
+            )
+            .build(txn.get_database_backend());
+        query.sql = format!(
+            "{} WHERE state_trees.seq IS NULL OR excluded.seq >= state_trees.seq",
+            query.sql
+        );
+        txn.execute(query).await.map_err(|e| {
+            IngesterError::DatabaseError(format!("Failed to persist path nodes: {}", e))
+        })?;
+    }
 
     log::debug!(
         "Successfully persisted {} nodes for tree {:?} kind {:?}",
