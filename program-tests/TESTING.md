@@ -157,7 +157,7 @@ Tests never silently skip because an artifact is absent. A test that needs an
 artifact panics with the command that produces it.
 
 - `just build-programs` must produce the SBF files in `target/deploy`.
-- `just build-cli` must produce `target/debug/zolana`.
+- `just build-cli` must produce `target/debug/spr`.
 - `just build-prover-server` must produce `target/prover-server`.
 - Validator harnesses validate every required binary before startup and use
   process-specific ledger/account directories.

@@ -1,5 +1,5 @@
 //! groth16-solana exports a setup marker next to every generated verifying key,
-//! and `zolana vks check` reads those markers back from a deployed program. The
+//! and `spr vks check` reads those markers back from a deployed program. The
 //! markers sit in dependency crates (`spr-interface`, `spr-tree`), so this
 //! reads the built `.so` (run `just build-programs` first) and expects exactly
 //! one production marker per committed verifying key, each carrying the

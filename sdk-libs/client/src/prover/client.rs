@@ -1225,7 +1225,7 @@ async fn async_wait_or_timeout(
     Ok(())
 }
 
-/// Block until a prover server is reachable, starting one via the `zolana` CLI if
+/// Block until a prover server is reachable, starting one via the `spr` CLI if
 /// none is already running. Intended for tests.
 #[cfg(feature = "reqwest")]
 pub fn spawn_prover() -> Result<(), ClientError> {
@@ -1256,7 +1256,7 @@ impl ProverLaunch {
         let cli_bin = cli_bin.as_ref();
         if !cli_bin.is_file() {
             return Err(ClientError::Prover(format!(
-                "zolana CLI is missing: {}; build it before starting the prover",
+                "spr CLI is missing: {}; build it before starting the prover",
                 cli_bin.display()
             )));
         }
@@ -1330,7 +1330,7 @@ impl ProverLaunch {
     fn run_cli(&self) -> Result<(), ClientError> {
         let Some(cli) = self.cli.clone().or_else(get_cli_command) else {
             return Err(ClientError::Prover(
-                "could not locate the `zolana` CLI; set ZOLANA_CLI_BIN or build target/debug/zolana"
+                "could not locate the `spr` CLI; set SPR_CLI_BIN or build target/debug/spr"
                     .to_string(),
             ));
         };
@@ -1385,21 +1385,21 @@ fn get_cli_command() -> Option<String> {
             return Some(command.to_string());
         }
     }
-    if let Ok(path) = env::var("ZOLANA_CLI_BIN") {
+    if let Ok(path) = env::var("SPR_CLI_BIN") {
         let path = path.trim();
         if !path.is_empty() {
             return Some(shell_quote(path));
         }
     }
     if let Some(project_root) = get_project_root() {
-        for relative_path in ["target/debug/zolana", "target/release/zolana"] {
+        for relative_path in ["target/debug/spr", "target/release/spr"] {
             let local_cli = Path::new(&project_root).join(relative_path);
             if local_cli.is_file() {
                 return Some(shell_quote(&local_cli.to_string_lossy()));
             }
         }
     }
-    find_in_path("zolana").map(|path| shell_quote(&path))
+    find_in_path("spr").map(|path| shell_quote(&path))
 }
 
 #[cfg(feature = "reqwest")]
@@ -1805,8 +1805,8 @@ mod tests {
     #[test]
     fn prover_start_command_omits_empty_redis_url() {
         assert_eq!(
-            prover_start_command("zolana", 3001, Some("  ")),
-            "zolana dev prover start --prover-port 3001"
+            prover_start_command("spr", 3001, Some("  ")),
+            "spr dev prover start --prover-port 3001"
         );
     }
 

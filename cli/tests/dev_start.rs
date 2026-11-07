@@ -28,7 +28,7 @@ impl Sandbox {
     }
 
     fn dev_start(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_zolana"))
+        Command::new(env!("CARGO_BIN_EXE_spr"))
             .args(["dev", "start", "--local", "--rpc-port"])
             .arg(self.rpc_port.to_string())
             .arg("--log-dir")
@@ -37,7 +37,7 @@ impl Sandbox {
             .env("PATH", &self.dir)
             .env("SURFPOOL_BIN", self.dir.join("surfpool"))
             .output()
-            .expect("run zolana")
+            .expect("run spr")
     }
 
     fn surfpool_args(&self, args: &[&str]) -> Vec<String> {

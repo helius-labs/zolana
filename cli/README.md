@@ -1,6 +1,6 @@
-# zolana CLI
+# spr CLI
 
-Install the `zolana` binary directly from the repository (no checkout needed).
+Install the `spr` binary directly from the repository (no checkout needed).
 This builds from source, so it pulls the workspace's git dependencies; the CLI is
 not published to crates.io.
 
@@ -19,7 +19,7 @@ For local development from a checkout, install from the working tree instead:
 cargo install --path cli --force
 ```
 
-If `zolana` is not found, add Cargo bin to your PATH:
+If `spr` is not found, add Cargo bin to your PATH:
 
 ```bash
 echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
@@ -29,22 +29,23 @@ source ~/.zshrc
 Verify:
 
 ```bash
-which zolana
-zolana --help
+which spr
+spr --help
+spr version          # ok version cli=<crate version> localnet=<pinned localnet release>
 ```
 
 Commands:
 
 ```bash
-zolana config get
-zolana config set --keypair ~/.config/zolana/pid.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
-zolana wallet init --airdrop-lamports 1000000000
-zolana dev pool create-tree --airdrop-lamports 10000000000000
-zolana sync --indexer-url http://127.0.0.1:8784
-zolana balance --indexer-url http://127.0.0.1:8784
-zolana deposit --amount 1000000000 --mint SOL --airdrop-lamports 2000000000
-zolana transfer --to <RECIPIENT_SOLANA_PUBKEY> --amount 300000000 --mint SOL
-zolana withdraw --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
+spr config get
+spr config set --keypair ~/.config/zolana/pid.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
+spr wallet init --airdrop-lamports 1000000000
+spr dev pool create-tree --airdrop-lamports 10000000000000
+spr sync --indexer-url http://127.0.0.1:8784
+spr balance --indexer-url http://127.0.0.1:8784
+spr deposit --amount 1000000000 --mint SOL --airdrop-lamports 2000000000
+spr transfer --to <RECIPIENT_SOLANA_PUBKEY> --amount 300000000 --mint SOL
+spr withdraw --to <PUBLIC_SOL_PUBKEY> --amount 200000000 --mint SOL
 ```
 
 Wallet commands use the wallet file's Solana funding key for fees/public SOL
@@ -74,7 +75,7 @@ Optional wallet path:
 ## Local dev environment
 
 ```bash
-zolana dev start          # or: zolana test-env
+spr dev start          # or: spr test-env
 ```
 
 By default `dev start` bootstraps a ready-to-use localnet from a pinned GitHub
@@ -90,8 +91,8 @@ boot a fully-initialized localnet with no repo checkout and nothing prebuilt.
 Skip the indexer or prover:
 
 ```bash
-zolana dev start --skip-indexer
-zolana dev start --skip-prover
+spr dev start --skip-indexer
+spr dev start --skip-prover
 ```
 
 Use `--local` to run against locally built artifacts instead (what dev and CI
@@ -99,7 +100,7 @@ use after `just build-programs` / `just build-prover-server` / `just
 build-photon`):
 
 ```bash
-zolana dev start --local --sbf-program <ID> target/deploy/<program>.so
+spr dev start --local --sbf-program <ID> target/deploy/<program>.so
 ```
 
 Passing any explicit `--sbf-program` also implies local mode. Override the
@@ -114,4 +115,4 @@ Maintainers publish the release with
 stages assets and regenerates the lockfile). It builds the programs, the host +
 linux-x64 prover/photon binaries, snapshots the initialized accounts in-process
 with LiteSVM (no keypairs or running validator needed), and regenerates the
-lockfile. The `zolana` CLI is built last so it embeds that lockfile.
+lockfile. The `spr` CLI is built last so it embeds that lockfile.

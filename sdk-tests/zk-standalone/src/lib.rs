@@ -12,7 +12,7 @@ extern crate spr_zk_dsl as spr_program;
 mod circuits;
 #[cfg(not(feature = "r1cs-export"))]
 pub mod instruction;
-/// The verifier modules `zolana zk compile` generates from the circuits.
+/// The verifier modules `spr zk compile` generates from the circuits.
 #[cfg(not(feature = "r1cs-export"))]
 pub mod verifier;
 

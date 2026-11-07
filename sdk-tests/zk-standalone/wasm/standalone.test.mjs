@@ -1,5 +1,5 @@
 // Proves and verifies the standalone fixture's Withdrawal circuit through the
-// wasm package `zolana zk compile` builds from a crate that depends on the zk
+// wasm package `spr zk compile` builds from a crate that depends on the zk
 // DSL alone. Run by `just test-zk-wasm`, which builds the package and the test
 // keys first.
 import assert from "node:assert/strict";

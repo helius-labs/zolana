@@ -106,7 +106,7 @@ test-tree:
 # Program/interface tests for the shielded-pool implementation.
 # Depends on build-programs so the litesvm tests load a fresh .so and actually
 # run (without it `program_test()` finds no .so and the suite skips). Builds
-# the prover server and zolana CLI because transact tests spawn a local prover.
+# the prover server and spr CLI because transact tests spawn a local prover.
 test-shielded-pool: build-test-programs build-prover-server build-cli
     cargo nextest run -p spr-interface -p spr-instruction -p spr-protocol-instructions
     cargo nextest run -p shielded-pool-program --lib --tests
@@ -235,7 +235,7 @@ _test-ts-live test-script: build-test-programs build-prover-server build-cli ens
     : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
     : "${USER_REGISTRY_PROGRAM_ID:?xtask did not emit USER_REGISTRY_PROGRAM_ID}"
     : "${DEFAULT_TREE_ADDRESS:?xtask did not emit DEFAULT_TREE_ADDRESS}"
-    bin="target/debug/zolana"
+    bin="target/debug/spr"
     workdir="target/ts-sdk-e2e"
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
@@ -348,9 +348,9 @@ coverage-report *args="--summary-only":
 
 # All spr-client tests (lib unit tests and the proving/integration test
 # binaries). The proving tests spawn the prover server
-# (via the zolana CLI), which lazily downloads any missing proving keys from
+# (via the spr CLI), which lazily downloads any missing proving keys from
 # CloudFront (verified against the committed lockfile; no token). Builds the Go
-# prover binary and the zolana CLI the spawned server/test rely on.
+# prover binary and the spr CLI the spawned server/test rely on.
 test-client-integration: build-prover-server build-cli
     cargo nextest run -p spr-client --all-features --test-threads 1
     cargo test --doc -p spr-client --all-features
@@ -365,7 +365,7 @@ test-client-async-transfer-queue: build-prover-server build-cli
         cargo nextest run -p spr-client --features proofs --test transfer_dummy -E 'test(=dummy_transfer_2_4_proof_verifies)' --test-threads 1
 
 # Program integration tests backed by LiteSVM. Transact tests spawn the prover
-# through the zolana CLI.
+# through the spr CLI.
 test-programs: build-test-programs build-prover-server build-cli
     cargo nextest run -p shielded-pool-tests --features proofs --test-threads 1
 
@@ -652,7 +652,7 @@ test-escrow-ts: build-test-programs build-prover-server build-cli ensure-photon 
     accounts_dir="$workdir/accounts"
     cargo run -q -p xtask -- generate-account-snapshots \
       --deploy-dir target/deploy --accounts-dir "$accounts_dir"
-    target/debug/zolana dev start \
+    target/debug/spr dev start \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
       --log-dir "$workdir/logs" \
@@ -684,7 +684,7 @@ _zk-program-wasm-keys:
 # generated types, proves in the worker, and compares against the native
 # fixtures and snarkjs.
 # A standalone circuit (zk DSL only) built to a Node.js wasm package with
-# `zolana zk compile`, proved and verified in Node.
+# `spr zk compile`, proved and verified in Node.
 test-zk-wasm:
     cargo test -p spr-zk-standalone-fixture --features circuits --test standalone the_committed_wasm_fixture_matches_the_native_path
     cargo run --release -q -p spr-cli -- zk compile --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --wasm-target nodejs --verifier --wasm-out target/zk/spr-zk-standalone-fixture/wasm-node
@@ -759,7 +759,7 @@ test-localnet-e2e: build-test-programs build-prover-server build-cli
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$spp_authority" tools/ci/nextest-suite.sh -p shielded-pool-tests --features localnet --test localnet_deposit --no-capture
 
 # Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
-# `#[serial]` test restarts a fresh validator + Photon via the `zolana` CLI,
+# `#[serial]` test restarts a fresh validator + Photon via the `spr` CLI,
 # so the protocol-config singleton never collides across tests.
 test-localnet-e2e-photon: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
@@ -785,7 +785,7 @@ test-localnet-e2e-photon: build-test-programs build-prover-server build-cli ensu
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       tools/ci/nextest-suite.sh -p shielded-pool-tests --features localnet --test localnet_wallet_cli --no-capture
 
-# Spawn a localnet (validator + prover + photon) via the `zolana` CLI, bootstrap a
+# Spawn a localnet (validator + prover + photon) via the `spr` CLI, bootstrap a
 # pool tree with an authority wallet, then run the tools/cli_smoke.sh coverage
 # script against it: one pass over every CLI operation using the real binary,
 # both asset rails (SOL + SPL) on the supported ed25519 wallet rail. The
@@ -797,7 +797,7 @@ test-cli-smoke: build-test-programs build-prover-server build-cli ensure-photon
     eval "$(tools/ci/xtask.sh program-ids)"
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_PROVER_KEYS_DIR="$PWD/{{spp-keys-dir}}"
-    bin="target/debug/zolana"
+    bin="target/debug/spr"
     workdir="target/cli-smoke"
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
@@ -840,7 +840,7 @@ test-cli-smoke: build-test-programs build-prover-server build-cli ensure-photon
     solana airdrop 100 "$(solana address --keypair "$funder")" --url {{localnet-rpc-url}} >/dev/null
 
     # 3. Run the coverage script against the live localnet.
-    WORKDIR="$PWD/$workdir" ZOLANA_BIN="$PWD/$bin" FUNDER="$PWD/$funder" \
+    WORKDIR="$PWD/$workdir" SPR_BIN="$PWD/$bin" FUNDER="$PWD/$funder" \
       RPC="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       ZOLANA_PROVER_URL="{{localnet-prover-url}}" ZOLANA_TREE="$tree" \
       tools/cli_smoke.sh
@@ -1120,7 +1120,7 @@ test-compression-validator: ensure-compression-keys build-test-programs build-pr
 # Minimal spr-client SDK example: deposit, shielded transfer, and withdrawal
 # building the SPP instructions by hand and submitting them
 # (sdk-tests/client/rust/deposit_transfer_withdraw.rs). Boots
-# solana-test-validator via the `zolana` CLI with the shielded pool, the user
+# solana-test-validator via the `spr` CLI with the shielded pool, the user
 # registry, and the Squads smart account, plus Photon and the SPP prover --
 # mirroring test-spp-validator.
 test-client-example: build-test-programs build-prover-server build-cli ensure-photon ensure-smart-account

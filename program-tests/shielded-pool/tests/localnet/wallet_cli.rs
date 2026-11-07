@@ -41,7 +41,7 @@ fn spl_token_account_amount(rpc: &SolanaRpc, token_account: &Pubkey) -> Result<u
     Ok(u64::from_le_bytes(amount_bytes))
 }
 
-/// Restart a fresh local validator + Photon through the `zolana` CLI (the same
+/// Restart a fresh local validator + Photon through the `spr` CLI (the same
 /// launcher the other photon e2e tests use; it owns the validator/photon
 /// orchestration and readiness checks). Deploys the shielded-pool and
 /// user-registry programs the wallet CLI needs (the latter backs pay-by-pubkey
@@ -52,24 +52,24 @@ fn restart_localnet() {
 }
 
 fn cli_bin() -> PathBuf {
-    std::env::var("ZOLANA_CLI_BIN")
+    std::env::var("SPR_CLI_BIN")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             PathBuf::from(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../../target/debug/zolana"
+                "/../../target/debug/spr"
             ))
         })
 }
 
-/// One captured `zolana` CLI invocation: exit status plus lossy stdout/stderr.
+/// One captured `spr` CLI invocation: exit status plus lossy stdout/stderr.
 struct CliOutput {
     status: std::process::ExitStatus,
     stdout: String,
     stderr: String,
 }
 
-/// Spawn `zolana args` with `env` and capture its output; the wrappers below
+/// Spawn `spr args` with `env` and capture its output; the wrappers below
 /// judge the exit status.
 fn run_cli(args: &[&str], env: &[(&str, &str)]) -> Result<CliOutput> {
     let mut command = Command::new(cli_bin());
@@ -79,7 +79,7 @@ fn run_cli(args: &[&str], env: &[(&str, &str)]) -> Result<CliOutput> {
     let output = command
         .args(args)
         .output()
-        .with_context(|| format!("spawn zolana {}", args.join(" ")))?;
+        .with_context(|| format!("spawn spr {}", args.join(" ")))?;
     Ok(CliOutput {
         status: output.status,
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -91,7 +91,7 @@ fn run_cli_with_env(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
     let output = run_cli(args, env)?;
     if !output.status.success() {
         bail!(
-            "zolana {} failed (status={}):\nstdout:{}\nstderr:{}",
+            "spr {} failed (status={}):\nstdout:{}\nstderr:{}",
             args.join(" "),
             output.status,
             output.stdout,
@@ -104,7 +104,7 @@ fn run_cli_with_env(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
 fn run_cli_expect_failure(args: &[&str], env: &[(&str, &str)]) -> Result<String> {
     let output = run_cli(args, env)?;
     if output.status.success() {
-        bail!("zolana {} unexpectedly succeeded", args.join(" "));
+        bail!("spr {} unexpectedly succeeded", args.join(" "));
     }
     Ok(format!("{}{}", output.stdout, output.stderr))
 }
@@ -338,7 +338,7 @@ impl TransferOutput {
 }
 
 /// Shared state for the `wallet_cli_sol_and_spl_cycle` story: the CLI endpoints,
-/// the wallet keypair paths, and the config file every `zolana` invocation
+/// the wallet keypair paths, and the config file every `spr` invocation
 /// reads.
 struct CycleEnv {
     rpc_url: String,

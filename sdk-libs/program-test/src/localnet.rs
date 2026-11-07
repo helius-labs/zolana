@@ -1,4 +1,4 @@
-//! A surfpool validator and Photon started through the `zolana` CLI, for tests
+//! A surfpool validator and Photon started through the `spr` CLI, for tests
 //! that run programs end to end against a real indexer.
 //!
 //! [`FixtureLocalnet`] is the usual entry point: it boots from
@@ -98,7 +98,7 @@ impl LocalnetPorts {
     }
 }
 
-/// A validator and Photon started by `zolana test-env`, without the prover.
+/// A validator and Photon started by `spr test-env`, without the prover.
 pub struct LocalnetValidator {
     pub cli_bin: PathBuf,
     /// The CLI runs from here.
@@ -129,7 +129,7 @@ impl LocalnetValidator {
         &self,
         upgradeable: &[UpgradeableProgram],
     ) -> Result<(), ProgramTestError> {
-        require_file("zolana CLI", &self.cli_bin)?;
+        require_file("spr CLI", &self.cli_bin)?;
         if !self.working_dir.is_dir() {
             return Err(ProgramTestError::Localnet(format!(
                 "working directory {} is missing",
@@ -220,7 +220,7 @@ fn run(mut command: Command, action: &str) -> Result<(), ProgramTestError> {
         Ok(())
     } else {
         Err(ProgramTestError::Localnet(format!(
-            "zolana test-env {action} exited with {status}"
+            "spr test-env {action} exited with {status}"
         )))
     }
 }
@@ -239,13 +239,13 @@ pub struct LocalnetPaths {
 
 impl LocalnetPaths {
     /// This workspace's builds, with scratch under `target/localnet`.
-    /// `ZOLANA_CLI_BIN` and `SHIELDED_POOL_PROGRAM_PATH` override the CLI and
+    /// `SPR_CLI_BIN` and `SHIELDED_POOL_PROGRAM_PATH` override the CLI and
     /// the pool program.
     pub fn workspace() -> Self {
         Self {
-            cli_bin: env::var("ZOLANA_CLI_BIN")
+            cli_bin: env::var("SPR_CLI_BIN")
                 .map(PathBuf::from)
-                .unwrap_or_else(|_| paths::workspace_path("target/debug/zolana")),
+                .unwrap_or_else(|_| paths::workspace_path("target/debug/spr")),
             shielded_pool_program: paths::default_program_path(),
             working_dir: paths::workspace_path(""),
             proving_keys_dir: paths::workspace_path("prover/server/proving-keys"),

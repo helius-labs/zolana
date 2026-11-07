@@ -14,7 +14,7 @@ crate-type = ["cdylib", "rlib"]
 default = ["insecure-test-setup"]
 # The committed verifying key comes from the deterministic test setup.
 insecure-test-setup = []
-# The circuits and their prover, on the host. `zolana zk compile` builds the
+# The circuits and their prover, on the host. `spr zk compile` builds the
 # circuits with this feature plus `r1cs-export`.
 circuits = [
     "dep:solana-address",
@@ -24,10 +24,10 @@ circuits = [
     "spr-zk-dsl/serde",
 ]
 r1cs-export = ["circuits", "spr-zk-dsl/r1cs-export"]
-# The wasm package `zolana zk compile` builds: `withdrawalProofInputs`, and
+# The wasm package `spr zk compile` builds: `withdrawalProofInputs`, and
 # with the prover features the build adds, `WithdrawalProver`.
 wasm = ["circuits", "spr-zk-dsl/wasm"]
-# The SBF program's entrypoint, for `zolana build-zk-program --sbf-features`.
+# The SBF program's entrypoint, for `spr build-zk-program --sbf-features`.
 bpf-entrypoint = []
 
 [dependencies]

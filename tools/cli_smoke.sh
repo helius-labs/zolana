@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-pass coverage smoke test for the `zolana` CLI against an already-deployed
+# One-pass coverage smoke test for the `spr` CLI against an already-deployed
 # Zolana environment (localnet or devnet): the shielded-pool program, pool tree,
 # prover, and Photon indexer must all be reachable. Runs every CLI operation once,
 # in dependency order, asserting each step, and exercises both the SOL and SPL
@@ -8,7 +8,7 @@
 # pingpong.sh / pingpong_parallel.sh soak scripts, which targeted a superseded
 # wallet-name/SOL-float CLI surface.
 #
-# Every zolana output is a machine-parseable `ok <verb> key=value ...` line; the
+# Every spr output is a machine-parseable `ok <verb> key=value ...` line; the
 # assertions below match on the leading `ok <verb>` and extract signature=/mode=/
 # hash=/count=/amount= as needed.
 #
@@ -21,7 +21,7 @@
 # Optional env:
 #   ZOLANA_TREE  pool tree account pubkey; omit to use the CLI's compiled-in
 #                DEFAULT_TREE_ADDRESS (the canonical deployed tree)
-#   ZOLANA_BIN   path to the zolana binary (default: ./target/release/zolana)
+#   SPR_BIN      path to the spr binary (default: ./target/release/spr)
 #   RPC          Solana RPC URL           (default: https://api.devnet.solana.com)
 #   FUNDER       Solana keypair that tops up wallet funding keys and receives the
 #                withdrawal (default: ~/.config/solana/id.json)
@@ -44,7 +44,7 @@ set -uo pipefail
 
 # --- configuration -----------------------------------------------------------
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # repo root (this script lives in tools/)
-BIN="${ZOLANA_BIN:-$ROOT/target/release/zolana}"
+BIN="${SPR_BIN:-$ROOT/target/release/spr}"
 RPC="${RPC:-https://api.devnet.solana.com}"
 FUNDER="${FUNDER:-$HOME/.config/solana/id.json}"
 WORKDIR="${WORKDIR:-$ROOT/.cli-smoke}"
@@ -81,7 +81,7 @@ xurl() { printf 'https://explorer.solana.com/tx/%s?cluster=%s' "$1" "$CLUSTER"; 
 # kv <key> — extract the value of key=<value> from LAST_OUT (first match).
 kv() { sed -n "s/.*[[:space:]]$1=\([^[:space:]]*\).*/\1/p" <<<"$LAST_OUT" | head -n1; }
 
-# Run a zolana subcommand, capturing combined output into LAST_OUT.
+# Run an spr subcommand, capturing combined output into LAST_OUT.
 # Returns the command's exit status.
 z() { LAST_OUT="$("$BIN" "$@" 2>&1)"; }
 
@@ -222,7 +222,7 @@ command -v solana >/dev/null || { log "solana CLI not found (needed for funding 
 
 mkdir -p "$WORKDIR"   # never wipe: funded wallet files here are reused across runs
 FUNDER_PUBKEY="$(solana address --keypair "$FUNDER" 2>/dev/null)"
-log "zolana CLI smoke test"
+log "spr CLI smoke test"
 log "  bin=$BIN"
 log "  rpc=$RPC  indexer=$INDEXER  prover=$PROVER"
 log "  tree=${TREE:-(CLI default)}"
@@ -233,6 +233,7 @@ log "================================================================"
 CONFIG_SET_ARGS=(config set --rpc-url "$RPC" --indexer-url "$INDEXER" --prover-url "$PROVER")
 [[ -n "$TREE" ]] && CONFIG_SET_ARGS+=(--tree "$TREE")
 step "config set (endpoints${TREE:+ + tree})" config "${CONFIG_SET_ARGS[@]}"
+step "version"           version version
 step "config get"        - config get
 step "config asset path" - config asset path
 step "config asset list" - config asset list

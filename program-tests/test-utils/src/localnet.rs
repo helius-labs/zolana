@@ -126,8 +126,7 @@ pub fn isolated_temp_path(label: &str) -> String {
 /// additional workspace SBF programs. Program paths are workspace-relative.
 pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str)]) {
     let artifacts = WorkspaceArtifacts::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
-    let cli =
-        std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| artifacts.path("target/debug/zolana"));
+    let cli = std::env::var("SPR_CLI_BIN").unwrap_or_else(|_| artifacts.path("target/debug/spr"));
     let shielded_pool_id =
         std::env::var("SHIELDED_POOL_PROGRAM_ID").expect("SHIELDED_POOL_PROGRAM_ID must be set");
     let upgrade_authority = match std::env::var("ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR") {

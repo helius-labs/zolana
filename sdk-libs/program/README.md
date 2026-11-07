@@ -58,9 +58,9 @@ verifies ZK program proofs. Its client enables `client`, and a key setup needs `
    `#[derive(PublicInputs)]`. `#[derive(CircuitType)]` declares a plain circuit type that is
    not stored in a UTXO.
 2. Implement `Circuit` on the derived circuit type.
-3. `zolana build-zk-program -p <crate>` writes each circuit's `.r1cs` and test keys to
+3. `spr build-zk-program -p <crate>` writes each circuit's `.r1cs` and test keys to
    `<target>/zk/<crate>`, the verifier modules to `src/verifier/`, builds the wasm module and
-   runs `cargo build-sbf`. `zolana zk compile | setup | import | export-verifier` run the steps
+   runs `cargo build-sbf`. `spr zk compile | setup | import | export-verifier` run the steps
    one at a time.
 4. `src/verifier/` is committed. It holds `mod.rs` and, per program, `<program>.rs` with its
    `PublicInputs`, their `hash`, and a `Verifier` with a `verify` method, and `<program>.vk.rs` with the verifying key. The
@@ -362,7 +362,7 @@ Rules a program keeps:
 
 ### `spr_program::wasm` (feature `wasm`)
 
-The bindings a ZK program's wasm module exports to JavaScript, which `zolana zk compile`
+The bindings a ZK program's wasm module exports to JavaScript, which `spr zk compile`
 builds with wasm-pack: `ProgramTransaction`, `FinalizedTransaction` and `DataUtxo` as
 TypeScript types and a `<name>Transaction` function per program. The rest is the zk DSL's
 wasm runtime (`spr_zk_dsl::wasm`), shared with standalone circuits: a `<Name>Prover` per
@@ -477,25 +477,25 @@ just test-zk-program-wasm           # the wasm module in Chromium
 
 ## Keys for a deployment
 
-`new_with_test_setup` and the keys `zolana build-zk-program` writes come from a single-party
+`new_with_test_setup` and the keys `spr build-zk-program` writes come from a single-party
 setup with a fixed seed, for tests only. A deployment needs a ceremony and its exported
 verifying key in the program. The ceremony runs on snarkjs over a published,
 phase-2-prepared ptau:
 
 ```bash
-zolana zk compile -p <crate> --skip-keys --skip-wasm --r1cs-out keys
+spr zk compile -p <crate> --skip-keys --skip-wasm --r1cs-out keys
 snarkjs groth16 setup keys/<circuit>.r1cs powersOfTau28_hez_final_14.ptau keys/<circuit>_0000.zkey
 snarkjs zkey contribute keys/<circuit>_0000.zkey keys/<circuit>_0001.zkey --name="contributor 1"
 snarkjs zkey beacon keys/<circuit>_0001.zkey keys/<circuit>_final.zkey <beacon hex> 10 -n="final beacon"
 snarkjs zkey verify keys/<circuit>.r1cs powersOfTau28_hez_final_14.ptau keys/<circuit>_final.zkey
 ```
 
-`zolana zk import keys/<circuit>_final.zkey --r1cs keys/<circuit>.r1cs -p <crate>` then checks
+`spr zk import keys/<circuit>_final.zkey --r1cs keys/<circuit>.r1cs -p <crate>` then checks
 the zkey against the r1cs and writes `target/zk/<crate>/<circuit>.pk`, and
 the following exports the checked key into `src/verifier/<circuit>.vk.rs`:
 
 ```bash
-zolana zk export-verifier --setup production -p <crate> \
+spr zk export-verifier --setup production -p <crate> \
   --checksums target/zk/<crate>/<circuit>.pk.sha256 target/zk/<crate>/<circuit>.pk
 ```
 

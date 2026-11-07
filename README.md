@@ -33,7 +33,7 @@ cargo install just --locked
 
 just build                # compile the default workspace members
 just check-all            # type-check all workspace members and targets
-just build-cli            # target/debug/zolana
+just build-cli            # target/debug/spr
 just build-photon         # target/debug/photon
 ```
 
@@ -108,14 +108,14 @@ hits the production-critical surface quickly. For full-workspace coverage use `j
 
 ## Install the CLI
 
-Install the `zolana` binary straight from the repository (builds from source, so
+Install the `spr` binary straight from the repository (builds from source, so
 it pulls the workspace's git dependencies; not published to crates.io):
 
 ```bash
 cargo install --git https://github.com/helius-labs/zolana --tag v0.4.0-alpha spr-cli
 ```
 
-`zolana dev start` then fetches a version-pinned, pre-initialized localnet
+`spr dev start` then fetches a version-pinned, pre-initialized localnet
 (programs, account snapshots, prover, and Photon) from the matching release. See
 [`cli/README.md`](cli/README.md) for commands and the `--local` dev flow.
 

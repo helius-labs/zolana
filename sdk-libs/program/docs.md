@@ -7,7 +7,7 @@ The circuits are defined in a Rust crate alongside the Solana program.
 The developer defines circuit public and private inputs with normal rust types.  
 Macros derive the circuit equivalent types and client wasm bindings for state deserilization, witness generation and proving.
 
-The zolana cli build command unifies the build of circuits, program and wasm for ts clients.
+The spr CLI build command unifies the build of circuits, program and wasm for ts clients.
 
 ## Development of a Zk program
 
@@ -17,7 +17,7 @@ The zolana cli build command unifies the build of circuits, program and wasm for
    3. Implement the circuit’s checks, transfers, and transaction assembly.
    4. Implement the Solana instruction that verifies the proof and invokes SPP.
 2. **Build Solana Program and Circuit**
-   1. Run `zolana build-zk-program -p <crate>`.
+   1. Run `spr build-zk-program -p <crate>`.
    2. Export the circuits as R1CS.
    3. Generate or reuse proving and verifying keys and generate verifier modules.
    4. Build the wasm package for TypeScript clients.
@@ -442,7 +442,7 @@ pub fn process_increment_ix(accounts: &mut [AccountView], data: &[u8]) -> Progra
 The Zolana CLI builds the circuits, verifier modules, client wasm package, and Solana program.
 
 ```sh
-zolana build-zk-program -p <crate>
+spr build-zk-program -p <crate>
 ```
 
 1. **Circuits:** discovers structs deriving `ZkProgramCircuit` and exports each circuit to `target/zk/<crate>/<circuit>.r1cs`.
@@ -487,25 +487,25 @@ pub mod instructions;
 Use `--test` to generate reproducible keys using a fixed test seed. Keys are generated when missing or when the circuit’s R1CS changes and reused otherwise.
 
 ```sh
-zolana build-zk-program -p <crate> --test
+spr build-zk-program -p <crate> --test
 ```
 
 ### Check Binary
 
-Use `zolana vks check` to inspect the verifying-key setup markers in a local binary or deployed program. The command reports the keys found, whether any use a test setup, and an overall pass or fail result with reasons. If no markers are found, it reports that the setup is unknown. Failed checks return a nonzero exit code for CI.
+Use `spr vks check` to inspect the verifying-key setup markers in a local binary or deployed program. The command reports the keys found, whether any use a test setup, and an overall pass or fail result with reasons. If no markers are found, it reports that the setup is unknown. Failed checks return a nonzero exit code for CI.
 
 ```sh
 # Check a local program binary before deployment.
-zolana vks check --so target/deploy/<program>.so
+spr vks check --so target/deploy/<program>.so
 
 # Check the deployed program.
-zolana vks check --program-id <program-id> --rpc-url <rpc-url>
+spr vks check --program-id <program-id> --rpc-url <rpc-url>
 ```
 
 Each verifying key’s binary marker includes the SHA-256 hash of its corresponding proving key, using `groth16-solana`’s setup metadata. Pass the proving-key checksum manifest with `--expect` to compare its hashes with those embedded in the binary. The command reports missing or mismatched hashes; it reads the manifest rather than hashing the proving-key files itself.
 
 ```sh
-zolana vks check --program-id <program-id> --rpc-url <rpc-url> \
+spr vks check --program-id <program-id> --rpc-url <rpc-url> \
   --expect target/zk/<crate>/<circuit>.pk.sha256
 ```
 

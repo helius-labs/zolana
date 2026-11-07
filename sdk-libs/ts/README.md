@@ -182,7 +182,7 @@ See the [TEE deployment guide](../../prover/tee/README.md) for policy sources
 and measured-build provenance. Attestation signature, certificate, nonce,
 freshness and HPKE-key checks remain required with a supplied policy.
 
-On localnet, start the stack first with `zolana dev start`. The local test
+On localnet, start the stack first with `spr dev start`. The local test
 validator (`:8899`), Photon indexer (`:8784`), and prover (`:3001`) then
 listen, and the client connects to them automatically without needing
 endpoint configuration.
