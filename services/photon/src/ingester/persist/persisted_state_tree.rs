@@ -33,6 +33,9 @@ pub fn get_level_by_node_index(index: i64, tree_height: u32) -> i64 {
     leaf_depth.saturating_sub(depth_from_root)
 }
 
+/// Nodes per `get_proof_nodes` statement: 30,000 bind values.
+const PROOF_NODES_PER_QUERY: usize = 10_000;
+
 pub async fn get_proof_nodes<T>(
     txn_or_conn: &T,
     leaf_nodes_locations: Vec<(Vec<u8>, i32, i64)>,
@@ -60,36 +63,43 @@ where
         .dedup()
         .collect::<Vec<(Vec<u8>, i32, i64)>>();
 
-    let mut params = Vec::new();
-    let mut placeholders = Vec::new();
+    // Three bind values per node. One statement for a replayed snapshot batch
+    // (~10,000 new leaves) passed SQLite's 32,766 and came near Postgres's
+    // 65,535, so the nodes are read in chunks under both.
+    let mut proof_nodes = Vec::new();
+    for chunk in all_required_node_indices.chunks(PROOF_NODES_PER_QUERY) {
+        let mut params = Vec::with_capacity(chunk.len() * 3);
+        let mut placeholders = Vec::with_capacity(chunk.len());
 
-    for (index, (tree, tree_kind, node_idx)) in all_required_node_indices.into_iter().enumerate() {
-        let param_index = index * 3; // each location contributes three parameters
-        params.push(Value::from(tree));
-        params.push(Value::from(tree_kind));
-        params.push(Value::from(node_idx));
-        placeholders.push(format!(
-            "(${}, ${}, ${})",
-            param_index + 1,
-            param_index + 2,
-            param_index + 3
-        ));
-    }
+        for (index, (tree, tree_kind, node_idx)) in chunk.iter().enumerate() {
+            let param_index = index * 3;
+            params.push(Value::from(tree.clone()));
+            params.push(Value::from(*tree_kind));
+            params.push(Value::from(*node_idx));
+            placeholders.push(format!(
+                "(${}, ${}, ${})",
+                param_index + 1,
+                param_index + 2,
+                param_index + 3
+            ));
+        }
 
-    let placeholder_str = placeholders.join(", ");
-    let sql = format!(
+        let sql = format!(
             "WITH vals(tree, tree_kind, node_idx) AS (VALUES {}) SELECT st.* FROM state_trees st JOIN vals v ON st.tree = v.tree AND st.tree_kind = v.tree_kind AND st.node_idx = v.node_idx",
-            placeholder_str
+            placeholders.join(", ")
         );
 
-    let proof_nodes = state_trees::Entity::find()
-        .from_raw_sql(Statement::from_sql_and_values(
-            txn_or_conn.get_database_backend(),
-            &sql,
-            params,
-        ))
-        .all(txn_or_conn)
-        .await?;
+        proof_nodes.extend(
+            state_trees::Entity::find()
+                .from_raw_sql(Statement::from_sql_and_values(
+                    txn_or_conn.get_database_backend(),
+                    &sql,
+                    params,
+                ))
+                .all(txn_or_conn)
+                .await?,
+        );
+    }
 
     let mut result = proof_nodes
         .iter()
