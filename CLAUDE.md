@@ -136,7 +136,7 @@ Program tests that load real SBF binaries need the local builds:
 just build-programs
 ```
 
-### Per-clone port isolation (`ZOLANA_PORT_OFFSET`)
+### Per-clone port isolation (`SPR_PORT_OFFSET`)
 
 Localnet/prover-backed tests bind fixed ports (RPC 8899, photon 8784, prover
 3001), so two clones running them at once contend. To isolate a clone, set a
@@ -145,18 +145,18 @@ dotenv-load`); the justfile shifts every service port by it and derives the
 matching URLs:
 
 ```bash
-cp .env.example .env        # then set e.g. ZOLANA_PORT_OFFSET=100
+cp .env.example .env        # then set e.g. SPR_PORT_OFFSET=100
 ```
 
 Offset 100 -> RPC 8999, photon 8884, prover 3101. Use 0 / 100 / 200 / ... per
-clone (stay below ~900). The justfile exports `ZOLANA_PROVER_URL`, and the
-tests read `ZOLANA_LOCALNET_URL` / `ZOLANA_INDEXER_URL` / `ZOLANA_PROVER_URL`,
+clone (stay below ~900). The justfile exports `SPR_PROVER_URL`, and the
+tests read `SPR_LOCALNET_URL` / `SPR_INDEXER_URL` / `SPR_PROVER_URL`,
 so the offset flows into every `just test-*` recipe. Individual
-`ZOLANA_LOCALNET_RPC_PORT` / `ZOLANA_LOCALNET_PHOTON_PORT` /
-`ZOLANA_LOCALNET_PROVER_PORT` (and the URL vars) still override the derived
+`SPR_LOCALNET_RPC_PORT` / `SPR_LOCALNET_PHOTON_PORT` /
+`SPR_LOCALNET_PROVER_PORT` (and the URL vars) still override the derived
 value when set explicitly.
 
-`ZOLANA_PROVER_URL` is the single source of truth for the prover: the client
+`SPR_PROVER_URL` is the single source of truth for the prover: the client
 connects there and `spawn_prover()` starts the spawned server on that URL's
 port. Running `cargo test` directly (not via `just`) does not auto-load `.env`
 -- export the vars yourself (`set -a; source .env; set +a`) or use `direnv`.
@@ -166,7 +166,7 @@ port. Running `cargo test` directly (not via `just`) does not auto-load `.env`
 Suites that boot through `spr_program_test::localnet::FixtureLocalnet`
 (swap, timelock escrow, dynamic swap, rfq, compression) run in parallel: each
 test passes its own number to `setup(n)`, which binds
-`LocalnetPorts::for_test(n)`, the default ports shifted by `ZOLANA_PORT_OFFSET +
+`LocalnetPorts::for_test(n)`, the default ports shifted by `SPR_PORT_OFFSET +
 1000 * n`. The tests share this checkout's prover. Give every new test a number
 no other FixtureLocalnet test uses; `just test-examples-validator` runs all of
 them at once. The validator's WebSocket always takes the port above its RPC
@@ -532,7 +532,7 @@ The downloader (`EnsureProvingKey` in `key_downloader.go`) is cache-first: verif
 an on-disk key against the lockfile `sha256` (offline), else HTTPS-GET
 `<base>/<prefix>/<name>` and hard-fail unless the bytes match the pinned `size` +
 `sha256`. The base URL defaults to the CloudFront domain defined in
-`key_downloader.go` and is overridable with `ZOLANA_PROVING_KEYS_URL`; no GitHub
+`key_downloader.go` and is overridable with `SPR_PROVING_KEYS_URL`; no GitHub
 token, release tag, or `CHECKSUM`. Version-hashed folders are immutable, so a
 rotation writes a NEW folder and leaves old ones untouched (old CLI -> old keys,
 new CLI -> new keys; no CloudFront invalidation). CI caches

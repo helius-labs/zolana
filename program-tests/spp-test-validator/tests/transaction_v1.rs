@@ -51,14 +51,14 @@ const MAX_LOADED_ACCOUNTS_DATA_SIZE: u32 = 64 * 1024 * 1024;
 /// A port of its own, so a probe never contends with the shielded-pool suites'
 /// fixed 8899 and never has to join the `serial-validator` group.
 fn probe_port() -> u16 {
-    std::env::var("ZOLANA_V1_PROBE_PORT")
+    std::env::var("SPR_V1_PROBE_PORT")
         .ok()
         .and_then(|raw| raw.parse().ok())
         .unwrap_or(8920)
 }
 
 fn surfpool_bin() -> PathBuf {
-    std::env::var("ZOLANA_SURFPOOL_BIN").map_or_else(
+    std::env::var("SPR_SURFPOOL_BIN").map_or_else(
         |_| {
             PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
                 .join("target/tools/surfpool")

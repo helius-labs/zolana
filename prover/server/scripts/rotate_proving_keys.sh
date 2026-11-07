@@ -20,13 +20,13 @@ set -euo pipefail
 #   prover/server/scripts/rotate_proving_keys.sh [keys_dir]
 #
 # Requires the aws CLI with write access to the proving-keys bucket.
-# Config: ZOLANA_PROVING_KEYS_BUCKET (default: zolana-proving-keys).
+# Config: SPR_PROVING_KEYS_BUCKET (default: zolana-proving-keys).
 
 server_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_root="$(cd "$server_dir/../.." && pwd)"
 keys_dir="${1:-$server_dir/proving-keys}"
 
-bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
+bucket="${SPR_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
 
 cd "$server_dir"
 # keys_dir may be relative to prover/server; some steps below run from the repo

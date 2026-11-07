@@ -7,7 +7,7 @@
 //! wallet across iterations, and records where the time actually goes.
 //!
 //! The phase breakdown is the point. This crate times the outer phases itself;
-//! `ZOLANA_TIMING=1` adds the client's finer ones (HTTP versus indexer polling,
+//! `SPR_TIMING=1` adds the client's finer ones (HTTP versus indexer polling,
 //! each proof fetch) to stderr, which is how a phase gets attributed to a
 //! specific call rather than to "the indexer". "Transfers per second" alone cannot tell you
 //! whether you are bound by proving, by the indexer, or by your own client, and

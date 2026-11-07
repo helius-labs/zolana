@@ -306,7 +306,7 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
     let photon = match binary {
         Some(path) => path.to_path_buf(),
         None => find_binary(
-            &["ZOLANA_PHOTON_BIN"],
+            &["SPR_PHOTON_BIN"],
             &["target/release/photon", "target/debug/photon"],
             &["photon"],
         )?,

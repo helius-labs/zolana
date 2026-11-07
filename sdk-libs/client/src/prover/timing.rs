@@ -1,4 +1,4 @@
-//! Opt-in phase timing, printed to stderr when `ZOLANA_TIMING` is set.
+//! Opt-in phase timing, printed to stderr when `SPR_TIMING` is set.
 //!
 //! Lives in the client crate because the interesting
 //! question spans crates: a transfer's cost splits across syncing, fetching
@@ -11,7 +11,7 @@ use std::{
 
 fn enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("ZOLANA_TIMING").is_some())
+    *ON.get_or_init(|| std::env::var_os("SPR_TIMING").is_some())
 }
 
 /// Emit a scalar observation (counts, sizes) alongside the phase timings.

@@ -207,7 +207,7 @@ fn cache_dir(tag: &str) -> PathBuf {
 }
 
 fn release_base_url() -> String {
-    env::var("ZOLANA_RELEASE_URL").unwrap_or_else(|_| DEFAULT_RELEASE_BASE_URL.to_string())
+    env::var("SPR_RELEASE_URL").unwrap_or_else(|_| DEFAULT_RELEASE_BASE_URL.to_string())
 }
 
 fn ensure_file(tag: &str, asset: &Asset, base_url: &str) -> Result<PathBuf> {

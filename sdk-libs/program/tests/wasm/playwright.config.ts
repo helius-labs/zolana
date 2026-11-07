@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT =
-  Number(process.env.ZK_WASM_TEST_PORT ?? 4327) + Number(process.env.ZOLANA_PORT_OFFSET ?? 0);
+  Number(process.env.ZK_WASM_TEST_PORT ?? 4327) + Number(process.env.SPR_PORT_OFFSET ?? 0);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({

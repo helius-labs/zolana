@@ -22,7 +22,7 @@ pub(crate) fn default_tree() -> Pubkey {
 #[cfg(test)]
 pub(crate) static CONFIG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Persistent CLI settings stored at `~/.config/zolana/config.json`.
+/// Persistent CLI settings stored at `~/.config/spr/config.json`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CliConfigFile {
     pub version: u8,
@@ -135,18 +135,18 @@ impl CliConfigFile {
 }
 
 pub(crate) fn config_dir() -> PathBuf {
-    if let Ok(path) = env::var("ZOLANA_CONFIG_DIR") {
+    if let Ok(path) = env::var("SPR_CONFIG_DIR") {
         return PathBuf::from(path);
     }
     if let Some(home) = env::var_os("HOME") {
-        PathBuf::from(home).join(".config").join("zolana")
+        PathBuf::from(home).join(".config").join("spr")
     } else {
         PathBuf::from(".zolana")
     }
 }
 
 pub(crate) fn config_file_path() -> PathBuf {
-    if let Ok(path) = env::var("ZOLANA_CONFIG") {
+    if let Ok(path) = env::var("SPR_CONFIG") {
         return PathBuf::from(path);
     }
     config_dir().join("config.json")
@@ -223,7 +223,7 @@ mod tests {
     fn save_and_load_round_trips_config() {
         let _guard = CONFIG_ENV_LOCK.lock().expect("config env lock");
         let (path, path_str) = temp_config();
-        unsafe { env::set_var("ZOLANA_CONFIG", &path_str) };
+        unsafe { env::set_var("SPR_CONFIG", &path_str) };
         let config = CliConfigFile {
             version: CONFIG_VERSION,
             keypair: Some("/tmp/alice.pid.json".to_string()),

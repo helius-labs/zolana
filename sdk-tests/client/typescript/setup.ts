@@ -71,7 +71,7 @@ export interface ExampleSetup {
   readonly spl: SplExampleSetup;
   /**
    * Empty on a default localnet, so the example client stays zero-config. The
-   * `just` live recipes shift every service port by `ZOLANA_PORT_OFFSET` and
+   * `just` live recipes shift every service port by `SPR_PORT_OFFSET` and
    * export the resulting URLs; those must reach the client or it polls dead
    * default ports until the test times out.
    */
@@ -85,9 +85,9 @@ function requiredEnv(name: string): string {
 }
 
 function clientConfigFromEnv(): SprClientConfig {
-  const solanaRpcUrl = process.env["ZOLANA_LOCALNET_URL"];
-  const indexerUrl = process.env["ZOLANA_INDEXER_URL"];
-  const proverUrl = process.env["ZOLANA_PROVER_URL"];
+  const solanaRpcUrl = process.env["SPR_LOCALNET_URL"];
+  const indexerUrl = process.env["SPR_INDEXER_URL"];
+  const proverUrl = process.env["SPR_PROVER_URL"];
   return Object.freeze({
     ...(solanaRpcUrl === undefined ? {} : { solanaRpcUrl }),
     ...(indexerUrl === undefined ? {} : { indexerUrl }),
@@ -106,7 +106,7 @@ function subscriptionsUrl(rpcUrl: string): string {
 
 async function senderKeypair(): Promise<ShieldedKeypair> {
   const wallet = JSON.parse(
-    await readFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"), "utf8"),
+    await readFile(requiredEnv("SPR_TEST_AUTHORITY_WALLET"), "utf8"),
   ) as {
     funding_secret_hex?: unknown;
   };
@@ -269,7 +269,7 @@ export async function setup(): Promise<ExampleSetup> {
   await initializePoseidon();
 
   const sender = await senderKeypair();
-  const mint = address(requiredEnv("ZOLANA_TEST_MINT"));
+  const mint = address(requiredEnv("SPR_TEST_MINT"));
   const [splInterfacePda] = await getProgramDerivedAddress({
     programAddress: SHIELDED_POOL_PROGRAM_ID,
     seeds: [encoder.encode("spl_asset_vault"), addressEncoder.encode(mint)],
@@ -277,7 +277,7 @@ export async function setup(): Promise<ExampleSetup> {
 
   const clientConfig = clientConfigFromEnv();
   await airdrop(clientConfig, sender.toSolanaSigner().address, SENDER_LAMPORTS);
-  const tokenAccount = address(requiredEnv("ZOLANA_TEST_TOKEN_ACCOUNT"));
+  const tokenAccount = address(requiredEnv("SPR_TEST_TOKEN_ACCOUNT"));
 
   return Object.freeze({
     sender,

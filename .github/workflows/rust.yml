@@ -384,10 +384,10 @@ jobs:
             runner: ubuntu-latest
     env:
       AGAVE_VERSION: v4.2.2
-      ZOLANA_PHOTON_BIN: target/bin/photon
-      ZOLANA_PREBUILT: "1"
-      ZOLANA_XTASK_BIN: target/debug/xtask
-      ZOLANA_NEXTEST_ARCHIVE_DIR: target/nextest-archives
+      SPR_PHOTON_BIN: target/bin/photon
+      SPR_PREBUILT: "1"
+      SPR_XTASK_BIN: target/debug/xtask
+      SPR_NEXTEST_ARCHIVE_DIR: target/nextest-archives
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -427,7 +427,7 @@ jobs:
         with:
           name: photon-linux-x86_64-${{ github.sha }}
           path: target/bin
-      - run: chmod 0755 "$ZOLANA_PHOTON_BIN"
+      - run: chmod 0755 "$SPR_PHOTON_BIN"
       - name: Download prebuilt programs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:

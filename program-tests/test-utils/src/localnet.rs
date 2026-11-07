@@ -129,7 +129,7 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
     let cli = std::env::var("SPR_CLI_BIN").unwrap_or_else(|_| artifacts.path("target/debug/spr"));
     let shielded_pool_id =
         std::env::var("SHIELDED_POOL_PROGRAM_ID").expect("SHIELDED_POOL_PROGRAM_ID must be set");
-    let upgrade_authority = match std::env::var("ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR") {
+    let upgrade_authority = match std::env::var("SPR_SPP_UPGRADE_AUTHORITY_KEYPAIR") {
         Ok(path) => read_keypair_file(&path)
             .unwrap_or_else(|error| panic!("read SPP upgrade authority keypair {path}: {error}"))
             .pubkey(),
@@ -175,20 +175,20 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
     .expect("start the shielded-pool localnet");
 }
 
-/// `ZOLANA_LOCALNET_URL`, else this checkout's validator.
+/// `SPR_LOCALNET_URL`, else this checkout's validator.
 #[track_caller]
 pub fn localnet_rpc_url() -> String {
-    std::env::var("ZOLANA_LOCALNET_URL").unwrap_or_else(|_| {
+    std::env::var("SPR_LOCALNET_URL").unwrap_or_else(|_| {
         LocalnetPorts::checkout()
             .expect("read this checkout's localnet ports")
             .rpc_url()
     })
 }
 
-/// `ZOLANA_INDEXER_URL`, else this checkout's Photon.
+/// `SPR_INDEXER_URL`, else this checkout's Photon.
 #[track_caller]
 pub fn localnet_indexer_url() -> String {
-    std::env::var("ZOLANA_INDEXER_URL").unwrap_or_else(|_| {
+    std::env::var("SPR_INDEXER_URL").unwrap_or_else(|_| {
         LocalnetPorts::checkout_photon_url().expect("resolve this checkout's Photon URL")
     })
 }

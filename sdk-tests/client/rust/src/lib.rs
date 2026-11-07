@@ -80,7 +80,7 @@ pub fn setup() -> Result<SetupContext> {
         .spawn()?;
 
     let prover_url =
-        std::env::var("ZOLANA_PROVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
+        std::env::var("SPR_PROVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
 
     let mut rpc = SolanaRpc::new(rpc_url.clone());
 

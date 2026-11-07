@@ -28,9 +28,9 @@ const (
 
 	// defaultProvingKeysBaseURL is the CloudFront distribution in front of the
 	// S3 bucket that hosts every Zolana proving key. Override it with
-	// ZOLANA_PROVING_KEYS_URL (e.g. to point at a mirror or a local server).
+	// SPR_PROVING_KEYS_URL (e.g. to point at a mirror or a local server).
 	defaultProvingKeysBaseURL = "https://d3gbdb0egjwcw9.cloudfront.net"
-	provingKeysURLEnvVar      = "ZOLANA_PROVING_KEYS_URL"
+	provingKeysURLEnvVar      = "SPR_PROVING_KEYS_URL"
 )
 
 // lockManifest and lockEntry alias the types owned by the provingkeys package so
@@ -53,7 +53,7 @@ func loadManifest() (*lockManifest, error) {
 	return provingkeys.Load()
 }
 
-// baseURL returns the object-store base URL, honoring the ZOLANA_PROVING_KEYS_URL
+// baseURL returns the object-store base URL, honoring the SPR_PROVING_KEYS_URL
 // override, with any trailing slash trimmed.
 func baseURL() string {
 	if v := strings.TrimSpace(os.Getenv(provingKeysURLEnvVar)); v != "" {

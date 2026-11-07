@@ -352,7 +352,7 @@ async fn load_snapshot_if_present(
 }
 
 fn block_headers(rpc_url: &str) -> Result<BlockHeaders> {
-    match std::env::var_os("ZOLANA_RING_SURFPOOL_FIXTURE") {
+    match std::env::var_os("SPR_RING_SURFPOOL_FIXTURE") {
         None => Ok(BlockHeaders::Chain),
         Some(opt_in) => surfpool_fixture(rpc_url, &opt_in),
     }
@@ -360,13 +360,13 @@ fn block_headers(rpc_url: &str) -> Result<BlockHeaders> {
 
 #[cfg(not(feature = "surfpool-fixture"))]
 fn surfpool_fixture(_rpc_url: &str, _opt_in: &std::ffi::OsStr) -> Result<BlockHeaders> {
-    bail!("ZOLANA_RING_SURFPOOL_FIXTURE needs a binary built with the surfpool-fixture feature")
+    bail!("SPR_RING_SURFPOOL_FIXTURE needs a binary built with the surfpool-fixture feature")
 }
 
 #[cfg(feature = "surfpool-fixture")]
 fn surfpool_fixture(rpc_url: &str, opt_in: &std::ffi::OsStr) -> Result<BlockHeaders> {
     if opt_in != "1" {
-        bail!("ZOLANA_RING_SURFPOOL_FIXTURE must equal 1");
+        bail!("SPR_RING_SURFPOOL_FIXTURE must equal 1");
     }
     let loopback = reqwest::Url::parse(rpc_url).ok().is_some_and(|url| {
         url.host_str().is_some_and(|host| {

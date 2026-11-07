@@ -21,7 +21,7 @@ use spr_interface::{pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_
 use spr_test_utils::{localnet::start_shielded_pool_localnet, prover::spawn_workspace_prover};
 use spr_transaction::Address;
 
-const PROVER_URL_ENV: &str = "ZOLANA_PROVER_URL";
+const PROVER_URL_ENV: &str = "SPR_PROVER_URL";
 const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
 
 fn spl_token_account_amount(rpc: &SolanaRpc, token_account: &Pubkey) -> Result<u64> {
@@ -351,7 +351,7 @@ struct CycleEnv {
 
 impl CycleEnv {
     fn cli_env(&self) -> [(&str, &str); 1] {
-        [("ZOLANA_CONFIG", self.config_path.as_str())]
+        [("SPR_CONFIG", self.config_path.as_str())]
     }
 }
 
@@ -380,7 +380,7 @@ fn phase_setup_environment() -> Result<CycleEnv> {
     let alice_keypair = root.join("alice.pid.json");
     let bob_keypair = root.join("bob.pid.json");
     let config_path = root.join("config.json").to_string_lossy().into_owned();
-    let cli_env = [("ZOLANA_CONFIG", config_path.as_str())];
+    let cli_env = [("SPR_CONFIG", config_path.as_str())];
 
     wallet_new(&alice_keypair, &cli_env)?;
     wallet_new(&bob_keypair, &cli_env)?;

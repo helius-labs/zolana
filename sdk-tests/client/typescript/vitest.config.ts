@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-const example = process.env["ZOLANA_TS_EXAMPLE"] ?? "deposit-transfer-withdraw";
+const example = process.env["SPR_TS_EXAMPLE"] ?? "deposit-transfer-withdraw";
 
 export default defineConfig({
   test: {

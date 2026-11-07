@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Runs one nextest suite, from the ZOLANA_NEXTEST_ARCHIVE_DIR archive when set,
+# Runs one nextest suite, from the SPR_NEXTEST_ARCHIVE_DIR archive when set,
 # else from source.
 set -euo pipefail
 
-if [[ -z "${ZOLANA_NEXTEST_ARCHIVE_DIR:-}" ]]; then
+if [[ -z "${SPR_NEXTEST_ARCHIVE_DIR:-}" ]]; then
   exec cargo nextest run "$@"
 fi
 
@@ -58,7 +58,7 @@ elif [[ -n "$expr" ]]; then
 fi
 
 archive_args=(
-  --archive-file "$ZOLANA_NEXTEST_ARCHIVE_DIR/$package.tar.zst"
+  --archive-file "$SPR_NEXTEST_ARCHIVE_DIR/$package.tar.zst"
   --workspace-remap "$PWD"
 )
 if [[ -n "$selection" ]]; then

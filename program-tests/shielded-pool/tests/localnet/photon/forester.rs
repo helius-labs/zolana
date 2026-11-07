@@ -568,8 +568,8 @@ fn phase_run_forester_batches(env: &mut ForesterEnv, queued_nullifiers: &[[u8; 3
         (LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT * fees.append_reimbursement).min(fee_balance_before);
     let member_before = fetch_member_lamports(env)?;
     if let Ok(forester_bin) = std::env::var("FORESTER_BIN") {
-        let prover_url = std::env::var("ZOLANA_PROVER_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
+        let prover_url =
+            std::env::var("SPR_PROVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
         let payer_json = serde_json::to_string(&env.forester_key.to_bytes().to_vec())?;
         let max_batches = LOCALNET_NULLIFIER_BATCH_UPDATE_COUNT.to_string();
         let status = std::process::Command::new(&forester_bin)

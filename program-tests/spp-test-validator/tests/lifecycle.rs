@@ -373,7 +373,7 @@ fn actor_payer_withdrawal_spends_inputs_and_preserves_wallet_consistency() -> Re
 #[test]
 #[serial]
 fn randomized_mixed_asset_workload_preserves_conservation() -> Result<()> {
-    let seed = std::env::var("ZOLANA_RANDOM_SEED")
+    let seed = std::env::var("SPR_RANDOM_SEED")
         .ok()
         .map(|raw| {
             let raw = raw.trim();

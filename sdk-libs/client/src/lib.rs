@@ -5,7 +5,7 @@
 //! Note decryption lives in `spr-transaction`; the SDK keeps no wallet
 //! state. The user registry helpers are in [`user_registry`].
 //!
-//! `ZOLANA_TIMING=1` prints per-phase timings to stderr; see [`timing`]. The
+//! `SPR_TIMING=1` prints per-phase timings to stderr; see [`timing`]. The
 //! `let _t = Phase::start(..)` guards through this crate are that, timing until
 //! they drop, and inert otherwise.
 //!

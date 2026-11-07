@@ -299,7 +299,7 @@ impl<D> LocalnetHarness<D> {
         // it; initialization then signs with that keypair directly and still
         // installs the role vaults as the final authorities.
         let upgrade_authority_keypair =
-            match std::env::var("ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR") {
+            match std::env::var("SPR_SPP_UPGRADE_AUTHORITY_KEYPAIR") {
                 Ok(path) => Some(read_keypair_file(&path).map_err(|error| {
                     anyhow!("read SPP upgrade authority keypair {path}: {error}")
                 })?),

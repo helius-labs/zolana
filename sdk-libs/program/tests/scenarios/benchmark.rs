@@ -9,7 +9,7 @@ use std::{
 
 use spr_program::{testing::check_private_variables, Groth16Prover, ProofResult, ZkProgramCircuit};
 
-const ENABLED_BY: &str = "ZOLANA_PROGRAM_BENCHMARK";
+const ENABLED_BY: &str = "SPR_PROGRAM_BENCHMARK";
 const OUTPUT_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/scenarios/BENCHMARK.md");
 const HEADER: &str = "# ZK Program SDK -- Scenario Benchmark
 

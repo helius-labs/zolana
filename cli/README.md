@@ -38,7 +38,7 @@ Commands:
 
 ```bash
 spr config get
-spr config set --keypair ~/.config/zolana/pid.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
+spr config set --keypair ~/.config/spr/pid.json --rpc-url http://127.0.0.1:8899 --indexer-url http://127.0.0.1:8784 --prover-url http://127.0.0.1:3001
 spr wallet init --airdrop-lamports 1000000000
 spr dev pool create-tree --airdrop-lamports 10000000000000
 spr sync --indexer-url http://127.0.0.1:8784
@@ -59,7 +59,7 @@ recipients from the on-chain user registry; if the registry record is absent,
 the transfer is built as a public SOL withdrawal to that pubkey. `withdraw --to
 <PUBKEY>` always uses a regular public Solana destination.
 
-CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
+CLI-wide defaults live at `~/.config/spr/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The
 `keypair` config field is the path to the wallet file (`pid.json`). `dev pool
 create-tree` writes the created tree pubkey into this config file; `deposit`,
@@ -84,7 +84,7 @@ programs, an account-snapshot bundle (protocol config, asset counter, the pool
 tree at the default tree address, and the Squads authority accounts), and the
 prover and Photon binaries, plus the custom surfpool binary from its own release.
 Every artifact is verified against the sha256 lockfile embedded in the CLI
-(`cli/release-artifacts.lock`) and cached under `~/.config/zolana/cache/<tag>/`,
+(`cli/release-artifacts.lock`) and cached under `~/.config/spr/cache/<tag>/`,
 so repeat starts are offline. This means a fresh `cargo install --path cli` can
 boot a fully-initialized localnet with no repo checkout and nothing prebuilt.
 
@@ -104,7 +104,7 @@ spr dev start --local --sbf-program <ID> target/deploy/<program>.so
 ```
 
 Passing any explicit `--sbf-program` also implies local mode. Override the
-release download host with `ZOLANA_RELEASE_URL`.
+release download host with `SPR_RELEASE_URL`.
 
 In local mode the prover fetches indexed proof data from the Photon that
 `dev start` launches. The pinned release prover predates indexed proofs, so SDK
