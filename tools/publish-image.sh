@@ -9,12 +9,12 @@
 #   --deploy CLUSTER/SVC register a task definition revision on the pushed image
 #                        and update the ECS service, implies --push. Rolls a
 #                        live service, so it runs only with
-#                        ZOLANA_DEPLOY_CONFIRM=CLUSTER/SVC set to the same value
+#                        SPR_DEPLOY_CONFIRM=CLUSTER/SVC set to the same value
 #   --container NAME     container name inside the task definition, default <service>
 #   --repository NAME    ECR repository, default zolana-<service>
 #
 # Environment
-#   ZOLANA_ECR_REGISTRY  default 558215002830.dkr.ecr.eu-north-1.amazonaws.com
+#   SPR_ECR_REGISTRY     default 558215002830.dkr.ecr.eu-north-1.amazonaws.com
 #   AWS_REGION           default eu-north-1
 #   AWS_PROFILE          honoured by the aws CLI
 #
@@ -49,7 +49,7 @@ done
 
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
-registry="${ZOLANA_ECR_REGISTRY:-558215002830.dkr.ecr.eu-north-1.amazonaws.com}"
+registry="${SPR_ECR_REGISTRY:-558215002830.dkr.ecr.eu-north-1.amazonaws.com}"
 region="${AWS_REGION:-eu-north-1}"
 sha="$(git rev-parse HEAD)"
 branch="$(git rev-parse --abbrev-ref HEAD | tr -c 'A-Za-z0-9._\n' '-')"
@@ -137,8 +137,8 @@ echo "published $tag_image@$digest"
 cluster="${deploy%%/*}"
 ecs_service="${deploy#*/}"
 [[ "$cluster" != "$deploy" && -n "$ecs_service" ]] || { echo "--deploy takes CLUSTER/SERVICE" >&2; exit 1; }
-if [[ "${ZOLANA_DEPLOY_CONFIRM:-}" != "$deploy" ]]; then
-    echo "refusing to roll $deploy, set ZOLANA_DEPLOY_CONFIRM=$deploy to confirm" >&2
+if [[ "${SPR_DEPLOY_CONFIRM:-}" != "$deploy" ]]; then
+    echo "refusing to roll $deploy, set SPR_DEPLOY_CONFIRM=$deploy to confirm" >&2
     exit 1
 fi
 current="$(aws ecs describe-services --region "$region" --cluster "$cluster" --services "$ecs_service" \

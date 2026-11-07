@@ -69,7 +69,7 @@ func cryptoProofAssignment(t *testing.T) *cryptoProofCircuit {
 // A new process must reconstruct all commitment and hint registrations from
 // imports. Public-input tampering must fail after the serialized proof reload.
 func TestCryptoProofFreshProcess(t *testing.T) {
-	const env = "ZOLANA_GADGET_PROOF_FIXTURE"
+	const env = "SPR_GADGET_PROOF_FIXTURE"
 	if dir := os.Getenv(env); dir != "" {
 		verifySerializedCryptoProof(t, dir)
 		return

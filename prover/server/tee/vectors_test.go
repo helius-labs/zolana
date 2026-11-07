@@ -11,7 +11,7 @@ import (
 )
 
 // Encrypted vectors carry a random HPKE ephemeral, so only
-// ZOLANA_TEE_WRITE_VECTORS=1 regenerates them.
+// SPR_TEE_WRITE_VECTORS=1 regenerates them.
 type vectors struct {
 	IKM               string    `json:"ikm"`
 	HPKEPublicKey     string    `json:"hpke_public_key"`
@@ -85,7 +85,7 @@ func TestVectors(t *testing.T) {
 	reportDataNoGPU := ReportData(nonce, publicKey, nil)
 	gpuNonce := GPUNonce(nonce, publicKey)
 
-	if os.Getenv("ZOLANA_TEE_WRITE_VECTORS") != "" {
+	if os.Getenv("SPR_TEE_WRITE_VECTORS") != "" {
 		method, uri := "POST", "/v1/spr/prove/transfer_2_2?api-key=k"
 		plaintext := []byte(`{"inputs":["secret"]}`)
 		enc, ciphertext, responseKey := encryptRequest(t, publicKey, method, uri, plaintext)

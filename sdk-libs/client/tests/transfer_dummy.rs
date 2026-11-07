@@ -49,9 +49,9 @@ const TEST_TREE_ID: u16 = 0;
 fn start_prover() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
-        if std::env::var_os("ZOLANA_PROVER_KEYS_DIR").is_none() {
+        if std::env::var_os("SPR_PROVER_KEYS_DIR").is_none() {
             std::env::set_var(
-                "ZOLANA_PROVER_KEYS_DIR",
+                "SPR_PROVER_KEYS_DIR",
                 concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/../../prover/server/proving-keys"
@@ -63,11 +63,11 @@ fn start_prover() {
 }
 
 fn async_queue_result_count() -> Option<u64> {
-    if std::env::var("ZOLANA_EXPECT_ASYNC_PROVER").as_deref() != Ok("true") {
+    if std::env::var("SPR_EXPECT_ASYNC_PROVER").as_deref() != Ok("true") {
         return None;
     }
 
-    let server = std::env::var("ZOLANA_PROVER_URL")
+    let server = std::env::var("SPR_PROVER_URL")
         .ok()
         .filter(|url| !url.trim().is_empty())
         .unwrap_or_else(|| SERVER_ADDRESS.to_string());

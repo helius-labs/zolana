@@ -444,7 +444,7 @@ pub(crate) struct VksCheckOptions {
 pub(crate) struct ProverTeeOptions {
     #[arg(
         long = "prover-tee",
-        env = "ZOLANA_PROVER_TEE",
+        env = "SPR_PROVER_TEE",
         help = "Require attestation even for a loopback prover; supply --prover-tee-policy (remote provers always require a policy)"
     )]
     pub(crate) prover_tee: bool,
@@ -452,7 +452,7 @@ pub(crate) struct ProverTeeOptions {
     #[arg(
         long = "prover-tee-policy",
         value_name = "FILE",
-        env = "ZOLANA_PROVER_TEE_POLICY",
+        env = "SPR_PROVER_TEE_POLICY",
         help = "Require the prover to attest to the supplied TEE policy in FILE, bare or as a {\"deployment\": ...} pin file (implies --prover-tee)"
     )]
     pub(crate) prover_tee_policy: Option<std::path::PathBuf>,
@@ -685,7 +685,7 @@ pub(crate) struct TestValidatorOptions {
 
     #[arg(
         long = "prover-auto-download",
-        env = "ZOLANA_PROVER_AUTO_DOWNLOAD",
+        env = "SPR_PROVER_AUTO_DOWNLOAD",
         default_value_t = true,
         action = ArgAction::Set,
         value_parser = clap::builder::FalseyValueParser::new(),
@@ -799,7 +799,7 @@ pub(crate) struct StartProverOptions {
 
     #[arg(
         long = "auto-download",
-        env = "ZOLANA_PROVER_AUTO_DOWNLOAD",
+        env = "SPR_PROVER_AUTO_DOWNLOAD",
         default_value_t = true,
         action = ArgAction::Set,
         value_parser = clap::builder::FalseyValueParser::new(),
@@ -820,7 +820,7 @@ pub(crate) struct StartProverOptions {
 pub(crate) struct WalletKeypairOptions {
     #[arg(
         long = "keypair",
-        help = "Path to private keypair file (default: ~/.config/zolana/pid.json)",
+        help = "Path to private keypair file (default: ~/.config/spr/pid.json)",
         value_name = "PATH"
     )]
     pub(crate) keypair: Option<String>,
@@ -830,7 +830,7 @@ pub(crate) struct WalletKeypairOptions {
 pub(crate) struct NewWalletOptions {
     #[arg(
         long = "outfile",
-        help = "Output wallet file (default: configured keypair path or ~/.config/zolana/pid.json)",
+        help = "Output wallet file (default: configured keypair path or ~/.config/spr/pid.json)",
         value_name = "PATH"
     )]
     pub(crate) outfile: Option<String>,

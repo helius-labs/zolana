@@ -10,13 +10,13 @@
 #   non-loader-v3 deployments all fail closed and cannot initialize the config.
 # - Before the Squads handoff, the local config keypair performs direct
 #   deploys/upgrades. After the protocol vault becomes the shielded-pool
-#   upgrade authority, set ZOLANA_PROTOCOL_SIGNER_1 and
-#   ZOLANA_PROTOCOL_SIGNER_2 to two protocol-member keypair paths. This script
+#   upgrade authority, set SPR_PROTOCOL_SIGNER_1 and
+#   SPR_PROTOCOL_SIGNER_2 to two protocol-member keypair paths. This script
 #   then writes a loader buffer and executes the upgrade through Squads.
 #
 # A program's first-ever deploy to its fixed address needs that address's
 # private keypair (not just the pubkey), since the account has to be created
-# at that exact address. Set ZOLANA_DEVNET_KEYS_DIR to a directory laid out
+# at that exact address. Set SPR_DEVNET_KEYS_DIR to a directory laid out
 # as `<dir>/program-id/<pubkey>.json` to supply it; otherwise the script
 # falls back to the pubkey alone, which only works once the program already
 # exists on-chain (upgrade, not initial deploy).
@@ -59,8 +59,8 @@ program_id() {
 program_id_arg() {
     local pid
     pid=$(program_id "$1")
-    local keypair_path="${ZOLANA_DEVNET_KEYS_DIR:-}/program-id/$pid.json"
-    if [[ -n "${ZOLANA_DEVNET_KEYS_DIR:-}" && -f "$keypair_path" ]]; then
+    local keypair_path="${SPR_DEVNET_KEYS_DIR:-}/program-id/$pid.json"
+    if [[ -n "${SPR_DEVNET_KEYS_DIR:-}" && -f "$keypair_path" ]]; then
         echo "$keypair_path"
     else
         echo "$pid"
@@ -142,11 +142,11 @@ program_authority() {
 upgrade_shielded_pool_via_squads() {
     local so_path="$1"
     local vault="$2"
-    local signer_1="${ZOLANA_PROTOCOL_SIGNER_1:-}"
-    local signer_2="${ZOLANA_PROTOCOL_SIGNER_2:-}"
+    local signer_1="${SPR_PROTOCOL_SIGNER_1:-}"
+    local signer_2="${SPR_PROTOCOL_SIGNER_2:-}"
     if [[ -z "$signer_1" || -z "$signer_2" ]]; then
         echo "shielded-pool upgrade authority is Squads vault $vault" >&2
-        echo "set ZOLANA_PROTOCOL_SIGNER_1 and ZOLANA_PROTOCOL_SIGNER_2 to two protocol-member keypair paths" >&2
+        echo "set SPR_PROTOCOL_SIGNER_1 and SPR_PROTOCOL_SIGNER_2 to two protocol-member keypair paths" >&2
         return 1
     fi
     if [[ ! -f "$payer_keypair" || ! -f "$signer_1" || ! -f "$signer_2" ]]; then
@@ -230,10 +230,10 @@ for target in $targets; do
     fi
     if [[ "$target" == "shielded-pool" ]]; then
         # The deployed binary, read back from its ProgramData account; with
-        # ZOLANA_PROVER_URL, the prover is checked against the same keys.
+        # SPR_PROVER_URL, the prover is checked against the same keys.
         vks_args=(--program-id "$pid" --rpc-url "$cluster_url")
-        if [[ -n "${ZOLANA_PROVER_URL:-}" ]]; then
-            vks_args+=(--prover-url "$ZOLANA_PROVER_URL")
+        if [[ -n "${SPR_PROVER_URL:-}" ]]; then
+            vks_args+=(--prover-url "$SPR_PROVER_URL")
         fi
         check_verifying_keys "${vks_args[@]}"
     fi

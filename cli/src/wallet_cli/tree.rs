@@ -30,7 +30,7 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
     let protocol_config = match fetch_protocol_config(&rpc)? {
         Some(config) => config,
         None => {
-            let initialization_keypair = std::env::var("ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR")
+            let initialization_keypair = std::env::var("SPR_SPP_UPGRADE_AUTHORITY_KEYPAIR")
                 .ok()
                 .map(|path| {
                     read_keypair_file(&path).map_err(|error| {

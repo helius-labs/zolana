@@ -155,19 +155,13 @@ impl ProveRequest for TransferFixture {
 #[test]
 #[ignore = "contacts the default devnet TEE and generates one synthetic transfer proof"]
 fn the_default_deployment_attests_and_verifies_an_encrypted_fixture_proof() {
-    assert_encrypted_fixture_proof(
-        "ZOLANA_DEVNET_PROVER_URL",
-        "ZOLANA_DEVNET_PROVER_TEE_POLICY",
-    );
+    assert_encrypted_fixture_proof("SPR_DEVNET_PROVER_URL", "SPR_DEVNET_PROVER_TEE_POLICY");
 }
 
 #[test]
 #[ignore = "contacts the mainnet TEE and generates one synthetic transfer proof"]
 fn the_mainnet_deployment_attests_and_verifies_an_encrypted_fixture_proof() {
-    assert_encrypted_fixture_proof(
-        "ZOLANA_MAINNET_PROVER_URL",
-        "ZOLANA_MAINNET_PROVER_TEE_POLICY",
-    );
+    assert_encrypted_fixture_proof("SPR_MAINNET_PROVER_URL", "SPR_MAINNET_PROVER_TEE_POLICY");
 }
 
 /// Through any gateway, under the network's signed policy.
@@ -175,18 +169,18 @@ fn the_mainnet_deployment_attests_and_verifies_an_encrypted_fixture_proof() {
 #[ignore = "contacts a live TEE prover and generates one synthetic transfer proof"]
 fn a_signed_policy_attests_and_verifies_an_encrypted_fixture_proof() {
     let env = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("supply {name}"));
-    let keys = env("ZOLANA_TEE_POLICY_SIGNERS")
+    let keys = env("SPR_TEE_POLICY_SIGNERS")
         .split(',')
         .map(|key| hex::decode(key).unwrap().try_into().unwrap())
         .collect();
     let signers = PolicySigners::new(
-        env("ZOLANA_TEE_POLICY_NETWORK"),
+        env("SPR_TEE_POLICY_NETWORK"),
         keys,
-        env("ZOLANA_TEE_POLICY_THRESHOLD").parse().unwrap(),
+        env("SPR_TEE_POLICY_THRESHOLD").parse().unwrap(),
     )
     .unwrap();
-    let policy = SignedTeePolicy::new(env("ZOLANA_TEE_POLICY_URL"), signers).unwrap();
-    assert_proves(ProverClient::new(env("ZOLANA_TEE_PROVER_URL")).with_signed_tee(policy));
+    let policy = SignedTeePolicy::new(env("SPR_TEE_POLICY_URL"), signers).unwrap();
+    assert_proves(ProverClient::new(env("SPR_TEE_PROVER_URL")).with_signed_tee(policy));
 }
 
 fn assert_encrypted_fixture_proof(url_env: &str, policy_env: &str) {

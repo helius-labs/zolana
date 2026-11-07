@@ -65,7 +65,7 @@ pub fn start_prover() -> Result<()> {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
         std::env::set_var(
-            "ZOLANA_PROVER_KEYS_DIR",
+            "SPR_PROVER_KEYS_DIR",
             concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/../../prover/server/proving-keys"

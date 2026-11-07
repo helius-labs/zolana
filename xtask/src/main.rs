@@ -212,10 +212,10 @@ struct CreateVerifyingKeysOptions {
 impl CreateVerifyingKeysOptions {
     fn parse(args: Vec<String>) -> Self {
         let mut keys_dir = PathBuf::from("prover/server/proving-keys");
-        let mut out_dir = env::var("ZOLANA_VERIFYING_KEYS_DIR")
+        let mut out_dir = env::var("SPR_VERIFYING_KEYS_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("target/verifying-keys"));
-        let mut limit = env::var("ZOLANA_VERIFYING_KEYS_LIMIT")
+        let mut limit = env::var("SPR_VERIFYING_KEYS_LIMIT")
             .ok()
             .map(|value| parse_limit(&value));
 
@@ -427,7 +427,7 @@ fn print_create_verifying_keys_help() {
     println!();
     println!("Defaults:");
     println!("  --keys-dir prover/server/proving-keys");
-    println!("  --out-dir  $ZOLANA_VERIFYING_KEYS_DIR or target/verifying-keys");
+    println!("  --out-dir  $SPR_VERIFYING_KEYS_DIR or target/verifying-keys");
 }
 
 fn tx_size(args: Vec<String>) {

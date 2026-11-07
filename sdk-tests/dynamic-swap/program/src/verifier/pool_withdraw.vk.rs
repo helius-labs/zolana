@@ -50,7 +50,7 @@ pub static VERIFYINGKEY_SETUP_TXT: &str = "=======BEGIN GROTH16 VK SETUP V1=====
 #[cfg(not(feature = "insecure-test-setup"))]
 compile_error!("VERIFYINGKEY comes from an insecure test setup: whoever knows its setup randomness can make it accept a proof for any public inputs. Enable the `insecure-test-setup` feature only in test builds, not for a devnet or mainnet deployment.");
 
-pub const ZOLANA_SETUP_KIND: &str = "insecure-test";
+pub const SPR_SETUP_KIND: &str = "insecure-test";
 
-pub const ZOLANA_CIRCUIT_SHA256: &str =
+pub const SPR_CIRCUIT_SHA256: &str =
     "0c3010cab11d1ed35c27a6ee8b4cf6256f1f3ad4f6e6ba9573dedca20580c8a7";

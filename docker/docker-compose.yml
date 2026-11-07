@@ -113,7 +113,7 @@ services:
       - --redis-url
       - redis://redis:6379
     ports:
-      # 127.0.0.1 by default; 3001 matches ZOLANA_PROVER_URL so host CLI/tests can
+      # 127.0.0.1 by default; 3001 matches SPR_PROVER_URL so host CLI/tests can
       # reuse it. PROVER_BIND_ADDRESS=0.0.0.0 exposes it off-box, but clients then
       # send UNENCRYPTED witnesses -- only for a trusted/temporary firewalled setup.
       - "${PROVER_BIND_ADDRESS:-${COMPOSE_BIND_ADDRESS:-127.0.0.1}}:${PROVER_PORT:-3001}:3001"

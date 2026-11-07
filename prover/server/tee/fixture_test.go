@@ -43,9 +43,9 @@ func (f probeFixture) evidence(t *testing.T) dstackEvidence {
 
 // TestCaptureProbeFixture rewrites probe_attestation.json with live PCCS collateral.
 func TestCaptureProbeFixture(t *testing.T) {
-	source := os.Getenv("ZOLANA_TEE_CAPTURE")
+	source := os.Getenv("SPR_TEE_CAPTURE")
 	if source == "" {
-		t.Skip("set ZOLANA_TEE_CAPTURE to a Phala attestation response to recapture")
+		t.Skip("set SPR_TEE_CAPTURE to a Phala attestation response to recapture")
 	}
 	raw, err := os.ReadFile(source)
 	if err != nil {

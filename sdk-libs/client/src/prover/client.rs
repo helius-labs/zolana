@@ -60,11 +60,11 @@ pub const PROVER_INDEXER_URL_ENV: &str = "PROVER_INDEXER_URL";
 const DEFAULT_PROVER_PORT: u16 = 3001;
 
 /// Address the local prover client connects to and that [`spawn_prover`] starts
-/// the server on. Defaults to [`SERVER_ADDRESS`]; set `ZOLANA_PROVER_URL` per
+/// the server on. Defaults to [`SERVER_ADDRESS`]; set `SPR_PROVER_URL` per
 /// local clone to avoid port contention between concurrent checkouts.
 #[cfg(feature = "reqwest")]
 pub fn server_address() -> String {
-    match env::var("ZOLANA_PROVER_URL") {
+    match env::var("SPR_PROVER_URL") {
         Ok(url) if !url.trim().is_empty() => url.trim().to_string(),
         _ => SERVER_ADDRESS.to_string(),
     }
@@ -1334,13 +1334,13 @@ impl ProverLaunch {
                     .to_string(),
             ));
         };
-        let redis_url = env::var("ZOLANA_PROVER_REDIS_URL").ok();
+        let redis_url = env::var("SPR_PROVER_REDIS_URL").ok();
         let port = prover_port(&server_address());
         let command = prover_start_command(&cli, port, redis_url.as_deref());
         let mut child_command = Command::new("sh");
         child_command.arg("-c").arg(command);
         if let Some(keys_dir) = &self.keys_dir {
-            child_command.env("ZOLANA_PROVER_KEYS_DIR", keys_dir);
+            child_command.env("SPR_PROVER_KEYS_DIR", keys_dir);
         }
         if let Some((indexer_url, _)) = &self.indexer {
             child_command.env(PROVER_INDEXER_URL_ENV, indexer_url);
@@ -1379,7 +1379,7 @@ fn health_check(retries: usize, timeout_secs: u64) -> bool {
 
 #[cfg(feature = "reqwest")]
 fn get_cli_command() -> Option<String> {
-    if let Ok(command) = env::var("ZOLANA_CLI_CMD") {
+    if let Ok(command) = env::var("SPR_CLI_CMD") {
         let command = command.trim();
         if !command.is_empty() {
             return Some(command.to_string());

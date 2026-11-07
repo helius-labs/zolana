@@ -41,7 +41,7 @@ pub struct LocalnetPorts {
 
 impl LocalnetPorts {
     /// How far apart numbered tests' ports are. Checkout offsets
-    /// (`ZOLANA_PORT_OFFSET`) are multiples of 100 below 1000, so every test in
+    /// (`SPR_PORT_OFFSET`) are multiples of 100 below 1000, so every test in
     /// every checkout gets its own ports.
     const TEST_STRIDE: u16 = 1000;
 
@@ -54,14 +54,12 @@ impl LocalnetPorts {
     }
 
     /// The ports of test number `test` in this checkout: the defaults shifted
-    /// by `ZOLANA_PORT_OFFSET` plus `1000 * test`. Tests with distinct numbers
+    /// by `SPR_PORT_OFFSET` plus `1000 * test`. Tests with distinct numbers
     /// run in parallel.
     pub fn for_test(test: u16) -> Result<Self, ProgramTestError> {
-        let checkout = match env::var("ZOLANA_PORT_OFFSET") {
+        let checkout = match env::var("SPR_PORT_OFFSET") {
             Ok(offset) if !offset.trim().is_empty() => offset.trim().parse().map_err(|_| {
-                ProgramTestError::Localnet(format!(
-                    "ZOLANA_PORT_OFFSET={offset} is not a port offset"
-                ))
+                ProgramTestError::Localnet(format!("SPR_PORT_OFFSET={offset} is not a port offset"))
             })?,
             _ => 0,
         };
@@ -76,14 +74,14 @@ impl LocalnetPorts {
     pub fn checkout() -> Result<Self, ProgramTestError> {
         let defaults = Self::for_test(0)?;
         Ok(Self {
-            rpc: env_port("ZOLANA_LOCALNET_RPC_PORT")?.unwrap_or(defaults.rpc),
-            photon: env_port("ZOLANA_LOCALNET_PHOTON_PORT")?.unwrap_or(defaults.photon),
+            rpc: env_port("SPR_LOCALNET_RPC_PORT")?.unwrap_or(defaults.rpc),
+            photon: env_port("SPR_LOCALNET_PHOTON_PORT")?.unwrap_or(defaults.photon),
         })
     }
 
-    /// `ZOLANA_LOCALNET_PHOTON_URL`, else the checkout's Photon port, as the justfile resolves it.
+    /// `SPR_LOCALNET_PHOTON_URL`, else the checkout's Photon port, as the justfile resolves it.
     pub fn checkout_photon_url() -> Result<String, ProgramTestError> {
-        match env::var("ZOLANA_LOCALNET_PHOTON_URL") {
+        match env::var("SPR_LOCALNET_PHOTON_URL") {
             Ok(url) if !url.trim().is_empty() => Ok(url.trim().to_owned()),
             _ => Ok(Self::checkout()?.photon_url()),
         }

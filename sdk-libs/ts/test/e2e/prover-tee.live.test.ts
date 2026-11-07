@@ -122,30 +122,30 @@ function inputs(): ProverInputs {
 // The deployed enclave lags a pull request that changes the wire contract or the
 // proving keys until its next release, so this runs where it describes the
 // deployment: on main, not on pull requests, which leave the URL unset.
-describe.skipIf(!process.env["ZOLANA_TEE_PROVER_URL"])("configured TEE prover", () => {
+describe.skipIf(!process.env["SPR_TEE_PROVER_URL"])("configured TEE prover", () => {
   it("attests and returns an encrypted valid proof with a caller-supplied URL and policy", async () => {
     const required = (name: string): string => {
       const value = process.env[name];
       if (value === undefined) throw new Error(`Supply ${name}`);
       return value;
     };
-    const endpoint = required("ZOLANA_TEE_PROVER_URL");
+    const endpoint = required("SPR_TEE_PROVER_URL");
     // A reviewed policy file, or else the network's signed policy.
-    const policyPath = process.env["ZOLANA_TEE_PROVER_POLICY"];
+    const policyPath = process.env["SPR_TEE_PROVER_POLICY"];
     const policy =
       policyPath === undefined
         ? new SignedTeePolicy({
-            url: required("ZOLANA_TEE_POLICY_URL"),
-            network: required("ZOLANA_TEE_POLICY_NETWORK"),
-            publicKeys: required("ZOLANA_TEE_POLICY_SIGNERS").split(","),
-            threshold: Number(required("ZOLANA_TEE_POLICY_THRESHOLD")),
+            url: required("SPR_TEE_POLICY_URL"),
+            network: required("SPR_TEE_POLICY_NETWORK"),
+            publicKeys: required("SPR_TEE_POLICY_SIGNERS").split(","),
+            threshold: Number(required("SPR_TEE_POLICY_THRESHOLD")),
           })
         : teePolicyFromJson(JSON.parse(readFileSync(policyPath, "utf8")) as unknown);
     const proverUrl = new URL(endpoint);
     // The prover, and the signed policy's host when there is one.
     const origins = [proverUrl.origin];
     if (policy instanceof SignedTeePolicy) {
-      origins.push(new URL(required("ZOLANA_TEE_POLICY_URL")).origin);
+      origins.push(new URL(required("SPR_TEE_POLICY_URL")).origin);
     }
     const proofPathPrefix = `${proverUrl.pathname.replace(/\/+$/u, "")}/prove/`;
     let encryptedProofCalls = 0;
@@ -189,7 +189,7 @@ describe.skipIf(!process.env["ZOLANA_TEE_PROVER_URL"])("configured TEE prover", 
     expect(encryptedProofCalls).toBeGreaterThan(0);
     // Optional public proof export lets the Rust verifier check this exact
     // response against the shared fixture's public input, without its witness.
-    const proofOutput = process.env["ZOLANA_TEE_PROOF_OUTPUT"];
+    const proofOutput = process.env["SPR_TEE_PROOF_OUTPUT"];
     if (proofOutput !== undefined) {
       writeFileSync(
         proofOutput,

@@ -37,9 +37,9 @@ at its canonical address. To run it against an already running local stack, prov
 the test fixtures and invoke the npm script directly:
 
 ```bash
-ZOLANA_TEST_MINT=<mint> \
-ZOLANA_TEST_TOKEN_ACCOUNT=<funded-token-account> \
-ZOLANA_TEST_AUTHORITY_WALLET=<wallet.json with funding_secret_hex> \
+SPR_TEST_MINT=<mint> \
+SPR_TEST_TOKEN_ACCOUNT=<funded-token-account> \
+SPR_TEST_AUTHORITY_WALLET=<wallet.json with funding_secret_hex> \
 npm run test:ts:example
 ```
 
@@ -95,6 +95,6 @@ just test-ts-example-optimized-merge-transfer
 ```
 
 The recipe brings up the same stack as `just test-ts-example` and selects the
-example with `ZOLANA_TS_EXAMPLE=optimized-merge-transfer`, which the example's
+example with `SPR_TS_EXAMPLE=optimized-merge-transfer`, which the example's
 Vitest config reads; against an already running stack, set it before
 `npm run test:ts:example`.

@@ -257,7 +257,7 @@ fn prove_transact_timed(
 fn start_prover() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
-        std::env::set_var("ZOLANA_PROVER_KEYS_DIR", PROVER_KEYS_DIR);
+        std::env::set_var("SPR_PROVER_KEYS_DIR", PROVER_KEYS_DIR);
     });
     spr_client::spawn_prover().expect("spawn prover");
 }

@@ -40,7 +40,7 @@ verifying keys, and the build refuses it unless every key matches the lockfile.
 `provingkeys/zopro-keys.lock`, copied from the mobile SDK's native package,
 pins each conversion to its gnark source checksum. Update it when source keys
 change. Each manifest keeps its own download prefix; standard URLs use
-`ZOLANA_PROVING_KEYS_URL`, and extension keys use their registered release URL.
+`SPR_PROVING_KEYS_URL`, and extension keys use their registered release URL.
 
 This replaces `expectedSha256`, `loadedSha256`, `available`, and the response's
 `prefix`. Upgrade server and clients together.

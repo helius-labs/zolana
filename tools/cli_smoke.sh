@@ -15,11 +15,11 @@
 # Usage:  ./tools/cli_smoke.sh
 #
 # Required env (deployment endpoints; no universal default exists):
-#   ZOLANA_INDEXER_URL   Photon indexer URL for this devnet deployment
-#   ZOLANA_PROVER_URL    prover server URL for this devnet deployment
+#   SPR_INDEXER_URL   Photon indexer URL for this devnet deployment
+#   SPR_PROVER_URL    prover server URL for this devnet deployment
 #
 # Optional env:
-#   ZOLANA_TREE  pool tree account pubkey; omit to use the CLI's compiled-in
+#   SPR_TREE     pool tree account pubkey; omit to use the CLI's compiled-in
 #                DEFAULT_TREE_ADDRESS (the canonical deployed tree)
 #   SPR_BIN      path to the spr binary (default: ./target/release/spr)
 #   RPC          Solana RPC URL           (default: https://api.devnet.solana.com)
@@ -58,13 +58,13 @@ MAX_RETRIES="${MAX_RETRIES:-6}"
 RETRY_DELAY="${RETRY_DELAY:-3}"
 CLUSTER="${CLUSTER:-devnet}"
 
-INDEXER="${ZOLANA_INDEXER_URL:-}"
-PROVER="${ZOLANA_PROVER_URL:-}"
-TREE="${ZOLANA_TREE:-}"
+INDEXER="${SPR_INDEXER_URL:-}"
+PROVER="${SPR_PROVER_URL:-}"
+TREE="${SPR_TREE:-}"
 
 # Fully isolate config.json, the default keypair, and any wallet files under
-# WORKDIR so the run never touches the operator's ~/.config/zolana.
-export ZOLANA_CONFIG_DIR="$WORKDIR"
+# WORKDIR so the run never touches the operator's ~/.config/spr.
+export SPR_CONFIG_DIR="$WORKDIR"
 
 ALICE="$WORKDIR/alice.json"   # eddsa rail, primary actor
 BOB="$WORKDIR/bob.json"       # eddsa rail, transfer recipient
@@ -217,8 +217,8 @@ largest_utxo_hash() {
 [[ -x "$BIN" ]]              || { log "binary not found/executable: $BIN (build with: cargo build --release -p spr-cli)"; exit 1; }
 command -v solana >/dev/null || { log "solana CLI not found (needed for funding + withdrawal target)"; exit 1; }
 [[ -f "$FUNDER" ]]           || { log "FUNDER keypair not found: $FUNDER"; exit 1; }
-[[ -n "$INDEXER" ]]          || { log "set ZOLANA_INDEXER_URL to this devnet's Photon indexer"; exit 1; }
-[[ -n "$PROVER"  ]]          || { log "set ZOLANA_PROVER_URL to this devnet's prover server"; exit 1; }
+[[ -n "$INDEXER" ]]          || { log "set SPR_INDEXER_URL to this devnet's Photon indexer"; exit 1; }
+[[ -n "$PROVER"  ]]          || { log "set SPR_PROVER_URL to this devnet's prover server"; exit 1; }
 
 mkdir -p "$WORKDIR"   # never wipe: funded wallet files here are reused across runs
 FUNDER_PUBKEY="$(solana address --keypair "$FUNDER" 2>/dev/null)"

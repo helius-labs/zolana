@@ -82,15 +82,15 @@ export async function signerFromWalletFile(path: string): Promise<KeyPairSigner>
 }
 
 export async function liveHarness(): Promise<LiveHarness> {
-  const rpcUrl = requiredEnv("ZOLANA_LOCALNET_URL");
-  const indexerUrl = requiredEnv("ZOLANA_INDEXER_URL");
-  const proverUrl = requiredEnv("ZOLANA_PROVER_URL");
-  const tree = address(requiredEnv("ZOLANA_TREE"));
-  const mint = address(requiredEnv("ZOLANA_TEST_MINT"));
-  const testTokenAccount = address(requiredEnv("ZOLANA_TEST_TOKEN_ACCOUNT"));
-  const token2022Mint = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_MINT"));
-  const testToken2022Account = address(requiredEnv("ZOLANA_TEST_TOKEN_2022_ACCOUNT"));
-  const testAuthority = await signerFromWalletFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"));
+  const rpcUrl = requiredEnv("SPR_LOCALNET_URL");
+  const indexerUrl = requiredEnv("SPR_INDEXER_URL");
+  const proverUrl = requiredEnv("SPR_PROVER_URL");
+  const tree = address(requiredEnv("SPR_TREE"));
+  const mint = address(requiredEnv("SPR_TEST_MINT"));
+  const testTokenAccount = address(requiredEnv("SPR_TEST_TOKEN_ACCOUNT"));
+  const token2022Mint = address(requiredEnv("SPR_TEST_TOKEN_2022_MINT"));
+  const testToken2022Account = address(requiredEnv("SPR_TEST_TOKEN_2022_ACCOUNT"));
+  const testAuthority = await signerFromWalletFile(requiredEnv("SPR_TEST_AUTHORITY_WALLET"));
   const client = await createSprClient({
     solanaRpcUrl: rpcUrl,
     indexerUrl,

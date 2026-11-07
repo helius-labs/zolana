@@ -164,7 +164,7 @@ artifact panics with the command that produces it.
 - Prover-backed tests pass an explicit workspace key-cache path. The prover may
   create that directory and lazily download a missing key, but an invalid parent
   path fails before process startup.
-- Use `ZOLANA_PORT_OFFSET` in `.env` when multiple worktrees run local services.
+- Use `SPR_PORT_OFFSET` in `.env` when multiple worktrees run local services.
 
 ## Mollusk mutation tests and fuzz fixtures
 

@@ -12,7 +12,7 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{config::TERMINATION_GRACE_PERIOD, http::wait_for_port_closed};
 
-pub(crate) const PROCESS_SCOPE_ENV: &str = "ZOLANA_PROCESS_SCOPE_DIR";
+pub(crate) const PROCESS_SCOPE_ENV: &str = "SPR_PROCESS_SCOPE_DIR";
 const RECEIPT_EXTENSION: &str = "owner";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

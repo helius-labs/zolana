@@ -56,7 +56,7 @@ impl ProverService<'_> {
         let prover = match self.binary {
             Some(path) => path.to_path_buf(),
             None => find_binary(
-                &["PROVER_BIN", "ZOLANA_PROVER_BIN"],
+                &["PROVER_BIN", "SPR_PROVER_BIN"],
                 &["target/prover-server"],
                 &["prover-server"],
             )?,
@@ -146,12 +146,12 @@ impl ProverService<'_> {
 }
 
 fn prover_keys_dir() -> Result<std::path::PathBuf> {
-    if let Ok(path) = env::var("ZOLANA_PROVER_KEYS_DIR") {
+    if let Ok(path) = env::var("SPR_PROVER_KEYS_DIR") {
         return Ok(path.into());
     }
 
     let home = env::var("HOME").context("HOME is not set")?;
-    Ok(Path::new(&home).join(".config/zolana/proving-keys"))
+    Ok(Path::new(&home).join(".config/spr/proving-keys"))
 }
 
 #[cfg(test)]

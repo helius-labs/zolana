@@ -145,10 +145,10 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     8. `spr-zk-standalone-fixture`: `cargo test`.
     9. Standalone Wasm: `node --test`.
 
-    The SDK e2e job requires repository variables `ZOLANA_TEE_PROVER_URL`
-    (the live prover endpoint) and `ZOLANA_TEE_PROVER_POLICY` (the reviewed
+    The SDK e2e job requires repository variables `SPR_TEE_PROVER_URL`
+    (the live prover endpoint) and `SPR_TEE_PROVER_POLICY` (the reviewed
     JSON policy path relative to the checkout). The live TEE test receives
-    these separately from `ZOLANA_PROVER_URL`, which the localnet runner
+    these separately from `SPR_PROVER_URL`, which the localnet runner
     sets to its local prover. Missing configuration fails before builds.
 
 4. [Photon](workflows/photon.yml)

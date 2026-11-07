@@ -119,7 +119,7 @@ pub fn initialize_indexed_pool(
 
 fn funded_pool_signers(rpc: &mut SolanaRpc) -> Result<(Keypair, Keypair)> {
     let payer = Keypair::new();
-    let authority = match std::env::var("ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR") {
+    let authority = match std::env::var("SPR_SPP_UPGRADE_AUTHORITY_KEYPAIR") {
         Ok(path) => read_keypair_file(&path)
             .map_err(|error| anyhow!("read SPP upgrade authority keypair {path}: {error}"))?,
         Err(_) => Keypair::new(),

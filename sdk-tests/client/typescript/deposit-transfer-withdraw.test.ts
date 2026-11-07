@@ -28,7 +28,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const { sender: senderKeypair, recipient: recipientKeypair, spl, clientConfig } = await setup();
 
     // Connect to localnet; the config is empty (all default ports) unless the
-    // test recipe runs the stack on ZOLANA_PORT_OFFSET-shifted URLs.
+    // test recipe runs the stack on SPR_PORT_OFFSET-shifted URLs.
     const client = await createSprClient(clientConfig);
     // devnet: one url serves the RPC, the indexer, and the prover.
     // const client = await createSprClient({

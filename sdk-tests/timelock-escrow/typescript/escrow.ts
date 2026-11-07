@@ -107,9 +107,9 @@ export function escrowProgramId(): Address {
 }
 
 export function clientConfig(): SprClientConfig {
-  const solanaRpcUrl = process.env["ZOLANA_LOCALNET_URL"];
-  const indexerUrl = process.env["ZOLANA_INDEXER_URL"];
-  const proverUrl = process.env["ZOLANA_PROVER_URL"];
+  const solanaRpcUrl = process.env["SPR_LOCALNET_URL"];
+  const indexerUrl = process.env["SPR_INDEXER_URL"];
+  const proverUrl = process.env["SPR_PROVER_URL"];
   return Object.freeze({
     ...(solanaRpcUrl === undefined ? {} : { solanaRpcUrl }),
     ...(indexerUrl === undefined ? {} : { indexerUrl }),

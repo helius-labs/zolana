@@ -75,7 +75,7 @@
 //! relaxes the height-40 check in [`nullifier_tree::init`];
 //! [`TreeAccount::init`] still rejects any height but 40, and the
 //! shielded-pool build leaves `test-only` off. The `prover_e2e` module
-//! additionally needs a prover at `ZOLANA_PROVER_URL`.
+//! additionally needs a prover at `SPR_PROVER_URL`.
 pub mod error;
 pub mod fees;
 pub mod nullifier_tree;
