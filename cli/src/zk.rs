@@ -1,4 +1,4 @@
-//! `zolana zk` and `zolana build-zk-program` over the circuit crate build of
+//! `spr zk` and `spr build-zk-program` over the circuit crate build of
 //! the zk DSL (`spr_program::build`).
 
 use anyhow::{anyhow, Result};

@@ -7,6 +7,7 @@ mod localnet;
 mod process;
 mod prover;
 mod release;
+mod version;
 mod vks;
 mod wallet_cli;
 mod zk;
@@ -19,6 +20,7 @@ use crate::{
     config_cmd::run_config,
     localnet::run_test_validator,
     prover::run_start_prover,
+    version::run_version,
     vks::run_vks,
     wallet_cli::{
         run_balance, run_create_tree, run_deposit, run_merge, run_set_merging, run_set_tree_fees,
@@ -52,6 +54,7 @@ fn run(cli: Cli) -> Result<()> {
         Some(CliCommand::Vks { command }) => run_vks(command),
         Some(CliCommand::BuildZkProgram(opts)) => run_build_zk_program(opts),
         Some(CliCommand::Zk { command }) => run_zk(command),
+        Some(CliCommand::Version) => run_version(),
         None => {
             Cli::command().print_help()?;
             println!();

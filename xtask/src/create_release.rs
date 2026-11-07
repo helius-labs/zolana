@@ -104,8 +104,8 @@ impl ReleaseSet for Localnet {
     fn cli_binaries(&self) -> &'static [CliBinary] {
         &[CliBinary {
             package: "spr-cli",
-            bin: "zolana",
-            asset_stem: "zolana",
+            bin: "spr",
+            asset_stem: "spr",
         }]
     }
 
@@ -380,7 +380,7 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Build a workspace binary (e.g. `photon`, `zolana`) for a target and stage it.
+/// Build a workspace binary (e.g. `photon`, `spr`) for a target and stage it.
 /// The host build uses cargo directly; linux-x64 builds in a Docker container so
 /// no host cross-linker is needed. Host builds reuse `target`; Linux builds
 /// reuse Docker volumes and copy the binary into `target-linux-x64` for staging.
@@ -773,7 +773,7 @@ fn print_help() {
     println!();
     println!("Builds the localnet release: version-suffixed program .so files, an");
     println!("account-snapshot bundle generated in-process with LiteSVM (no keypairs");
-    println!("or running validator needed), and the prover, photon, and zolana CLI");
+    println!("or running validator needed), and the prover, photon, and spr CLI");
     println!("binaries for the host platform plus linux-x64 (Go cross-compile for the");
     println!("prover; Docker for the linux Rust binaries). Regenerates");
     println!("cli/release-artifacts.lock; the CLI binary is built last so it embeds the");

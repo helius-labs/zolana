@@ -1,4 +1,4 @@
-//! The standalone fixture's verifier program, built by `zolana build-zk-program`
+//! The standalone fixture's verifier program, built by `spr build-zk-program`
 //! from a crate on the zk DSL alone, verifies a proof of its circuit on-chain
 //! through the generated verifier module.
 

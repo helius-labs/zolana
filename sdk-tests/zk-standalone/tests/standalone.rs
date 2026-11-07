@@ -89,7 +89,7 @@ fn on_chain_inputs(payout: &Payout) -> withdrawal::PublicInputs {
     }
 }
 
-/// The verifier module `zolana zk compile` generated accepts a proof from the
+/// The verifier module `spr zk compile` generated accepts a proof from the
 /// deterministic test setup, which is the key it embeds.
 #[test]
 fn the_generated_verifier_accepts_a_proof_of_a_standalone_circuit() {
@@ -124,7 +124,7 @@ fn a_standalone_payout_must_open_its_note() {
 
 /// The inputs, the public inputs and the gnark verifying key the wasm test
 /// (`wasm/standalone.test.mjs`) proves and verifies with. The keys are the
-/// deterministic test setup's, which `zolana zk compile` also writes.
+/// deterministic test setup's, which `spr zk compile` also writes.
 fn wasm_fixture() -> serde_json::Value {
     let inputs = withdrawal();
     let prover = Groth16Prover::<Withdrawal>::new_with_test_setup().expect("test setup");

@@ -1,4 +1,4 @@
-//! `zolana vks`: read the setup marker groth16-solana embeds next to every
+//! `spr vks`: read the setup marker groth16-solana embeds next to every
 //! verifying key, from any deployed program (upgradeable loader, loader-v4 or
 //! the legacy BPF loaders) or a local `.so`. `check` fails on a binary without
 //! markers or with an insecure test setup. `--expect` pins the keys a program

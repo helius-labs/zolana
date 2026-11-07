@@ -29,7 +29,7 @@ pub(crate) fn run_register(opts: RegisterOptions) -> Result<()> {
     let path = resolve_keypair_path(opts.wallet.keypair.keypair.as_deref(), &config);
     if !path.exists() {
         bail!(
-            "wallet not found at {}; create it with `zolana wallet new --outfile {}`",
+            "wallet not found at {}; create it with `spr wallet new --outfile {}`",
             path.display(),
             path.display()
         );

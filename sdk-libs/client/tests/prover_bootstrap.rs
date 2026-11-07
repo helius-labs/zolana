@@ -11,7 +11,7 @@ pub(crate) fn start_prover() {
 
 fn launch() -> Result<(), ClientError> {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
-    ProverLaunch::new_with_cli(format!("{root}/target/debug/zolana"))?
+    ProverLaunch::new_with_cli(format!("{root}/target/debug/spr"))?
         .with_keys_dir(format!("{root}/prover/server/proving-keys"))?
         .spawn()
 }

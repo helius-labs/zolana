@@ -91,7 +91,7 @@ fn preflight_protocol_config<R: Rpc + ?Sized>(rpc: &R, authority: Pubkey) -> Res
     let protocol_config = pda::protocol_config();
     let config = fetch_protocol_config(rpc)?.ok_or_else(|| {
         anyhow::anyhow!(
-            "protocol config not found at {protocol_config}; run `zolana dev pool create-tree` first"
+            "protocol config not found at {protocol_config}; run `spr dev pool create-tree` first"
         )
     })?;
     let asset_counter_exists = rpc

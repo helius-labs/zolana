@@ -13,7 +13,7 @@ use crate::config::{
 };
 
 #[derive(Debug, Parser)]
-#[command(name = "zolana", about = "Local Zolana developer tooling")]
+#[command(name = "spr", version, about = "Local Zolana developer tooling")]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Option<CliCommand>,
@@ -108,6 +108,12 @@ pub(crate) enum CliCommand {
         #[command(subcommand)]
         command: ZkCommand,
     },
+
+    #[command(
+        name = "version",
+        about = "Print the CLI version and the localnet release it pins"
+    )]
+    Version,
 }
 
 #[derive(Debug, Subcommand)]
@@ -328,7 +334,7 @@ pub(crate) struct ZkExportVerifierOptions {
     #[arg(
         long = "setup",
         value_enum,
-        help = "How the proving keys were made; embedded in the program binary for `zolana vks`"
+        help = "How the proving keys were made; embedded in the program binary for `spr vks`"
     )]
     pub(crate) setup: ZkSetupKind,
 
@@ -589,7 +595,7 @@ pub(crate) struct ConfigAddAssetOptions {
 pub(crate) enum WalletCommand {
     #[command(
         name = "new",
-        about = "Create a local wallet keypair. Offline: publish it on-chain separately with `zolana wallet register`."
+        about = "Create a local wallet keypair. Offline: publish it on-chain separately with `spr wallet register`."
     )]
     New(NewWalletOptions),
 
@@ -904,7 +910,7 @@ pub(crate) struct NetworkWalletOptions {
 
     #[arg(
         long,
-        help = "Shielded-pool tree account (default: configured tree from `zolana config`)"
+        help = "Shielded-pool tree account (default: configured tree from `spr config`)"
     )]
     pub(crate) tree: Option<String>,
 
@@ -944,7 +950,7 @@ pub(crate) struct SetTreeFeesOptions {
 
     #[arg(
         long,
-        help = "Shielded-pool tree account (default: configured tree from `zolana config`)"
+        help = "Shielded-pool tree account (default: configured tree from `spr config`)"
     )]
     pub(crate) tree: Option<String>,
 
@@ -1205,7 +1211,7 @@ impl TestValidatorOptions {
 
 #[cfg(test)]
 pub(crate) fn parse_cli(values: &[&str]) -> Cli {
-    Cli::try_parse_from(std::iter::once("zolana").chain(values.iter().copied())).expect("parse cli")
+    Cli::try_parse_from(std::iter::once("spr").chain(values.iter().copied())).expect("parse cli")
 }
 
 #[cfg(test)]
@@ -1270,7 +1276,7 @@ mod tests {
     fn zk_build_and_compile_use_random_setup_unless_test_is_requested() {
         for test in [false, true] {
             for build in [false, true] {
-                let mut args = vec!["zolana"];
+                let mut args = vec!["spr"];
                 if build {
                     args.push("build-zk-program");
                 } else {
@@ -1318,34 +1324,35 @@ mod tests {
     #[test]
     fn clap_accepts_top_level_and_command_help() {
         for args in [
-            ["zolana", "--help"].as_slice(),
-            ["zolana", "dev", "--help"].as_slice(),
-            ["zolana", "dev", "start", "--help"].as_slice(),
-            ["zolana", "dev", "prover", "--help"].as_slice(),
-            ["zolana", "dev", "prover", "start", "--help"].as_slice(),
-            ["zolana", "dev", "pool", "--help"].as_slice(),
-            ["zolana", "dev", "pool", "create-tree", "--help"].as_slice(),
-            ["zolana", "dev", "pool", "set-tree-fees", "--help"].as_slice(),
-            ["zolana", "dev", "pool", "test-mint", "--help"].as_slice(),
-            ["zolana", "test-env", "--help"].as_slice(),
-            ["zolana", "config", "--help"].as_slice(),
-            ["zolana", "config", "asset", "--help"].as_slice(),
-            ["zolana", "config", "asset", "list", "--help"].as_slice(),
-            ["zolana", "config", "asset", "add", "--help"].as_slice(),
-            ["zolana", "config", "asset", "path", "--help"].as_slice(),
-            ["zolana", "wallet", "--help"].as_slice(),
-            ["zolana", "wallet", "new", "--help"].as_slice(),
-            ["zolana", "wallet", "address", "--help"].as_slice(),
-            ["zolana", "wallet", "register", "--help"].as_slice(),
-            ["zolana", "sync", "--help"].as_slice(),
-            ["zolana", "balance", "--help"].as_slice(),
-            ["zolana", "utxos", "--help"].as_slice(),
-            ["zolana", "deposit", "--help"].as_slice(),
-            ["zolana", "transfer", "--help"].as_slice(),
-            ["zolana", "withdraw", "--help"].as_slice(),
-            ["zolana", "split", "--help"].as_slice(),
-            ["zolana", "merge", "--help"].as_slice(),
-            ["zolana", "set-merging", "--help"].as_slice(),
+            ["spr", "--help"].as_slice(),
+            ["spr", "dev", "--help"].as_slice(),
+            ["spr", "dev", "start", "--help"].as_slice(),
+            ["spr", "dev", "prover", "--help"].as_slice(),
+            ["spr", "dev", "prover", "start", "--help"].as_slice(),
+            ["spr", "dev", "pool", "--help"].as_slice(),
+            ["spr", "dev", "pool", "create-tree", "--help"].as_slice(),
+            ["spr", "dev", "pool", "set-tree-fees", "--help"].as_slice(),
+            ["spr", "dev", "pool", "test-mint", "--help"].as_slice(),
+            ["spr", "test-env", "--help"].as_slice(),
+            ["spr", "config", "--help"].as_slice(),
+            ["spr", "config", "asset", "--help"].as_slice(),
+            ["spr", "config", "asset", "list", "--help"].as_slice(),
+            ["spr", "config", "asset", "add", "--help"].as_slice(),
+            ["spr", "config", "asset", "path", "--help"].as_slice(),
+            ["spr", "wallet", "--help"].as_slice(),
+            ["spr", "wallet", "new", "--help"].as_slice(),
+            ["spr", "wallet", "address", "--help"].as_slice(),
+            ["spr", "wallet", "register", "--help"].as_slice(),
+            ["spr", "sync", "--help"].as_slice(),
+            ["spr", "balance", "--help"].as_slice(),
+            ["spr", "utxos", "--help"].as_slice(),
+            ["spr", "deposit", "--help"].as_slice(),
+            ["spr", "transfer", "--help"].as_slice(),
+            ["spr", "withdraw", "--help"].as_slice(),
+            ["spr", "split", "--help"].as_slice(),
+            ["spr", "merge", "--help"].as_slice(),
+            ["spr", "set-merging", "--help"].as_slice(),
+            ["spr", "version", "--help"].as_slice(),
         ] {
             let error = Cli::try_parse_from(args).expect_err("help exits early");
             assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
@@ -1935,7 +1942,7 @@ mod tests {
     fn split_part_count_is_range_limited() {
         for parts in ["1", "17"] {
             assert!(Cli::try_parse_from([
-                "zolana",
+                "spr",
                 "split",
                 "--keypair",
                 "/tmp/alice.pid.json",
@@ -2152,7 +2159,7 @@ mod tests {
 
         for flag in ["--prover-tee", "--prover-tee-policy=/tmp/policy.json"] {
             let error =
-                Cli::try_parse_from(["zolana", "vks", "check", "--so", "/tmp/program.so", flag])
+                Cli::try_parse_from(["spr", "vks", "check", "--so", "/tmp/program.so", flag])
                     .expect_err(flag);
             assert_eq!(
                 error.kind(),

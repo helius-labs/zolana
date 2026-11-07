@@ -45,9 +45,9 @@ pub fn setup() -> Result<SetupContext> {
     let account_dir = std::env::temp_dir().join("spr-client-example-accounts");
     smart_account::write_program_config_fixture(&account_dir);
     let ports = LocalnetPorts::checkout()?;
-    let cli_bin = std::env::var("ZOLANA_CLI_BIN")
+    let cli_bin = std::env::var("SPR_CLI_BIN")
         .map(Into::into)
-        .unwrap_or_else(|_| workspace_path("target/debug/zolana"));
+        .unwrap_or_else(|_| workspace_path("target/debug/spr"));
     LocalnetValidator {
         cli_bin: cli_bin.clone(),
         working_dir: workspace_path(""),

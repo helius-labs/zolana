@@ -596,11 +596,11 @@ key set fails before a transaction is built instead of on-chain:
 - `GET /proving-keys` (auth-exempt) lists every key with `expectedSha256`
   (lockfile), `loadedSha256` (`null` until loaded), and `available`.
   `ProverClient::check_proving_keys` / TS `checkProvingKeys` compare it at
-  startup; `spawn_prover`, the forester, and `zolana dev prover start` run it.
+  startup; `spawn_prover`, the forester, and `spr dev prover start` run it.
   The Rust startup check covers the interface and nullifier-tree keys; the
   custom-ring keys are checked per proof by the custom-rings SDK (the TS table
   covers every lockfile key).
-- `zolana vks list|check [--so <path> | --program-id <id>] [--expect <manifest>] [--shielded-pool] [--prover-url <url>]`
+- `spr vks list|check [--so <path> | --program-id <id>] [--expect <manifest>] [--shielded-pool] [--prover-url <url>]`
   reads the markers from a local build or any deployed program (upgradeable
   loader, loader-v4, or the legacy BPF loaders). `check` fails on a binary
   without markers or with an insecure test setup. `--expect` takes a

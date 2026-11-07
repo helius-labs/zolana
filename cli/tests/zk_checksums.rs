@@ -47,7 +47,7 @@ fn export_checks_the_pinned_key_before_writing_a_verifier() {
     fs::write(&key, &bytes).unwrap();
     fs::write(&manifest, &pinned).unwrap();
     let export = |setup: &str| {
-        Command::new(env!("CARGO_BIN_EXE_zolana"))
+        Command::new(env!("CARGO_BIN_EXE_spr"))
             .args(["zk", "export-verifier", "--setup", setup, "--manifest-path"])
             .arg(dir.join("Cargo.toml"))
             .arg("--checksums")
@@ -58,7 +58,7 @@ fn export_checks_the_pinned_key_before_writing_a_verifier() {
             .unwrap()
     };
 
-    let missing = Command::new(env!("CARGO_BIN_EXE_zolana"))
+    let missing = Command::new(env!("CARGO_BIN_EXE_spr"))
         .args(["zk", "export-verifier", "--setup", "test"])
         .output()
         .unwrap();

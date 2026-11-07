@@ -95,7 +95,7 @@ wasm = [
 ]
 wasm-prover = ["wasm", "spr-zk-dsl/wasm-prover"]
 r1cs-export = ["setup", "spr-zk-dsl/r1cs-export"]
-# The circuit crate build `zolana zk` runs (`spr_program::build`).
+# The circuit crate build `spr zk` runs (`spr_program::build`).
 build = ["setup", "spr-zk-dsl/build"]
 verifier = ["dep:groth16-solana", "dep:solana-program-error", "spr-zk-dsl/verifier"]
 wasm-threads = ["wasm-prover", "parallel", "spr-zk-dsl/wasm-threads"]

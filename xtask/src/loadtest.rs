@@ -2,7 +2,7 @@
 //!
 //! Replaces driving the CLI in a shell loop, which could not measure anything
 //! useful: it forks a process per transfer, so a meaningful fraction of the
-//! observed ~59s per transfer was `zolana` starting up and re-reading its config
+//! observed ~59s per transfer was `spr` starting up and re-reading its config
 //! rather than the protocol doing work. This drives the SDK in-process, holds a
 //! wallet across iterations, and records where the time actually goes.
 //!
