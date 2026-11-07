@@ -1,16 +1,15 @@
 # GitHub Releases
 
 Use the [shared checklist](README.md) and distinguish SDK release notes from
-protocol bundles. A pushed tag does not create a GitHub Release.
+protocol bundles. Manage the tag and GitHub Release as separate steps.
 
 ## SDK release notes
 
 1. Verify the remote tag resolves to the released source commit and the registry
-   packages match that source. For an existing tag, use its changelog and source
-   history, not the current `main` changelog.
+   packages match that source. Use the changelog and source history at that tag.
 2. Prepare notes scoped to the TypeScript or Rust SDK. Include package links,
    versions, breaking changes, migration steps, and compatibility requirements.
-   Do not use unfiltered monorepo-generated notes.
+   Filter monorepo-generated notes to the released SDK.
 3. Create a draft against the verified existing tag. From the repository root,
    set `release_tag` and `release_notes` to the reviewed tag and notes file.
    For an alpha release:
@@ -35,8 +34,8 @@ protocol bundles. A pushed tag does not create a GitHub Release.
 5. Verify the public page, tag commit, notes, registry links, and latest status.
    Record the GitHub publication date separately from the tag and package dates.
 
-Adding a missing GitHub Release for an already-published SDK is a metadata
-backfill. Preserve its tag, version, and original package publication date.
+Adding a missing GitHub Release updates only its release metadata. Preserve the
+SDK's tag, version, and original package publication date.
 
 ## Protocol and localnet bundles
 
@@ -61,9 +60,9 @@ just release "$release_tag" --upload --prerelease
 
 Omit `--prerelease` for an approved stable release. The helper creates a release
 targeting `HEAD`, or uploads assets when an existing release has that same target.
-It rejects an existing release with a different target. Verify any existing tag
-independently before upload. Do not replace published assets or repoint tags.
+It rejects an existing release with a different target. Verify an existing tag's
+commit before upload. Preserve published assets and tags.
 Read back the assets, checksums, prerelease flag, and latest status after upload;
-the helper does not explicitly choose GitHub's latest status.
+the helper leaves the latest choice to GitHub.
 
 Reference: [GitHub release documentation](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases).

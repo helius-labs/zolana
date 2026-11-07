@@ -28,8 +28,8 @@ version, exports, engines, and peer dependencies from
 3. Inspect the tarball and record its checksum. Install that exact tarball in a
    separate consumer with the supported Node and peer dependency versions.
    Compile imports of named exports and supported subpaths with
-   `skipLibCheck: false`, and exercise the changed API. `check:dist` alone does
-   not verify package consumers. Run relevant E2E checks for changed network
+   `skipLibCheck: false`, and exercise the changed API. Run these consumer checks
+   in addition to `check:dist`. Run relevant E2E checks for changed network
    flows; `npm run check` excludes `test/e2e`.
 4. Finish the release PR, verify CI on the final commit, and repeat package
    checks if its source changes. Retain the tested tarball for publication.
@@ -43,9 +43,8 @@ Set `release_tarball` to its absolute path. For an alpha:
 npm publish "$release_tarball" --tag alpha --access public
 ```
 
-The release changelog check above is required even when publishing a tarball;
-do not rely on directory lifecycle hooks to run for that form. Use `--tag latest`
-only for a release explicitly intended to replace the npm default version.
+Run the release changelog check above before publishing a tarball. Use
+`--tag latest` only for a release intended to replace the npm default version.
 
 Read back the exact version, dist-tags, integrity, and source metadata:
 
@@ -59,15 +58,14 @@ the registry tarball, compare it with the tested tarball, and install the exact
 registry version in the consumer. Check `gitHead` when present; use the recorded
 source commit and artifact comparison when it is absent.
 
-Only after registry verification, create and push the annotated
-`ts-sdk-v<version>` tag at the released source commit when authorized. Never move
-an existing published tag. The
-[TypeScript docs workflow](../.github/workflows/typescript-docs.yml) publishes API
+After registry verification and authorization, create and push an annotated
+`ts-sdk-v<version>` tag at the released source commit. Preserve an existing
+published tag. The [TypeScript docs workflow](../.github/workflows/typescript-docs.yml) publishes API
 docs on `ts-sdk-v*` tag pushes; its manual run builds without publishing. Verify
-authorization covers that documentation publication before pushing the tag.
+that approval covers documentation publication before pushing the tag.
 Verify the tag workflow, then follow the [GitHub guide](github.md) for release notes.
 
 If npm already contains the version, verify it and complete only missing tag,
-documentation, or GitHub steps. Do not publish it again.
+documentation, or GitHub steps.
 
 Reference: [npm publish documentation](https://docs.npmjs.com/cli/v11/commands/npm-publish/).

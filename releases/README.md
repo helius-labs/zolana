@@ -1,8 +1,8 @@
 # Releases
 
 All contributors use this checklist when preparing or publishing a release.
-Keep one release record tied to the exact source commit and the packages or
-assets that users receive.
+Record the exact source commit and shipped packages or assets in one release
+record.
 
 ## Choose the release
 
@@ -12,37 +12,36 @@ assets that users receive.
 | Rust SDK | `rust-sdk-v<version>` | [Rust crates](crates.md) |
 | Protocol and localnet bundle | `v<version>` | [GitHub](github.md) |
 
-GitHub Releases describe the tagged component. An SDK release does not imply a
-protocol deployment. TypeScript, Rust, and protocol versions may differ; record
-their compatibility instead of forcing the same version number.
+GitHub Releases describe the tagged component. Record compatible TypeScript,
+Rust, and protocol versions. Their version numbers may differ.
 
 ## Shared checklist
 
 1. Fetch the release branch and tags. Check the remote, source commit, existing
-   GitHub Releases, and registry versions before preparing publication. Use a
-   clean checkout of the intended source; do not include unrelated changes.
+   GitHub Releases, and registry versions before preparing the release. Use a
+   clean checkout of the intended source.
 2. Select the exact packages, versions, source commit, and release channel.
    Follow SemVer and document breaking changes, including changes before 1.0.
-   An alpha stays a prerelease on GitHub; an npm alpha uses the `alpha` tag. Moving
-   npm `latest` or selecting GitHub's latest release is an explicit decision.
+   Mark an alpha as a prerelease on GitHub. For npm, use the `alpha` tag. Choose
+   explicitly whether to move npm `latest` or select GitHub's latest release.
 3. Update manifests, dependency requirements, lockfiles, and the component's
    changelog in the release PR. Write notes from that component's changes since
    its previous release, with migration steps and compatibility requirements.
 4. Run the component's required checks and inspect the packaged files. Test a
-   consumer of the package, not only the workspace source. Record commands,
-   results, and any checks that were not run. Required failing checks block
-   publication; do not skip or weaken them to release.
-5. Have the release PR and exact publication actions reviewed. Resolve required
-   CI checks on the final source commit. Recheck packages if the source changes.
-   A PR merge, package publication, tag push, GitHub Release, and deployment are
-   separate actions; authorization must cover the actions being performed.
+   consumer of the packaged artifact. Record commands, results, and checks not
+   run. Resolve failures in required checks before publishing. Keep those checks
+   enabled and preserve their coverage.
+5. Get a review of the release PR and exact publication actions. Wait for required
+   CI checks to pass on the final source commit. Recheck packages if the source
+   changes. Get approval for the actions you will perform: PR merge, package
+   publication, tag push, GitHub Release, or deployment.
 6. Publish the verified packages, verify the registry results, then create or
-   verify the source tag and GitHub Release using the component guide. Never
-   move a published tag, overwrite a published asset, or reuse a package version.
+   verify the source tag and GitHub Release using the component guide. Keep
+   published tags and assets unchanged. Use each package version only once.
 7. Read back the public release and registry metadata. Verify versions, source,
    checksums, release notes, channel, and installation from the registry. Record
-   the actual URLs and publication dates. A successful build is not evidence of
-   publication or deployment.
+   the actual URLs and publication dates. Record build, publication, and
+   deployment results separately.
 
 If publication stops partway through, check every destination before retrying.
 Record what succeeded and resume only the missing actions. Fix published code
@@ -50,9 +49,9 @@ with a new version; review any deprecation or yank separately.
 
 ## Release record
 
-Prepare `releases/<tag>.md` in the release PR. Use these fields, and update the
-publication results after verification. The source commit identifies the
-released code, not a later commit that adds publication results.
+Prepare `releases/<tag>.md` in the release PR. Update the publication results
+after verification. The source commit identifies the released code, not a later
+commit that adds publication results.
 
 ```markdown
 # <component> <version>
