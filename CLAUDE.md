@@ -649,6 +649,9 @@ commitment.
 
 ## Releasing The TypeScript SDK
 
+Follow [releases/AGENTS.md](releases/AGENTS.md) and the shared
+[release checklist](releases/README.md) for GitHub Releases, npm, and Rust crates.
+
 `@heliuslabs/spr` publishes manually with `npm publish` from `sdk-libs/ts`
 and documents through the `ts-sdk-v<version>` tag workflow. Every
 published-surface change updates `sdk-libs/ts/CHANGELOG.md` in the same

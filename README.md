@@ -119,6 +119,11 @@ cargo install --git https://github.com/helius-labs/zolana --tag v0.4.0-alpha spr
 (programs, account snapshots, prover, and Photon) from the matching release. See
 [`cli/README.md`](cli/README.md) for commands and the `--local` dev flow.
 
+## Releases
+
+All contributors follow the [release checklist](releases/README.md) for GitHub
+Releases, the TypeScript npm package, and Rust crates.
+
 ## CI
 
 Workflows under `.github/workflows/`:
