@@ -72,9 +72,16 @@ pub fn parse_ui_confirmed_blocked(
         ..
     } = block;
 
+    // Photon indexes only shielded-pool transactions: its event, ring
+    // registration and nullifier tree parsers all match on that program.
+    // Decoding every other transaction (inner instruction data is base58) was
+    // most of the CPU spent on a mainnet block.
+    let shielded_pool = spr_interface::pda::shielded_pool_program_id();
+    let shielded_pool_base58 = shielded_pool.to_string();
     let transactions: Result<Vec<_>, _> = transactions
         .unwrap_or_default()
         .into_iter()
+        .filter(|transaction| names_program(transaction, &shielded_pool, &shielded_pool_base58))
         .map(parse_transaction_info)
         .collect();
 
@@ -96,6 +103,34 @@ pub fn parse_ui_confirmed_blocked(
             ))?,
         },
     })
+}
+
+/// Whether `program` may be one of the transaction's accounts, which every
+/// program an instruction runs, CPI targets included, has to be. A transaction
+/// that does not decode, or loads lookup-table accounts its metadata does not
+/// list, is kept so that parsing reports it as before.
+fn names_program(
+    transaction: &EncodedTransactionWithStatusMeta,
+    program: &Pubkey,
+    program_base58: &str,
+) -> bool {
+    let Some(decoded) = transaction.transaction.decode() else {
+        return true;
+    };
+    if decoded.message.static_account_keys().contains(program) {
+        return true;
+    }
+    match transaction.meta.as_ref().map(|meta| &meta.loaded_addresses) {
+        Some(OptionSerializer::Some(loaded)) => loaded
+            .writable
+            .iter()
+            .chain(loaded.readonly.iter())
+            .any(|address| address == program_base58),
+        _ => decoded
+            .message
+            .address_table_lookups()
+            .is_some_and(|lookups| !lookups.is_empty()),
+    }
 }
 
 pub fn parse_transaction_info(
@@ -428,6 +463,40 @@ mod tests {
         let error = parse_transaction_info(transaction).unwrap_err();
 
         assert!(error.to_string().contains("no loaded addresses"), "{error}");
+    }
+
+    fn names(transaction: &str, program: &str) -> bool {
+        let transaction: EncodedTransactionWithStatusMeta =
+            serde_json::from_str(transaction).unwrap();
+        names_program(&transaction, &pubkey(program), program)
+    }
+
+    #[test]
+    fn keeps_only_transactions_that_name_the_program() {
+        let shielded_pool = "sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6";
+        assert!(names(VERSION_0_DEPOSIT, shielded_pool));
+        assert!(!names(VERSION_1_TRANSACTION, shielded_pool));
+        assert!(!names(VERSION_0_WITH_LOOKUPS, shielded_pool));
+    }
+
+    #[test]
+    fn a_program_loaded_through_a_lookup_table_counts() {
+        let loaded_readonly = "EXjycYGbH88NdpgfcEkJqXp33T91NCcSFKiii9SazqAo";
+        assert!(names(VERSION_0_WITH_LOOKUPS, loaded_readonly));
+    }
+
+    #[test]
+    fn keeps_a_lookup_table_transaction_without_loaded_addresses() {
+        let mut transaction: EncodedTransactionWithStatusMeta =
+            serde_json::from_str(VERSION_0_WITH_LOOKUPS).unwrap();
+        transaction.meta.as_mut().unwrap().loaded_addresses = OptionSerializer::None;
+        let shielded_pool = "sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6";
+
+        assert!(names_program(
+            &transaction,
+            &pubkey(shielded_pool),
+            shielded_pool
+        ));
     }
 
     #[test]
