@@ -119,3 +119,6 @@ import poolIdl from "@heliuslabs/spr/idl/shieldedPool.json" with { type: "json" 
 import registryIdl from "@heliuslabs/spr/idl/userRegistry.json" with { type: "json" };
 void poolIdl.program.instructions;
 void registryIdl.program.instructions;
+
+import manifest from "@heliuslabs/spr/idl/manifest.json" with { type: "json" };
+void manifest.programs;

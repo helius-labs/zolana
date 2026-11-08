@@ -44,6 +44,7 @@ jobs:
         if: matrix.node == env.NODE_VERSION
         with:
           shared-key: idl-fixtures
+          install-go: "false"
           install-just: "false"
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
       - name: Verify IDL Rust byte fixtures

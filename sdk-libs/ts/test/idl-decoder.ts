@@ -85,12 +85,13 @@ function decode(type: WireNode, reader: Reader, idl: WireIdl, depth = 0): Decode
   const read = (child: WireNode, from = reader) => decode(child, from, idl, depth + 1);
   switch (type.kind) {
     case "numberTypeNode": {
-      const widths: Record<string, number> = { u8: 1, u16: 2, u32: 4, u64: 8 };
+      const widths: Record<string, number> = { u8: 1, u16: 2, u32: 4, u64: 8, i64: 8 };
       const width = required(widths[required(type.format, "number format")], "number width");
       const bytes = reader.take(width);
       let result = 0n;
       for (let i = 0; i < width; i++)
         result |= BigInt(bytes[i]!) << BigInt(8 * (type.endian === "be" ? width - i - 1 : i));
+      if (type.format === "i64") return BigInt.asIntN(64, result);
       return width === 8 ? result : Number(result);
     }
     case "booleanTypeNode": {
@@ -106,8 +107,9 @@ function decode(type: WireNode, reader: Reader, idl: WireIdl, depth = 0): Decode
       const nested = new Reader(
         reader.take(required(type.size as number | undefined, "fixed size")),
       );
-      // Fixed-size accounts may pad variable Borsh data (UserRecord).
-      return read(required(type.type, "fixed type"), nested);
+      const result = read(required(type.type, "fixed type"), nested);
+      nested.finish();
+      return result;
     }
     case "sizePrefixTypeNode": {
       const size = read(required(type.prefix, "size prefix"));

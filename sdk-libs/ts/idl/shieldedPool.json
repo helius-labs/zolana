@@ -5,10 +5,10 @@
   "program": {
     "kind": "programNode",
     "name": "shieldedPool",
-    "publicKey": "sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6",
+    "publicKey": "ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW",
     "version": "0.1.0",
     "docs": [
-      "Native Pinocchio program. Custom wincode instructions and Borsh self-CPI events. Tree internals intentionally omitted; configuration and asset accounts are described."
+      "Native Pinocchio program. Custom wincode instructions and Borsh self-CPI events. Tree internals intentionally omitted; configuration, asset, and cache accounts are described."
     ],
     "accounts": [
       {
@@ -322,6 +322,102 @@
               "value": {
                 "kind": "numberValueNode",
                 "number": 6
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "accountNode",
+        "name": "cache",
+        "size": 1228,
+        "data": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "discriminator",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "bump",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "treeId",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u16",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "expiresAt",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "i64",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "rentSponsor",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "writeAuthority",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "utxoHashes",
+              "type": {
+                "kind": "arrayTypeNode",
+                "item": {
+                  "kind": "fixedSizeTypeNode",
+                  "size": 32,
+                  "type": {
+                    "kind": "bytesTypeNode"
+                  }
+                },
+                "count": {
+                  "kind": "fixedCountNode",
+                  "value": 36
+                }
+              }
+            }
+          ]
+        },
+        "discriminators": [
+          {
+            "kind": "constantDiscriminatorNode",
+            "offset": 0,
+            "constant": {
+              "kind": "constantValueNode",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              },
+              "value": {
+                "kind": "numberValueNode",
+                "number": 7
               }
             }
           }
@@ -801,7 +897,7 @@
                     "fields": [
                       {
                         "kind": "structFieldTypeNode",
-                        "name": "feePerNullifier",
+                        "name": "feePerTree",
                         "type": {
                           "kind": "numberTypeNode",
                           "format": "u64",
@@ -857,7 +953,7 @@
           {
             "kind": "instructionAccountNode",
             "name": "protocolConfig",
-            "isWritable": true,
+            "isWritable": false,
             "isSigner": false,
             "isOptional": false
           },
@@ -962,7 +1058,7 @@
               "fields": [
                 {
                   "kind": "structFieldTypeNode",
-                  "name": "feePerNullifier",
+                  "name": "feePerTree",
                   "type": {
                     "kind": "numberTypeNode",
                     "format": "u64",
@@ -1355,7 +1451,9 @@
       {
         "kind": "instructionNode",
         "name": "updateRingConfigOwner",
-        "docs": [""],
+        "docs": [
+          "The new authority must co-sign unless it is the all-zero address, which burns authority."
+        ],
         "optionalAccountStrategy": "programId",
         "accounts": [
           {
@@ -1376,7 +1474,7 @@
             "kind": "instructionAccountNode",
             "name": "newAuthority",
             "isWritable": false,
-            "isSigner": true,
+            "isSigner": "either",
             "isOptional": false
           }
         ],
@@ -1873,7 +1971,7 @@
         "kind": "instructionNode",
         "name": "transact",
         "docs": [
-          "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program."
+          "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program. Cached selectors append a read cache when readBitmap is nonzero, then a writable write cache and its writer signer when writeSlots is nonempty; read and write caches may be the same account."
         ],
         "optionalAccountStrategy": "programId",
         "accounts": [
@@ -1942,7 +2040,7 @@
         "kind": "instructionNode",
         "name": "mergeTransact",
         "docs": [
-          "Remaining accounts: one writable nullifier PDA per nullifier, in nullifiers order."
+          "Remaining accounts: one writable nullifier PDA per nullifier, in nullifiers order, then a writable cache and its writer signer when cacheSlot is present."
         ],
         "optionalAccountStrategy": "programId",
         "accounts": [
@@ -2094,7 +2192,7 @@
         "kind": "instructionNode",
         "name": "ringTransact",
         "docs": [
-          "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program."
+          "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program. Cached selectors append a read cache when readBitmap is nonzero, then a writable write cache and its writer signer when writeSlots is nonempty; read and write caches may be the same account."
         ],
         "optionalAccountStrategy": "programId",
         "accounts": [
@@ -2170,7 +2268,7 @@
         "kind": "instructionNode",
         "name": "ringMergeTransact",
         "docs": [
-          "Remaining accounts: one writable nullifier PDA per nullifier, in nullifiers order."
+          "Remaining accounts: one writable nullifier PDA per nullifier, in nullifiers order, then a writable cache and its writer signer when cacheSlot is present."
         ],
         "optionalAccountStrategy": "programId",
         "accounts": [
@@ -2273,7 +2371,7 @@
         "kind": "instructionNode",
         "name": "ringAuthorityTransact",
         "docs": [
-          "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program."
+          "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program. Cached selectors append a read cache when readBitmap is nonzero, then a writable write cache and its writer signer when writeSlots is nonempty; read and write caches may be the same account."
         ],
         "optionalAccountStrategy": "programId",
         "accounts": [
@@ -2344,6 +2442,158 @@
             "offset": 0
           }
         ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "createCache",
+        "docs": [
+          "Creates a cache PDA derived from the rent payer and nonce; the write authority is independent of the payer."
+        ],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "cache",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 22
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "writeAuthority",
+                  "type": {
+                    "kind": "publicKeyTypeNode"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "nonce",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u64",
+                    "endian": "le"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "treeId",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "u16",
+                    "endian": "le"
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "expiresAt",
+                  "type": {
+                    "kind": "numberTypeNode",
+                    "format": "i64",
+                    "endian": "le"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "closeCache",
+        "docs": [""],
+        "optionalAccountStrategy": "omitted",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "cache",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "rentRecipient",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "writer",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": true,
+            "docs": [
+              "Write authority must sign before expiry; optional after expiry. Rent returns to the stored sponsor."
+            ]
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 23
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
       }
     ],
     "definedTypes": [
@@ -2397,7 +2647,7 @@
           "variants": [
             {
               "kind": "enumStructVariantTypeNode",
-              "name": "confidentialEddsa",
+              "name": "confidentialSigner",
               "struct": {
                 "kind": "structTypeNode",
                 "fields": [
@@ -2433,7 +2683,7 @@
             },
             {
               "kind": "enumStructVariantTypeNode",
-              "name": "ringEddsa",
+              "name": "confidentialRingEddsa",
               "struct": {
                 "kind": "structTypeNode",
                 "fields": [
@@ -2505,7 +2755,7 @@
             },
             {
               "kind": "enumStructVariantTypeNode",
-              "name": "ringP256",
+              "name": "anonymousRingEddsa",
               "struct": {
                 "kind": "structTypeNode",
                 "fields": [
@@ -2538,24 +2788,33 @@
                   },
                   {
                     "kind": "structFieldTypeNode",
-                    "name": "commitment",
+                    "name": "bsb22Commitment",
                     "type": {
-                      "kind": "fixedSizeTypeNode",
-                      "size": 32,
-                      "type": {
-                        "kind": "bytesTypeNode"
-                      }
-                    }
-                  },
-                  {
-                    "kind": "structFieldTypeNode",
-                    "name": "commitmentPok",
-                    "type": {
-                      "kind": "fixedSizeTypeNode",
-                      "size": 32,
-                      "type": {
-                        "kind": "bytesTypeNode"
-                      }
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "commitment",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "commitmentPok",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        }
+                      ]
                     }
                   },
                   {
@@ -2576,6 +2835,529 @@
                         "format": "u8",
                         "endian": "le"
                       }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "enumStructVariantTypeNode",
+              "name": "confidentialSignerCached",
+              "struct": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "inputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "outputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "publicAssetSlots",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "cacheAccess",
+                    "type": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "readBitmap",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u64",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "writeSlots",
+                          "type": {
+                            "kind": "arrayTypeNode",
+                            "item": {
+                              "kind": "structTypeNode",
+                              "fields": [
+                                {
+                                  "kind": "structFieldTypeNode",
+                                  "name": "output",
+                                  "type": {
+                                    "kind": "numberTypeNode",
+                                    "format": "u8",
+                                    "endian": "le"
+                                  }
+                                },
+                                {
+                                  "kind": "structFieldTypeNode",
+                                  "name": "slot",
+                                  "type": {
+                                    "kind": "numberTypeNode",
+                                    "format": "u8",
+                                    "endian": "le"
+                                  }
+                                }
+                              ]
+                            },
+                            "count": {
+                              "kind": "fixedCountNode",
+                              "value": 16
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "enumStructVariantTypeNode",
+              "name": "confidentialRingEddsaCached",
+              "struct": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "inputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "outputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "publicAssetSlots",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "cacheAccess",
+                    "type": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "readBitmap",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u64",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "writeSlots",
+                          "type": {
+                            "kind": "arrayTypeNode",
+                            "item": {
+                              "kind": "structTypeNode",
+                              "fields": [
+                                {
+                                  "kind": "structFieldTypeNode",
+                                  "name": "output",
+                                  "type": {
+                                    "kind": "numberTypeNode",
+                                    "format": "u8",
+                                    "endian": "le"
+                                  }
+                                },
+                                {
+                                  "kind": "structFieldTypeNode",
+                                  "name": "slot",
+                                  "type": {
+                                    "kind": "numberTypeNode",
+                                    "format": "u8",
+                                    "endian": "le"
+                                  }
+                                }
+                              ]
+                            },
+                            "count": {
+                              "kind": "fixedCountNode",
+                              "value": 16
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "enumStructVariantTypeNode",
+              "name": "anonymousRingEddsaCached",
+              "struct": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "inputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "outputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "publicAssetSlots",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "bsb22Commitment",
+                    "type": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "commitment",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "commitmentPok",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "defaultOwnerTag",
+                    "type": {
+                      "kind": "optionTypeNode",
+                      "fixed": true,
+                      "item": {
+                        "kind": "fixedSizeTypeNode",
+                        "size": 32,
+                        "type": {
+                          "kind": "bytesTypeNode"
+                        }
+                      },
+                      "prefix": {
+                        "kind": "numberTypeNode",
+                        "format": "u8",
+                        "endian": "le"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "cacheAccess",
+                    "type": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "readBitmap",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u64",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "writeSlots",
+                          "type": {
+                            "kind": "arrayTypeNode",
+                            "item": {
+                              "kind": "structTypeNode",
+                              "fields": [
+                                {
+                                  "kind": "structFieldTypeNode",
+                                  "name": "output",
+                                  "type": {
+                                    "kind": "numberTypeNode",
+                                    "format": "u8",
+                                    "endian": "le"
+                                  }
+                                },
+                                {
+                                  "kind": "structFieldTypeNode",
+                                  "name": "slot",
+                                  "type": {
+                                    "kind": "numberTypeNode",
+                                    "format": "u8",
+                                    "endian": "le"
+                                  }
+                                }
+                              ]
+                            },
+                            "count": {
+                              "kind": "fixedCountNode",
+                              "value": 16
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "enumStructVariantTypeNode",
+              "name": "confidentialEddsa",
+              "struct": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "inputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "outputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "publicAssetSlots",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "bsb22Commitment",
+                    "type": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "commitment",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "commitmentPok",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "ownerPk",
+                    "type": {
+                      "kind": "fixedSizeTypeNode",
+                      "size": 32,
+                      "type": {
+                        "kind": "bytesTypeNode"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "enumStructVariantTypeNode",
+              "name": "confidentialEddsaCached",
+              "struct": {
+                "kind": "structTypeNode",
+                "fields": [
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "inputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "outputs",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "publicAssetSlots",
+                    "type": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "bsb22Commitment",
+                    "type": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "commitment",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "commitmentPok",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "ownerPk",
+                    "type": {
+                      "kind": "fixedSizeTypeNode",
+                      "size": 32,
+                      "type": {
+                        "kind": "bytesTypeNode"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "structFieldTypeNode",
+                    "name": "cacheAccess",
+                    "type": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "readBitmap",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u64",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "writeSlots",
+                          "type": {
+                            "kind": "arrayTypeNode",
+                            "item": {
+                              "kind": "structTypeNode",
+                              "fields": [
+                                {
+                                  "kind": "structFieldTypeNode",
+                                  "name": "output",
+                                  "type": {
+                                    "kind": "numberTypeNode",
+                                    "format": "u8",
+                                    "endian": "le"
+                                  }
+                                },
+                                {
+                                  "kind": "structFieldTypeNode",
+                                  "name": "slot",
+                                  "type": {
+                                    "kind": "numberTypeNode",
+                                    "format": "u8",
+                                    "endian": "le"
+                                  }
+                                }
+                              ]
+                            },
+                            "count": {
+                              "kind": "fixedCountNode",
+                              "value": 16
+                            }
+                          }
+                        }
+                      ]
                     }
                   }
                 ]
@@ -2953,7 +3735,7 @@
                 "variants": [
                   {
                     "kind": "enumStructVariantTypeNode",
-                    "name": "confidentialEddsa",
+                    "name": "confidentialSigner",
                     "struct": {
                       "kind": "structTypeNode",
                       "fields": [
@@ -2989,7 +3771,7 @@
                   },
                   {
                     "kind": "enumStructVariantTypeNode",
-                    "name": "ringEddsa",
+                    "name": "confidentialRingEddsa",
                     "struct": {
                       "kind": "structTypeNode",
                       "fields": [
@@ -3061,7 +3843,7 @@
                   },
                   {
                     "kind": "enumStructVariantTypeNode",
-                    "name": "ringP256",
+                    "name": "anonymousRingEddsa",
                     "struct": {
                       "kind": "structTypeNode",
                       "fields": [
@@ -3094,24 +3876,33 @@
                         },
                         {
                           "kind": "structFieldTypeNode",
-                          "name": "commitment",
+                          "name": "bsb22Commitment",
                           "type": {
-                            "kind": "fixedSizeTypeNode",
-                            "size": 32,
-                            "type": {
-                              "kind": "bytesTypeNode"
-                            }
-                          }
-                        },
-                        {
-                          "kind": "structFieldTypeNode",
-                          "name": "commitmentPok",
-                          "type": {
-                            "kind": "fixedSizeTypeNode",
-                            "size": 32,
-                            "type": {
-                              "kind": "bytesTypeNode"
-                            }
+                            "kind": "structTypeNode",
+                            "fields": [
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "commitment",
+                                "type": {
+                                  "kind": "fixedSizeTypeNode",
+                                  "size": 32,
+                                  "type": {
+                                    "kind": "bytesTypeNode"
+                                  }
+                                }
+                              },
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "commitmentPok",
+                                "type": {
+                                  "kind": "fixedSizeTypeNode",
+                                  "size": 32,
+                                  "type": {
+                                    "kind": "bytesTypeNode"
+                                  }
+                                }
+                              }
+                            ]
                           }
                         },
                         {
@@ -3132,6 +3923,529 @@
                               "format": "u8",
                               "endian": "le"
                             }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "confidentialSignerCached",
+                    "struct": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "inputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "outputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "publicAssetSlots",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "cacheAccess",
+                          "type": {
+                            "kind": "structTypeNode",
+                            "fields": [
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "readBitmap",
+                                "type": {
+                                  "kind": "numberTypeNode",
+                                  "format": "u64",
+                                  "endian": "le"
+                                }
+                              },
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "writeSlots",
+                                "type": {
+                                  "kind": "arrayTypeNode",
+                                  "item": {
+                                    "kind": "structTypeNode",
+                                    "fields": [
+                                      {
+                                        "kind": "structFieldTypeNode",
+                                        "name": "output",
+                                        "type": {
+                                          "kind": "numberTypeNode",
+                                          "format": "u8",
+                                          "endian": "le"
+                                        }
+                                      },
+                                      {
+                                        "kind": "structFieldTypeNode",
+                                        "name": "slot",
+                                        "type": {
+                                          "kind": "numberTypeNode",
+                                          "format": "u8",
+                                          "endian": "le"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "count": {
+                                    "kind": "fixedCountNode",
+                                    "value": 16
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "confidentialRingEddsaCached",
+                    "struct": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "inputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "outputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "publicAssetSlots",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "cacheAccess",
+                          "type": {
+                            "kind": "structTypeNode",
+                            "fields": [
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "readBitmap",
+                                "type": {
+                                  "kind": "numberTypeNode",
+                                  "format": "u64",
+                                  "endian": "le"
+                                }
+                              },
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "writeSlots",
+                                "type": {
+                                  "kind": "arrayTypeNode",
+                                  "item": {
+                                    "kind": "structTypeNode",
+                                    "fields": [
+                                      {
+                                        "kind": "structFieldTypeNode",
+                                        "name": "output",
+                                        "type": {
+                                          "kind": "numberTypeNode",
+                                          "format": "u8",
+                                          "endian": "le"
+                                        }
+                                      },
+                                      {
+                                        "kind": "structFieldTypeNode",
+                                        "name": "slot",
+                                        "type": {
+                                          "kind": "numberTypeNode",
+                                          "format": "u8",
+                                          "endian": "le"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "count": {
+                                    "kind": "fixedCountNode",
+                                    "value": 16
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "anonymousRingEddsaCached",
+                    "struct": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "inputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "outputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "publicAssetSlots",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "bsb22Commitment",
+                          "type": {
+                            "kind": "structTypeNode",
+                            "fields": [
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "commitment",
+                                "type": {
+                                  "kind": "fixedSizeTypeNode",
+                                  "size": 32,
+                                  "type": {
+                                    "kind": "bytesTypeNode"
+                                  }
+                                }
+                              },
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "commitmentPok",
+                                "type": {
+                                  "kind": "fixedSizeTypeNode",
+                                  "size": 32,
+                                  "type": {
+                                    "kind": "bytesTypeNode"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "defaultOwnerTag",
+                          "type": {
+                            "kind": "optionTypeNode",
+                            "fixed": true,
+                            "item": {
+                              "kind": "fixedSizeTypeNode",
+                              "size": 32,
+                              "type": {
+                                "kind": "bytesTypeNode"
+                              }
+                            },
+                            "prefix": {
+                              "kind": "numberTypeNode",
+                              "format": "u8",
+                              "endian": "le"
+                            }
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "cacheAccess",
+                          "type": {
+                            "kind": "structTypeNode",
+                            "fields": [
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "readBitmap",
+                                "type": {
+                                  "kind": "numberTypeNode",
+                                  "format": "u64",
+                                  "endian": "le"
+                                }
+                              },
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "writeSlots",
+                                "type": {
+                                  "kind": "arrayTypeNode",
+                                  "item": {
+                                    "kind": "structTypeNode",
+                                    "fields": [
+                                      {
+                                        "kind": "structFieldTypeNode",
+                                        "name": "output",
+                                        "type": {
+                                          "kind": "numberTypeNode",
+                                          "format": "u8",
+                                          "endian": "le"
+                                        }
+                                      },
+                                      {
+                                        "kind": "structFieldTypeNode",
+                                        "name": "slot",
+                                        "type": {
+                                          "kind": "numberTypeNode",
+                                          "format": "u8",
+                                          "endian": "le"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "count": {
+                                    "kind": "fixedCountNode",
+                                    "value": 16
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "confidentialEddsa",
+                    "struct": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "inputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "outputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "publicAssetSlots",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "bsb22Commitment",
+                          "type": {
+                            "kind": "structTypeNode",
+                            "fields": [
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "commitment",
+                                "type": {
+                                  "kind": "fixedSizeTypeNode",
+                                  "size": 32,
+                                  "type": {
+                                    "kind": "bytesTypeNode"
+                                  }
+                                }
+                              },
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "commitmentPok",
+                                "type": {
+                                  "kind": "fixedSizeTypeNode",
+                                  "size": 32,
+                                  "type": {
+                                    "kind": "bytesTypeNode"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "ownerPk",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "confidentialEddsaCached",
+                    "struct": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "inputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "outputs",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "publicAssetSlots",
+                          "type": {
+                            "kind": "numberTypeNode",
+                            "format": "u8",
+                            "endian": "le"
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "bsb22Commitment",
+                          "type": {
+                            "kind": "structTypeNode",
+                            "fields": [
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "commitment",
+                                "type": {
+                                  "kind": "fixedSizeTypeNode",
+                                  "size": 32,
+                                  "type": {
+                                    "kind": "bytesTypeNode"
+                                  }
+                                }
+                              },
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "commitmentPok",
+                                "type": {
+                                  "kind": "fixedSizeTypeNode",
+                                  "size": 32,
+                                  "type": {
+                                    "kind": "bytesTypeNode"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "ownerPk",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 32,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "cacheAccess",
+                          "type": {
+                            "kind": "structTypeNode",
+                            "fields": [
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "readBitmap",
+                                "type": {
+                                  "kind": "numberTypeNode",
+                                  "format": "u64",
+                                  "endian": "le"
+                                }
+                              },
+                              {
+                                "kind": "structFieldTypeNode",
+                                "name": "writeSlots",
+                                "type": {
+                                  "kind": "arrayTypeNode",
+                                  "item": {
+                                    "kind": "structTypeNode",
+                                    "fields": [
+                                      {
+                                        "kind": "structFieldTypeNode",
+                                        "name": "output",
+                                        "type": {
+                                          "kind": "numberTypeNode",
+                                          "format": "u8",
+                                          "endian": "le"
+                                        }
+                                      },
+                                      {
+                                        "kind": "structFieldTypeNode",
+                                        "name": "slot",
+                                        "type": {
+                                          "kind": "numberTypeNode",
+                                          "format": "u8",
+                                          "endian": "le"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "count": {
+                                    "kind": "fixedCountNode",
+                                    "value": 16
+                                  }
+                                }
+                              }
+                            ]
                           }
                         }
                       ]
@@ -3338,9 +4652,50 @@
             },
             {
               "kind": "structFieldTypeNode",
-              "name": "eddsaOwner",
+              "name": "outputEncryption",
               "type": {
-                "kind": "booleanTypeNode",
+                "kind": "enumTypeNode",
+                "variants": [
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "poseidonCtrV1",
+                    "discriminator": 1,
+                    "struct": {
+                      "kind": "structTypeNode",
+                      "fields": [
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "salt",
+                          "type": {
+                            "kind": "fixedSizeTypeNode",
+                            "size": 16,
+                            "type": {
+                              "kind": "bytesTypeNode"
+                            }
+                          }
+                        },
+                        {
+                          "kind": "structFieldTypeNode",
+                          "name": "ciphertext",
+                          "type": {
+                            "kind": "arrayTypeNode",
+                            "item": {
+                              "kind": "fixedSizeTypeNode",
+                              "size": 32,
+                              "type": {
+                                "kind": "bytesTypeNode"
+                              }
+                            },
+                            "count": {
+                              "kind": "fixedCountNode",
+                              "value": 3
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
                 "size": {
                   "kind": "numberTypeNode",
                   "format": "u8",
@@ -3397,6 +4752,24 @@
                 "kind": "numberTypeNode",
                 "format": "u16",
                 "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "cacheSlot",
+              "type": {
+                "kind": "optionTypeNode",
+                "fixed": false,
+                "item": {
+                  "kind": "numberTypeNode",
+                  "format": "u8",
+                  "endian": "le"
+                },
+                "prefix": {
+                  "kind": "numberTypeNode",
+                  "format": "u8",
+                  "endian": "le"
+                }
               }
             }
           ]
@@ -4008,50 +5381,6 @@
                     },
                     {
                       "kind": "structFieldTypeNode",
-                      "name": "utxoData",
-                      "type": {
-                        "kind": "optionTypeNode",
-                        "fixed": false,
-                        "item": {
-                          "kind": "structTypeNode",
-                          "fields": [
-                            {
-                              "kind": "structFieldTypeNode",
-                              "name": "dataHash",
-                              "type": {
-                                "kind": "fixedSizeTypeNode",
-                                "size": 32,
-                                "type": {
-                                  "kind": "bytesTypeNode"
-                                }
-                              }
-                            },
-                            {
-                              "kind": "structFieldTypeNode",
-                              "name": "data",
-                              "type": {
-                                "kind": "sizePrefixTypeNode",
-                                "type": {
-                                  "kind": "bytesTypeNode"
-                                },
-                                "prefix": {
-                                  "kind": "numberTypeNode",
-                                  "format": "u16",
-                                  "endian": "le"
-                                }
-                              }
-                            }
-                          ]
-                        },
-                        "prefix": {
-                          "kind": "numberTypeNode",
-                          "format": "u8",
-                          "endian": "le"
-                        }
-                      }
-                    },
-                    {
-                      "kind": "structFieldTypeNode",
                       "name": "memo",
                       "type": {
                         "kind": "optionTypeNode",
@@ -4191,26 +5520,6 @@
                         "kind": "numberTypeNode",
                         "format": "u64",
                         "endian": "le"
-                      }
-                    },
-                    {
-                      "kind": "structFieldTypeNode",
-                      "name": "dataHash",
-                      "type": {
-                        "kind": "optionTypeNode",
-                        "fixed": false,
-                        "item": {
-                          "kind": "fixedSizeTypeNode",
-                          "size": 32,
-                          "type": {
-                            "kind": "bytesTypeNode"
-                          }
-                        },
-                        "prefix": {
-                          "kind": "numberTypeNode",
-                          "format": "u8",
-                          "endian": "le"
-                        }
                       }
                     },
                     {
@@ -4391,9 +5700,9 @@
       },
       {
         "kind": "errorNode",
-        "name": "mergeDisabled",
+        "name": "mergeEncryptionSchemeMismatch",
         "code": 7017,
-        "message": "merging is not enabled for this user"
+        "message": "merge output encryption scheme differs from the owner's registered scheme"
       },
       {
         "kind": "errorNode",
@@ -4423,7 +5732,7 @@
         "kind": "errorNode",
         "name": "invalidForesterFee",
         "code": 7022,
-        "message": "forester fee calculation overflowed or used an invalid tree configuration"
+        "message": "tree fee balance overflowed"
       },
       {
         "kind": "errorNode",
@@ -4667,12 +5976,6 @@
       },
       {
         "kind": "errorNode",
-        "name": "inputsNotGroupedByTree",
-        "code": 7063,
-        "message": "inputs must be grouped by tree in non-decreasing tree-index order"
-      },
-      {
-        "kind": "errorNode",
         "name": "unreferencedTreeContext",
         "code": 7064,
         "message": "a declared input tree is referenced by no input"
@@ -4682,6 +5985,108 @@
         "name": "duplicateInputTree",
         "code": 7065,
         "message": "the same input tree account is passed twice"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidCache",
+        "code": 7066,
+        "message": "invalid UTXO cache"
+      },
+      {
+        "kind": "errorNode",
+        "name": "cacheConfigMismatch",
+        "code": 7067,
+        "message": "cache configuration does not match"
+      },
+      {
+        "kind": "errorNode",
+        "name": "cacheSlotEmpty",
+        "code": 7068,
+        "message": "cache slot is empty"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidCacheSlot",
+        "code": 7069,
+        "message": "invalid cache slot"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidCacheBitmap",
+        "code": 7070,
+        "message": "invalid cache bitmap"
+      },
+      {
+        "kind": "errorNode",
+        "name": "cacheTreeMismatch",
+        "code": 7071,
+        "message": "cache tree does not match"
+      },
+      {
+        "kind": "errorNode",
+        "name": "cacheExpired",
+        "code": 7073,
+        "message": "cache is past its expiry"
+      },
+      {
+        "kind": "errorNode",
+        "name": "cacheNotExpired",
+        "code": 7074,
+        "message": "cache is not past its expiry"
+      },
+      {
+        "kind": "errorNode",
+        "name": "cacheExpiryNotInFuture",
+        "code": 7075,
+        "message": "cache expiry must be in the future"
+      },
+      {
+        "kind": "errorNode",
+        "name": "cacheWriteAuthorityMismatch",
+        "code": 7076,
+        "message": "cache writer is not the cache's write authority"
+      },
+      {
+        "kind": "errorNode",
+        "name": "cacheRentRecipientMismatch",
+        "code": 7077,
+        "message": "rent recipient is not the cache's rent sponsor"
+      },
+      {
+        "kind": "errorNode",
+        "name": "zeroInputNullifier",
+        "code": 7078,
+        "message": "input nullifier must be nonzero; zero marks compact padding"
+      },
+      {
+        "kind": "errorNode",
+        "name": "zeroOutputUtxoHash",
+        "code": 7079,
+        "message": "output utxo hash must be nonzero; zero marks compact padding"
+      },
+      {
+        "kind": "errorNode",
+        "name": "treeFeeTooHigh",
+        "code": 7080,
+        "message": "tree fee per tree exceeds the maximum"
+      },
+      {
+        "kind": "errorNode",
+        "name": "treeCreationMismatch",
+        "code": 7081,
+        "message": "tree creation step does not match the step that started it"
+      },
+      {
+        "kind": "errorNode",
+        "name": "nonCanonicalMergeCiphertext",
+        "code": 7082,
+        "message": "merge output ciphertext element is not a canonical BN254 field element"
+      },
+      {
+        "kind": "errorNode",
+        "name": "circuitFeatureDisabled",
+        "code": 7083,
+        "message": "circuit feature is disabled in this program build"
       }
     ]
   }

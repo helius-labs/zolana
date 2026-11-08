@@ -10825,6 +10825,7 @@ dependencies = [
  "spr-interface",
  "spr-tree",
  "spr-user-registry-interface",
+ "wincode",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import rust from "../fixtures/idl/rust.json" with { type: "json" };
 import shieldedPool from "../idl/shieldedPool.json" with { type: "json" };
 import userRegistry from "../idl/userRegistry.json" with { type: "json" };
-import { decodeAccount, decodeInstruction, type DecodedValue } from "./idl-decoder.js";
+import { decodeAccount, decodeInstruction, fields, type DecodedValue } from "./idl-decoder.js";
 
 function normalized(value: DecodedValue): unknown {
   if (typeof value === "bigint") return value.toString();
@@ -39,6 +39,63 @@ describe("IDL byte parity with Rust", () => {
       ).toMatchObject(entry.expected);
     },
   );
+  it.each(rust.accountMetas)("matches Rust account roles for $name", (entry) => {
+    const idl = entry.program === "userRegistry" ? userRegistry : shieldedPool;
+    const instruction = idl.program.instructions.find((ix) => ix.name === entry.name);
+    expect(
+      instruction?.accounts?.map(({ isWritable, isSigner }) => ({ isWritable, isSigner })),
+    ).toEqual(entry.accounts);
+  });
+  it("covers every circuit selector including cached and committed proofs", () => {
+    const selectors = new Set<string>();
+    for (const entry of rust.instructions.filter(
+      (ix) => [16, 19, 21].includes(ix.tag) && ix.program === "shieldedPool",
+    )) {
+      const circuit = fields(
+        fields(decodeInstruction("shieldedPool", fromHex(entry.hex)).data).circuit,
+      );
+      if (typeof circuit.variant !== "string") throw new Error("Missing circuit variant");
+      selectors.add(circuit.variant);
+    }
+    const circuit = shieldedPool.program.definedTypes.find((type) => type.name === "circuit");
+    if (!circuit || !("variants" in circuit.type)) throw new Error("Missing circuit schema");
+    expect([...selectors].sort()).toEqual(
+      circuit.type.variants.map((variant) => variant.name).sort(),
+    );
+  });
+  it("describes the optional cache writer and authority burn signer", () => {
+    expect(shieldedPool.program.instructions.find((ix) => ix.name === "closeCache")).toMatchObject({
+      optionalAccountStrategy: "omitted",
+      accounts: [
+        { name: "cache", isWritable: true, isSigner: false },
+        { name: "rentRecipient", isWritable: true, isSigner: false },
+        { name: "writer", isWritable: false, isSigner: true, isOptional: true },
+      ],
+    });
+    expect(
+      shieldedPool.program.instructions
+        .find((ix) => ix.name === "updateRingConfigOwner")
+        ?.accounts?.at(-1),
+    ).toMatchObject({ name: "newAuthority", isSigner: "either" });
+  });
+  it("rejects unrecognized merge encryption and legacy key updates", () => {
+    expect(() => decodeInstruction("userRegistry", Uint8Array.of(1, 2))).toThrow();
+    const update = rust.instructions.find(
+      (ix) => ix.program === "userRegistry" && ix.name === "updateKeys",
+    );
+    if (!update) throw new Error("Missing key-update fixture");
+    expect(() =>
+      decodeInstruction(
+        "userRegistry",
+        Uint8Array.from([...fromHex(update.hex), ...new Uint8Array(32)]),
+      ),
+    ).toThrow();
+    const record = rust.accounts.find((account) => account.program === "userRegistry");
+    if (!record) throw new Error("Missing user-record fixture");
+    const bytes = fromHex(record.hex);
+    bytes[bytes.length - 1] = 2;
+    expect(() => decodeAccount("userRegistry", "userRecord", bytes)).toThrow();
+  });
   it("covers every instruction tag and event kind", () => {
     for (const [program, idl] of [
       ["shieldedPool", shieldedPool],

@@ -17,6 +17,7 @@ const check = process.argv.includes("--check");
 const num = (format) => n.numberTypeNode(format);
 const bytes = (size) => n.fixedSizeTypeNode(n.bytesTypeNode(), size);
 const vector = (item, width = "u8") => n.arrayTypeNode(item, n.prefixedCountNode(num(width)));
+const fixedArray = (item, count) => n.arrayTypeNode(item, n.fixedCountNode(count));
 const blob = (width = "u16") => n.sizePrefixTypeNode(n.bytesTypeNode(), num(width));
 const option = (item) => n.optionTypeNode(item);
 const address = n.publicKeyTypeNode();
@@ -38,23 +39,37 @@ const ownerTag = enumeration([
   ["account", { index: num("u8") }],
 ]);
 const circuitFields = { inputs: num("u8"), outputs: num("u8"), publicAssetSlots: num("u8") };
+const bsb22Commitment = struct({ commitment: bytes(32), commitmentPok: bytes(32) });
+const anonymousProof = {
+  bsb22Commitment,
+  defaultOwnerTag: n.optionTypeNode(bytes(32), { fixed: true }),
+};
+const eddsaProof = { bsb22Commitment, ownerPk: bytes(32) };
+const cacheAccess = struct({
+  readBitmap: num("u64"),
+  writeSlots: fixedArray(struct({ output: num("u8"), slot: num("u8") }), 16),
+});
 const circuit = enumeration(
   [
-    ["confidentialEddsa", circuitFields],
-    ["ringEddsa", circuitFields],
+    ["confidentialSigner", circuitFields],
+    ["confidentialRingEddsa", circuitFields],
     ["ringAuthority", circuitFields],
-    [
-      "ringP256",
-      {
-        ...circuitFields,
-        commitment: bytes(32),
-        commitmentPok: bytes(32),
-        defaultOwnerTag: n.optionTypeNode(bytes(32), { fixed: true }),
-      },
-    ],
+    ["anonymousRingEddsa", { ...circuitFields, ...anonymousProof }],
+    ["confidentialSignerCached", { ...circuitFields, cacheAccess }],
+    ["confidentialRingEddsaCached", { ...circuitFields, cacheAccess }],
+    ["anonymousRingEddsaCached", { ...circuitFields, ...anonymousProof, cacheAccess }],
+    ["confidentialEddsa", { ...circuitFields, ...eddsaProof }],
+    ["confidentialEddsaCached", { ...circuitFields, ...eddsaProof, cacheAccess }],
   ],
   "u16",
 );
+const mergeEncryption = enumeration([
+  ["poseidonCtrV1", { salt: bytes(16), ciphertext: fixedArray(bytes(32), 3) }, 1],
+]);
+const mergeEncryptionScheme = enumeration([
+  ["disabled", {}],
+  ["poseidonCtrV1", {}],
+]);
 const assetKind = enumeration([
   ["sol", {}],
   ["spl", { splInterfaceBump: num("u8") }],
@@ -70,7 +85,6 @@ const depositEntry = struct({
   viewTag: bytes(32),
   owner: bytes(32),
   amount: num("u64"),
-  utxoData: option(struct({ dataHash: bytes(32), data: blob() })),
   memo: option(blob()),
 });
 const ringDepositEntry = struct({
@@ -78,7 +92,6 @@ const ringDepositEntry = struct({
   viewTag: bytes(32),
   ownerUtxoHash: bytes(32),
   amount: num("u64"),
-  dataHash: option(bytes(32)),
   ringDataHash: bytes(32),
   encrypted: struct({ txViewingPk: bytes(33), salt: bytes(16), ciphertext: blob() }),
 });
@@ -104,11 +117,12 @@ const merge = struct({
   expiryUnixTs: num("u64"),
   proof,
   outputUtxoHash: bytes(32),
-  eddsaOwner: bool,
+  outputEncryption: mergeEncryption,
   privateTxHash: bytes(32),
   nullifiers: vector(bytes(32)),
   utxoTreeRootIndex: num("u16"),
   nullifierTreeRootIndex: num("u16"),
+  cacheSlot: option(num("u8")),
 });
 const generalEvent = struct({
   inputs: vector(
@@ -206,16 +220,16 @@ const depositPrefix = [
   ["depositor", true, true],
 ];
 const fees = struct({
-  feePerNullifier: num("u64"),
+  feePerTree: num("u64"),
   appendReimbursement: num("u64"),
   closeReimbursement: num("u64"),
 });
 const dynamicTransact =
-  "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program.";
+  "Remaining accounts, in order: writable input trees (one per treeContexts entry), writable nullifier PDAs (one per input), owner signers, then settlement groups in interfaceTransfers order. SOL: interface, public account. SPL deposit: mint, interface, authority, user token, token program. SPL withdrawal: CPI authority, mint, interface, user token, token program. Cached selectors append a read cache when readBitmap is nonzero, then a writable write cache and its writer signer when writeSlots is nonempty; read and write caches may be the same account.";
 const dynamicDeposit =
   "Remaining accounts in assets order: SOL = system program, interface; SPL = token program, mint, user token, interface. Owner is a hash; viewTag is not a verified wallet address.";
 const dynamicMerge =
-  "Remaining accounts: one writable nullifier PDA per nullifier, in nullifiers order.";
+  "Remaining accounts: one writable nullifier PDA per nullifier, in nullifiers order, then a writable cache and its writer signer when cacheSlot is present.";
 const descriptions = [
   [
     "createProtocolConfig",
@@ -259,11 +273,7 @@ const descriptions = [
   [
     "pauseTree",
     struct({ paused: num("u8") }),
-    [
-      ["authority", false, true],
-      ["protocolConfig", true],
-      ["tree", true],
-    ],
+    [["authority", false, true], ["protocolConfig"], ["tree", true]],
   ],
   ["setTreeFees", fees, [...authorityConfig, ["tree", true]]],
   ["claimTreeLamports", null, [...authorityConfig, ["tree", true], ["recipient", true]]],
@@ -305,8 +315,9 @@ const descriptions = [
     [
       ["authority", false, true],
       ["ringConfig", true],
-      ["newAuthority", false, true],
+      ["newAuthority", false, "either"],
     ],
+    "The new authority must co-sign unless it is the all-zero address, which burns authority.",
   ],
   [
     "setRingActivation",
@@ -376,20 +387,41 @@ const descriptions = [
     [...transactPrefix, ["ringConfig", false, true]],
     dynamicTransact,
   ],
+  [
+    "createCache",
+    struct({
+      writeAuthority: address,
+      nonce: num("u64"),
+      treeId: num("u16"),
+      expiresAt: num("i64"),
+    }),
+    [["payer", true, true], ["cache", true], ["systemProgram"]],
+    "Creates a cache PDA derived from the rent payer and nonce; the write authority is independent of the payer.",
+  ],
+  [
+    "closeCache",
+    null,
+    [
+      ["cache", true],
+      ["rentRecipient", true],
+    ],
+  ],
 ];
 const instruction = ([name, type, accounts, docs = ""], tag) =>
   n.instructionNode({
     name,
     accounts: [
       ...metas(accounts),
-      ...(["register", "updateKeys"].includes(name)
+      ...(name === "closeCache"
         ? [
             n.instructionAccountNode({
-              name: "instructionsSysvar",
+              name: "writer",
               isWritable: false,
-              isSigner: false,
+              isSigner: true,
               isOptional: true,
-              docs: ["Required when ownerP256 is present; omitted otherwise."],
+              docs: [
+                "Write authority must sign before expiry; optional after expiry. Rent returns to the stored sponsor.",
+              ],
             }),
           ]
         : []),
@@ -407,7 +439,7 @@ const instruction = ([name, type, accounts, docs = ""], tag) =>
           ]
         : []),
     ],
-    ...(["updateProtocolConfig", "register", "updateKeys"].includes(name)
+    ...(["updateProtocolConfig", "closeCache"].includes(name)
       ? { optionalAccountStrategy: "omitted" }
       : {}),
     arguments: [
@@ -463,9 +495,21 @@ const sppAccounts = [
   ),
   account("splAssetRegistry", 5, { reserved: bytes(7), mint: address, assetId: num("u64") }, 48),
   account("splAssetCounter", 6, { reserved: bytes(7), nextId: num("u64") }, 16),
+  account(
+    "cache",
+    7,
+    {
+      bump: num("u8"),
+      treeId: num("u16"),
+      expiresAt: num("i64"),
+      rentSponsor: address,
+      writeAuthority: address,
+      utxoHashes: fixedArray(bytes(32), 36),
+    },
+    1228,
+  ),
 ];
 const registryKeys = struct({
-  ownerP256: option(bytes(33)),
   nullifierPubkey: bytes(32),
   viewingPubkey: bytes(33),
 });
@@ -477,33 +521,22 @@ const registryInstructions = [
   [
     "register",
     registryKeys,
-    [["userRecord", true], ["owner", true, true], ["systemProgram"]],
-    "Instructions sysvar is appended when ownerP256 is present.",
+    [["userRecord", true], ["owner", false, true], ["payer", true, true], ["systemProgram"]],
+    "The owner authorizes registration; a separate payer funds rent and may be the owner.",
   ],
-  ["setMergingEnabled", struct({ enabled: bool }), registryAccounts],
-  [
-    "updateKeys",
-    registryKeys,
-    registryAccounts,
-    "Instructions sysvar is appended when ownerP256 is present.",
-  ],
+  ["setMergeEncryption", struct({ scheme: mergeEncryptionScheme }), registryAccounts],
+  ["updateKeys", struct({ viewingPubkey: bytes(33) }), registryAccounts],
 ];
 const sourcePaths = [
-  "program-libs/interface/src/instruction/builders/protocol_config/mod.rs",
-  "program-libs/interface/src/instruction/builders/ring_config/mod.rs",
-  "program-libs/interface/src/instruction/builders/create_tree.rs",
-  "program-libs/interface/src/instruction/builders/create_asset_counter.rs",
-  "program-libs/interface/src/instruction/builders/create_spl_interface.rs",
-  "program-libs/interface/src/instruction/builders/close_nullifier_pdas.rs",
-  "program-libs/interface/src/instruction/builders/batch_update_nullifier_tree.rs",
-  "program-libs/interface/src/instruction/builders/transact.rs",
-  "program-libs/interface/src/instruction/builders/deposit.rs",
-  "program-libs/interface/src/instruction/builders/ring_deposit.rs",
-  "program-libs/interface/src/instruction/builders/ring_transact.rs",
-  "program-libs/interface/src/instruction/builders/ring_authority_transact.rs",
-  "program-libs/interface/src/instruction/builders/merge_transact.rs",
-  "program-libs/interface/src/instruction/builders/merge_ring.rs",
-
+  "sdk-libs/instruction/src/instruction/ring_config/mod.rs",
+  "sdk-libs/instruction/src/instruction/create_spl_interface.rs",
+  "sdk-libs/instruction/src/instruction/transact.rs",
+  "sdk-libs/instruction/src/instruction/deposit.rs",
+  "sdk-libs/instruction/src/instruction/ring_deposit.rs",
+  "sdk-libs/instruction/src/instruction/ring_transact.rs",
+  "sdk-libs/instruction/src/instruction/ring_authority_transact.rs",
+  "sdk-libs/instruction/src/instruction/merge_transact.rs",
+  "sdk-libs/instruction/src/instruction/merge_ring.rs",
   "program-libs/tree/src/fees.rs",
   "program-libs/tree/src/nullifier_tree/init.rs",
   "program-libs/tree/src/nullifier_tree/merkle_tree_update.rs",
@@ -531,6 +564,28 @@ const sourcePaths = [
   "program-libs/interface/src/lib.rs",
   "program-libs/user-registry-interface/src/lib.rs",
   "sdk-libs/ts/src/interface/program.ts",
+  "programs/shielded-pool/Cargo.toml",
+  "programs/user-registry/Cargo.toml",
+  "programs/shielded-pool/src/lib.rs",
+  "programs/user-registry/src/lib.rs",
+  "programs/shielded-pool/src/instructions/protocol_config/create.rs",
+  "programs/shielded-pool/src/instructions/protocol_config/pause_tree.rs",
+  "programs/shielded-pool/src/instructions/create_tree/processor.rs",
+  "programs/shielded-pool/src/instructions/set_tree_fees.rs",
+  "programs/shielded-pool/src/instructions/claim_tree_lamports.rs",
+  "programs/shielded-pool/src/instructions/create_asset_counter.rs",
+  "programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs",
+  "programs/shielded-pool/src/instructions/close_nullifier_pdas.rs",
+  "programs/shielded-pool/src/instructions/ring_config/update_owner.rs",
+  "programs/shielded-pool/src/instructions/transact/account.rs",
+  "programs/shielded-pool/src/instructions/merge/account.rs",
+  "programs/shielded-pool/src/instructions/merge_ring/account.rs",
+  "programs/shielded-pool/src/instructions/cache/create.rs",
+  "programs/shielded-pool/src/instructions/cache/close.rs",
+  "sdk-libs/instruction/src/instruction/cache.rs",
+  "program-libs/interface/src/instruction/instruction_data/cache.rs",
+  "program-libs/interface/src/state/cache.rs",
+  "program-libs/interface/src/state/discriminator.rs",
 ];
 const sources = Object.fromEntries(
   await Promise.all(
@@ -592,7 +647,7 @@ const idls = {
     n.programNode({
       name: "shieldedPool",
       publicKey: ids.SHIELDED_POOL_PROGRAM_ID,
-      version: "0.1.0",
+      version: (await read("programs/shielded-pool/Cargo.toml")).match(/^version = "([^"]+)"/m)[1],
       instructions: descriptions.map(instruction),
       accounts: sppAccounts,
       definedTypes: Object.entries(definitions).map(([name, type]) =>
@@ -600,7 +655,7 @@ const idls = {
       ),
       errors: sppErrors,
       docs: [
-        "Native Pinocchio program. Custom wincode instructions and Borsh self-CPI events. Tree internals intentionally omitted; configuration and asset accounts are described.",
+        "Native Pinocchio program. Custom wincode instructions and Borsh self-CPI events. Tree internals intentionally omitted; configuration, asset, and cache accounts are described.",
       ],
     }),
   ),
@@ -608,30 +663,24 @@ const idls = {
     n.programNode({
       name: "userRegistry",
       publicKey: ids.USER_REGISTRY_PROGRAM_ID,
-      version: "0.1.0",
+      version: (await read("programs/user-registry/Cargo.toml")).match(/^version = "([^"]+)"/m)[1],
       instructions: registryInstructions.map(instruction),
       accounts: [
         n.accountNode({
           name: "userRecord",
-          size: 134,
-          data: n.fixedSizeTypeNode(
-            struct({
-              discriminator: num("u8"),
-              owner: address,
-              bump: num("u8"),
-              ownerP256: option(bytes(33)),
-              nullifierPubkey: bytes(32),
-              viewingPubkey: bytes(33),
-              mergingEnabled: bool,
-            }),
-            134,
-          ),
+          size: 100,
+          data: struct({
+            discriminator: num("u8"),
+            owner: address,
+            bump: num("u8"),
+            nullifierPubkey: bytes(32),
+            viewingPubkey: bytes(33),
+            mergeEncryption: mergeEncryptionScheme,
+          }),
           discriminators: [
             n.constantDiscriminatorNode(n.constantValueNode(num("u8"), n.numberValueNode(1)), 0),
           ],
-          docs: [
-            "Borsh body padded to 134 bytes; ownerP256 None shortens the body, not the allocated account.",
-          ],
+          docs: ["Fixed 100-byte Borsh account; nullifierPubkey is immutable after registration."],
         }),
       ],
       errors: registryErrors,

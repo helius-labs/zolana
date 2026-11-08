@@ -5,103 +5,93 @@
   "program": {
     "kind": "programNode",
     "name": "userRegistry",
-    "publicKey": "regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD",
+    "publicKey": "regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ",
     "version": "0.1.0",
     "accounts": [
       {
         "kind": "accountNode",
         "name": "userRecord",
-        "size": 134,
-        "docs": [
-          "Borsh body padded to 134 bytes; ownerP256 None shortens the body, not the allocated account."
-        ],
+        "size": 100,
+        "docs": ["Fixed 100-byte Borsh account; nullifierPubkey is immutable after registration."],
         "data": {
-          "kind": "fixedSizeTypeNode",
-          "size": 134,
-          "type": {
-            "kind": "structTypeNode",
-            "fields": [
-              {
-                "kind": "structFieldTypeNode",
-                "name": "discriminator",
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "discriminator",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "owner",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "bump",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "nullifierPubkey",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
                 "type": {
-                  "kind": "numberTypeNode",
-                  "format": "u8",
-                  "endian": "le"
-                }
-              },
-              {
-                "kind": "structFieldTypeNode",
-                "name": "owner",
-                "type": {
-                  "kind": "publicKeyTypeNode"
-                }
-              },
-              {
-                "kind": "structFieldTypeNode",
-                "name": "bump",
-                "type": {
-                  "kind": "numberTypeNode",
-                  "format": "u8",
-                  "endian": "le"
-                }
-              },
-              {
-                "kind": "structFieldTypeNode",
-                "name": "ownerP256",
-                "type": {
-                  "kind": "optionTypeNode",
-                  "fixed": false,
-                  "item": {
-                    "kind": "fixedSizeTypeNode",
-                    "size": 33,
-                    "type": {
-                      "kind": "bytesTypeNode"
-                    }
-                  },
-                  "prefix": {
-                    "kind": "numberTypeNode",
-                    "format": "u8",
-                    "endian": "le"
-                  }
-                }
-              },
-              {
-                "kind": "structFieldTypeNode",
-                "name": "nullifierPubkey",
-                "type": {
-                  "kind": "fixedSizeTypeNode",
-                  "size": 32,
-                  "type": {
-                    "kind": "bytesTypeNode"
-                  }
-                }
-              },
-              {
-                "kind": "structFieldTypeNode",
-                "name": "viewingPubkey",
-                "type": {
-                  "kind": "fixedSizeTypeNode",
-                  "size": 33,
-                  "type": {
-                    "kind": "bytesTypeNode"
-                  }
-                }
-              },
-              {
-                "kind": "structFieldTypeNode",
-                "name": "mergingEnabled",
-                "type": {
-                  "kind": "booleanTypeNode",
-                  "size": {
-                    "kind": "numberTypeNode",
-                    "format": "u8",
-                    "endian": "le"
-                  }
+                  "kind": "bytesTypeNode"
                 }
               }
-            ]
-          }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "viewingPubkey",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 33,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "mergeEncryption",
+              "type": {
+                "kind": "enumTypeNode",
+                "variants": [
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "disabled",
+                    "struct": {
+                      "kind": "structTypeNode"
+                    }
+                  },
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "poseidonCtrV1",
+                    "struct": {
+                      "kind": "structTypeNode"
+                    }
+                  }
+                ],
+                "size": {
+                  "kind": "numberTypeNode",
+                  "format": "u8",
+                  "endian": "le"
+                }
+              }
+            }
+          ]
         },
         "discriminators": [
           {
@@ -127,8 +117,10 @@
       {
         "kind": "instructionNode",
         "name": "register",
-        "docs": ["Instructions sysvar is appended when ownerP256 is present."],
-        "optionalAccountStrategy": "omitted",
+        "docs": [
+          "The owner authorizes registration; a separate payer funds rent and may be the owner."
+        ],
+        "optionalAccountStrategy": "programId",
         "accounts": [
           {
             "kind": "instructionAccountNode",
@@ -140,6 +132,13 @@
           {
             "kind": "instructionAccountNode",
             "name": "owner",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
             "isWritable": true,
             "isSigner": true,
             "isOptional": false
@@ -150,14 +149,6 @@
             "isWritable": false,
             "isSigner": false,
             "isOptional": false
-          },
-          {
-            "kind": "instructionAccountNode",
-            "name": "instructionsSysvar",
-            "isWritable": false,
-            "isSigner": false,
-            "isOptional": true,
-            "docs": ["Required when ownerP256 is present; omitted otherwise."]
           }
         ],
         "arguments": [
@@ -181,26 +172,6 @@
             "type": {
               "kind": "structTypeNode",
               "fields": [
-                {
-                  "kind": "structFieldTypeNode",
-                  "name": "ownerP256",
-                  "type": {
-                    "kind": "optionTypeNode",
-                    "fixed": false,
-                    "item": {
-                      "kind": "fixedSizeTypeNode",
-                      "size": 33,
-                      "type": {
-                        "kind": "bytesTypeNode"
-                      }
-                    },
-                    "prefix": {
-                      "kind": "numberTypeNode",
-                      "format": "u8",
-                      "endian": "le"
-                    }
-                  }
-                },
                 {
                   "kind": "structFieldTypeNode",
                   "name": "nullifierPubkey",
@@ -237,7 +208,7 @@
       },
       {
         "kind": "instructionNode",
-        "name": "setMergingEnabled",
+        "name": "setMergeEncryption",
         "docs": [""],
         "optionalAccountStrategy": "programId",
         "accounts": [
@@ -279,9 +250,25 @@
               "fields": [
                 {
                   "kind": "structFieldTypeNode",
-                  "name": "enabled",
+                  "name": "scheme",
                   "type": {
-                    "kind": "booleanTypeNode",
+                    "kind": "enumTypeNode",
+                    "variants": [
+                      {
+                        "kind": "enumStructVariantTypeNode",
+                        "name": "disabled",
+                        "struct": {
+                          "kind": "structTypeNode"
+                        }
+                      },
+                      {
+                        "kind": "enumStructVariantTypeNode",
+                        "name": "poseidonCtrV1",
+                        "struct": {
+                          "kind": "structTypeNode"
+                        }
+                      }
+                    ],
                     "size": {
                       "kind": "numberTypeNode",
                       "format": "u8",
@@ -304,8 +291,8 @@
       {
         "kind": "instructionNode",
         "name": "updateKeys",
-        "docs": ["Instructions sysvar is appended when ownerP256 is present."],
-        "optionalAccountStrategy": "omitted",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
         "accounts": [
           {
             "kind": "instructionAccountNode",
@@ -320,14 +307,6 @@
             "isWritable": false,
             "isSigner": true,
             "isOptional": false
-          },
-          {
-            "kind": "instructionAccountNode",
-            "name": "instructionsSysvar",
-            "isWritable": false,
-            "isSigner": false,
-            "isOptional": true,
-            "docs": ["Required when ownerP256 is present; omitted otherwise."]
           }
         ],
         "arguments": [
@@ -351,37 +330,6 @@
             "type": {
               "kind": "structTypeNode",
               "fields": [
-                {
-                  "kind": "structFieldTypeNode",
-                  "name": "ownerP256",
-                  "type": {
-                    "kind": "optionTypeNode",
-                    "fixed": false,
-                    "item": {
-                      "kind": "fixedSizeTypeNode",
-                      "size": 33,
-                      "type": {
-                        "kind": "bytesTypeNode"
-                      }
-                    },
-                    "prefix": {
-                      "kind": "numberTypeNode",
-                      "format": "u8",
-                      "endian": "le"
-                    }
-                  }
-                },
-                {
-                  "kind": "structFieldTypeNode",
-                  "name": "nullifierPubkey",
-                  "type": {
-                    "kind": "fixedSizeTypeNode",
-                    "size": 32,
-                    "type": {
-                      "kind": "bytesTypeNode"
-                    }
-                  }
-                },
                 {
                   "kind": "structFieldTypeNode",
                   "name": "viewingPubkey",
@@ -442,24 +390,6 @@
         "name": "invalidSystemProgram",
         "code": 5,
         "message": "system program account mismatch"
-      },
-      {
-        "kind": "errorNode",
-        "name": "invalidInstructionsSysvar",
-        "code": 6,
-        "message": "instructions sysvar account mismatch"
-      },
-      {
-        "kind": "errorNode",
-        "name": "missingP256Proof",
-        "code": 7,
-        "message": "missing P256 proof-of-possession instruction"
-      },
-      {
-        "kind": "errorNode",
-        "name": "invalidP256Proof",
-        "code": 8,
-        "message": "invalid P256 proof-of-possession instruction"
       }
     ]
   }

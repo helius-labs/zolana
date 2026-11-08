@@ -2,17 +2,19 @@
 use borsh::BorshSerialize;
 use serde_json::{json, Value};
 use solana_address::Address;
-use std::{path::PathBuf, process::Command};
 use spr_event::{EventKind, GeneralEvent, Input, OutputUtxo, SplTransfer};
 use spr_interface::{
     instruction::{instruction_data::*, tag},
-    state::{ProtocolConfig, RingConfig, SplAssetCounter, SplAssetRegistry},
-    verifying_keys::{Bsb22Commitment, RingP256ProofData},
+    state::{cache::CacheAccount, ProtocolConfig, RingConfig, SplAssetCounter, SplAssetRegistry},
+    verifying_keys::{
+        AnonymousRingEddsaProofData, Bsb22Commitment, CacheAccess, CacheWrite, EddsaProofData,
+    },
 };
 use spr_user_registry_interface::{
-    instruction::{RegisterData, SetMergingEnabledData, UpdateKeysData},
-    state::UserRecord,
+    instruction::{RegisterData, SetMergeEncryptionData, UpdateKeysData},
+    state::{MergeEncryptionScheme, UserRecord},
 };
+use std::{path::PathBuf, process::Command};
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -81,11 +83,15 @@ fn merge() -> MergeTransactIxData {
         expiry_unix_ts: 42,
         proof: MergeProof::zeroed(),
         output_utxo_hash: [12; 32],
-        eddsa_owner: true,
+        output_encryption: MergeOutputEncryption::PoseidonCtrV1 {
+            salt: [14; 16],
+            ciphertext: [[15; 32], [16; 32], [17; 32]],
+        },
         private_tx_hash: [13; 32],
         nullifiers: (0..8).map(|i| [i; 32]).collect(),
         utxo_tree_root_index: 20,
         nullifier_tree_root_index: 30,
+        cache_slot: None,
     }
 }
 fn fixtures(source_commit: &str) -> Value {
@@ -123,7 +129,7 @@ fn fixtures(source_commit: &str) -> Value {
                     height: 32,
                 },
                 fees: spr_tree::TreeFeeSchedule {
-                    fee_per_nullifier: 11,
+                    fee_per_tree: 11,
                     append_reimbursement: 12,
                     close_reimbursement: 13,
                 },
@@ -134,11 +140,11 @@ fn fixtures(source_commit: &str) -> Value {
             "setTreeFees",
             tag::SET_TREE_FEES,
             b(&spr_tree::TreeFeeSchedule {
-                fee_per_nullifier: 11,
+                fee_per_tree: 11,
                 append_reimbursement: 12,
                 close_reimbursement: 13,
             }),
-            json!({"feePerNullifier":"11","closeReimbursement":"13"}),
+            json!({"feePerTree":"11","closeReimbursement":"13"}),
         ),
         spp(
             "claimTreeLamports",
@@ -268,10 +274,6 @@ fn fixtures(source_commit: &str) -> Value {
                 view_tag: [22; 32],
                 owner: [23; 32],
                 amount: 1234567890,
-                utxo_data: Some(UtxoData {
-                    data_hash: [25; 32],
-                    data: vec![26; 300],
-                }),
                 memo: Some(b"<b>public memo</b>".to_vec()),
             },
             DepositEntry {
@@ -279,12 +281,11 @@ fn fixtures(source_commit: &str) -> Value {
                 view_tag: [27; 32],
                 owner: [28; 32],
                 amount: u64::MAX,
-                utxo_data: None,
                 memo: None,
             },
         ],
     };
-    instructions.push(spp("deposit", tag::DEPOSIT, deposit.serialize().unwrap(), json!({"assets":[{"variant":"sol"},{"variant":"spl","splInterfaceBump":254}],"deposits":[{"assetIndex":0,"amount":"1234567890","memo":hex(b"<b>public memo</b>"),"utxoData":{"data":hex(&vec![26;300])}},{"assetIndex":1,"amount":u64::MAX.to_string(),"memo":null}]})));
+    instructions.push(spp("deposit", tag::DEPOSIT, deposit.serialize().unwrap(), json!({"assets":[{"variant":"sol"},{"variant":"spl","splInterfaceBump":254}],"deposits":[{"assetIndex":0,"amount":"1234567890","memo":hex(b"<b>public memo</b>")},{"assetIndex":1,"amount":u64::MAX.to_string(),"memo":null}]})));
     let ring_deposit = RingDepositIxData {
         assets: vec![DepositAssetKind::Sol],
         deposits: vec![RingDepositEntry {
@@ -292,7 +293,6 @@ fn fixtures(source_commit: &str) -> Value {
             view_tag: [30; 32],
             owner_utxo_hash: [31; 32],
             amount: 99,
-            data_hash: None,
             ring_data_hash: [32; 32],
             encrypted: EncryptedRingDepositData {
                 tx_viewing_pk: [2; 33],
@@ -311,12 +311,12 @@ fn fixtures(source_commit: &str) -> Value {
         (
             "transact",
             tag::TRANSACT,
-            CircuitId::ConfidentialEddsa(1, 3, 3),
+            CircuitId::ConfidentialSigner(1, 3, 3),
         ),
         (
             "ringTransact",
             tag::RING_TRANSACT,
-            CircuitId::RingEddsa(1, 3, 3),
+            CircuitId::ConfidentialRingEddsa(1, 3, 3),
         ),
         (
             "ringAuthorityTransact",
@@ -327,11 +327,11 @@ fn fixtures(source_commit: &str) -> Value {
         instructions.push(spp(name,tag,transact(circuit).serialize().unwrap(),json!({"expiryUnixTs":"1800000000","inputs":[{"treeIndex":0}],"treeContexts":[{"nullifierTreeRootIndex":7,"utxoTreeRootIndex":11}],"outputs":[{"ownerTag":{"variant":"account","index":0}},{"data":null},{"ownerTag":{"variant":"inline","value":hex(&[22;32])}}],"messages":[{"data":hex(&vec![11;300])}]})));
     }
     for present in [false, true] {
-        let circuit = CircuitId::RingP256(
+        let circuit = CircuitId::AnonymousRingEddsa(
             1,
             3,
             3,
-            RingP256ProofData {
+            AnonymousRingEddsaProofData {
                 bsb22_commitment: Bsb22Commitment {
                     commitment: [35; 32],
                     commitment_pok: [36; 32],
@@ -339,9 +339,9 @@ fn fixtures(source_commit: &str) -> Value {
                 default_owner_tag: present.then_some([37; 32]),
             },
         );
-        instructions.push(spp("ringTransact",tag::RING_TRANSACT,transact(circuit).serialize().unwrap(),json!({"circuit":{"variant":"ringP256","commitment":hex(&[35;32]),"defaultOwnerTag":if present {json!(hex(&[37;32]))} else {Value::Null}},"privateTxHash":hex(&[8;32]),"messages":[{"data":hex(&vec![11;300])}]})));
+        instructions.push(spp("ringTransact",tag::RING_TRANSACT,transact(circuit).serialize().unwrap(),json!({"circuit":{"variant":"anonymousRingEddsa","bsb22Commitment":{"commitment":hex(&[35;32])},"defaultOwnerTag":if present {json!(hex(&[37;32]))} else {Value::Null}},"privateTxHash":hex(&[8;32]),"messages":[{"data":hex(&vec![11;300])}]})));
     }
-    let mut settlements = transact(CircuitId::ConfidentialEddsa(1, 3, 3));
+    let mut settlements = transact(CircuitId::ConfidentialSigner(1, 3, 3));
     settlements.interface_transfers = vec![
         InterfaceTransfer::SolDeposit { amount: 17 },
         InterfaceTransfer::SolWithdrawal { amount: 18 },
@@ -359,7 +359,7 @@ fn fixtures(source_commit: &str) -> Value {
         "mergeTransact",
         tag::MERGE_TRANSACT,
         merge().serialize().unwrap(),
-        json!({"eddsaOwner":true,"utxoTreeRootIndex":20,"nullifierTreeRootIndex":30}),
+        json!({"outputEncryption":{"variant":"poseidonCtrV1","salt":hex(&[14;16]),"ciphertext":[hex(&[15;32]),hex(&[16;32]),hex(&[17;32])]},"utxoTreeRootIndex":20,"nullifierTreeRootIndex":30,"cacheSlot":null}),
     ));
     instructions.push(spp(
         "ringMergeTransact",
@@ -370,8 +370,102 @@ fn fixtures(source_commit: &str) -> Value {
         }
         .serialize()
         .unwrap(),
-        json!({"outputRingDataHash":hex(&[38;32]),"merge":{"eddsaOwner":true,"expiryUnixTs":"42"}}),
+        json!({"outputRingDataHash":hex(&[38;32]),"merge":{"outputEncryption":{"variant":"poseidonCtrV1"},"expiryUnixTs":"42","cacheSlot":null}}),
     ));
+    let mut write_slots = CacheAccess::NO_WRITES;
+    write_slots[0] = CacheWrite {
+        output: 0,
+        slot: 35,
+    };
+    let access = CacheAccess {
+        read_bitmap: 1u64 << 35,
+        write_slots,
+    };
+    let anonymous = AnonymousRingEddsaProofData {
+        bsb22_commitment: Bsb22Commitment {
+            commitment: [35; 32],
+            commitment_pok: [36; 32],
+        },
+        default_owner_tag: Some([37; 32]),
+    };
+    let eddsa = EddsaProofData {
+        bsb22_commitment: anonymous.bsb22_commitment,
+        owner_pk: [38; 32],
+    };
+    for (circuit, variant) in [
+        (
+            CircuitId::ConfidentialSignerCached(1, 3, 3, access),
+            "confidentialSignerCached",
+        ),
+        (
+            CircuitId::ConfidentialRingEddsaCached(1, 3, 3, access),
+            "confidentialRingEddsaCached",
+        ),
+        (
+            CircuitId::AnonymousRingEddsaCached(1, 3, 3, anonymous, access),
+            "anonymousRingEddsaCached",
+        ),
+        (
+            CircuitId::ConfidentialEddsa(1, 3, 3, eddsa),
+            "confidentialEddsa",
+        ),
+        (
+            CircuitId::ConfidentialEddsaCached(1, 3, 3, eddsa, access),
+            "confidentialEddsaCached",
+        ),
+    ] {
+        let mut expected = json!({"variant":variant,"inputs":1,"outputs":3,"publicAssetSlots":3});
+        if circuit.cache_access().is_some() {
+            expected["cacheAccess"] = json!({"readBitmap":(1u64 << 35).to_string(),"writeSlots":write_slots.iter().map(|slot|json!({"output":slot.output,"slot":slot.slot})).collect::<Vec<_>>()});
+        }
+        if circuit.bsb22_commitment().is_some() {
+            expected["bsb22Commitment"] =
+                json!({"commitment":hex(&[35;32]),"commitmentPok":hex(&[36;32])});
+        }
+        if circuit.eddsa_owner_pk().is_some() {
+            expected["ownerPk"] = json!(hex(&[38; 32]));
+        }
+        if circuit.default_owner_tag().is_some() {
+            expected["defaultOwnerTag"] = json!(hex(&[37; 32]));
+        }
+        instructions.push(spp(
+            "transact",
+            tag::TRANSACT,
+            transact(circuit).serialize().unwrap(),
+            json!({"circuit":expected}),
+        ));
+    }
+    for cache_slot in [Some(0), Some(35)] {
+        let mut cached_merge = merge();
+        cached_merge.cache_slot = cache_slot;
+        instructions.push(spp(
+            "mergeTransact",
+            tag::MERGE_TRANSACT,
+            cached_merge.serialize().unwrap(),
+            json!({"cacheSlot":cache_slot}),
+        ));
+        instructions.push(spp(
+            "ringMergeTransact",
+            tag::RING_MERGE_TRANSACT,
+            MergeRingIxData {
+                output_ring_data_hash: [38; 32],
+                merge: cached_merge,
+            }
+            .serialize()
+            .unwrap(),
+            json!({"merge":{"cacheSlot":cache_slot}}),
+        ));
+    }
+    for expires_at in [i64::MIN, -42, 1_800_000_000, i64::MAX] {
+        let create = CreateCacheData {
+            write_authority: a(58),
+            nonce: u64::MAX,
+            tree_id: 513,
+            expires_at,
+        };
+        instructions.push(spp("createCache",tag::CREATE_CACHE,wincode::serialize(&create).unwrap(),json!({"writeAuthority":a(58).to_string(),"nonce":u64::MAX.to_string(),"treeId":513,"expiresAt":expires_at.to_string()})));
+    }
+    instructions.push(spp("closeCache", tag::CLOSE_CACHE, vec![], Value::Null));
     let general = GeneralEvent {
         inputs: vec![Input {
             tree: [39; 32],
@@ -452,29 +546,28 @@ fn fixtures(source_commit: &str) -> Value {
             "register",
             0,
             b(&RegisterData {
-                owner_p256: Some([2; 33]),
                 nullifier_pubkey: [50; 32],
                 viewing_pubkey: [3; 33],
             }),
-            json!({"ownerP256":hex(&[2;33]),"nullifierPubkey":hex(&[50;32])}),
+            json!({"nullifierPubkey":hex(&[50;32]),"viewingPubkey":hex(&[3;33])}),
         ),
         ix(
             "userRegistry",
-            "setMergingEnabled",
+            "setMergeEncryption",
             1,
-            b(&SetMergingEnabledData { enabled: true }),
-            json!({"enabled":true}),
+            b(&SetMergeEncryptionData {
+                scheme: MergeEncryptionScheme::PoseidonCtrV1,
+            }),
+            json!({"scheme":{"variant":"poseidonCtrV1"}}),
         ),
         ix(
             "userRegistry",
             "updateKeys",
             2,
             b(&UpdateKeysData {
-                owner_p256: None,
-                nullifier_pubkey: [51; 32],
                 viewing_pubkey: [4; 33],
             }),
-            json!({"ownerP256":null,"viewingPubkey":hex(&[4;33])}),
+            json!({"viewingPubkey":hex(&[4;33])}),
         ),
     ]);
     let mut accounts = vec![
@@ -483,21 +576,83 @@ fn fixtures(source_commit: &str) -> Value {
         json!({"program":"shieldedPool","name":"splAssetRegistry","hex":hex(&SplAssetRegistry::account_bytes(a(55),2)),"expected":{"mint":a(55).to_string(),"assetId":"2"}}),
         json!({"program":"shieldedPool","name":"splAssetCounter","hex":hex(bytemuck::bytes_of(&SplAssetCounter {discriminator:6,reserved:[0;7],next_id:123})),"expected":{"nextId":"123"}}),
     ];
-    for present in [false, true] {
+    for (scheme, variant) in [
+        (MergeEncryptionScheme::Disabled, "disabled"),
+        (MergeEncryptionScheme::PoseidonCtrV1, "poseidonCtrV1"),
+    ] {
         let record = UserRecord {
             owner: a(21),
             bump: 253,
-            owner_p256: present.then_some([2; 33]),
             nullifier_pubkey: [56; 32],
             viewing_pubkey: [3; 33],
-            merging_enabled: true,
+            merge_encryption: scheme,
         };
         let mut bytes = vec![UserRecord::DISCRIMINATOR];
         bytes.extend(b(&record));
-        bytes.resize(UserRecord::SIZE, 0);
-        accounts.push(json!({"program":"userRegistry","name":"userRecord","hex":hex(&bytes),"expected":{"owner":a(21).to_string(),"ownerP256":if present {json!(hex(&[2;33]))} else {Value::Null},"mergingEnabled":true}}));
+        assert_eq!(bytes.len(), UserRecord::SIZE);
+        accounts.push(json!({"program":"userRegistry","name":"userRecord","hex":hex(&bytes),"expected":{"owner":a(21).to_string(),"nullifierPubkey":hex(&[56;32]),"mergeEncryption":{"variant":variant}}}));
+        instructions.push(ix(
+            "userRegistry",
+            "setMergeEncryption",
+            1,
+            b(&SetMergeEncryptionData { scheme }),
+            json!({"scheme":{"variant":variant}}),
+        ));
     }
-    json!({"schemaVersion":"1","sourceCommit":source_commit,"instructions":instructions,"accounts":accounts})
+    let cache = CacheAccount {
+        discriminator: 7,
+        bump: 252,
+        tree_id: 513u16.to_le_bytes(),
+        expires_at: (-42i64).to_le_bytes(),
+        rent_sponsor: a(57),
+        write_authority: a(58),
+        utxo_hashes: [[59; 32]; 36],
+    };
+    accounts.push(json!({"program":"shieldedPool","name":"cache","hex":hex(bytemuck::bytes_of(&cache)),"expected":{"bump":252,"treeId":513,"expiresAt":"-42","rentSponsor":a(57).to_string(),"writeAuthority":a(58).to_string(),"utxoHashes":vec![hex(&[59;32]);36]}}));
+    let registry_instructions = [
+        (
+            "register",
+            spr_user_registry_interface::instruction::register(
+                a(21),
+                a(22),
+                a(23),
+                RegisterData {
+                    nullifier_pubkey: [50; 32],
+                    viewing_pubkey: [3; 33],
+                },
+            ),
+        ),
+        (
+            "setMergeEncryption",
+            spr_user_registry_interface::instruction::set_merge_encryption(
+                a(21),
+                a(22),
+                MergeEncryptionScheme::Disabled,
+            ),
+        ),
+        (
+            "updateKeys",
+            spr_user_registry_interface::instruction::update_keys(
+                a(21),
+                a(22),
+                UpdateKeysData {
+                    viewing_pubkey: [4; 33],
+                },
+            ),
+        ),
+    ];
+    let account_metas: Vec<_> = registry_instructions
+        .iter()
+        .map(|(name, ix)| {
+            let accounts: Vec<_> = ix
+                .accounts
+                .iter()
+                .map(|meta| json!({"isWritable":meta.is_writable,"isSigner":meta.is_signer}))
+                .collect();
+            json!({"program":"userRegistry","name":name,"accounts":accounts})
+        })
+        .collect();
+    json!({"schemaVersion":"1","sourceCommit":source_commit,"instructions":instructions,"accounts":accounts,"accountMetas":account_metas})
 }
 fn path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../sdk-libs/ts/fixtures/idl/rust.json")
@@ -533,7 +688,5 @@ fn check() {
     );
     println!("Rust idl fixtures match current serialization");
 }
-#[test]
-fn committed_idl_bytes_match_rust() {
-    check();
-}
+#[cfg(test)]
+mod main_test;
