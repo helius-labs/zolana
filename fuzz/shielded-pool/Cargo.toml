@@ -1,0 +1,64 @@
+[package]
+name = "shielded_pool_fuzz"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+
+[workspace]
+# Standalone workspace - isolated from parent project to avoid Solana version conflicts
+
+[dependencies]
+# Fuzzing framework, pinned to crucible's mainline rather than a rev or a local
+# path. A stale rev drifts from the framework the invariant macros are validated
+# against; a path dep makes the build depend on whatever branch some working tree
+# happens to be on, which has already changed the invariant macro under a green
+# build once on another project.
+#
+# crucible is public, so cargo resolves these anonymously -- no token needed.
+crucible-fuzzer = { git = "https://github.com/asymmetric-research/crucible.git", branch = "main" }
+crucible-test-context = { git = "https://github.com/asymmetric-research/crucible.git", branch = "main" }
+crucible-idl-gen = { git = "https://github.com/asymmetric-research/crucible.git", branch = "main" }
+
+anchor-lang = "1.0.1"
+
+# Compatible client facade crates. LiteSVM 0.15.2 uses a mixed modular Solana
+# graph internally, so these should not be blanket-upgraded to 4.x.
+# `serde` feature: generated native-program (bincode) arg structs derive
+# serde::Serialize, so Pubkey fields must implement it too.
+solana-pubkey = { version = "3.0", features = ["serde"] }
+solana-keypair = "3.1.2"
+solana-signer = "3.0.1"
+solana-signature = "3.4.1"
+
+# Native wincode payload writers, pinned to the version the target serializes with.
+wincode = { version = "0.5.5", features = ["derive"] }
+
+# `spl_token::id()` and its state types for the SPL deposit path. Same version
+# crucible-test-context builds its mint/token-account fixtures with, so the
+# account layouts the program reads and the ones the harness writes agree.
+spl-token = "9.0"
+
+# Fuzzing
+libafl = { version = "0.15.1", features = ["std", "cli", "prelude"] }
+libafl_bolts = { version = "0.15.1", features = ["std"] }
+arbitrary = { version = "1", features = ["derive"] }
+
+# Utilities
+anyhow = "1.0"
+bytemuck = "1.14"
+ctor = "0.6"
+ctrlc = "3.4"
+
+# Native-program (bincode) instruction encoding — generated code for 4-byte
+# discriminator IDLs serializes args with serde + bincode (fixint, LE).
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+
+[[bin]]
+name = "invariant_test"
+path = "src/main.rs"
+
+[features]
+invariant_test = []
+admin_actions = []
+
