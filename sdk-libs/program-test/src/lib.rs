@@ -1,4 +1,4 @@
-//! Litesvm-based program-test environment for Zolana protocol programs.
+//! Litesvm-based program-test environment for SPR programs.
 //!
 //! Boots a LiteSVM instance, loads the shielded-pool program, and exposes the
 //! helpers used by integration tests.
@@ -70,8 +70,8 @@ mod spl;
 mod wallet_data;
 pub use ring::RingDepositBatch;
 
-/// Build the canonical 32-byte field representation of a repeated legacy
-/// 31-byte test blinding.
+/// A test blinding: `byte` repeated in 31 bytes, right-aligned in 32 so it is
+/// a canonical field element.
 pub fn test_blinding(byte: u8) -> [u8; 32] {
     let mut blinding = [byte; 32];
     blinding[0] = 0;

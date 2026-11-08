@@ -2,7 +2,7 @@
 
 Covers `SolanaAddress` of `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs`: `hash_bytes`, `constant`, `DataHash`, and
 its `Assert` and `Select` impls, against the native `spr-hasher` `hash_bytes` and
-`spr-transaction` `SOL_MINT`. Invariants every type shares live in `cross-cutting.md`. ID
+`spr-transaction` `SOL_MINT`. Invariants every type shares live in [`cross-cutting.md`](https://github.com/helius-labs/zk-tools/blob/ecb5c8aa8b3d3f19c6b3af020d6d13784df93bac/zk-dsl/dsl/tests/invariants/cross-cutting.md). ID
 prefix: `INV-ASSET`; the tests live in `tests/unit/protocol/asset/`.
 
 The fixtures in `tests/unit/protocol/asset/fixtures.rs` take `Mint` proof inputs, which
@@ -25,7 +25,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/native.rs` `every_mint_hashes_to_the_native_hash_bytes_of_its_32_bytes`; `tests/unit/protocol/asset/properties.rs` `every_mint_hashes_to_its_native_hash_natively_and_in_r1cs` (property)
   - Kind: native equivalence
   - Statement: for every mint vector and every random mint, the native value of `SolanaAddress::hash_bytes` of the instantiated `Mint` is exactly `spr_hasher::primitives::hash_bytes(mint.asset)`.
-  - Location: `zk-tools/zk-dsl/gadgets/src/hash_bytes.rs` (`HashBytes::hash_bytes`), `sdk-libs/transaction/src/circuit/conversion/asset.rs:8-24` (`fn instantiate`), `zk/gadgets/src/hash_bytes.rs:10-32` (`fn hash_bytes`, `fn packed`)
+  - Location: `zk-tools/zk-dsl/gadgets/src/hash_bytes.rs` (`HashBytes::hash_bytes`, `fn hash_bytes`), `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn packed`), `sdk-libs/transaction/src/circuit/conversion/asset.rs` (`fn instantiate`)
   - Severity: Critical
   - Suggested test: positive + property; `tests/unit/protocol/asset/native.rs`, `tests/unit/protocol/asset/properties.rs`
 
@@ -50,7 +50,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/native.rs` `every_mint_hashes_to_the_native_hash_bytes_of_its_32_bytes`; `tests/unit/protocol/asset/native.rs` `every_mint_holds_natively_with_its_native_hash`
   - Kind: semantics
   - Statement: for every mint vector, `DataHash::hash` of the asset is exactly `SolanaAddress::hash_bytes`, and the `AssetDataHash` fixture holds natively with the native hash.
-  - Location: `src/circuit/utxo/data.rs:59-63` (`impl DataHash for SolanaAddress`)
+  - Location: `src/circuit/utxo/data.rs` (`impl DataHash for SolanaAddress`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/asset/native.rs`
 
@@ -58,7 +58,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/native.rs` `sol_is_the_all_zero_sol_mint_and_the_default_and_placeholder_asset`
   - Kind: semantics
   - Statement: `SOL_MINT` is exactly 32 zero bytes and `Mint::SOL.asset`; `Mint::placeholder()` is exactly `Ok(Mint::SOL)`; `SolanaAddress::constant(&spr_transaction::SOL_MINT)`, `SolanaAddress::default()` and `SolanaAddress::constant(&SOL_MINT)` all hash to exactly `hash_bytes([0; 32])`, which is not 0.
-  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn constant`), `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`impl Default`), `sdk-libs/transaction/src/circuit/conversion/asset.rs:26-30` (`impl Placeholder for Mint`)
+  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn constant`, `impl CircuitDefault for SolanaAddress`), `sdk-libs/transaction/src/circuit/conversion/asset.rs` (`impl Placeholder for Mint`)
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/asset/native.rs`
 
@@ -93,7 +93,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/r1cs.rs` `the_asset_hash_fixture_has_a_pinned_size_digest_and_no_public_input`
   - Kind: constraint
   - Statement: the `AssetHash` export has exactly 529 constraints (288 byte rows, 240 rows of one two-input Poseidon over the two packed chunks, 1 claim row) and 530 variables, exactly 0 public inputs and 0 public outputs, 529 private inputs, and sha256 `7962528c9518dc8cfc42e725d60daece87503868f6ed62fd749c2e49fac013c7`.
-  - Location: `zk-tools/zk-dsl/gadgets/src/hash_bytes.rs` (`HashBytes::hash_bytes`), `zk/gadgets/src/hash_bytes.rs:10-32`
+  - Location: `zk-tools/zk-dsl/gadgets/src/hash_bytes.rs` (`HashBytes::hash_bytes`, `fn hash_bytes`), `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn packed`)
   - Severity: Medium
   - Suggested test: positive; `tests/unit/protocol/asset/r1cs.rs`
 
@@ -101,7 +101,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/r1cs.rs` `a_constant_asset_hash_is_one_row_with_the_hash_on_variable_zero`
   - Kind: constraint
   - Statement: the `SolHash` export is exactly the header (2 wires, 0 public outputs, 0 public inputs, 1 private input, 1 constraint) and the row A = {0: hash_bytes([0; 32]), 1: -1}, B = {0: 1}, C = {}; the SOL hash sits on variable 0.
-  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn constant`, `fn constant`, `fn hash`)
+  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn constant`), `zk-tools/zk-dsl/gadgets/src/hash_bytes.rs` (`HashBytes::hash_bytes`)
   - Severity: Medium
   - Suggested test: positive; `tests/unit/protocol/asset/r1cs.rs`
 
@@ -109,7 +109,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/r1cs.rs` `a_mint_and_its_clone_share_one_hash_so_the_second_claim_costs_one_row`
   - Kind: constraint
   - Statement: the `HashedTwice` export, which hashes a mint and its clone, has exactly the constraint count of `AssetHash` plus 1 and exactly its variable count.
-  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`HashBytes::hash_bytes`, the shared `OnceCell`), `zk/dsl/src/circuit/builtins/field/var.rs:116-125` (`fn cached`)
+  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`HashBytes::hash_bytes`, the shared `OnceCell`), `zk-tools/zk-dsl/dsl/src/circuit/builtins/field/var.rs` (`fn cached`)
   - Severity: Medium
   - Suggested test: positive; `tests/unit/protocol/asset/r1cs.rs`
 
@@ -136,7 +136,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/r1cs.rs` `every_mint_byte_is_range_checked_to_8_bits`
   - Kind: soundness
   - Statement: for each of the 32 byte variables of a mint, setting it to its value plus 256 makes `check_tampered` return exactly `ProofInputsBreakRule` at row 9 * index + 8 with "a byte proof input does not fit in 8 bits".
-  - Location: `zk/dsl/src/conversion/bytes.rs:10-31` (`fn instantiate`, `range_check`)
+  - Location: `zk-tools/zk-dsl/dsl/src/conversion/bytes.rs` (`fn instantiate`, `range_check`)
   - Error: `ProverErrorKind::ProofInputsBreakRule`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/asset/r1cs.rs`
@@ -145,7 +145,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/r1cs.rs` `no_private_variable_of_the_asset_hash_fixture_is_free`
   - Kind: soundness
   - Statement: for every mint vector, `check_private_variables(AssetHash)` reports exactly 529 constraints, 529 private variables, no free and no tolerated variable.
-  - Location: `zk-tools/zk-dsl/gadgets/src/hash_bytes.rs` (`HashBytes::hash_bytes`), `zk/dsl/src/conversion/bytes.rs:10-31`
+  - Location: `zk-tools/zk-dsl/gadgets/src/hash_bytes.rs` (`HashBytes::hash_bytes`), `zk-tools/zk-dsl/dsl/src/conversion/bytes.rs` (`fn instantiate`, `range_check`)
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/asset/r1cs.rs`
 
@@ -162,7 +162,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/r1cs.rs` `every_mint_satisfies_every_row_with_its_native_hash_on_the_claim_wire`; `tests/unit/protocol/asset/r1cs.rs` `a_mint_and_its_clone_share_one_hash_so_the_second_claim_costs_one_row`
   - Kind: shape
   - Statement: for every mint vector, `check_constraints(AssetHash)` returns exactly `Ok(529)` (setup from `Mint::SOL` and proving build the same matrices), and `check_constraints(HashedTwice)` returns exactly `Ok(530)`.
-  - Location: `sdk-libs/transaction/src/circuit/conversion/asset.rs:8-30`
+  - Location: `sdk-libs/transaction/src/circuit/conversion/asset.rs`
   - Severity: High
   - Suggested test: positive; `tests/unit/protocol/asset/r1cs.rs`
 
@@ -226,7 +226,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/native.rs` `a_constant_asset_equals_exactly_its_own_mint_natively`
   - Kind: semantics
   - Statement: for every mint vector, native `EqualsConstant` returns exactly `Ok(())` for USDC and exactly `RuleBroken("the assets are equal")` for every other mint.
-  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn constant`), `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn assert_equal`)
+  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn constant`, `fn assert_equal`)
   - Error: `CircuitErrorKind::RuleBroken`
   - Severity: High
   - Suggested test: positive + negative; `tests/unit/protocol/asset/native.rs`
@@ -236,7 +236,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/r1cs.rs` `assert_equal_compares_the_two_packed_chunks_in_one_row_each`
   - Kind: constraint
   - Statement: the `Equal` export has exactly the 576 rows of `Pair` plus 2 and exactly its 577 variables; the first chunk's row is 576, labelled "the assets are equal".
-  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn assert_equal`), `zk/gadgets/src/hash_bytes.rs:23-32` (`fn packed`)
+  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs` (`fn assert_equal`, `fn packed`)
   - Severity: Medium
   - Suggested test: positive; `tests/unit/protocol/asset/r1cs.rs`
 
@@ -244,7 +244,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/r1cs.rs` `a_mint_other_than_the_constant_breaks_a_comparison_row`
   - Kind: constraint
   - Statement: the `EqualsConstant` export has exactly the 288 rows of `Single` plus 2 and exactly its 289 variables.
-  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs`, `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs`
+  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs`
   - Severity: Medium
   - Suggested test: positive; `tests/unit/protocol/asset/r1cs.rs`
 
@@ -269,7 +269,7 @@ from ascending only in the first and only in the second packed chunk (31 + 1 byt
   - Covered by: `tests/unit/protocol/asset/r1cs.rs` `a_mint_other_than_the_constant_breaks_a_comparison_row`
   - Kind: soundness
   - Statement: for every mint vector, the `Single` assignment leaves no `EqualsConstant` row unsatisfied for USDC; for every other mint the first unsatisfied row is exactly 288 when its first 31 bytes differ from USDC's and exactly 289 otherwise.
-  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs`, `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs`
+  - Location: `zk-tools/zk-dsl/dsl/src/circuit/builtins/types/solana_address.rs`
   - Severity: Critical
   - Suggested test: negative; `tests/unit/protocol/asset/r1cs.rs`
 

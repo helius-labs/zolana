@@ -23,7 +23,7 @@ sequenceDiagram
     Note over Creator: 1. Lock the funds (escrow)
     Creator->>Escrow: escrow (escrow proof + SPP transact)
     Escrow->>SPP: CPI transact -> change + escrow UTXO (escrow utxo_data)
-    Note over SPP: spend creator source UTXO, append change + escrow UTXO <br> asset_id public, amount + owner_hash + unlock private in utxo_data <br> no marker message: no counterparty needs to discover this UTXO
+    Note over SPP: spend creator source UTXO, append change + escrow UTXO <br> asset_id public, amount + creator + unlock private in utxo_data <br> no marker message: no counterparty needs to discover this UTXO
 
     Note over Creator: 2. Withdraw, after unlock <br> fetch escrow UTXOs tagged with the creator's escrow-authority PDA, decrypt with the viewing key
     Creator->>Escrow: withdraw (creator-signed, withdraw proof + SPP transact)
@@ -54,11 +54,11 @@ Types used in this document. Shared SPP types are defined in [spec.md](../../doc
 | `asset_id` | `u64` | Asset identifier in UTXOs; `1` is SOL, each SPL mint `≥ 2`. The mint→`asset_id` map is the SPP `Asset registry` PDA. See [spec.md](../../docs/spec.md#glossary). |
 | `CompressedShieldedAddress` | `[u8; 65]` | `(owner_hash [u8;32], viewing_pk tagged X25519[33])`. See [spec.md](../../docs/spec.md#shielded-address). |
 | `escrow UTXO` | — | The SPP [UTXO](../../docs/spec.md#utxo) holding the locked funds: `asset = asset_id`, `amount = amount`, `owner = the creator's escrow-authority PDA` (seeds `[b"escrow_authority", creator]`), nullifier secret `= 0`, `utxo_data = escrow terms`. Spendable only by the timelock escrow program, and only in a withdraw the creator signs. See [Escrow Terms](#escrow-terms). |
-| `Escrow terms` | — | The fields committed in the escrow UTXO's `utxo_data` (record tag `0x02`), hashed into the escrow UTXO `utxo_hash` via `data_hash`: `owner_hash`, `unlock`. See [Escrow Terms](#escrow-terms). |
+| `Escrow terms` | — | The fields committed in the escrow UTXO's `utxo_data` (record tag `0x02`), hashed into the escrow UTXO `utxo_hash` via `data_hash`: `creator`, `unlock`. See [Escrow Terms](#escrow-terms). |
 | `private_tx_hash` | `[u8; 32]` | Commitment to the SPP `transact` an escrow proof authorizes: the link between an escrow proof and the SPP transaction. See [spec.md](../../docs/spec.md#zk-program-interface). |
 | `CompressedProof` | `[u8; 128]` | The escrow and withdraw Groth16 proofs (`spr_program::CompressedProof`), verified by the timelock escrow program, each committing the transaction via `private_tx_hash`. Both use standard Groth16. The creator authorizes with a Solana transaction signature. |
 | `TransactIxData` | — | SPP `transact` instruction data: the SPP proof, input nullifiers, output UTXO hashes, ciphertexts, and routing. See [spec.md](../../docs/spec.md#transact). |
-| `hash_bytes` | fn | `Poseidon` hash of a 32-byte value, folded into the field the circuits check over; used here to turn a Solana pubkey into a single value the proof can compare against a committed hash. |
+| `solana_owner_identity` | fn | `hash_bytes` of a Solana pubkey with its owner tag: the single value the proofs compare against the key of a committed owner. |
 
 ## Privacy Model
 
@@ -93,11 +93,12 @@ through `data_hash` (committed unchecked, interpreted by the escrow circuit — 
 [spec.md](../../docs/spec.md#utxo)):
 
 ```text
-escrow_terms = (
-    owner_hash,   // the creator's shielded owner hash: receives change at escrow and the withdrawal at withdraw
-    unlock,       // unix seconds; revealed at withdraw and checked against the Clock by the program
-)
-data_hash = Poseidon(escrow_terms)        // enters the escrow UTXO utxo_hash directly
+struct EscrowTerms {
+    creator: UtxoOwner,   // the creator's owner preimage (key and nullifier key): receives change at escrow and the withdrawal at withdraw
+    unlock: u64,          // unix seconds; revealed at withdraw and checked against the Clock by the program
+}
+state_hash = Poseidon(discriminator(EscrowTerms), owner_hash(creator), unlock)
+data_hash  = Poseidon(DATA, state_hash)   // the DATA domain tag, then the state hash; enters the escrow UTXO utxo_hash
 ```
 
 `asset_id`, `amount`, and `owner = escrow-authority PDA` are the escrow UTXO's own SPP fields,
@@ -122,7 +123,7 @@ the decrypted terms and skips escrows whose nullifier has already been published
 
 Moving the escrow UTXO also requires the program: SPP spends a PDA-owned UTXO only when the
 timelock escrow program produces the escrow-authority signer via `invoke_signed`, and `withdraw` is
-the only instruction that spends with it (after unlock, creator-signed, to `owner_hash`). SPP enforces the PDA ownership
+the only instruction that spends with it (after unlock, creator-signed, to the committed `creator`). SPP enforces the PDA ownership
 at spend time, when the escrow UTXO input's owner must match the escrow-authority signer. Both
 instructions derive the PDA with `find_program_address` from their `creator` signer, check it is
 present among the forwarded SPP accounts, and flip it to a signer inside the SPP CPI. At `escrow`
@@ -131,14 +132,15 @@ escrow UTXO. The PDA is a bare address and signs only inside the CPI. Since a cr
 signs only for that creator's PDA, it can spend only escrows owned by that PDA.
 
 The escrow circuit makes the terms name the PDA's creator: the program passes
-`solana_owner_identity(creator)` as a public input, and the circuit checks it against the key of
-the tokens' owner, which it commits as the escrow's `creator`. An escrow owned by one creator's PDA
+`solana_owner_identity(creator)` as a public input, and the circuit checks it against the key
+identity of the tokens' owner, which it commits as the escrow's `creator`. An escrow owned by one creator's PDA
 therefore names that same creator, so the withdraw circuit's check against the signer can pass.
 
-`owner_hash` is the committed destination for both the change output at `escrow` and the refund at
+The committed `creator` is the owner of both the change output at `escrow` and the refund at
 `withdraw`: the creator recovers both from the escrow UTXO blinding it already holds. `withdraw`
-requires the creator: it signs the withdraw transaction, and the withdraw proof checks `hash_bytes`
-of the signer's pubkey against the escrow's `owner_hash`. The refund can only land at `owner_hash`.
+requires the creator: it signs the withdraw transaction, and the withdraw proof checks that
+`creator.key().identity()` equals `creator_identity`, the `solana_owner_identity` of the signer
+the program passes. The refund can only land with the committed `creator`.
 
 `unlock` is a unix-seconds value the proof reveals as a public input and the timelock escrow
 program checks against the Clock sysvar: `withdraw` requires `now > unlock`. `escrow` does not
@@ -151,7 +153,7 @@ withdrawer cannot shift the window.
 | # | Instruction | Tag | Description | Accounts Read | Accounts Modified | Access control |
 |---|-------------|-----|-------------|---------------|-------------------|----------------|
 | 1 | [escrow](#escrow) | 0 | Verify the escrow proof and CPI SPP `transact` to lock the source funds into the escrow UTXO (escrow `utxo_data`). | creator, escrow_authority | SPP trees (CPI) | Creator signs; the proof checks the signer against the tokens' owner; the creator's escrow-authority PDA authorizes the escrow UTXO |
-| 2 | [withdraw](#withdraw) | 1 | Verify the withdraw proof and CPI SPP `transact`: after unlock, spend the escrow UTXO back to `owner_hash`. | creator, escrow_authority | SPP trees (CPI) | Creator signs; the proof checks the signer against the committed `owner_hash`; the creator's escrow-authority PDA authorizes the escrow UTXO spend |
+| 2 | [withdraw](#withdraw) | 1 | Verify the withdraw proof and CPI SPP `transact`: after unlock, spend the escrow UTXO back to the committed `creator`. | caller, creator, escrow_authority | SPP trees (CPI) | Creator signs; the proof checks the signer against the committed `creator`; the creator's escrow-authority PDA authorizes the escrow UTXO spend |
 
 ---
 
@@ -161,12 +163,14 @@ Locks funds. The timelock escrow program verifies the [escrow proof](#escrow-cir
 SPP [`transact`](../../docs/spec.md#transact) to spend the creator's `asset_id` UTXO and append the
 escrow UTXO, a UTXO of `amount` `asset_id` owned by the creator's escrow-authority PDA (seeds
 `[b"escrow_authority", creator]`), with the [escrow terms](#escrow-terms) in its `utxo_data` (which, with
-the PDA owner, makes SPP spend it only through an escrow circuit). The transact is 1-in/2-out (the
-creator's source UTXO in; a change UTXO to the creator and the escrow UTXO out).
+the PDA owner, makes SPP spend it only through an escrow circuit). The transact spends up to five
+of the creator's source UTXOs and outputs a change UTXO to the creator and the escrow UTXO.
 
 The proof checks the escrow UTXO output against the escrow rules (see the [escrow
 circuit](#escrow-circuit)) without revealing the terms, and commits the transaction through its
-public input `Poseidon(escrow_owner_hash, creator_identity, private_tx_hash)`. The amount and
+public input `Poseidon(escrow_owner, creator_identity, private_tx_hash)`, where
+`escrow_owner = address_hash(escrow_owner_hash, viewing_pubkey)` is the escrow UTXO's shielded
+address and `creator_identity = solana_owner_identity(creator)`. The amount and
 `unlock` are private at the escrow layer (the transact's own `asset_id` public inputs still reveal
 `asset_id` at the SPP layer).
 
@@ -174,22 +178,31 @@ public input `Poseidon(escrow_owner_hash, creator_identity, private_tx_hash)`. T
 
 1. `creator` — the creator's Solana signer, the owner of the source UTXOs; read-only, signer.
    Consumed by the program, which derives the creator's escrow-authority PDA from it and passes
-   that PDA's owner hash and `solana_owner_identity(creator)` to the escrow proof; everything after
-   it is forwarded verbatim to the SPP `transact` CPI.
+   that PDA's shielded address and `solana_owner_identity(creator)` to the escrow proof; everything
+   after it is forwarded verbatim to the SPP `transact` CPI, in SPP's transact layout:
 2. `payer` — the SPP fee payer; signer, writable.
-3. `tree_accounts` — SPP trees the transact touches; writable.
-4. `escrow_authority` — the creator's escrow-authority PDA (seeds `[b"escrow_authority", creator]`);
-   read-only, non-signer. The program flips it to a signer inside the SPP CPI, because SPP requires
-   an output with a nonzero `data_hash` to be owned by a signer.
-5. `spp_program` — SPP program (CPI target).
+3. `output_tree` — the tree every output is appended to; writable.
+4. `spp_program` — SPP program (CPI target). `SppTransactAccounts::new` checks that it is the
+   third forwarded account.
+5. `system_program`.
+6. `input_trees` — one tree per tree context of the transact; writable.
+7. `nullifier_pdas` — one nullifier PDA per input; writable.
+8. `creator` — again, as the owner signer of the spent inputs; read-only, signer.
+9. `escrow_authority` — the creator's escrow-authority PDA (seeds `[b"escrow_authority", creator]`);
+   read-only, non-signer. The program checks it is among the forwarded accounts and flips it to a
+   signer inside the SPP CPI, because SPP requires an output with a nonzero `data_hash` to be owned
+   by a signer.
 
 **Instruction data**
 
 ```rust
 struct EscrowIxData {
     /// The escrow proof; verified by the timelock escrow program against
-    /// Poseidon(escrow_owner_hash(creator), solana_owner_identity(creator), private_tx_hash).
+    /// Poseidon(address_hash(escrow_owner_hash(creator), viewing_pubkey),
+    ///          solana_owner_identity(creator), private_tx_hash).
     proof: CompressedProof,
+    /// The viewing public key of the escrow UTXO's shielded address, the creator's.
+    viewing_pubkey: [u8; 33],
     /// The client's SPP transact as `TransactIxData` bytes: the creator's source UTXOs in, the
     /// change and the escrow UTXO out. The program reads `private_tx_hash` through
     /// `TransactIxDataRef` and forwards the bytes to the SPP `transact` CPI unchanged.
@@ -201,14 +214,14 @@ struct EscrowIxData {
 
 ### withdraw
 
-After unlock, the escrow UTXO is reclaimed to the committed `owner_hash`. The timelock escrow
+After unlock, the escrow UTXO is reclaimed to the committed `creator`. The timelock escrow
 program verifies the [withdraw proof](#withdraw-circuit), then CPIs SPP
 [`transact`](../../docs/spec.md#transact). The transact is 1-in/1-out: the escrow UTXO in, an
-`amount` `asset_id` UTXO to `owner_hash` out, proved at the SPP `(1, 2)` shape with compact padding
+`amount` `asset_id` UTXO to the committed `creator` out, proved at the SPP `(1, 2)` shape with compact padding
 in the second output slot, which the instruction data leaves out. The creator signs as a dedicated readonly signer; the
-program includes `hash_bytes` of its pubkey in the proof's public input and the circuit checks it
-against the committed `owner_hash`, so only the creator can withdraw, and the creator knows the
-refund blinding it chose. The timelock escrow program supplies the escrow-authority PDA signer via
+program includes `solana_owner_identity` of its pubkey in the proof's public input and the circuit
+checks it against the committed creator's key identity, so only the creator can withdraw, and the
+creator knows the refund blinding it chose. The timelock escrow program supplies the escrow-authority PDA signer via
 `invoke_signed` and reads the escrow `unlock` from the dedicated `unlock_timestamp` instruction-data
 field and checks it against the Clock sysvar (`now > unlock`); the withdraw proof takes that same
 value as a public input.
@@ -220,13 +233,17 @@ value as a public input.
 2. `creator` — the creator's Solana signer; read-only, signer. Consumed by the program, which
    includes `solana_owner_identity(creator)` in the withdraw proof's public input and derives the
    creator's escrow-authority PDA from it; everything after it is forwarded verbatim to the SPP
-   `transact` CPI.
+   `transact` CPI, in SPP's transact layout:
 3. `payer` — the SPP fee payer; signer, writable.
-4. `tree_accounts` — SPP trees the transact touches; writable.
-5. `escrow_authority` — the creator's escrow-authority PDA (seeds `[b"escrow_authority", creator]`);
-   read-only, non-signer. The program flips it to a signer inside the SPP CPI to authorize the
-   escrow UTXO spend (see [Escrow Terms](#escrow-terms)).
-6. `spp_program` — SPP program (CPI target); must be the last account (the program checks this).
+4. `output_tree` — the tree every output is appended to; writable.
+5. `spp_program` — SPP program (CPI target). `SppTransactAccounts::new` checks that it is the
+   third forwarded account.
+6. `system_program`.
+7. `input_trees` — one tree per tree context of the transact; writable.
+8. `nullifier_pdas` — one nullifier PDA per input; writable.
+9. `escrow_authority` — the creator's escrow-authority PDA (seeds `[b"escrow_authority", creator]`);
+   read-only, non-signer. The program checks it is among the forwarded accounts and flips it to a
+   signer inside the SPP CPI to authorize the escrow UTXO spend (see [Escrow Terms](#escrow-terms)).
 
 **Instruction data**
 
@@ -270,14 +287,16 @@ builds both circuits for the browser into `target/zk/timelock-escrow-program/was
 Locks `amount` of the creator's asset in an escrow UTXO owned by the creator's escrow-authority
 PDA.
 
-- **Public input:** `Poseidon(escrow_owner_hash, creator_identity, private_tx_hash)`; the program
-  supplies `escrow_owner_hash`, the owner hash of the creator signer's escrow-authority PDA, and
-  `creator_identity`, `solana_owner_identity` of that signer.
+- **Public input:** `Poseidon(escrow_owner, creator_identity, private_tx_hash)`; the program
+  supplies `escrow_owner`, the shielded address hash
+  `address_hash(escrow_owner_hash, viewing_pubkey)` of the creator signer's escrow-authority PDA
+  with the viewing key from the instruction data, and `creator_identity`, `solana_owner_identity`
+  of that signer.
 - **Private inputs:** the transaction context (blinding seed and output tree), up to five of the
   creator's token UTXOs (dummies after the first), `unlock` and `amount`.
 - **Constraints:**
   - `amount` is nonzero, and the token UTXOs move exactly `amount` into a new escrow data UTXO
-    owned by the escrow owner, in the tokens' asset.
+    owned by the escrow owner's shielded address, in the tokens' asset.
   - The tokens' owner key identity equals `creator_identity`, so the PDA that owns the escrow is
     derived from the same creator the terms name.
   - The escrow UTXO's `data_hash` commits the [escrow terms](#escrow-terms): the creator (the

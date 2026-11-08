@@ -22,9 +22,8 @@ pub struct IndexedTransaction {
 
 impl SprProgramTest {
     /// Build, sign, send, and index a transaction against the litesvm backend
-    /// on the budget a legacy transaction of this length used to receive
-    /// implicitly, so callers that never asked for one keep the ceiling they
-    /// already had.
+    /// with the runtime's default compute ceiling for its instruction count
+    /// ([`ComputeBudgetConfig::for_instruction_count`]).
     pub fn create_and_send_transaction(
         &mut self,
         ixs: &[Instruction],
