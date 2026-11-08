@@ -151,6 +151,5 @@ pub struct GetNonInclusionProofsResponse {
 #[derive(Clone, Debug)]
 pub struct ProveResult {
     pub proof: ProofCompressed,
-    pub public_inputs: Vec<[u8; 32]>,
-    pub circuit_id: u16,
+    pub public_input_hash: [u8; 32],
 }

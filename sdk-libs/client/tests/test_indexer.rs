@@ -157,11 +157,9 @@ impl Rpc for TestIndexer {
         let inputs = &mut assembled.prover_inputs;
         authority.complete_inputs(&mut inputs.inputs)?;
         let proof = ProverClient::local().prove_transfer(inputs)?;
-        let circuit_id = 0;
         Ok(ProveResult {
             proof: ProofCompressed::try_from(proof)?,
-            public_inputs: vec![assembled.public_input_hash],
-            circuit_id,
+            public_input_hash: assembled.public_input_hash,
         })
     }
 }

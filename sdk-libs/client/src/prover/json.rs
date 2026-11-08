@@ -19,115 +19,75 @@ fn fe_to_string(bytes: &[u8; 32]) -> String {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct UtxoParamsJson {
-    #[serde(rename = "domain")]
     pub domain: String,
-    #[serde(rename = "owner")]
     pub owner: String,
-    #[serde(rename = "asset")]
     pub asset: String,
-    #[serde(rename = "amount")]
     pub amount: String,
-    #[serde(rename = "blinding")]
     pub blinding: String,
-    #[serde(rename = "dataHash")]
     pub data_hash: String,
-    #[serde(rename = "ringDataHash")]
     pub ring_data_hash: String,
-    #[serde(rename = "ringProgramId")]
     pub ring_program_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct InputParamsJson {
-    #[serde(rename = "utxo")]
     pub utxo: UtxoParamsJson,
-    #[serde(rename = "isDummy")]
     pub is_dummy: String,
-    #[serde(rename = "statePathElements")]
     pub state_path_elements: Vec<String>,
-    #[serde(rename = "statePathIndex")]
     pub state_path_index: String,
-    #[serde(rename = "nullifierLowValue")]
     pub nullifier_low_value: String,
-    #[serde(rename = "nullifierNextValue")]
     pub nullifier_next_value: String,
-    #[serde(rename = "nullifierLowPathElements")]
     pub nullifier_low_path_elements: Vec<String>,
-    #[serde(rename = "nullifierLowPathIndex")]
     pub nullifier_low_path_index: String,
-    #[serde(rename = "treeSlot")]
     pub tree_slot: String,
-    #[serde(rename = "nullifier")]
     pub nullifier: String,
-    #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
-    #[serde(rename = "nullifierSecret")]
     pub nullifier_secret: String,
 }
 
 /// One public tree slot. Mirrors Go `common.TreeSlotParamsJSON`.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct TreeSlotJson {
-    #[serde(rename = "id")]
     pub id: String,
-    #[serde(rename = "utxoRoot")]
     pub utxo_root: String,
-    #[serde(rename = "nullifierRoot")]
     pub nullifier_root: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct OutputParamsJson {
-    #[serde(rename = "utxo")]
     pub utxo: UtxoParamsJson,
-    #[serde(rename = "isDummy")]
     pub is_dummy: String,
-    #[serde(rename = "hash")]
     pub hash: String,
-    #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
-    #[serde(rename = "nullifierPk")]
     pub nullifier_pk: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct TransferInputsJson {
-    #[serde(rename = "circuitType")]
     pub circuit_type: String,
-    #[serde(rename = "nInputs")]
     pub n_inputs: usize,
-    #[serde(rename = "nOutputs")]
     pub n_outputs: usize,
-    #[serde(rename = "inputs")]
     pub inputs: Vec<InputParamsJson>,
-    #[serde(rename = "outputs")]
     pub outputs: Vec<OutputParamsJson>,
-    #[serde(rename = "treeSlots")]
     pub tree_slots: Vec<TreeSlotJson>,
-    #[serde(rename = "outputTreeId")]
     pub output_tree_id: String,
-    #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
-    #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
-    #[serde(rename = "blindingSeed")]
     pub blinding_seed: String,
-    #[serde(rename = "publicAssets")]
     pub public_assets: Vec<String>,
-    #[serde(rename = "publicAmounts")]
     pub public_amounts: Vec<String>,
-    #[serde(rename = "ringProgramId")]
     pub ring_program_id: String,
-    #[serde(rename = "signerPkHashes")]
     pub signer_pk_hashes: Vec<String>,
-    #[serde(rename = "inputFlags")]
     pub input_flags: String,
-    #[serde(rename = "publishedOutputOwnerPkHashes")]
     pub published_output_owner_pk_hashes: Vec<String>,
     #[serde(flatten)]
     pub cache: CacheReadsJson,
-    #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
 }
 
@@ -246,30 +206,19 @@ pub(crate) fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
 /// circuit reconstructs the shared owner/asset and the constant data/ring-program
 /// fields itself, so they are not transmitted (unlike the transfer shape).
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct MergeInputParamsJson {
-    #[serde(rename = "domain")]
     pub domain: String,
-    #[serde(rename = "amount")]
     pub amount: String,
-    #[serde(rename = "blinding")]
     pub blinding: String,
-    #[serde(rename = "ringDataHash")]
     pub ring_data_hash: String,
-    #[serde(rename = "statePathElements")]
     pub state_path_elements: Vec<String>,
-    #[serde(rename = "statePathIndex")]
     pub state_path_index: String,
-    #[serde(rename = "nullifierLowValue")]
     pub nullifier_low_value: String,
-    #[serde(rename = "nullifierNextValue")]
     pub nullifier_next_value: String,
-    #[serde(rename = "nullifierLowPathElements")]
     pub nullifier_low_path_elements: Vec<String>,
-    #[serde(rename = "nullifierLowPathIndex")]
     pub nullifier_low_path_index: String,
-    #[serde(rename = "treeSlot")]
     pub tree_slot: String,
-    #[serde(rename = "nullifier")]
     pub nullifier: String,
 }
 
@@ -277,57 +226,39 @@ pub(crate) struct MergeInputParamsJson {
 /// is assembled from the input sum and the blinding is derived in-circuit;
 /// owner/asset/domain/data are shared/constant.
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct MergeOutputParamsJson {
-    #[serde(rename = "ringDataHash")]
     pub ring_data_hash: String,
-    #[serde(rename = "hash")]
     pub hash: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct MergeParametersJson {
-    #[serde(rename = "circuitType")]
     pub circuit_type: String,
-    #[serde(rename = "inputs")]
     pub inputs: Vec<MergeInputParamsJson>,
-    #[serde(rename = "output")]
     pub output: MergeOutputParamsJson,
-    #[serde(rename = "treeSlots")]
     pub tree_slots: Vec<TreeSlotJson>,
-    #[serde(rename = "outputTreeId")]
     pub output_tree_id: String,
     /// The `hash_bytes_32` chunks of the mint shared by every real input and the
     /// merged output; the circuit derives the asset from them.
-    #[serde(rename = "mintChunks")]
     pub mint_chunks: Vec<String>,
     /// Per-proof pad nonce of the PoseidonCtrV1 output ciphertext; `None` on
     /// the merge-ring rail, whose circuit has no ciphertext.
-    #[serde(
-        rename = "outputCiphertextSalt",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output_ciphertext_salt: Option<String>,
-    #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
-    #[serde(rename = "userNullifierPk")]
     pub user_nullifier_pk: String,
-    #[serde(rename = "userNullifierSecret")]
     pub user_nullifier_secret: String,
-    #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
-    #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
-    #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
-    #[serde(rename = "allowDummyInputs")]
     pub allow_dummy_inputs: String,
     /// Output ring-data hash carried by the merge_ring instruction; `0x0` for
     /// the default merge.
-    #[serde(rename = "outputRingDataHash")]
     pub output_ring_data_hash: String,
     /// Top-level ring program pk_field; `0x0` for the default merge,
     /// the ring's pk_field for merge-ring (the circuit's top-level public input).
-    #[serde(rename = "ringProgramId")]
     pub ring_program_id: String,
 }
 
@@ -400,36 +331,21 @@ pub(crate) fn to_json_merge_ring(inputs: &MergeInputs) -> String {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct BatchAddressAppendParametersJson {
-    #[serde(rename = "circuitType")]
     pub circuit_type: String,
-    #[serde(rename = "stateTreeHeight")]
-    pub state_tree_height: u32,
-    #[serde(rename = "publicInputHash")]
     pub public_input_hash: String,
-    #[serde(rename = "oldRoot")]
     pub old_root: String,
-    #[serde(rename = "newRoot")]
     pub new_root: String,
-    #[serde(rename = "hashchainHash")]
     pub hashchain_hash: String,
-    #[serde(rename = "startIndex")]
     pub start_index: u64,
-    #[serde(rename = "lowElementValues")]
     pub low_element_values: Vec<String>,
-    #[serde(rename = "lowElementIndices")]
     pub low_element_indices: Vec<String>,
-    #[serde(rename = "lowElementNextValues")]
     pub low_element_next_values: Vec<String>,
-    #[serde(rename = "newElementValues")]
     pub new_element_values: Vec<String>,
-    #[serde(rename = "lowElementProofs")]
     pub low_element_proofs: Vec<Vec<String>>,
-    #[serde(rename = "newElementProofs")]
     pub new_element_proofs: Vec<Vec<String>>,
-    #[serde(rename = "treeHeight")]
     pub tree_height: u32,
-    #[serde(rename = "batchSize")]
     pub batch_size: u32,
 }
 
@@ -445,7 +361,6 @@ pub(crate) fn to_json_batch_address_append(inputs: &BatchAddressAppendInputs) ->
     };
     let json = BatchAddressAppendParametersJson {
         circuit_type: "address-append".to_string(),
-        state_tree_height: 0,
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
         old_root: big_uint_to_string(&inputs.old_root),
         new_root: big_uint_to_string(&inputs.new_root),
@@ -829,7 +744,7 @@ mod merge_tests {
         let value: serde_json::Value =
             serde_json::from_str(&to_json_batch_address_append(&inputs)).unwrap();
         assert_eq!(value["circuitType"], "address-append");
-        assert_eq!(value["stateTreeHeight"], 0);
+        assert!(value.get("stateTreeHeight").is_none());
         assert_eq!(value["publicInputHash"], "0x1");
         assert_eq!(value["oldRoot"], "0x2");
         assert_eq!(value["newRoot"], "0x3");

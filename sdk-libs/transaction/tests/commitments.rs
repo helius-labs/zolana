@@ -12,7 +12,7 @@ use spr_transaction::{
     instructions::transact::{CacheAccounts, PrivateTxHash, Shape, SppProofInputs},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
-        program_id_proof_input_hash, ring_program_id_proof_input_hash, SppProofInputUtxo,
+        program_id_proof_input_hash, SppProofInputUtxo,
     },
     Data, DataRecord, ExternalData, Mint, SppProofOutputUtxo, TransactionError, Utxo,
 };
@@ -281,15 +281,10 @@ fn data_setters_replace_one_record_per_kind_and_keep_canonical_order() {
 #[test]
 fn program_and_data_hash_defaults_distinguish_absence_from_a_present_zero_address() {
     assert_eq!(program_id_proof_input_hash(&None).unwrap(), [0; 32]);
-    assert_eq!(ring_program_id_proof_input_hash(&None).unwrap(), [0; 32]);
     for program in [address(0), address(5), address(99)] {
         let expected = hash_bytes(program.as_array()).unwrap();
         assert_eq!(
             program_id_proof_input_hash(&Some(program)).unwrap(),
-            expected
-        );
-        assert_eq!(
-            ring_program_id_proof_input_hash(&Some(program)).unwrap(),
             expected
         );
         assert_ne!(expected, [0; 32]);

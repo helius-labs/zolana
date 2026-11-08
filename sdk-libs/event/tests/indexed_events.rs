@@ -41,18 +41,15 @@ fn transact_event() -> TransactEvent {
 }
 
 #[test]
-fn event_kind_comes_from_payload_not_instruction_tag() {
+fn event_kind_comes_from_payload() {
     let spp = Pubkey::new_unique();
     let src = transact_source(spp, tag::TRANSACT, Vec::new(), &one_in_one_out(), 1);
     let emit_data = emit_event_data(EventKind::Transact, &transact_event());
     let indexed = IndexedEvent {
-        tag: tag::EMIT_EVENT,
         payload: emit_data.get(1..).unwrap_or_default().to_vec(),
         decoded: reconstruct_general_event(&src, &emit_data),
     };
-    assert_eq!(indexed.tag, tag::EMIT_EVENT);
     assert_eq!(event_kind_from_indexed(&indexed), Some(EventKind::Transact));
-    assert_ne!(indexed.tag, EventKind::Transact as u8);
     assert!(indexed.decoded.is_ok());
 }
 

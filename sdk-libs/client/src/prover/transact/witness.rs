@@ -193,14 +193,9 @@ impl AssembledTransfer {
     }
 
     /// Verify `proof` against the public input the assembly fixed and turn it
-    /// into the instruction's proof. On the `ConfidentialEddsa` rail the
+    /// into the instruction's proof, verifying against `keys` when the proof
+    /// came from a runtime key set. On the `ConfidentialEddsa` rail the
     /// signature gadget's commitment moves into the selector.
-    pub fn accept_proof(&mut self, proof: Proof) -> Result<TransactProof, ClientError> {
-        self.accept_proof_with_keys(proof, None)
-    }
-
-    /// As [`Self::accept_proof`], verifying against `keys` when the proof
-    /// came from a runtime key set.
     pub fn accept_proof_with_keys(
         &mut self,
         proof: Proof,

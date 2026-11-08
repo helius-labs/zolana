@@ -10683,7 +10683,6 @@ dependencies = [
  "aes-gcm",
  "async-trait",
  "base64 0.22.1",
- "bincode 1.3.3",
  "borsh",
  "bs58",
  "ed25519-dalek",
@@ -10831,7 +10830,6 @@ dependencies = [
 name = "spr-instruction"
 version = "0.8.0"
 dependencies = [
- "borsh",
  "bytemuck",
  "pinocchio 0.11.2",
  "serde_json",

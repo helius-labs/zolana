@@ -36,7 +36,7 @@ pub use merge::{MergeCacheTarget, MergeProofResult, MergeProver};
 pub use proof::{Commitments, CompressedCommitments, Proof, ProofCompressed};
 pub use proving_key::{
     known_proving_keys, ExpectedProvingKey, ProverKeyStatus, ProverKeys, ProvingKeyArtifact,
-    ProvingKeyCheck, ProvingKeyFormat, ProvingKeyReport,
+    ProvingKeyFormat, ProvingKeyReport,
 };
 pub use ring_authority::{RingAuthorityProofResult, RingAuthorityProver};
 pub use spr_transaction::instructions::transact::{

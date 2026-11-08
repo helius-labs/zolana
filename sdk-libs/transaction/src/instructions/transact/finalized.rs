@@ -4,12 +4,10 @@ use spr_keypair::ShieldedAddress;
 use super::{
     shape::{Shape, TransactRail},
     transaction::{padding_independent_private_tx_hash, private_tx_blinding},
-    ConfidentialTransaction, OutputEncoder, ResolvedOwnerTag, SettlementTransfer,
-    SppProofOutputUtxo,
+    ConfidentialTransaction, ResolvedOwnerTag, SettlementTransfer, SppProofOutputUtxo,
 };
 use crate::{
     error::TransactionError,
-    serialization::confidential::Confidential,
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding, SppProofInputUtxo},
 };
 
@@ -42,16 +40,8 @@ impl ConfidentialTransaction {
     /// 2. Derive and assign output blindings using the final slot order.
     /// 3. Resolve output owner tags and public settlement transfers.
     pub fn finalize(
-        self,
-        sender: &ShieldedAddress,
-    ) -> Result<FinalizedTransaction, TransactionError> {
-        self.finalize_with(sender, &Confidential)
-    }
-
-    pub(super) fn finalize_with<E: OutputEncoder>(
         mut self,
         sender: &ShieldedAddress,
-        encoder: &E,
     ) -> Result<FinalizedTransaction, TransactionError> {
         let rail = match (&self.transaction_signers, self.ring_program_id) {
             (Some(signers), None) => {
@@ -109,7 +99,7 @@ impl ConfidentialTransaction {
             )?;
         }
         // 3. Resolve output owner tags and public settlement transfers.
-        let owner_tags = encoder.owner_tags(&self, sender)?;
+        let owner_tags = self.owner_tags(&sender.signing_pubkey)?;
         let interface_transfers = self.interface_transfers()?;
 
         Ok(FinalizedTransaction {

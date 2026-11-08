@@ -1,7 +1,7 @@
 [package]
 name = "spr-keypair"
 version = "0.8.0"
-description = "TSPP client keypairs: signing, nullifier, and viewing keys with HPKE-style encryption and view-tag derivation."
+description = "SPR shielded keypairs: signing, nullifier, and viewing keys with HPKE-style encryption and view-tag derivation."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

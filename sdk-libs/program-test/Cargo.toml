@@ -1,7 +1,7 @@
 [package]
 name = "spr-program-test"
 version = "0.8.0"
-description = "Reusable LiteSVM program-test environment for Zolana development."
+description = "Reusable LiteSVM program-test environment for SPR development."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

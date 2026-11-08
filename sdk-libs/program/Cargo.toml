@@ -1,7 +1,7 @@
 [package]
 name = "spr-program"
 version = "0.8.0"
-description = "SPP SDK for Solana programs: the spr-instruction builders and derivations, compressed accounts, and ZK programs with their circuits, proofs and transaction client."
+description = "SDK for Solana programs on the SPR shielded pool: the spr-instruction builders and derivations, compressed accounts, and ZK programs with their circuits, proofs and transaction client."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
