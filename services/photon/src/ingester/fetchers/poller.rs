@@ -1,6 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    future::Future,
+    pin::Pin,
     sync::{atomic::Ordering, Arc, Mutex, PoisonError},
+    task::{ready, Context, Poll},
     time::Duration,
 };
 
@@ -8,6 +11,7 @@ use async_stream::stream;
 use cadence_macros::statsd_count;
 use futures::{pin_mut, Stream, StreamExt};
 use solana_transaction_status_client_types::TransactionDetails;
+use tokio::task::JoinHandle;
 
 use crate::{
     ingester::typedefs::block_info::{parse_ui_confirmed_blocked, BlockInfo},
@@ -67,10 +71,14 @@ pub fn get_block_poller_stream(
         let refetches: Refetches = Arc::default();
         let slot_stream = get_slot_stream(rpc_client.clone(), start_slot, refetches.clone());
         pin_mut!(slot_stream);
+        // Each fetch is its own task, so decoding blocks runs on every worker
+        // thread; polled inside this stream, it all ran on one.
         let block_stream = slot_stream
             .map(|fetch| {
                 let rpc_client = rpc_client.clone();
-                async move { (fetch.slot, fetch_block_with_infinite_retries(rpc_client, fetch).await) }
+                FetchTask(tokio::spawn(async move {
+                    (fetch.slot, fetch_block_with_infinite_retries(rpc_client, fetch).await)
+                }))
             })
             .buffer_unordered(max_concurrent_block_fetches);
         pin_mut!(block_stream);
@@ -99,6 +107,28 @@ pub fn get_block_poller_stream(
                 yield blocks;
             }
         }
+    }
+}
+
+/// A spawned block fetch, aborted when dropped unfinished, as when the stream
+/// that owns it is dropped. A panic in the fetch resumes in the stream.
+struct FetchTask(JoinHandle<(u64, Option<BlockInfo>)>);
+
+impl Future for FetchTask {
+    type Output = (u64, Option<BlockInfo>);
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match ready!(Pin::new(&mut self.0).poll(cx)) {
+            Ok(fetched) => Poll::Ready(fetched),
+            Err(err) if err.is_panic() => std::panic::resume_unwind(err.into_panic()),
+            Err(err) => panic!("Block fetch task ended without a result: {err}"),
+        }
+    }
+}
+
+impl Drop for FetchTask {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -262,6 +292,15 @@ mod tests {
     use crate::{
         ingester::typedefs::block_info::BlockMetadata, rpc::fake_node::serve_after_unanswered,
     };
+
+    #[tokio::test]
+    async fn dropping_a_fetch_task_aborts_it() {
+        let task = FetchTask(tokio::spawn(std::future::pending()));
+        let handle = task.0.abort_handle();
+        drop(task);
+        tokio::task::yield_now().await;
+        assert!(handle.is_finished());
+    }
 
     #[tokio::test]
     async fn retries_a_block_fetch_that_misses_its_deadline() {
