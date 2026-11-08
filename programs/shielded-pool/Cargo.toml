@@ -30,6 +30,7 @@ groth16-solana = { workspace = true }
 light-array-map = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-msg = { workspace = true, features = ["alloc"] }
+solana-security-txt = { workspace = true }
 spr-account-checks = { workspace = true }
 spr-hasher = { workspace = true }
 light-program-profiler = { workspace = true }
