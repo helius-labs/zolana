@@ -10,7 +10,7 @@ mod entrypoint {
 
     solana_security_txt::security_txt! {
         name: "Solana Privacy Rings User Registry",
-        project_url: env!("CARGO_PKG_REPOSITORY"),
+        project_url: "https://github.com/helius-labs/zolana",
         contacts: "email:security@helius.xyz",
         policy: "Please report security vulnerabilities privately to security@helius.xyz."
     }
