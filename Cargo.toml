@@ -68,7 +68,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/helius-labs/zolana"
+repository = "https://github.com/helius-labs/privacy-rings"
 
 [workspace.metadata.solana]
 tools-version = "v1.54"

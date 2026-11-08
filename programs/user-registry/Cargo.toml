@@ -23,6 +23,7 @@ borsh = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
 solana-address = { workspace = true, features = ["curve25519"] }
 solana-msg = { workspace = true, default-features = false }
+solana-security-txt = { workspace = true }
 thiserror = { workspace = true }
 spr-user-registry-interface = { workspace = true }
 
