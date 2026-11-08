@@ -57,8 +57,8 @@ mod entrypoint {
     solana_security_txt::security_txt! {
         name: "Solana Privacy Rings Shielded Pool",
         project_url: "https://github.com/helius-labs/privacy-rings",
-        contacts: "email:security@helius.xyz",
-        policy: "Please report security vulnerabilities privately to security@helius.xyz."
+        contacts: "email:privacydisclosures@helius.xyz",
+        policy: "Please report security vulnerabilities privately to privacydisclosures@helius.xyz."
     }
 }
 pinocchio::address::declare_id!("ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW");

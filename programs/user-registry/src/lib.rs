@@ -11,7 +11,7 @@ mod entrypoint {
     solana_security_txt::security_txt! {
         name: "Solana Privacy Rings User Registry",
         project_url: "https://github.com/helius-labs/privacy-rings",
-        contacts: "email:security@helius.xyz",
-        policy: "Please report security vulnerabilities privately to security@helius.xyz."
+        contacts: "email:privacydisclosures@helius.xyz",
+        policy: "Please report security vulnerabilities privately to privacydisclosures@helius.xyz."
     }
 }
