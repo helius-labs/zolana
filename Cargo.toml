@@ -77,10 +77,10 @@ tools-version = "v1.54"
 
 [workspace.dependencies]
 # Pinned Xark fork, shared by the CLI, circuits and WASM runtime.
-xark-cli = { git = "https://github.com/ananas-block/xark", rev = "ad7baad990cb949227ad7d6046e4cfbe3806d357" }
-xark = { git = "https://github.com/ananas-block/xark", rev = "ad7baad990cb949227ad7d6046e4cfbe3806d357" }
-xark-groth16 = { git = "https://github.com/ananas-block/xark", rev = "ad7baad990cb949227ad7d6046e4cfbe3806d357" }
-xark-wasm = { git = "https://github.com/ananas-block/xark", rev = "ad7baad990cb949227ad7d6046e4cfbe3806d357" }
+xark-cli = { git = "https://github.com/ananas-block/xark", rev = "aec8530d4526a082daed68ca2dd9c21d47a86f26" }
+xark = { git = "https://github.com/ananas-block/xark", rev = "aec8530d4526a082daed68ca2dd9c21d47a86f26" }
+xark-groth16 = { git = "https://github.com/ananas-block/xark", rev = "aec8530d4526a082daed68ca2dd9c21d47a86f26" }
+xark-wasm = { git = "https://github.com/ananas-block/xark", rev = "aec8530d4526a082daed68ca2dd9c21d47a86f26" }
 form_urlencoded = "1.2.2"
 # Solana platform-tools Cargo 1.84 cannot build edition2024 crates pulled by
 # newer time-core releases.

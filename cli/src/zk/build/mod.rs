@@ -827,6 +827,7 @@ fn compile_plain(package: &Package, out: &Path, options: &CompileOptions) -> Res
             .wasm_out
             .clone()
             .unwrap_or_else(|| out.join("client"));
+        fs::create_dir_all(&client_out)?;
         // Arbitrary artifact directories do not identify the source crate that
         // defines the Rust input helpers.
         xark_cli::client_with_source(out, crate_dir, &client_out).map_err(error)?;

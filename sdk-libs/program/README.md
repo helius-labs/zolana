@@ -9,7 +9,7 @@ The SDK for Solana programs built on the shielded pool (SPP). It has three parts
   one of its PDAs owns, and creates, updates and reads them through a `transact` CPI.
 - **ZK programs.** A program with its own Groth16 circuit, whose proof shares `private_tx_hash`
   with the SPP transaction it CPIs. The circuit is ordinary Rust compiled by
-  [Xark](https://github.com/ananas-block/xark/tree/ad7baad990cb949227ad7d6046e4cfbe3806d357)
+  [Xark](https://github.com/ananas-block/xark/tree/aec8530d4526a082daed68ca2dd9c21d47a86f26)
   (the revision the root `Cargo.toml` pins). The same `execute` method runs twice:
   - natively on the client, where it builds the SPP transaction's inputs and outputs;
   - compiled by Xark to R1CS over BN254, where the proof checks it against the public hash.
@@ -221,7 +221,7 @@ impl Escrow {
 
 `execute` is restricted to the Rust subset Xark compiles: loop bounds and array sizes known
 when the circuit is built, branches on private values evaluated on both arms. Xark's
-[`docs/subset.md`](https://github.com/ananas-block/xark/blob/ad7baad990cb949227ad7d6046e4cfbe3806d357/docs/subset.md)
+[`docs/subset.md`](https://github.com/ananas-block/xark/blob/aec8530d4526a082daed68ca2dd9c21d47a86f26/docs/subset.md)
 is the reference.
 
 ### 5. Build
@@ -429,7 +429,7 @@ A `CircuitError` that `execute` returns with `?` reaches the client as `ClientEr
 In the circuit build the generated entry calls `execute().expect(..)`, so such an error is a
 panic, and Xark treats a branch that can only panic as one the inputs must not take. Write
 conditions on input values with `require` and `require_eq`; [Xark's
-`LIMITATIONS.md`](https://github.com/ananas-block/xark/blob/ad7baad990cb949227ad7d6046e4cfbe3806d357/LIMITATIONS.md)
+`LIMITATIONS.md`](https://github.com/ananas-block/xark/blob/aec8530d4526a082daed68ca2dd9c21d47a86f26/LIMITATIONS.md)
 explains why its own requirements are not recoverable.
 
 ## Client and WASM integration
@@ -456,7 +456,7 @@ against them:
 | Path | Contents |
 | --- | --- |
 | `<lib name>.js`, `.wasm`, `.d.ts` | The application module: the generated `<program>Transaction` and `<state>DataUtxo` functions, the `spr_program::wasm` exports and, with the prover, Xark's runtime (`ProvingSession`, `VerifyingKey`, `preloadStreaming`, `proveStreamingPreloaded`, `verify`). |
-| `<program>/` | Xark's typed TypeScript client per program. |
+| `<program>/<program>.ts` | Xark's typed TypeScript client, with its schema included, importing `@blueshift-gg/xark/client`. |
 | `proving-keys.json` | Per program, the proving key's SHA-256 and whether it is an insecure test setup. Absent with `--no-prover`. |
 | `xark/` | Xark's pool scripts (`pool.mjs`, `pool-worker.mjs`, `client.mjs` and their declarations). Absent with `--no-prover`. |
 | `runtime-options.json` | `{ "threads": bool }`: false with `--single-threaded` or `--no-prover`. |
@@ -526,7 +526,7 @@ without it fresh randomness; in both cases the setup metadata says `insecure-dev
 generated `<program>.vk.rs` is an insecure test setup that contains a `compile_error!` unless
 the crate enables its `insecure-test-setup` feature. A deployment needs keys from Xark's phase-2
 setup or multi-party ceremony
-([`docs/trusted-setup.md`](https://github.com/ananas-block/xark/blob/ad7baad990cb949227ad7d6046e4cfbe3806d357/docs/trusted-setup.md)),
+([`docs/trusted-setup.md`](https://github.com/ananas-block/xark/blob/aec8530d4526a082daed68ca2dd9c21d47a86f26/docs/trusted-setup.md)),
 whose metadata the CLI accepts as production.
 
 - The CLI never replaces production keys. `--test` against production keys fails, and an

@@ -6,7 +6,7 @@ the CLI. [`README.md`](README.md) walks through a program end to end with the
 [timelock escrow](../../sdk-tests/timelock-escrow) example.
 
 A ZK program is a Solana program with Groth16 circuits written in Rust and compiled by
-[Xark](https://github.com/ananas-block/xark/tree/ad7baad990cb949227ad7d6046e4cfbe3806d357).
+[Xark](https://github.com/ananas-block/xark/tree/aec8530d4526a082daed68ca2dd9c21d47a86f26).
 Each circuit checks a private state change and binds it to an SPP transaction through the
 transaction's `private_tx_hash`.
 
@@ -767,6 +767,9 @@ leaves nothing to compare, so the next compile rebuilds.
 
 A crate opts into generated verifiers by having a `src/verifier` directory. A crate without a
 `ZkProgram` builds as one plain Xark circuit and refuses the WASM-package flags.
+Its TypeScript client goes to `<target>/zk/<package>/client/<circuit>.ts`, or
+`<--wasm-out>/<circuit>.ts`. The client includes its schema and imports
+`@blueshift-gg/xark/client`.
 
 ### `zolana zk setup`
 
@@ -802,14 +805,14 @@ manifest; it does not hash key files.
 2. **Branches.** A branch on a private value runs both arms in the circuit, and a requirement
    inside an arm binds only when the arm is taken. Put a check that must always hold before
    the branch. Xark's
-   [`docs/subset.md`](https://github.com/ananas-block/xark/blob/ad7baad990cb949227ad7d6046e4cfbe3806d357/docs/subset.md)
+   [`docs/subset.md`](https://github.com/ananas-block/xark/blob/aec8530d4526a082daed68ca2dd9c21d47a86f26/docs/subset.md)
    lists what the circuit build accepts.
 3. **Arithmetic.** `Field` arithmetic wraps around the BN254 modulus. A `uN` input is
    range-checked to `N` bits on entry; use `uN` values with `checked_*` operations or
    `require` where overflow matters.
 4. **Trusted setup.** Each circuit needs a Groth16 setup. The CLI's own setups are insecure
    test setups; a deployment uses Xark's ceremony
-   ([`docs/trusted-setup.md`](https://github.com/ananas-block/xark/blob/ad7baad990cb949227ad7d6046e4cfbe3806d357/docs/trusted-setup.md)).
+   ([`docs/trusted-setup.md`](https://github.com/ananas-block/xark/blob/aec8530d4526a082daed68ca2dd9c21d47a86f26/docs/trusted-setup.md)).
    Xark has no external audit yet.
 5. **Data hash privacy.** A state UTXO's data hash is private and hidden by the UTXO
    commitment's blinding. A program that publishes a data hash must include private

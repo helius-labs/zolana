@@ -18,6 +18,7 @@ const nested: ProofInputs = { private: { amount: 1n, flags: [true, false] } };
 const options: ProverOptions = { pool, r1cs: bytes, residentKey: true, sources: "{}", msmChunk: 4096 };
 session.prove(encoded);
 session.prove(nested);
+session.prove(nested, { pool });
 proveStreaming(bytes, bytes, encoded, options);
 beginKeyTranscode({ pool });
 checkProvingKey(bytes, bytes);
@@ -37,6 +38,8 @@ const numericInputs: Record<string, number> = schema.encodeInputs("{}");
 proveStreaming(bytes, bytes, encoded, { msmChunk: "large" });
 // @ts-expect-error Proof input scalars cannot be undefined.
 session.prove({ amount: undefined });
+// @ts-expect-error Session options require a worker pool, not a thread count.
+session.prove(nested, { pool: 2 });
 // @ts-expect-error Native transaction records require wallet arrays.
 escrowTransaction({}, { inputs: "wallet", addresses: [] }, bytes, "payer");
 // @ts-expect-error Snarkjs point coordinates are decimal strings.

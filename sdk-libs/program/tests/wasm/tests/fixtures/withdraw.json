@@ -82,9 +82,9 @@
     ]
   },
   "hashes": {
-    "circuit.xbc": "dd163895e82812d98d237cc60a345b51ac9a1e08efc52ec6100e63b20067afe7",
-    "pk.bin": "4bd21b6a9558e8b2aff7ebac1e9710e9b91b1f5f2940065a53f216cfdea23943",
-    "vk.bin": "d0a66854ee7e9d3ac73e75d78a2a1aa9e9fdd33a3796e72bcb16ef24b727787b"
+    "circuit.xbc": "cbe3e957b4fbab930569bd6ae806019d9644959a8b748430ac76477ccfd0b7ba",
+    "pk.bin": "139832a69cdefca07e36c5418234d2c6604a68c0dad5903027159e228b42c74c",
+    "vk.bin": "58fd0a6c65858e717b7d92853c3272664e4fce69f4b841309cca85546035b6a0"
   },
   "inputs": {
     "private": {
@@ -1701,9 +1701,8 @@
       "program.private.escrow.blinding": "9182947728684051308382077889120776596145316177351111763094803759254364009099",
       "program.private.escrow.data_hash": "3355932793296923778898948000905636126887348347787681058677343281739898769033",
       "program.private.escrow.domain": "3",
-      "program.private.escrow.meta.has_latest_tree_id": "1",
-      "program.private.escrow.meta.latest_tree_id": "3",
       "program.private.escrow.meta.nullifier": "10294108858249054022891057224303414764025957292817211983053638036538512226217",
+      "program.private.escrow.meta.{latest_tree_id,has_latest_tree_id}": "65539",
       "program.private.escrow.owner.key.bytes[0]": "173",
       "program.private.escrow.owner.key.bytes[10]": "217",
       "program.private.escrow.owner.key.bytes[11]": "172",
@@ -1777,8 +1776,7 @@
       "program.private.terms.creator.nullifier_pk": "13699279754250391460850799510069308709807507056786233664697697827679495243630",
       "program.private.terms.unlock": "1700000000",
       "program.private.tx_context.blinding_seed": "9989905738121397252229653608592682246164469265270950623012026855584662165014",
-      "program.private.tx_context.output_tree_id": "0",
-      "program.private.tx_context.uses_output_tree_id": "0",
+      "program.private.tx_context.{output_tree_id,uses_output_tree_id}": "0",
       "program.public.owner_identity": "13650656170821724279725015612278680352333223677468311767810819552087903679884",
       "program.public.unlock": "1700000000",
       "public_hash": "1198120426859531344935888810207839051423548483705735864688350563740838779311"

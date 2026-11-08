@@ -9,7 +9,14 @@ test("the compiled circuit rejects public-hash, balance and ownership mutations"
     const owner = input[ownerField];
     if (hash === undefined || owner === undefined) throw new Error("fixture is missing proof inputs");
     const changedHash = { ...input, public_hash: (BigInt(hash) + 1n).toString() };
-    const excessive = { ...input, "program.private.amount": "1001" };
+    const wasm = await import("/pkg/wasm_test_program.js");
+    const schema = new wasm.Schema(await (await fetch("/keys/escrow/schema.json")).text());
+    const excessiveInputs = structuredClone(data.inputs);
+    excessiveInputs.private.amount = "1001";
+    let excessive: Record<string, string>;
+    try {
+      excessive = schema.encodeInputs(JSON.stringify({ program: excessiveInputs, public_hash: hash }));
+    } finally { schema.free(); }
     const changedOwner = { ...input, [ownerField]: (BigInt(owner) ^ 1n).toString() };
     const out = [];
     for (const altered of [changedHash, excessive, changedOwner]) out.push(await window.zkProgram.attempt("prove", "escrow", "streaming", url, altered));
