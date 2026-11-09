@@ -2476,12 +2476,9 @@ mod tests {
             ExpectedProvingKey::transfer_ring_authority(4, 4).expect("4x4 authority"),
             ExpectedProvingKey::transfer_anonymous_ring_eddsa(49, 2).expect("49x2 anonymous"),
             ExpectedProvingKey::merge(24).expect("merge 24"),
+            ExpectedProvingKey::merge_ring(8).expect("merge ring 8"),
             ExpectedProvingKey::batch_address_append(40, 4999).expect("address append 4999"),
         ];
-        assert!(
-            ExpectedProvingKey::merge_ring(8).is_err(),
-            "no ring merge key is pinned"
-        );
         let names: Vec<&str> = keys.iter().map(|key| key.name.as_str()).collect();
         assert_eq!(
             names,
@@ -2491,6 +2488,7 @@ mod tests {
                 "transfer_ring_authority_4_4.key",
                 "transfer_eddsa_ring_49_2.key",
                 "merge_24_1.key",
+                "merge_ring_8_1.key",
                 "batch_address-append_40_4999.key",
             ]
         );

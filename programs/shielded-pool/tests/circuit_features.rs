@@ -111,6 +111,7 @@ fn every_confidential_eddsa_key_follows_the_compile_feature_including_cached_sel
 fn a_circuit_without_a_pinned_key_is_disabled() {
     for n in [2, 4] {
         assert!(circuit_enabled(CircuitId::RingAuthority(n, n, 3)));
-        assert!(!circuit_enabled(CircuitId::RingAuthorityExit(n, n, 3)));
+        assert!(circuit_enabled(CircuitId::RingAuthorityExit(n, n, 3)));
     }
+    assert!(!circuit_enabled(CircuitId::RingAuthorityExit(2, 4, 3)));
 }

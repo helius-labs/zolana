@@ -699,9 +699,9 @@ fn merge_ring_owner_signed_rejects_an_unsigned_owner() {
         .assert_rolled_back_except(&[rpc.payer.pubkey()]);
 }
 
-/// Every account and data check passes before the unpinned key refuses.
+/// Every account and data check passes before the pairing refuses the proof.
 #[test]
-fn merge_ring_stops_at_its_unpinned_key_under_either_authority() {
+fn merge_ring_reaches_the_pairing_under_either_authority() {
     let (mut rpc, tree) = merge_env();
     let owner = Keypair::new();
     for signer in [None, Some(&owner)] {
@@ -719,8 +719,8 @@ fn merge_ring_stops_at_its_unpinned_key_under_either_authority() {
                 &signers,
                 ComputeBudgetConfig::new(1_400_000),
             )
-            .expect_err("a ring merge without pinned keys must be rejected");
-        Rejection::pool(ShieldedPoolError::CircuitFeatureDisabled)
+            .expect_err("a ring merge with a zero proof must be rejected");
+        Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
             .at(0)
             .assert_litesvm(error);
         assert_eq!(

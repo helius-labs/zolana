@@ -89,6 +89,10 @@ fn circuit_proving_key_sha256_matches_its_key_file() {
                     CircuitId::RingAuthority(n_inputs, n_outputs, slots),
                 ),
                 (
+                    "transfer_ring_authority_exit",
+                    CircuitId::RingAuthorityExit(n_inputs, n_outputs, slots),
+                ),
+                (
                     "transfer_confidential_eddsa",
                     CircuitId::ConfidentialEddsa(n_inputs, n_outputs, slots, eddsa_proof_data),
                 ),

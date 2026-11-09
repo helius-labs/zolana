@@ -173,6 +173,11 @@ path = "tests/ring_authority/main.rs"
 required-features = ["proofs"]
 
 [[test]]
+name = "merge_ring_proving"
+path = "tests/merge_ring/main.rs"
+required-features = ["proofs"]
+
+[[test]]
 name = "ring_transfer_proving"
 path = "tests/ring_transfer/main.rs"
 required-features = ["proofs"]

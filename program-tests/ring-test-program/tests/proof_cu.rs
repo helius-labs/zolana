@@ -61,7 +61,6 @@ fn proof_bearing_ring_variants_stay_within_budget() -> Result<()> {
 
 #[test]
 #[serial]
-#[ignore = "no ring merge keys are pinned"]
 fn ring_merge_stays_within_budget() -> Result<()> {
     let mut harness = RingHarness::new()?;
     harness.create_enabled_ring_config()?;

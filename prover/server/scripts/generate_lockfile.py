@@ -105,6 +105,8 @@ def main() -> int:
     names = sorted(
         subprocess.run([args.prover, "key-files"], check=True, capture_output=True, text=True).stdout.split()
     )
+    if args.add:
+        names = [n for n in names if os.path.isfile(os.path.join(keys_dir, n))]
     missing = [n for n in names if not os.path.isfile(os.path.join(keys_dir, n))]
     if not names or missing:
         print(f"{keys_dir} misses proving keys {missing or names}", file=sys.stderr)

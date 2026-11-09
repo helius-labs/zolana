@@ -451,6 +451,7 @@ func keyFileCircuits() map[string]CircuitType {
 		TransferRingCircuitType,
 		TransferAnonymousRingEddsaCircuitType,
 		TransferRingAuthorityCircuitType,
+		TransferRingAuthorityExitCircuitType,
 		TransferConfidentialEddsaCircuitType,
 	} {
 		for _, shape := range transferShapes(circuit) {
@@ -461,6 +462,7 @@ func keyFileCircuits() map[string]CircuitType {
 	}
 	for _, inputs := range mergeSupportedInputCounts {
 		files[TransferKeyFile(MergeCircuitType, inputs, 1)] = MergeCircuitType
+		files[TransferKeyFile(MergeRingCircuitType, inputs, 1)] = MergeRingCircuitType
 	}
 	for _, shape := range batchAddressAppendShapes {
 		files[BatchKeyFile(BatchAddressAppendCircuitType, shape[0], shape[1])] = BatchAddressAppendCircuitType

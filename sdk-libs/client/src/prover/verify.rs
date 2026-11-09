@@ -115,12 +115,24 @@ pub(crate) struct MergeProofStatement {
 }
 
 impl MergeProofStatement {
-    /// No ring merge keys are pinned.
-    pub fn verify_ring(self, _proof: &Proof) -> Result<(), ClientError> {
-        Err(ClientError::UnsupportedShape {
-            n_in: self.n_inputs,
-            n_out: 1,
-        })
+    pub fn verify_ring(self, proof: &Proof) -> Result<(), ClientError> {
+        use spr_interface::verifying_keys::{merge_ring_24_1, merge_ring_52_1, merge_ring_8_1};
+        let verifying_key = match self.n_inputs {
+            8 => &merge_ring_8_1::VERIFYINGKEY,
+            24 => &merge_ring_24_1::VERIFYINGKEY,
+            52 => &merge_ring_52_1::VERIFYINGKEY,
+            _ => {
+                return Err(ClientError::UnsupportedShape {
+                    n_in: self.n_inputs,
+                    n_out: 1,
+                })
+            }
+        };
+        StatementVerification {
+            verifying_key,
+            public_input_hash: self.public_input_hash,
+        }
+        .verify(proof)
     }
 
     pub fn verify(self, proof: &Proof) -> Result<(), ClientError> {

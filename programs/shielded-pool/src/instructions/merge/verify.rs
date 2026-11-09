@@ -13,7 +13,9 @@ use spr_interface::{
         tag::{MERGE_TRANSACT, RING_MERGE_TRANSACT},
     },
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
-    verifying_keys::{merge_24_1, merge_52_1, merge_8_1},
+    verifying_keys::{
+        merge_24_1, merge_52_1, merge_8_1, merge_ring_24_1, merge_ring_52_1, merge_ring_8_1,
+    },
 };
 
 use crate::instructions::verifier;
@@ -123,10 +125,10 @@ impl<'a> MergeProof<'a> {
                     _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
                 },
             },
-            // No ring merge keys are pinned.
-            (MergeOwnerBinding::Ring { .. }, _) => {
-                return Err(ShieldedPoolError::CircuitFeatureDisabled.into())
-            }
+            (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, 24) => &merge_ring_24_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, 52) => &merge_ring_52_1::VERIFYINGKEY,
+            _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
         };
         Ok(vk)
     }
@@ -331,36 +333,5 @@ pub(crate) mod tests {
             }
         }
         assert_eq!(checked, [2, 2]);
-    }
-
-    /// Refused ahead of any pairing.
-    #[test]
-    fn ring_is_refused_until_its_keys_are_pinned() {
-        let encryption = MergeOutputEncryption::PoseidonCtrV1 {
-            salt: [0; 16],
-            ciphertext: [[0; 32]; 3],
-        };
-        let data = ix_data(&[[3; 32]], [1; 32], [2; 32], encryption);
-        let ix = MergeTransactIxDataRef::from_bytes(&data).expect("parse");
-        for published_owner in [[0; 32], [4; 32]] {
-            let proof = MergeProof::new(
-                &ix,
-                derived(
-                    TreeSlot::ZERO,
-                    0,
-                    [0; 32],
-                    MergeOwnerBinding::Ring {
-                        ring_program_id: [0; 32],
-                        output_ring_data_hash: [0; 32],
-                        published_owner,
-                        output_encryption: encryption,
-                    },
-                ),
-            );
-            assert_eq!(
-                proof.verify(),
-                Err(ShieldedPoolError::CircuitFeatureDisabled.into())
-            );
-        }
     }
 }

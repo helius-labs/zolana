@@ -15,6 +15,12 @@ pub mod merge_52_1;
 #[cfg(feature = "verifying-keys")]
 pub mod merge_8_1;
 #[cfg(feature = "verifying-keys")]
+pub mod merge_ring_24_1;
+#[cfg(feature = "verifying-keys")]
+pub mod merge_ring_52_1;
+#[cfg(feature = "verifying-keys")]
+pub mod merge_ring_8_1;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_12_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_12_4;
@@ -270,6 +276,10 @@ pub mod transfer_ring_8_8;
 pub mod transfer_ring_authority_2_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_authority_4_4;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ring_authority_exit_2_2;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ring_authority_exit_4_4;
 
 /// Proving key file name, as in proving-keys.lock and the prover's
 /// `/proving-keys`, and the sha256 its committed verifying key pins.
@@ -284,6 +294,18 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
         merge_52_1::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
     ("merge_8_1.key", merge_8_1::VERIFYINGKEY_PROVING_KEY_SHA256),
+    (
+        "merge_ring_24_1.key",
+        merge_ring_24_1::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "merge_ring_52_1.key",
+        merge_ring_52_1::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "merge_ring_8_1.key",
+        merge_ring_8_1::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
     (
         "transfer_confidential_12_2.key",
         transfer_confidential_12_2::VERIFYINGKEY_PROVING_KEY_SHA256,
@@ -795,5 +817,13 @@ pub const PROVING_KEY_SHA256S: &[(&str, [u8; 32])] = &[
     (
         "transfer_ring_authority_4_4.key",
         transfer_ring_authority_4_4::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ring_authority_exit_2_2.key",
+        transfer_ring_authority_exit_2_2::VERIFYINGKEY_PROVING_KEY_SHA256,
+    ),
+    (
+        "transfer_ring_authority_exit_4_4.key",
+        transfer_ring_authority_exit_4_4::VERIFYINGKEY_PROVING_KEY_SHA256,
     ),
 ];

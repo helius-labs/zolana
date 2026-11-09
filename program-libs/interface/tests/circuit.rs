@@ -213,10 +213,9 @@ fn every_supported_shape_resolves_exactly_one_key() {
         let circuit = CircuitId::RingAuthority(n, n, PUBLIC_ASSET_SLOTS);
         assert!(circuit.is_supported());
         assert!(circuit.verifying_key().is_some());
-        // SPP refuses an exit without pinned keys.
         assert!(CircuitId::RingAuthorityExit(n, n, PUBLIC_ASSET_SLOTS)
             .verifying_key()
-            .is_none());
+            .is_some());
     }
     assert!(CircuitId::ConfidentialSigner(2, 3, PUBLIC_ASSET_SLOTS - 1)
         .verifying_key()

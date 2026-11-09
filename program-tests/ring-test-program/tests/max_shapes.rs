@@ -82,7 +82,6 @@ fn widest_ring_anonymous_transact_shapes_confirm() -> Result<()> {
 
 #[test]
 #[serial]
-#[ignore = "no ring merge keys are pinned"]
 fn widest_ring_merge_confirms() -> Result<()> {
     let mut harness = RingHarness::new()?;
     harness.create_enabled_ring_config()?;

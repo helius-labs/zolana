@@ -57,8 +57,8 @@ macro_rules! circuit_key_item {
                 (49, 2) => transfer_confidential_49_2, transfer_ring_49_2, transfer_eddsa_ring_49_2;
             }
             authority {
-                (2, 2) => transfer_ring_authority_2_2;
-                (4, 4) => transfer_ring_authority_4_4;
+                (2, 2) => transfer_ring_authority_2_2, transfer_ring_authority_exit_2_2;
+                (4, 4) => transfer_ring_authority_4_4, transfer_ring_authority_exit_4_4;
             }
             confidential_eddsa {
                 (2, 8) => transfer_confidential_eddsa_2_8;
@@ -78,7 +78,7 @@ macro_rules! circuit_key_item {
     };
     (@select $circuit:expr, $item:ident;
         transact { $(($i:literal, $o:literal) => $confidential:ident, $ring:ident, $eddsa:ident;)* }
-        authority { $(($ai:literal, $ao:literal) => $authority:ident;)* }
+        authority { $(($ai:literal, $ao:literal) => $authority:ident, $exit:ident;)* }
         confidential_eddsa { $(($ei:literal, $eo:literal) => $confidential_eddsa:ident;)* }
     ) => {{
         use super::*;
@@ -93,6 +93,7 @@ macro_rules! circuit_key_item {
             )*
             $(
                 CircuitId::RingAuthority($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$authority::$item,
+                CircuitId::RingAuthorityExit($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$exit::$item,
             )*
             $(
                 CircuitId::ConfidentialEddsa($ei, $eo, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
