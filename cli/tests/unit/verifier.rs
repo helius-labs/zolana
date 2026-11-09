@@ -44,7 +44,7 @@ impl Artifact {
             "production_safe": production,
             "protocol": "groth16",
             "curve": "bn254",
-            "setup_mode": if production { "phase2-from-ptau" } else { "insecure-dev-mode" },
+            "setup_mode": if production { "phase2-from-ptau" } else { "single-party" },
             "deterministic_rng_seed": if production { None } else { Some(0u64) },
         }));
         artifact
@@ -247,7 +247,7 @@ fn production_key_rejects_delta_equal_to_gamma() {
 fn production_flag_on_dev_setup_is_rejected() {
     let artifact = Artifact::new(true);
     let mut metadata = artifact.metadata();
-    metadata["setup_mode"] = json!("insecure-dev-mode");
+    metadata["setup_mode"] = json!("single-party");
     artifact.write_metadata(&metadata);
     assert_eq!(
         (

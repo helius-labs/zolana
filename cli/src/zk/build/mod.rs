@@ -702,7 +702,6 @@ fn setup_one(artifact: &Path, test: bool) -> Result<()> {
     }
     let options = if test {
         xark_cli::SetupOptions {
-            insecure_dev_mode: true,
             deterministic_rng: Some(0),
             domain: xark_cli::QapDomain::Radix2,
             ..Default::default()

@@ -118,7 +118,7 @@ fn __zk_export() {
         fs::write(
             circuit.artifact().join("metadata.json"),
             serde_json::to_vec(&json!({
-                "protocol": "groth16", "curve": "bn254", "setup_mode": "insecure-dev-mode",
+                "protocol": "groth16", "curve": "bn254", "setup_mode": "single-party",
                 "production_safe": false, "digest": CIRCUIT_DIGEST,
                 "verifying_key_sha256": format!("{:x}", Sha256::digest(&vk)),
                 "deterministic_rng_seed": 0, "r1cs_form": "reduced", "qap_domain_size": 4,

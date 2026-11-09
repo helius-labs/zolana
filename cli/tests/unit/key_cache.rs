@@ -27,7 +27,7 @@ impl Cache {
         cache.metadata(json!({
             "protocol": "groth16", "curve": "bn254", "digest": "current-circuit",
             "production_safe": production, "deterministic_rng_seed": seed,
-            "setup_mode": if production { "phase2-from-ptau" } else { "insecure-dev-mode" },
+            "setup_mode": if production { "phase2-from-ptau" } else { "single-party" },
             "verifying_key_sha256": format!("{:x}", Sha256::digest(&verifying_key)),
         }));
         cache
@@ -88,6 +88,10 @@ fn reuses_complete_pairs_for_the_requested_setup() {
     let contributed = Cache::new(true, None);
     contributed.edit_metadata("setup_mode", json!("phase2-from-ptau+mpc[2 contributors]"));
     assert!(reusable(&contributed.0, Mode::Default).unwrap());
+    // Test keys an earlier Xark cached under its old setup mode name.
+    let earlier = Cache::new(false, Some(0));
+    earlier.edit_metadata("setup_mode", json!("insecure-dev-mode"));
+    assert!(reusable(&earlier.0, Mode::Test).unwrap());
 }
 
 #[test]
@@ -127,7 +131,7 @@ fn never_replaces_production_keys_for_test_or_invalid_cache_requests() {
 fn refuses_unknown_or_inconsistent_provenance() {
     for (field, value) in [
         ("production_safe", json!("unknown")),
-        ("setup_mode", json!("insecure-dev-mode")),
+        ("setup_mode", json!("single-party")),
         ("setup_mode", json!("phase2-from-ptau+mpc[broken")),
         ("deterministic_rng_seed", json!(0)),
         ("protocol", json!("other")),

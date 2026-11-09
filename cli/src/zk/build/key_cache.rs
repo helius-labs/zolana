@@ -76,7 +76,9 @@ pub(super) fn reusable(artifact: &Path, requested: Mode) -> Result<bool> {
         };
     if metadata["protocol"] != "groth16"
         || metadata["curve"] != "bn254"
-        || (!production && mode != "insecure-dev-mode")
+        // Xark 0.3 names a key from this machine's randomness `single-party`;
+        // keys an earlier Xark cached in `target/zk` say `insecure-dev-mode`.
+        || (!production && !matches!(mode, "single-party" | "insecure-dev-mode"))
     {
         return Err(error(
             "unrecognized or inconsistent setup metadata; existing keys were preserved",
