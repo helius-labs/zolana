@@ -720,8 +720,7 @@ mod tests {
         ));
     }
 
-    /// Each merge rail refuses the other's public input count, and a ring merge
-    /// with its own count stops at its unpinned key.
+    /// Each merge rail refuses the other's public input count.
     #[test]
     fn merge_public_input_count_follows_the_rail() {
         let domain = format!("0x{:x}", spr_interface::UTXO_DOMAIN);
@@ -746,10 +745,7 @@ mod tests {
             public_inputs: vec![scalar_one(); count],
         };
         IndexedProofRequest::new(request("merge", 12)).expect("default merge shape");
-        assert!(matches!(
-            IndexedProofRequest::new(request("merge-ring", 13)),
-            Err(ClientError::UnsupportedShape { .. })
-        ));
+        IndexedProofRequest::new(request("merge-ring", 13)).expect("ring merge shape");
         for (circuit, count) in [("merge", 13), ("merge-ring", 12)] {
             assert!(matches!(
                 IndexedProofRequest::new(request(circuit, count)),
