@@ -4,6 +4,7 @@ export {
   type DecryptLabel,
   type DecryptRequest,
   type DeriveRequest,
+  type ZeroKeySeed,
   type ShieldedKeys,
   type TransactionKeyRequest,
 } from "./keys.js";

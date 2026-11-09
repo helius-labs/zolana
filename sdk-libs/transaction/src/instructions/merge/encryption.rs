@@ -1,8 +1,8 @@
-use spr_keypair::{constants::BLINDING_LEN, random_salt, NullifierKey, ShieldedAddress};
+use spr_keypair::{random_salt, ShieldedAddress};
 
 use super::{
     inputs::{pad_with_compact, validate_merge_owner},
-    MergeOutputPlaintext, MergeProofInputs, MergeSeed, MergeTransaction,
+    zero_key_pubkey, MergeOutputPlaintext, MergeProofInputs, MergeSeed, MergeTransaction,
 };
 use crate::{
     error::TransactionError,
@@ -31,8 +31,14 @@ impl MergeTransaction {
             .ok_or(TransactionError::NoInputs)?
             .nullifier;
         let mut requests = vec![
-            DeriveRequest::MergeOutputBlinding { first_nullifier },
-            DeriveRequest::MergeOutputKey { first_nullifier },
+            DeriveRequest::MergeOutputBlinding {
+                first_nullifier,
+                zero_key_seed: None,
+            },
+            DeriveRequest::MergeOutputKey {
+                first_nullifier,
+                zero_key_seed: None,
+            },
         ];
         for slot in self.inputs.len()..self.validated_inputs.padded_input_count {
             let slot_index = u8::try_from(slot).map_err(|_| TransactionError::TooManyInputs {
@@ -42,6 +48,7 @@ impl MergeTransaction {
             requests.push(DeriveRequest::MergeDummyNullifier {
                 first_nullifier,
                 slot_index,
+                zero_key_seed: None,
             });
         }
         let derived = shielded_keys.derive(&requests)?;
@@ -76,7 +83,7 @@ impl MergeTransaction {
         if self.ring_program_id.is_none() {
             return Err(TransactionError::ZeroKeyMergeWithoutRing);
         }
-        if owner.nullifier_pubkey != NullifierKey::from_secret([0; BLINDING_LEN]).pubkey()? {
+        if owner.nullifier_pubkey != zero_key_pubkey()? {
             return Err(TransactionError::MergeSeedWithNullifierKey);
         }
         let first_nullifier = self

@@ -98,6 +98,7 @@ export type {
   DecryptLabel,
   DecryptRequest,
   DeriveRequest,
+  ZeroKeySeed,
   PrivateBalances,
   EncryptedEnvelope,
   EncryptedSplit,

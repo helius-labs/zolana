@@ -1,6 +1,7 @@
 import { equalBytes, bytesKey } from "../../interface/bytes.js";
 import { mergePaddedInputCount } from "../../interface/constants.js";
 import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
+import { zeroNullifierPublicKey } from "../../keypair/merge/index.js";
 import { type ShieldedPublicKey } from "../../keypair/public-key.js";
 import { X25519PublicKey, isSmallOrder } from "../../keypair/x25519.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
@@ -37,6 +38,7 @@ import {
   checkViewingPublicKeys,
   type DecryptRequest,
   type ShieldedKeys,
+  type ZeroKeySeed,
 } from "./keys.js";
 import { SOL_MINT, type AssetRegistry } from "../asset.js";
 import {
@@ -892,35 +894,67 @@ class SyncPass {
       this.undecryptableCandidates++;
       return;
     }
-    // Requested together so one round answers both.
-    let key: Bytes32 | undefined;
-    let outputBlinding: Bytes32 | undefined;
-    try {
-      key = this.#keys.derive({ kind: "mergeOutputKey", firstNullifier });
-      outputBlinding = this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
-      if (key === undefined || outputBlinding === undefined) return;
-      const plaintext = decryptMergeOutput(body.encrypted, key);
-      const utxo = new Utxo({
-        owner: this.#owner,
-        asset: plaintext.mint,
-        amount: plaintext.amount,
-        blinding: outputBlinding,
-        ...(tx.ringProgramId === undefined ? {} : { ringProgramId: tx.ringProgramId }),
-      });
-      const hash = utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, undefined, body.ringDataHash);
-      if (!equalBytes(hash, slot.outputContext.hash)) {
+    // A zero-key wallet seeds from each viewing key it holds.
+    let seeds: readonly (ZeroKeySeed | undefined)[] = [undefined];
+    if (equalBytes(this.#nullifierPublicKey, zeroNullifierPublicKey())) {
+      const ringProgramId = tx.ringProgramId;
+      if (ringProgramId === undefined) {
         this.undecryptableCandidates++;
         return;
       }
-      if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, body.ringDataHash)) {
-        this.#processedSlots.add(siteKey);
-        this.#recordMerge(tx, slot.outputContext, utxo);
+      seeds = this.#viewingPublicKeys.map((viewingPublicKey) => ({
+        ringProgramId,
+        viewingPublicKey,
+      }));
+    }
+    const secrets: Bytes32[] = [];
+    try {
+      const candidates: { key: Bytes32; outputBlinding: Bytes32 }[] = [];
+      for (const zeroKeySeed of seeds) {
+        const seeded = zeroKeySeed === undefined ? {} : { zeroKeySeed };
+        const key = this.#keys.derive({ kind: "mergeOutputKey", firstNullifier, ...seeded });
+        const outputBlinding = this.#keys.derive({
+          kind: "mergeOutputBlinding",
+          firstNullifier,
+          ...seeded,
+        });
+        if (key !== undefined) secrets.push(key);
+        if (outputBlinding !== undefined) secrets.push(outputBlinding);
+        if (key === undefined || outputBlinding === undefined) return;
+        candidates.push({ key, outputBlinding });
       }
-    } catch (error) {
-      this.#recordUndecryptable(error, siteKey);
+      // A wrong seed decrypts to noise.
+      let failure: unknown;
+      for (const { key, outputBlinding } of candidates) {
+        try {
+          const plaintext = decryptMergeOutput(body.encrypted, key);
+          const utxo = new Utxo({
+            owner: this.#owner,
+            asset: plaintext.mint,
+            amount: plaintext.amount,
+            blinding: outputBlinding,
+            ...(tx.ringProgramId === undefined ? {} : { ringProgramId: tx.ringProgramId }),
+          });
+          const hash = utxo.hash(
+            this.#nullifierPublicKey,
+            SYNC_TREE_ID,
+            undefined,
+            body.ringDataHash,
+          );
+          if (!equalBytes(hash, slot.outputContext.hash)) continue;
+          if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, body.ringDataHash)) {
+            this.#processedSlots.add(siteKey);
+            this.#recordMerge(tx, slot.outputContext, utxo);
+          }
+          return;
+        } catch (error) {
+          failure = error;
+        }
+      }
+      if (failure === undefined) this.undecryptableCandidates++;
+      else this.#recordUndecryptable(failure, siteKey);
     } finally {
-      key?.fill(0);
-      outputBlinding?.fill(0);
+      for (const secret of secrets) secret.fill(0);
     }
   }
 

@@ -546,13 +546,20 @@ fn merge_routes_key_requests_and_propagates_failures() {
             assert_eq!(
                 *keys.derived.borrow(),
                 [
-                    DeriveRequest::MergeOutputBlinding { first_nullifier },
-                    DeriveRequest::MergeOutputKey { first_nullifier },
+                    DeriveRequest::MergeOutputBlinding {
+                        first_nullifier,
+                        zero_key_seed: None,
+                    },
+                    DeriveRequest::MergeOutputKey {
+                        first_nullifier,
+                        zero_key_seed: None,
+                    },
                 ]
                 .into_iter()
                 .chain((1..8).map(|slot_index| DeriveRequest::MergeDummyNullifier {
                     first_nullifier,
-                    slot_index
+                    slot_index,
+                    zero_key_seed: None,
                 }))
                 .collect::<Vec<_>>()
             );

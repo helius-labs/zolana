@@ -1,10 +1,10 @@
-use spr_keypair::{ShieldedKeypair, SigningKey};
+use spr_keypair::{NullifierKey, ShieldedKeypair, SigningKey};
 use spr_transaction::{
     instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding,
+        merge_dummy_nullifier, merge_output_blinding, merge_private_tx_blinding, MergeSeed,
     },
     keys::*,
-    TransactionError,
+    Address, TransactionError,
 };
 
 fn wallet(seed: u8) -> ShieldedKeypair {
@@ -40,12 +40,19 @@ fn derive_answers_a_batch_in_request_order() {
 
     let derived = keypair
         .derive(&[
-            DeriveRequest::MergeOutputBlinding { first_nullifier },
+            DeriveRequest::MergeOutputBlinding {
+                first_nullifier,
+                zero_key_seed: None,
+            },
             DeriveRequest::MergeDummyNullifier {
                 first_nullifier,
                 slot_index: 2,
+                zero_key_seed: None,
             },
-            DeriveRequest::MergePrivateTxBlinding { first_nullifier },
+            DeriveRequest::MergePrivateTxBlinding {
+                first_nullifier,
+                zero_key_seed: None,
+            },
         ])
         .expect("derive");
 
@@ -230,13 +237,20 @@ fn key_batches_preserve_empty_mixed_and_repeated_requests() {
     };
     let requests = [
         nullifier,
-        DeriveRequest::MergePrivateTxBlinding { first_nullifier },
+        DeriveRequest::MergePrivateTxBlinding {
+            first_nullifier,
+            zero_key_seed: None,
+        },
         DeriveRequest::MergeDummyNullifier {
             first_nullifier,
             slot_index: 7,
+            zero_key_seed: None,
         },
         nullifier,
-        DeriveRequest::MergeOutputBlinding { first_nullifier },
+        DeriveRequest::MergeOutputBlinding {
+            first_nullifier,
+            zero_key_seed: None,
+        },
     ];
     let expected_nullifier = owner.nullifier(&utxo_hash, &blinding).unwrap();
     assert_eq!(
@@ -281,4 +295,73 @@ fn key_batches_preserve_empty_mixed_and_repeated_requests() {
         vec![retired_key, current_key, retired_key]
     );
     assert_ne!(retired_key, current_key);
+}
+
+#[test]
+fn a_zero_key_seed_answers_only_for_the_zero_key_under_a_held_viewing_key() {
+    let keypair = wallet(7);
+    let retired = wallet(9).viewing_key.clone();
+    let first_nullifier = [11u8; 32];
+    let ring_program_id = Address::new_from_array([8; 32]);
+    let seeded = |viewing_pubkey| DeriveRequest::MergeOutputKey {
+        first_nullifier,
+        zero_key_seed: Some(ZeroKeySeed {
+            ring_program_id,
+            viewing_pubkey,
+        }),
+    };
+    assert_eq!(
+        keypair.derive(&[seeded(keypair.viewing_pubkey())]).err(),
+        Some(TransactionError::MergeSeedWithNullifierKey)
+    );
+
+    let mut member = keypair;
+    member.nullifier_key = NullifierKey::from_secret([0; 31]);
+    let keys = LocalShieldedKeys::new(
+        member.shielded_address().unwrap(),
+        vec![member.viewing_key.clone(), retired.clone()],
+        member.nullifier_key.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        keys.derive(&[
+            seeded(member.viewing_pubkey()),
+            seeded(retired.pubkey()),
+            DeriveRequest::MergeDummyNullifier {
+                first_nullifier,
+                slot_index: 3,
+                zero_key_seed: Some(ZeroKeySeed {
+                    ring_program_id,
+                    viewing_pubkey: retired.pubkey(),
+                }),
+            },
+        ])
+        .unwrap(),
+        vec![
+            MergeSeed::derive(&member.viewing_key, &ring_program_id, &first_nullifier)
+                .unwrap()
+                .output_key(&first_nullifier)
+                .unwrap(),
+            MergeSeed::derive(&retired, &ring_program_id, &first_nullifier)
+                .unwrap()
+                .output_key(&first_nullifier)
+                .unwrap(),
+            MergeSeed::derive(&retired, &ring_program_id, &first_nullifier)
+                .unwrap()
+                .dummy_nullifier(&first_nullifier, 3)
+                .unwrap(),
+        ]
+    );
+    assert_eq!(
+        keys.derive(&[seeded(wallet(12).viewing_pubkey())]).err(),
+        Some(TransactionError::UnknownViewingKey)
+    );
+    assert_eq!(
+        keys.derive(&[DeriveRequest::MergeOutputBlinding {
+            first_nullifier,
+            zero_key_seed: None,
+        }])
+        .err(),
+        Some(TransactionError::InvalidMergeSeed)
+    );
 }

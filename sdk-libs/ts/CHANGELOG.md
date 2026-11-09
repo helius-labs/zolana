@@ -36,6 +36,8 @@ Added
 - `SprClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `SprClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
 - `ViewingKey.mergeSeed(ringProgramId, firstNullifier)` derives the private seed a custom ring's zero-key merge keys its output blinding and ciphertext on, the same bytes as the Rust `ViewingKey::merge_seed`.
+- The merge `DeriveRequest` kinds take a `ZeroKeySeed` of `ringProgramId` and `viewingPublicKey`, `LocalShieldedKeys` answers it from that viewing key's `mergeSeed` under the zero nullifier key, and wallet sync rebuilds a zero-key ring merge under every viewing key it holds.
+- `mergeOutputKeyFromSeed`, `mergeOutputBlindingFromSeed`, `mergePrivateTxBlindingFromSeed`, `mergeDummyNullifierFromSeed` and `zeroNullifierPublicKey` in `@heliuslabs/spr/keypair`, the same bytes as the Rust `MergeSeed` methods.
 - `SprClientConfig.provingKeys`, with `proofDataSource: "client"`, makes every proof use the set's keys and `checkProverProvingKeys()` check only those keys; a circuit outside the set and the indexed route fail with `CLIENT_PROVING_KEY_SET`, whose `details.check` names the reason.
 
 Changed

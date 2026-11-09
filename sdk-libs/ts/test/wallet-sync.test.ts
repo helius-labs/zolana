@@ -9,11 +9,23 @@ import {
 } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ShieldedKeypair, SigningKey, ViewingKey, X25519PublicKey } from "../src/keypair/index.js";
+import {
+  NullifierKey,
+  ShieldedAddress,
+  ShieldedKeypair,
+  SigningKey,
+  ViewingKey,
+  X25519PublicKey,
+  type Bytes31,
+} from "../src/keypair/index.js";
 import {
   mergeDummyNullifier,
+  mergeDummyNullifierFromSeed,
   mergeOutputBlinding,
+  mergeOutputBlindingFromSeed,
   mergeOutputKey,
+  mergeOutputKeyFromSeed,
+  zeroNullifierPublicKey,
 } from "../src/keypair/merge/index.js";
 import {
   DEFAULT_TREE_ID,
@@ -55,6 +67,7 @@ import {
   encryptMergeOutput,
 } from "../src/transaction/serialization/merge.js";
 import { SOL_ASSET_ID } from "../src/transaction/asset.js";
+import { decodeAddress } from "../src/transaction/internal.js";
 import { KeyMemo } from "../src/transaction/wallet/key-memo.js";
 import { SprClient } from "../src/client/client.js";
 import { backfillAssetRegistry, syncWallet } from "../src/wallet/sync.js";
@@ -1072,6 +1085,120 @@ describe("wallet sync", () => {
     expect(report).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
     expect(wallet.balance(SOL_MINT).amount).toBe(total);
   });
+
+  it.each([
+    { kind: "current", seedIndex: 0, ring: true },
+    { kind: "retired", seedIndex: 1, ring: true },
+    { kind: "default-ring", seedIndex: 0, ring: false },
+  ])(
+    "rebuilds a zero-key ring merge from its $kind viewing key seed",
+    async ({ seedIndex, ring }) => {
+      const signing = SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(31) as Bytes32);
+      const viewingKeys = [
+        ViewingKey.fromBytes(new Uint8Array(32).fill(41) as Bytes32),
+        ViewingKey.fromBytes(new Uint8Array(32).fill(42) as Bytes32),
+      ];
+      const zeroKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
+      const identity = ShieldedAddress.fromPublicKeys(
+        signing.publicKey(),
+        zeroNullifierPublicKey(),
+        viewingKeys[0]!.publicKey(),
+      );
+      const keys = LocalShieldedKeys.fromKeys({
+        address: identity,
+        viewingKeys,
+        nullifierKey: zeroKey,
+      });
+      const wallet = new Wallet({ identity });
+      const ringProgramId = ring ? { ringProgramId: OWNER } : {};
+      const held = new Utxo({
+        owner: signing.publicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: bytes(7),
+        ...ringProgramId,
+      });
+      const hash = held.hash(identity.nullifierPublicKey, DEFAULT_TREE_ID);
+      const nullifier = zeroKey.nullifier(hash, held.blinding);
+      wallet._replace({
+        ...wallet._state(),
+        utxos: [
+          {
+            utxo: held,
+            outputContext: { hash, tree: TREE, leafIndex: 0n },
+            nullifier,
+            spent: false,
+          },
+        ],
+      });
+      const seed = viewingKeys[seedIndex]!.mergeSeed(decodeAddress(OWNER), nullifier);
+      const ringDataHash = ring ? bytes(3) : undefined;
+      const merged = new Utxo({
+        owner: signing.publicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: mergeOutputBlindingFromSeed(seed, nullifier),
+        ...ringProgramId,
+      });
+      const salt = new Uint8Array(16).fill(11) as Bytes16;
+      const payload = encodeMergeOutputData({
+        salt,
+        ciphertext: encryptMergeOutput(
+          { amount: 5n, mint: SOL_MINT },
+          mergeOutputKeyFromSeed(seed, nullifier),
+          salt,
+        ),
+        ...(ringDataHash === undefined ? {} : { ringDataHash }),
+      });
+
+      const sync = decryptWithKeys(keys, {
+        wallet,
+        transactions: [
+          {
+            slot: 1n,
+            txSignature: SIGNATURE,
+            ...ringProgramId,
+            outputSlots: [
+              {
+                viewTag: nullifier,
+                outputContext: {
+                  hash: merged.hash(
+                    identity.nullifierPublicKey,
+                    DEFAULT_TREE_ID,
+                    undefined,
+                    ringDataHash,
+                  ),
+                  tree: TREE,
+                  leafIndex: 1n,
+                },
+                payload,
+              },
+            ],
+            messages: [],
+            nullifiers: [
+              nullifier,
+              ...Array.from({ length: 7 }, (_, offset) =>
+                mergeDummyNullifierFromSeed(seed, nullifier, offset + 1),
+              ),
+            ],
+            proofless: false,
+          },
+        ],
+      });
+
+      if (ring) {
+        expect(await sync).toMatchObject({ storedUtxos: 1, undecryptableCandidates: 0 });
+        expect(wallet.ringBalances()).toMatchObject([
+          { ringProgramId: OWNER, assets: [{ mint: SOL_MINT, amount: 5n }] },
+        ]);
+      } else {
+        await expect(sync).rejects.toMatchObject({
+          code: "TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE",
+        });
+      }
+      keys.destroy();
+    },
+  );
 
   it("reconstructs a merge whose inputs arrive in the same batch", async () => {
     const { keypair, keys, split, merge } = mergeAfterSplit();

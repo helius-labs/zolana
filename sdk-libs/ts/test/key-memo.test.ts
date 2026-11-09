@@ -105,6 +105,31 @@ describe("key holder batches", () => {
     },
   );
 
+  it("keeps a seeded merge derivation apart from the unseeded one", async () => {
+    const owner = ShieldedKeypair.generate();
+    const keys = LocalShieldedKeys.fromKeypair(owner);
+    const derive = vi.spyOn(keys, "derive").mockResolvedValue([firstNullifier, firstNullifier]);
+    const memo = new KeyMemo(keys);
+    try {
+      const unseeded = { kind: "mergeOutputKey", firstNullifier } as const;
+      const seeded = {
+        ...unseeded,
+        zeroKeySeed: {
+          ringProgramId: owner.shieldedAddress().solanaAddress(),
+          viewingPublicKey: owner.viewingPublicKey(),
+        },
+      };
+      expect(memo.derive(unseeded)).toBeUndefined();
+      expect(memo.derive(seeded)).toBeUndefined();
+      await memo.resolve();
+      expect(derive).toHaveBeenCalledWith([unseeded, seeded], undefined);
+      expect(memo.derive(seeded)).toEqual(firstNullifier);
+    } finally {
+      memo.destroy();
+      keys.destroy();
+      owner.destroy();
+    }
+  });
   it("sealing destroys returned keys when an overlong batch is rejected", async () => {
     const owner = ShieldedKeypair.generate();
     const keys = LocalShieldedKeys.fromKeypair(owner);

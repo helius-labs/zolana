@@ -8,13 +8,10 @@ use std::{
 use common::{keypair, wallet_utxo};
 use solana_signature::Signature;
 use spr_event::{encode_merge_output_data, MergeOutputDataRef, OutputDataEncoding};
-use spr_keypair::{ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
+use spr_keypair::{NullifierKey, ShieldedAddress, ShieldedKeypair, ViewingKey, X25519Pubkey};
 use spr_transaction::{
     decrypt, decrypt_spendable,
-    instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_output_key, MergeOutputPlaintext,
-        MERGE_DEFAULT_INPUT_COUNT,
-    },
+    instructions::merge::{MergeOutputPlaintext, MergeSeed, MERGE_DEFAULT_INPUT_COUNT},
     serialization::{
         confidential::{Confidential, ConfidentialEncode},
         plaintext::{PlaintextTransfer, TransferPlaintextUtxos},
@@ -997,16 +994,28 @@ fn merge_publication(
     tx_slot: u8,
     ring_data_hash: Option<[u8; 32]>,
 ) -> (ShieldedTransaction, WalletUtxo) {
+    let seed = MergeSeed::from_nullifier_key(&owner.nullifier_key).unwrap();
+    seeded_merge_publication(owner, inputs, tx_slot, ring_data_hash, &seed)
+}
+
+fn seeded_merge_publication(
+    owner: &ShieldedKeypair,
+    inputs: &[&WalletUtxo],
+    tx_slot: u8,
+    ring_data_hash: Option<[u8; 32]>,
+    seed: &MergeSeed,
+) -> (ShieldedTransaction, WalletUtxo) {
     let first_nullifier = inputs[0].nullifier;
     let mut nullifiers: Vec<_> = inputs.iter().map(|input| input.nullifier).collect();
-    nullifiers.extend((inputs.len()..MERGE_DEFAULT_INPUT_COUNT).map(|index| {
-        merge_dummy_nullifier(&owner.nullifier_key, &first_nullifier, index as u8).unwrap()
-    }));
+    nullifiers.extend(
+        (inputs.len()..MERGE_DEFAULT_INPUT_COUNT)
+            .map(|index| seed.dummy_nullifier(&first_nullifier, index as u8).unwrap()),
+    );
     let utxo = Utxo {
         owner: owner.signing_pubkey(),
         asset: inputs[0].utxo.asset,
         amount: inputs.iter().map(|input| input.utxo.amount).sum(),
-        blinding: merge_output_blinding(&owner.nullifier_key, &first_nullifier).unwrap(),
+        blinding: seed.output_blinding(&first_nullifier).unwrap(),
         ring_program_id: inputs[0].utxo.ring_program_id,
         data: Data::default(),
     };
@@ -1040,10 +1049,7 @@ fn merge_publication(
         amount: output.utxo.amount,
         mint: output.utxo.asset.asset,
     }
-    .encrypt(
-        &merge_output_key(&owner.nullifier_key, &first_nullifier).unwrap(),
-        &salt,
-    )
+    .encrypt(&seed.output_key(&first_nullifier).unwrap(), &salt)
     .unwrap();
     let payload = encode_merge_output_data(MergeOutputDataRef {
         salt: &salt,
@@ -1238,6 +1244,67 @@ fn a_merge_output_decrypts_only_under_its_owners_key_and_commitment() {
         let spendable = verify_spendable(&owner, &decrypted).unwrap();
         // No merge output decrypts; this wallet's merges still spend `held`.
         assert_eq!(spendable.utxos().collect::<Vec<_>>(), remaining, "{case}");
+    }
+}
+
+/// A ring member under the zero nullifier key, with a retired viewing key.
+fn zero_key_member(nonce: u8) -> (ShieldedKeypair, LocalShieldedKeys, ViewingKey) {
+    let mut owner = keypair(nonce);
+    owner.nullifier_key = NullifierKey::from_secret([0; 31]);
+    let retired = keypair(nonce + 1).viewing_key;
+    let keys = LocalShieldedKeys::new(
+        owner.shielded_address().unwrap(),
+        vec![owner.viewing_key.clone(), retired.clone()],
+        owner.nullifier_key.clone(),
+    )
+    .unwrap();
+    (owner, keys, retired)
+}
+
+fn ring_note(owner: &ShieldedKeypair, ring: Address, amount: u64, nonce: u8) -> WalletUtxo {
+    let mut note = wallet_utxo(owner, Mint::SOL, amount, 3, nonce);
+    note.utxo.ring_program_id = Some(ring);
+    note.utxo_hash = note
+        .utxo
+        .hash(&note.nullifier_pubkey, &[0; 32], &[0; 32], note.tree_id)
+        .unwrap();
+    note.nullifier = owner
+        .nullifier(&note.utxo_hash, &note.utxo.blinding)
+        .unwrap();
+    note
+}
+
+#[test]
+fn a_zero_key_ring_merge_recovers_under_the_viewing_key_that_seeded_it() {
+    let ring = Address::new_from_array([8; 32]);
+    let (owner, keys, retired) = zero_key_member(60);
+    let assets = AssetRegistry::default();
+    let held = ring_note(&owner, ring, 30, 1);
+    for viewing_key in [&owner.viewing_key, &retired] {
+        let seed = MergeSeed::derive(viewing_key, &ring, &held.nullifier).unwrap();
+        let (merge, merged) = seeded_merge_publication(&owner, &[&held], 12, Some([4; 32]), &seed);
+        let recovered = decrypt(&keys, &[merge], &assets).unwrap();
+        assert_eq!(recovered.utxos, vec![merged]);
+    }
+}
+
+#[test]
+fn a_zero_key_wallet_rebuilds_no_merge_seeded_elsewhere() {
+    let ring = Address::new_from_array([8; 32]);
+    let (owner, keys, _) = zero_key_member(62);
+    let assets = AssetRegistry::default();
+    let held = ring_note(&owner, ring, 30, 1);
+    let stranger = keypair(70).viewing_key;
+    let foreign_seed = MergeSeed::derive(&stranger, &ring, &held.nullifier).unwrap();
+    let (foreign, _) = seeded_merge_publication(&owner, &[&held], 12, Some([4; 32]), &foreign_seed);
+    let other_ring = Address::new_from_array([9; 32]);
+    let other_seed = MergeSeed::derive(&owner.viewing_key, &other_ring, &held.nullifier).unwrap();
+    let (other, _) = seeded_merge_publication(&owner, &[&held], 13, Some([4; 32]), &other_seed);
+    let plain = wallet_utxo(&owner, Mint::SOL, 30, 3, 2);
+    let own_seed = MergeSeed::derive(&owner.viewing_key, &ring, &plain.nullifier).unwrap();
+    let (default_rail, _) = seeded_merge_publication(&owner, &[&plain], 14, None, &own_seed);
+    for merge in [foreign, other, default_rail] {
+        assert!(decrypt(&keys, &[merge], &assets).unwrap().utxos.is_empty());
     }
 }
 

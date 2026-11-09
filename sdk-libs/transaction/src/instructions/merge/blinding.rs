@@ -3,7 +3,7 @@ use spr_hasher::{
     primitives::{is_canonical_bn254_scalar_be, right_align},
     Hasher, Poseidon,
 };
-use spr_keypair::{NullifierKey, ViewingKey};
+use spr_keypair::{constants::BLINDING_LEN, NullifierKey, ViewingKey};
 use zeroize::Zeroizing;
 
 use crate::{error::TransactionError, utxo::derive_private_tx_blinding};
@@ -40,6 +40,18 @@ impl MergeSeed {
             ring_program_id.as_array(),
             first_nullifier,
         )?)))
+    }
+
+    /// The nullifier secret seeds every merge except a zero key's.
+    pub fn select(
+        nullifier_key: &NullifierKey,
+        zero_key_seed: Option<impl FnOnce() -> Result<Self, TransactionError>>,
+    ) -> Result<Self, TransactionError> {
+        match (Self::from_nullifier_key(nullifier_key), zero_key_seed) {
+            (key_seed, None) => key_seed,
+            (Ok(_), Some(_)) => Err(TransactionError::MergeSeedWithNullifierKey),
+            (Err(_), Some(seed)) => seed(),
+        }
     }
 
     pub fn from_bytes(bytes: [u8; 32]) -> Result<Self, TransactionError> {
@@ -93,6 +105,10 @@ impl MergeSeed {
             &right_align(&u32::from(slot_index).to_be_bytes()),
         ])?)
     }
+}
+
+pub fn zero_key_pubkey() -> Result<[u8; 32], TransactionError> {
+    Ok(NullifierKey::from_secret([0; BLINDING_LEN]).pubkey()?)
 }
 
 pub fn merge_output_key(

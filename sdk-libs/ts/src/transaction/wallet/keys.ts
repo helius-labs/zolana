@@ -11,9 +11,14 @@ import {
 } from "../../keypair/derivation.js";
 import {
   mergeDummyNullifier,
+  mergeDummyNullifierFromSeed,
   mergeOutputBlinding,
+  mergeOutputBlindingFromSeed,
   mergeOutputKey,
+  mergeOutputKeyFromSeed,
   mergePrivateTxBlinding,
+  mergePrivateTxBlindingFromSeed,
+  zeroNullifierPublicKey,
 } from "../../keypair/merge/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../../keypair/public-key.js";
@@ -22,6 +27,7 @@ import { ShieldedAddress, type ShieldedKeypair } from "../../keypair/shielded.js
 import { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { TransactionError } from "../error.js";
+import { decodeAddress } from "../internal.js";
 
 /**
  * Which cipher label a ciphertext was sealed under. Every UTXO ciphertext a
@@ -55,10 +61,22 @@ export interface TransactionKeyRequest {
  */
 export type DeriveRequest =
   | Readonly<{ kind: "nullifier"; utxoHash: Bytes32; blinding: Bytes32 }>
-  | Readonly<{ kind: "mergeDummyNullifier"; firstNullifier: Bytes32; slotIndex: number }>
-  | Readonly<{ kind: "mergeOutputBlinding"; firstNullifier: Bytes32 }>
-  | Readonly<{ kind: "mergePrivateTxBlinding"; firstNullifier: Bytes32 }>
-  | Readonly<{ kind: "mergeOutputKey"; firstNullifier: Bytes32 }>;
+  | Readonly<{
+      kind: "mergeDummyNullifier";
+      firstNullifier: Bytes32;
+      slotIndex: number;
+      zeroKeySeed?: ZeroKeySeed;
+    }>
+  | Readonly<{ kind: "mergeOutputBlinding"; firstNullifier: Bytes32; zeroKeySeed?: ZeroKeySeed }>
+  | Readonly<{
+      kind: "mergePrivateTxBlinding";
+      firstNullifier: Bytes32;
+      zeroKeySeed?: ZeroKeySeed;
+    }>
+  | Readonly<{ kind: "mergeOutputKey"; firstNullifier: Bytes32; zeroKeySeed?: ZeroKeySeed }>;
+
+/** Seeds a zero-key ring merge from one of the wallet's viewing keys. */
+export type ZeroKeySeed = Readonly<{ ringProgramId: Address; viewingPublicKey: X25519PublicKey }>;
 
 /**
  * The privacy roles of one shielded wallet, exposed as the functions the
@@ -241,18 +259,42 @@ export class LocalShieldedKeys implements ShieldedKeys {
   }
 
   deriveOne(request: DeriveRequest): Bytes32 {
-    switch (request.kind) {
-      case "nullifier":
-        return this.#nullifier.nullifier(request.utxoHash, request.blinding);
-      case "mergeDummyNullifier":
-        checkSlotIndex(request.slotIndex, 0xff);
-        return mergeDummyNullifier(this.#nullifier, request.firstNullifier, request.slotIndex);
-      case "mergeOutputBlinding":
-        return mergeOutputBlinding(this.#nullifier, request.firstNullifier);
-      case "mergePrivateTxBlinding":
-        return mergePrivateTxBlinding(this.#nullifier, request.firstNullifier);
-      case "mergeOutputKey":
-        return mergeOutputKey(this.#nullifier, request.firstNullifier);
+    if (request.kind === "nullifier") {
+      return this.#nullifier.nullifier(request.utxoHash, request.blinding);
+    }
+    if (request.kind === "mergeDummyNullifier") checkSlotIndex(request.slotIndex, 0xff);
+    if (request.zeroKeySeed === undefined) {
+      switch (request.kind) {
+        case "mergeDummyNullifier":
+          return mergeDummyNullifier(this.#nullifier, request.firstNullifier, request.slotIndex);
+        case "mergeOutputBlinding":
+          return mergeOutputBlinding(this.#nullifier, request.firstNullifier);
+        case "mergePrivateTxBlinding":
+          return mergePrivateTxBlinding(this.#nullifier, request.firstNullifier);
+        case "mergeOutputKey":
+          return mergeOutputKey(this.#nullifier, request.firstNullifier);
+      }
+    }
+    if (!equalBytes(this.#nullifier.publicKey(), zeroNullifierPublicKey())) {
+      throw new TransactionError("TRANSACTION_MERGE_SEED_WITH_NULLIFIER_KEY");
+    }
+    const seed = this.#viewingKey(request.zeroKeySeed.viewingPublicKey).mergeSeed(
+      decodeAddress(request.zeroKeySeed.ringProgramId),
+      request.firstNullifier,
+    );
+    try {
+      switch (request.kind) {
+        case "mergeDummyNullifier":
+          return mergeDummyNullifierFromSeed(seed, request.firstNullifier, request.slotIndex);
+        case "mergeOutputBlinding":
+          return mergeOutputBlindingFromSeed(seed, request.firstNullifier);
+        case "mergePrivateTxBlinding":
+          return mergePrivateTxBlindingFromSeed(seed, request.firstNullifier);
+        case "mergeOutputKey":
+          return mergeOutputKeyFromSeed(seed, request.firstNullifier);
+      }
+    } finally {
+      seed.fill(0);
     }
   }
 

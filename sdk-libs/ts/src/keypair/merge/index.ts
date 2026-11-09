@@ -1,6 +1,13 @@
 import { ctr } from "@noble/ciphers/aes.js";
 
-import { type Bytes32, bigIntToBytes, checkedBytes, copyBytes, fieldU32 } from "../bytes.js";
+import {
+  type Bytes31,
+  type Bytes32,
+  bigIntToBytes,
+  checkedBytes,
+  copyBytes,
+  fieldU32,
+} from "../bytes.js";
 import {
   DOMAIN_MERGE_DUMMY_NULLIFIER,
   DOMAIN_MERGE_OUTPUT_BLINDING_V1,
@@ -12,7 +19,7 @@ import {
   MERGE_INFO as MERGE_INFO_BYTES,
 } from "../derivation.js";
 import { invalidLength } from "../error.js";
-import type { NullifierKey } from "../nullifier-key.js";
+import { NullifierKey } from "../nullifier-key.js";
 import { poseidon } from "../poseidon.js";
 import { privateTxBlinding } from "../transact/index.js";
 import { bytesToBigInt, concatBytes, rightAlign } from "../../interface/bytes.js";
@@ -71,35 +78,32 @@ export function symmetricApply(
   }
 }
 
-export function mergeOutputBlinding(nullifierKey: NullifierKey, firstNullifier: Bytes32): Bytes32 {
-  const secret = alignedNullifierSecret(nullifierKey);
-  try {
-    return poseidon([
-      fieldU32(DOMAIN_MERGE_OUTPUT_BLINDING_V1),
-      secret,
-      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
-    ]) as Bytes32;
-  } finally {
-    secret.fill(0);
-  }
+/** A right-aligned nullifier secret, or a viewing-key seed under the zero key. */
+export function mergeOutputBlindingFromSeed(seed: Bytes32, firstNullifier: Bytes32): Bytes32 {
+  return poseidon([
+    fieldU32(DOMAIN_MERGE_OUTPUT_BLINDING_V1),
+    checkedBytes<Bytes32>(seed, 32, "merge seed"),
+    checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+  ]) as Bytes32;
 }
 
-/**
- * The per-merge key of the output ciphertext, `Poseidon("TMOK",
- * nullifier_secret, first_nullifier)`: separated by the first nullifier so no
- * two merges share a key. Mirrors Rust `merge_output_key`.
- */
+export function mergeOutputBlinding(nullifierKey: NullifierKey, firstNullifier: Bytes32): Bytes32 {
+  return withNullifierSeed(nullifierKey, (seed) =>
+    mergeOutputBlindingFromSeed(seed, firstNullifier),
+  );
+}
+
+/** Keyed per first nullifier. Mirrors Rust `MergeSeed::output_key`. */
+export function mergeOutputKeyFromSeed(seed: Bytes32, firstNullifier: Bytes32): Bytes32 {
+  return poseidon([
+    fieldU32(DOMAIN_MERGE_OUTPUT_KEY),
+    checkedBytes<Bytes32>(seed, 32, "merge seed"),
+    checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+  ]) as Bytes32;
+}
+
 export function mergeOutputKey(nullifierKey: NullifierKey, firstNullifier: Bytes32): Bytes32 {
-  const secret = alignedNullifierSecret(nullifierKey);
-  try {
-    return poseidon([
-      fieldU32(DOMAIN_MERGE_OUTPUT_KEY),
-      secret,
-      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
-    ]) as Bytes32;
-  } finally {
-    secret.fill(0);
-  }
+  return withNullifierSeed(nullifierKey, (seed) => mergeOutputKeyFromSeed(seed, firstNullifier));
 }
 
 /** Field elements in a merge output ciphertext: the amount and two mint chunks. */
@@ -121,21 +125,37 @@ export function mergeOutputPads(key: Bytes32, salt: Uint8Array): readonly [bigin
   return [pad(0), pad(1), pad(2)];
 }
 
-/**
- * The private transaction blinding of a merge, `Poseidon("TXPB",
- * first_nullifier, nullifier_secret)`: merge has no blinding seed, the owner's
- * nullifier secret takes its place. Mirrors Rust `merge_private_tx_blinding`.
- */
+/** Mirrors Rust `MergeSeed::private_tx_blinding`. */
+export function mergePrivateTxBlindingFromSeed(seed: Bytes32, firstNullifier: Bytes32): Bytes32 {
+  return privateTxBlinding(
+    checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+    checkedBytes<Bytes32>(seed, 32, "merge seed"),
+  );
+}
+
 export function mergePrivateTxBlinding(
   nullifierKey: NullifierKey,
   firstNullifier: Bytes32,
 ): Bytes32 {
-  const secret = alignedNullifierSecret(nullifierKey);
-  try {
-    return privateTxBlinding(checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"), secret);
-  } finally {
-    secret.fill(0);
+  return withNullifierSeed(nullifierKey, (seed) =>
+    mergePrivateTxBlindingFromSeed(seed, firstNullifier),
+  );
+}
+
+export function mergeDummyNullifierFromSeed(
+  seed: Bytes32,
+  firstNullifier: Bytes32,
+  slotIndex: number,
+): Bytes32 {
+  if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > 0xff) {
+    throw new RangeError("merge dummy slot index must fit in u8");
   }
+  return poseidon([
+    fieldU32(DOMAIN_MERGE_DUMMY_NULLIFIER),
+    checkedBytes<Bytes32>(seed, 32, "merge seed"),
+    checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
+    fieldU32(slotIndex),
+  ]) as Bytes32;
 }
 
 export function mergeDummyNullifier(
@@ -143,27 +163,28 @@ export function mergeDummyNullifier(
   firstNullifier: Bytes32,
   slotIndex: number,
 ): Bytes32 {
-  if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > 0xff) {
-    throw new RangeError("merge dummy slot index must fit in u8");
-  }
-  const secret = alignedNullifierSecret(nullifierKey);
+  return withNullifierSeed(nullifierKey, (seed) =>
+    mergeDummyNullifierFromSeed(seed, firstNullifier, slotIndex),
+  );
+}
+
+/** Public key of the zero nullifier key. */
+export function zeroNullifierPublicKey(): Bytes32 {
+  const zeroKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
   try {
-    return poseidon([
-      fieldU32(DOMAIN_MERGE_DUMMY_NULLIFIER),
-      secret,
-      checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
-      fieldU32(slotIndex),
-    ]) as Bytes32;
+    return zeroKey.publicKey();
   } finally {
-    secret.fill(0);
+    zeroKey.destroy();
   }
 }
 
-function alignedNullifierSecret(nullifierKey: NullifierKey): Bytes32 {
+function withNullifierSeed(nullifierKey: NullifierKey, use: (seed: Bytes32) => Bytes32): Bytes32 {
   const secret = nullifierKey.secretBytes();
+  const seed = rightAlign(secret);
+  secret.fill(0);
   try {
-    return rightAlign(secret);
+    return use(seed);
   } finally {
-    secret.fill(0);
+    seed.fill(0);
   }
 }

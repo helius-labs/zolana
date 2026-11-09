@@ -28,11 +28,9 @@ impl MergeProofInputs {
     }
 
     pub fn seed(&self, nullifier_key: &NullifierKey) -> Result<MergeSeed, TransactionError> {
-        let key_seed = MergeSeed::from_nullifier_key(nullifier_key);
-        match &self.merge_seed {
-            None => key_seed,
-            Some(_) if key_seed.is_ok() => Err(TransactionError::MergeSeedWithNullifierKey),
-            Some(seed) => Ok(seed.clone()),
-        }
+        MergeSeed::select(
+            nullifier_key,
+            self.merge_seed.as_ref().map(|seed| || Ok(seed.clone())),
+        )
     }
 }
