@@ -182,7 +182,7 @@ func modulusGapHint(q *big.Int, inputs, outputs []*big.Int) error {
 	if gap.Sign() < 0 {
 		gap.SetInt64(0)
 	}
-	layout, err := layoutOf(inputs)
+	layout, _, err := decodeLayout(inputs)
 	if err != nil {
 		return err
 	}

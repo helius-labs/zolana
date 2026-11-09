@@ -2,6 +2,7 @@ package nonnative
 
 import (
 	"crypto/rand"
+	"errors"
 	"math/big"
 	"testing"
 
@@ -114,25 +115,35 @@ func TestCRTBasisCertificationRejectsCorruption(t *testing.T) {
 	}
 }
 
-// 2^425 folds to 19*2^170, so this layout folds by X^5-19X^2 with a double root at zero.
-var repeatedRootLayout = Layout{NbLimbs: 5, LimbBits: 85, PieceBits: 10}
+// 2^258 folds to 4*2^172 - 5*2^86 + 2, a fold polynomial (X-1)^2 (X-2) with a repeated root.
+var repeatedRootLayout = Layout{NbLimbs: 3, LimbBits: 86, PieceBits: 10}
+
+var repeatedRootModulus = func() *big.Int {
+	top := new(big.Int).Mul(big.NewInt(4), pow2(172))
+	top.Sub(top, new(big.Int).Mul(big.NewInt(5), pow2(86)))
+	top.Add(top, big.NewInt(2))
+	return new(big.Int).Sub(pow2(258), top)
+}()
 
 type repeatedRootCircuit struct {
-	A, C [5]frontend.Variable
+	A, C [3]frontend.Variable
 	B    frontend.Variable
 }
 
 func (c *repeatedRootCircuit) Define(api frontend.API) error {
-	f := NewFor(api, edProjectionPrime, repeatedRootLayout)
+	f := NewFor(api, repeatedRootModulus, repeatedRootLayout)
+	if f.arithmetic.foldDigits == nil || f.arithmetic.crtBasis(f, api.Compiler().Field()) != nil {
+		return errors.New("repeated root must keep the plain fold")
+	}
 	a, product := fromLimbs(f, c.A[:]), fromLimbs(f, c.C[:])
 	// Two full-width operands overflow the quotient range, so b gets small proved bounds.
 	f.RangeChecker().Check(c.B, 4)
-	lo, hi := make([]*big.Int, 5), make([]*big.Int, 5)
+	lo, hi := make([]*big.Int, 3), make([]*big.Int, 3)
 	for i := range lo {
 		lo[i], hi[i] = new(big.Int), new(big.Int)
 	}
 	hi[0].SetInt64(15)
-	b := f.WithBounds([]frontend.Variable{c.B, 0, 0, 0, 0}, lo, hi)
+	b := f.WithBounds([]frontend.Variable{c.B, 0, 0}, lo, hi)
 	f.AssertZero(T(1, a, b), T(-1, product))
 	return nil
 }
@@ -142,18 +153,18 @@ func TestRepeatedRootFoldMultiplies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := rand.Int(rand.Reader, edProjectionPrime)
+	a, err := rand.Int(rand.Reader, repeatedRootModulus)
 	if err != nil {
 		t.Fatal(err)
 	}
 	product := new(big.Int).Mul(a, big.NewInt(13))
-	product.Mod(product, edProjectionPrime)
+	product.Mod(product, repeatedRootModulus)
 	assign := func(c *big.Int) *repeatedRootCircuit {
 		w := &repeatedRootCircuit{B: 13}
-		for i, l := range repeatedRootLayout.decompose(a, 5) {
+		for i, l := range repeatedRootLayout.decompose(a, 3) {
 			w.A[i] = l
 		}
-		for i, l := range repeatedRootLayout.decompose(c, 5) {
+		for i, l := range repeatedRootLayout.decompose(c, 3) {
 			w.C[i] = l
 		}
 		return w
@@ -166,7 +177,7 @@ func TestRepeatedRootFoldMultiplies(t *testing.T) {
 		t.Fatal(err)
 	}
 	wrong := new(big.Int).Add(product, big.NewInt(1))
-	forged, err := frontend.NewWitness(assign(wrong.Mod(wrong, edProjectionPrime)), ecc.BN254.ScalarField())
+	forged, err := frontend.NewWitness(assign(wrong.Mod(wrong, repeatedRootModulus)), ecc.BN254.ScalarField())
 	if err != nil {
 		t.Fatal(err)
 	}

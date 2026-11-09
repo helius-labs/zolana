@@ -79,3 +79,14 @@ func TestCrossLayoutElementsRejectCompilation(t *testing.T) {
 		t.Fatalf("cross layout: %v", err)
 	}
 }
+
+// Both layouts cover 2^255-19 with their lower limbs alone, leaving a zero-width limb.
+func TestZeroWidthLimbLayoutsRejectCompilation(t *testing.T) {
+	for _, layout := range []Layout{{NbLimbs: 4, LimbBits: 85, PieceBits: 11}, {NbLimbs: 5, LimbBits: 64, PieceBits: 11}} {
+		circuit := &canonicalLayoutCircuit{Limbs: make([]frontend.Variable, layout.NbLimbs), Modulus: edProjectionPrime, Layout: layout}
+		_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit)
+		if err == nil || !strings.Contains(err.Error(), "layout has a zero-width limb") {
+			t.Errorf("%dx%d: %v", layout.NbLimbs, layout.LimbBits, err)
+		}
+	}
+}

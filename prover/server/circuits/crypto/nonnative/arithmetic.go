@@ -912,16 +912,11 @@ func balanceOffset(layout Layout, widths []int) *big.Int {
 
 // Suggest balanced digits. HintBalanced checks their signed intervals.
 func BalanceHint(_ *big.Int, inputs, outputs []*big.Int) error {
-	layout, err := layoutOf(inputs)
+	layout, mod, err := decodeLayout(inputs)
 	if err != nil {
 		return err
 	}
-	n := layout.NbLimbs
-	if len(inputs) < headerLen+n {
-		return errors.New("balance: missing modulus")
-	}
-	mod := layout.recompose(inputs[headerLen : headerLen+n])
-	raw := inputs[headerLen+n:]
+	raw := inputs[headerLen+layout.NbLimbs:]
 	widths := layout.reducedWidths(mod.BitLen())
 	per := layout.nbPiecesAll(widths)
 	if len(raw) != len(outputs) || len(raw)%per != 0 {
@@ -951,17 +946,11 @@ func PlainCheckHint(nativeModulus *big.Int, inputs, outputs []*big.Int) error {
 		return v
 	}
 	nextInt := func() int { return int(next().Int64()) }
-	layout, err := layoutOf(inputs)
+	layout, modulus, err := decodeLayout(inputs)
 	if err != nil {
 		return err
 	}
-	position = headerLen
-	limbCount := layout.NbLimbs
-	modLimbs := make([]*big.Int, limbCount)
-	for i := range modLimbs {
-		modLimbs[i] = next()
-	}
-	modulus := layout.recompose(modLimbs)
+	position = headerLen + layout.NbLimbs
 	hasRemainder, hasQuotient, quotientBits := nextInt(), nextInt(), nextInt()
 	var quotientWidths []int
 	if hasQuotient == 1 {

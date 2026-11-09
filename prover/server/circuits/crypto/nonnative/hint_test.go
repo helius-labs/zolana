@@ -45,3 +45,14 @@ func TestHintEncodersRejectWideLimbs(t *testing.T) {
 		}
 	}
 }
+
+func TestUnwrapRejectsZeroWidthLimbLayout(t *testing.T) {
+	layout := Layout{NbLimbs: 4, LimbBits: 85, PieceBits: 11}
+	inputs := []*big.Int{big.NewInt(4), big.NewInt(85), big.NewInt(11)}
+	inputs = append(inputs, layout.decompose(edProjectionPrime, 4)...)
+	inputs = append(inputs, big.NewInt(0))
+	err := Unwrap(ecc.BN254.ScalarField(), inputs, []*big.Int{new(big.Int)}, func(_ *big.Int, _, _, _ []*big.Int) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "layout has a zero-width limb") {
+		t.Fatalf("zero-width header: %v", err)
+	}
+}

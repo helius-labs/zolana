@@ -33,21 +33,41 @@ func (l Layout) header() []frontend.Variable {
 
 const headerLen = 3
 
-// Validates the public layout header before a hint interprets its limb slices.
-func layoutOf(header []*big.Int) (Layout, error) {
-	if len(header) < headerLen {
-		return Layout{}, errors.New("missing layout header")
+func (l Layout) check(modulusBits int) error {
+	if l.NbLimbs <= 0 || l.LimbBits <= 0 || l.PieceBits <= 0 {
+		return errors.New("layout fields must be positive")
 	}
-	for _, h := range header[:headerLen] {
+	if l.PieceBits > l.LimbBits || l.NbLimbs*l.LimbBits > 512 {
+		return errors.New("layout mismatch")
+	}
+	if l.NbLimbs*l.LimbBits < modulusBits {
+		return errors.New("limbs too narrow for the modulus")
+	}
+	if (l.NbLimbs-1)*l.LimbBits >= modulusBits {
+		return errors.New("layout has a zero-width limb")
+	}
+	return nil
+}
+
+// Hint inputs are prover-controlled, validated before any limb slice is read.
+func decodeLayout(inputs []*big.Int) (Layout, *big.Int, error) {
+	if len(inputs) < headerLen {
+		return Layout{}, nil, errors.New("missing layout header")
+	}
+	for _, h := range inputs[:headerLen] {
 		if !h.IsInt64() || h.Int64() <= 0 || h.Int64() > 512 {
-			return Layout{}, errors.New("layout mismatch")
+			return Layout{}, nil, errors.New("layout mismatch")
 		}
 	}
-	l := Layout{NbLimbs: int(header[0].Int64()), LimbBits: int(header[1].Int64()), PieceBits: int(header[2].Int64())}
-	if l.PieceBits > l.LimbBits || l.NbLimbs*l.LimbBits > 512 {
-		return Layout{}, errors.New("layout mismatch")
+	l := Layout{NbLimbs: int(inputs[0].Int64()), LimbBits: int(inputs[1].Int64()), PieceBits: int(inputs[2].Int64())}
+	if len(inputs) < headerLen+l.NbLimbs {
+		return Layout{}, nil, errors.New("missing modulus limbs")
 	}
-	return l, nil
+	modulus := l.recompose(inputs[headerLen : headerLen+l.NbLimbs])
+	if err := l.check(modulus.BitLen()); err != nil {
+		return Layout{}, nil, err
+	}
+	return l, modulus, nil
 }
 
 type kvStore interface {

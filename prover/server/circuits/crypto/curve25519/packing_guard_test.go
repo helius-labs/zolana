@@ -37,16 +37,22 @@ func (c *wideLayoutCircuit) Define(api frontend.API) error {
 		PackCoordinate(api, f, scaled, 1)
 	case "distinct":
 		AssertDistinct(api, f, a, f.Bounded(c.B[:], f.ReducedWidths()))
+	case "select-zero-group":
+		SelectConstant(api, f, []frontend.Variable{c.Row}, []frontend.Variable{1}, 0, func(int) *big.Int { return big.NewInt(1) })
+	case "pack-zero-group":
+		PackCoordinate(api, f, a, 0)
 	}
 	return nil
 }
 
 func TestWideLayoutsRejectNativeWraparound(t *testing.T) {
 	for mode, want := range map[string]string{
-		"select":      "packed group exceeds the native field",
-		"pack":        "packed group exceeds the native field",
-		"pack-scaled": "packed group exceeds the native field",
-		"distinct":    "packed halves can wrap the native field",
+		"select":            "packed group exceeds the native field",
+		"pack":              "packed group exceeds the native field",
+		"pack-scaled":       "packed group exceeds the native field",
+		"distinct":          "packed halves can wrap the native field",
+		"select-zero-group": "packing group must be positive",
+		"pack-zero-group":   "packing group must be positive",
 	} {
 		_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &wideLayoutCircuit{Mode: mode})
 		if err == nil || !strings.Contains(err.Error(), want) {

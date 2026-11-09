@@ -13,6 +13,7 @@ import (
 // Ben-Sasson, Chiesa, Genkin, Tromer, Virza, SNARKs for C, CRYPTO 2013, §2.3.3, https://cs-people.bu.edu/tromer/papers/csnark-20131007.pdf.
 // Kosba, Papamanthou, Shi, xJsnark, IEEE S&P 2018, App. B-A(2), https://akosba.github.io/papers/xjsnark.pdf.
 func PackCoordinate(api frontend.API, f *nonnative.Field, e *nonnative.Element, group int) []frontend.Variable {
+	requirePositiveGroup(group)
 	limbs := e.Limbs()
 	magnitudes := e.LimbMagnitudes()
 	limbBits := f.Layout().LimbBits
@@ -39,6 +40,7 @@ func PackCoordinate(api frontend.API, f *nonnative.Field, e *nonnative.Element, 
 // WithBounds only records that justification and adds no range constraints.
 // Signed groups carry the symmetric interval of a negated reduced coordinate.
 func UnpackCoordinate(f *nonnative.Field, packed []frontend.Variable, group int, signed bool) *nonnative.Element {
+	requirePositiveGroup(group)
 	widths := f.ReducedWidths()
 	n := len(widths)
 	limbs := make([]frontend.Variable, n)
@@ -89,6 +91,7 @@ func RowSplit(nbBits, nbLimbs int) int {
 // WithBounds. Those bounds are metadata, not range constraints.
 // Boyar, Find, Multiplicative Complexity of Vector Valued Boolean Functions, TCS 2018, §3.2, proof of Thm. 7, https://arxiv.org/abs/1407.6169.
 func SelectConstant(api frontend.API, f *nonnative.Field, rows, cols []frontend.Variable, group int, coordinate func(index int) *big.Int) *nonnative.Element {
+	requirePositiveGroup(group)
 	lay := f.Layout()
 	fieldBits := f.Modulus().BitLen()
 	limbs := make([]frontend.Variable, lay.NbLimbs)
@@ -120,4 +123,10 @@ func SelectConstant(api frontend.API, f *nonnative.Field, rows, cols []frontend.
 		hi[i] = mask
 	}
 	return f.WithBounds(limbs, lo, hi)
+}
+
+func requirePositiveGroup(group int) {
+	if group <= 0 {
+		panic("curve25519: packing group must be positive")
+	}
 }

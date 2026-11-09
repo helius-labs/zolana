@@ -415,4 +415,10 @@ func (c *curve) packedTableLookup(slots []*point, s1digits, s2digits []frontend.
 // packedYGroup keeps each packed Y below half the native-field width.
 // This prevents native wraparound in the subsequent squared differences.
 // Signed Y groups are tracked with symmetric bounds when unpacked.
-func (c *curve) packedYGroup() int { return min(3, 120/c.lay.LimbBits) }
+func (c *curve) packedYGroup() int {
+	group := min(3, 120/c.lay.LimbBits)
+	if group <= 0 {
+		panic("x25519: limb too wide for a packed Y group")
+	}
+	return group
+}

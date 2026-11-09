@@ -59,6 +59,9 @@ func NewFor(api frontend.API, modulus *big.Int, layout Layout) *Field {
 	if f, ok := kv.GetKeyValue(key).(*Field); ok {
 		return f
 	}
+	if err := layout.check(modulus.BitLen()); err != nil {
+		panic(err)
+	}
 	f := &Field{
 		api:         api,
 		layout:      layout,
