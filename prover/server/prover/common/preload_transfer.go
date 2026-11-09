@@ -8,8 +8,8 @@ import (
 
 var transferPreloadCircuits = []CircuitType{
 	TransferConfidentialCircuitType, TransferRingCircuitType, TransferRingAuthorityCircuitType,
-	TransferAnonymousRingEddsaCircuitType, TransferConfidentialEddsaCircuitType,
-	MergeCircuitType,
+	TransferRingAuthorityExitCircuitType, TransferAnonymousRingEddsaCircuitType,
+	TransferConfidentialEddsaCircuitType, MergeCircuitType, MergeRingCircuitType,
 }
 
 // TransferCircuitTypes returns the shared transfer/merge routing and preload set.
@@ -19,10 +19,6 @@ func TransferCircuitTypes() []CircuitType {
 
 // IsTransfer selects fixed-shape SPP requests, including merge circuits.
 func (c CircuitType) IsTransfer() bool {
-	// Routed with no pinned key to preload.
-	if c == MergeRingCircuitType || c == TransferRingAuthorityExitCircuitType {
-		return true
-	}
 	for _, supported := range transferPreloadCircuits {
 		if c == supported {
 			return true

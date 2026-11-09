@@ -310,6 +310,7 @@ func TestQueuedJobIsHeldToItsPathKey(t *testing.T) {
 func TestHealthListsTheCircuitsOfServedKeys(t *testing.T) {
 	if got := servedCircuits(servedKeys(t, "merge_*", "test_extension")); !slices.Equal(got, []common.CircuitType{
 		common.MergeCircuitType,
+		common.MergeRingCircuitType,
 		testExtension,
 	}) {
 		t.Fatalf("served circuits %v", got)
