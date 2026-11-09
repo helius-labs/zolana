@@ -18,6 +18,7 @@ pub mod mollusk;
 pub mod nullifier_pda;
 pub mod prover;
 pub mod ring;
+pub mod seed;
 pub mod smart_account;
 pub mod spl;
 pub mod test_validator_asserts;

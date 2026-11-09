@@ -23,7 +23,6 @@ spr-transaction = { workspace = true }
 
 [dev-dependencies]
 bincode = { workspace = true }
-rand = { workspace = true }
 serial_test = { workspace = true }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }

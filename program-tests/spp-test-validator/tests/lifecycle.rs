@@ -12,6 +12,7 @@ use spr_test_utils::{
     harness::{BootstrapConfig, LocalnetHarness},
     lifecycle::{randomized::Workload, LifecycleHarness},
     localnet::{localnet_rpc_url, start_shielded_pool_localnet},
+    seed::random_seed,
 };
 use spr_transaction::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, SOL_MINT};
 
@@ -373,15 +374,7 @@ fn actor_payer_withdrawal_spends_inputs_and_preserves_wallet_consistency() -> Re
 #[test]
 #[serial]
 fn randomized_mixed_asset_workload_preserves_conservation() -> Result<()> {
-    let seed = std::env::var("ZOLANA_RANDOM_SEED")
-        .ok()
-        .map(|raw| {
-            let raw = raw.trim();
-            raw.strip_prefix("0x")
-                .map_or_else(|| raw.parse(), |hex| u64::from_str_radix(hex, 16))
-        })
-        .transpose()?
-        .unwrap_or_else(rand::random);
+    let seed = random_seed()?;
     let mut harness = LifecycleHarness::new()?;
     harness.run_random_workload(
         seed,

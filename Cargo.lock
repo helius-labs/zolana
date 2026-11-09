@@ -10602,7 +10602,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
- "rand 0.8.8",
  "serial_test",
  "solana-address 2.6.1",
  "solana-hash",
