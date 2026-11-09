@@ -93,11 +93,17 @@ func (t *Table) Lookup(index frontend.Variable) []frontend.Variable {
 func (t *Table) own(values []frontend.Variable) []frontend.Variable {
 	out := slices.Clone(values)
 	for i, v := range out {
-		if c, ok := t.api.Compiler().ConstantValue(v); ok {
-			out[i] = c
-		}
+		out[i] = Snapshot(t.api, v)
 	}
 	return out
+}
+
+// Copies a constant before the caller can mutate it.
+func Snapshot(api frontend.API, v frontend.Variable) frontend.Variable {
+	if c, ok := api.Compiler().ConstantValue(v); ok {
+		return c
+	}
+	return v
 }
 
 // Commit table, queries, outputs and multiplicities before the challenge.

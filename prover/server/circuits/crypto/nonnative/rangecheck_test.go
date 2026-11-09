@@ -124,6 +124,45 @@ func TestLateRangeCheckRejectsCompilation(t *testing.T) {
 	}
 }
 
+// A constant mutated after Check must keep the value the range check saw.
+type mutatedConstantCircuit struct {
+	Value frontend.Variable
+	Mode  string `gnark:"-"`
+}
+
+func (c *mutatedConstantCircuit) Define(api frontend.API) error {
+	rc := NewRangeCheckerFor(api, 11)
+	switch c.Mode {
+	case "bigint":
+		v := big.NewInt(300)
+		api.AssertIsEqual(v, c.Value)
+		rc.Check(v, 8)
+		v.SetInt64(7)
+	case "bytes":
+		v := []byte{1, 44}
+		api.AssertIsEqual(v, c.Value)
+		rc.Check(v, 8)
+		v[0], v[1] = 0, 7
+	}
+	return nil
+}
+
+func TestMutatedConstantKeepsItsRangeCheck(t *testing.T) {
+	for _, mode := range []string{"bigint", "bytes"} {
+		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &mutatedConstantCircuit{Mode: mode})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w, err := frontend.NewWitness(&mutatedConstantCircuit{Value: 300}, ecc.BN254.ScalarField())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cs.IsSolved(w) == nil {
+			t.Errorf("%s: mutated constant escaped its range check", mode)
+		}
+	}
+}
+
 // A composed width at or above the native field bit length wraps and is rejected.
 type wideComposeCircuit struct{ Pieces [24]frontend.Variable }
 
