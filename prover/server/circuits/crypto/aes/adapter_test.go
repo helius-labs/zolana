@@ -10,7 +10,8 @@ import (
 func TestOnlyTheSealedAdapterImportsGnarkLookups(t *testing.T) {
 	const gnarkLookup = "github.com/consensys/gnark/std/lookup/logderivlookup"
 	const adapter = "github.com/helius-labs/zolana/prover/server/circuits/crypto/aes"
-	out, err := exec.Command("go", "list", "-f", `{{.ImportPath}} {{join .Imports " "}}`, "../../...").CombinedOutput()
+	// Three levels up is the module root, so the scan covers the prover and server packages too.
+	out, err := exec.Command("go", "list", "-f", `{{.ImportPath}} {{join .Imports " "}}`, "../../../...").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list: %v\n%s", err, out)
 	}
