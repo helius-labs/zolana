@@ -28,6 +28,13 @@ func (c *wideLayoutCircuit) Define(api frontend.API) error {
 		SelectConstant(api, f, []frontend.Variable{c.Row}, []frontend.Variable{1}, 3, func(int) *big.Int { return big.NewInt(1) })
 	case "pack":
 		PackCoordinate(api, f, a, 2)
+	case "pack-scaled":
+		// Three 2^62 scalings widen a 127-bit limb bound past the field.
+		scaled := a
+		for i := 0; i < 3; i++ {
+			scaled = f.Lin([]int64{1 << 62}, scaled)
+		}
+		PackCoordinate(api, f, scaled, 1)
 	case "distinct":
 		AssertDistinct(api, f, a, f.Bounded(c.B[:], f.ReducedWidths()))
 	}
@@ -36,9 +43,10 @@ func (c *wideLayoutCircuit) Define(api frontend.API) error {
 
 func TestWideLayoutsRejectNativeWraparound(t *testing.T) {
 	for mode, want := range map[string]string{
-		"select":   "packed group exceeds the native field",
-		"pack":     "packed group exceeds the native field",
-		"distinct": "packed halves can wrap the native field",
+		"select":      "packed group exceeds the native field",
+		"pack":        "packed group exceeds the native field",
+		"pack-scaled": "packed group exceeds the native field",
+		"distinct":    "packed halves can wrap the native field",
 	} {
 		_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &wideLayoutCircuit{Mode: mode})
 		if err == nil || !strings.Contains(err.Error(), want) {

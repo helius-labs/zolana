@@ -86,8 +86,8 @@ func termRange(t term) (*big.Int, *big.Int) {
 	return lo, hi
 }
 
-// Returns absolute per-limb bounds from the existing signed metadata.
-func limbAbs(e *Element) []*big.Int {
+// LimbMagnitudes returns absolute per-limb bounds from the recorded signed metadata.
+func (e *Element) LimbMagnitudes() []*big.Int {
 	out := make([]*big.Int, len(e.limbs))
 	for i := range out {
 		out[i] = absMax(e.lo[i], e.hi[i])

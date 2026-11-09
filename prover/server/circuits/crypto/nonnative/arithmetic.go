@@ -114,7 +114,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *
 	for _, t := range terms {
 		poly := []*big.Int{new(big.Int).Abs(t.coef)}
 		for _, e := range t.factors {
-			poly = polyMulAbs(poly, limbAbs(e))
+			poly = polyMulAbs(poly, e.LimbMagnitudes())
 		}
 		coefficientBounds = addInto(coefficientBounds, poly)
 		lo, hi := termRange(t)

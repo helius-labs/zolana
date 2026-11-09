@@ -9,22 +9,25 @@ import (
 )
 
 // PackCoordinate combines already bounded limbs into native groups for a
-// lookup row. The caller picks a group width whose packed value stays below
-// the native modulus. The represented value is unchanged.
+// lookup row. The represented value is unchanged.
 // Ben-Sasson, Chiesa, Genkin, Tromer, Virza, SNARKs for C, CRYPTO 2013, §2.3.3, https://cs-people.bu.edu/tromer/papers/csnark-20131007.pdf.
 // Kosba, Papamanthou, Shi, xJsnark, IEEE S&P 2018, App. B-A(2), https://akosba.github.io/papers/xjsnark.pdf.
 func PackCoordinate(api frontend.API, f *nonnative.Field, e *nonnative.Element, group int) []frontend.Variable {
 	limbs := e.Limbs()
+	magnitudes := e.LimbMagnitudes()
 	limbBits := f.Layout().LimbBits
-	// Signed groups need |value| below half the native modulus.
-	if group*limbBits >= api.Compiler().FieldBitLen()-1 {
-		panic("curve25519: packed group exceeds the native field")
-	}
+	half := new(big.Int).Rsh(api.Compiler().Field(), 1)
 	var out []frontend.Variable
 	for g := 0; g < len(limbs); g += group {
 		sum := frontend.Variable(0)
+		bound := new(big.Int)
 		for j := g; j < min(g+group, len(limbs)); j++ {
 			sum = api.Add(sum, api.Mul(limbs[j], Pow2(limbBits*(j-g))))
+			bound.Add(bound, new(big.Int).Lsh(magnitudes[j], uint(limbBits*(j-g))))
+		}
+		// Signed groups need |value| below half the native modulus.
+		if bound.Cmp(half) >= 0 {
+			panic("curve25519: packed group exceeds the native field")
 		}
 		out = append(out, sum)
 	}
