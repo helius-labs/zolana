@@ -94,6 +94,12 @@ func SelectConstant(api frontend.API, f *nonnative.Field, rows, cols []frontend.
 	requirePositiveGroup(group)
 	lay := f.Layout()
 	fieldBits := f.Modulus().BitLen()
+	for index := 0; index < len(rows)*len(cols); index++ {
+		// Masking below would silently truncate a constant outside the field.
+		if c := coordinate(index); c.Sign() < 0 || c.Cmp(f.Modulus()) >= 0 {
+			panic("curve25519: table constant outside the field")
+		}
+	}
 	limbs := make([]frontend.Variable, lay.NbLimbs)
 	lo, hi := make([]*big.Int, lay.NbLimbs), make([]*big.Int, lay.NbLimbs)
 	for i := range limbs {
