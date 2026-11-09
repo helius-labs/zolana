@@ -59,3 +59,23 @@ func TestBoundedRejectsOversizedLowerLimbs(t *testing.T) {
 		t.Fatalf("oversized limb: %v", err)
 	}
 }
+
+type crossLayoutCircuit struct {
+	Limbs [5]frontend.Variable
+}
+
+func (c *crossLayoutCircuit) Define(api frontend.API) error {
+	producer := NewFor(api, edScalarOrder, Layout{NbLimbs: 5, LimbBits: 51, PieceBits: 17})
+	consumer := NewFor(api, edScalarOrder, Layout{NbLimbs: 5, LimbBits: 53, PieceBits: 17})
+	e := producer.Bounded(c.Limbs[:], []int{49, 50, 47, 50, 42})
+	consumer.AssertZero(T(1, e))
+	return nil
+}
+
+// A consumer reading another layout's limbs with its own radix drops carries.
+func TestCrossLayoutElementsRejectCompilation(t *testing.T) {
+	_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &crossLayoutCircuit{})
+	if err == nil || !strings.Contains(err.Error(), "element layout differs from the field") {
+		t.Fatalf("cross layout: %v", err)
+	}
+}

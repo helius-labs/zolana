@@ -13,7 +13,8 @@ import (
 // PackHalves recomposes the limbs below and from the middle limb index into
 // two native values. With reduced or balanced limbs each half stays far below
 // the native modulus, so equations on the halves lift to the integers.
-func PackHalves(api frontend.API, lay nonnative.Layout, e *nonnative.Element) (lo, hi frontend.Variable) {
+func PackHalves(api frontend.API, e *nonnative.Element) (lo, hi frontend.Variable) {
+	lay := e.Layout()
 	pack := func(start, end int) frontend.Variable {
 		v := frontend.Variable(0)
 		for i := start; i < end; i++ {
@@ -44,8 +45,8 @@ func AssertDistinct(api frontend.API, f *nonnative.Field, a, b *nonnative.Elemen
 	p := f.Modulus()
 	pl := new(big.Int).And(p, mask)
 	ph := new(big.Int).Rsh(p, uint(cut*lay.LimbBits))
-	al, ah := PackHalves(api, lay, a)
-	bl, bh := PackHalves(api, lay, b)
+	al, ah := PackHalves(api, a)
+	bl, bh := PackHalves(api, b)
 	lo, hi := api.Sub(al, bl), api.Sub(ah, bh)
 	for _, k := range []int64{-1, 0, 1} {
 		dl := api.Sub(lo, new(big.Int).Mul(big.NewInt(k), pl))

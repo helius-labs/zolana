@@ -34,6 +34,7 @@ const (
 // Constrain the unique representative in [0,modulus). Width bounds alone
 // do not exclude representatives equal to or above the modulus.
 func (f *Field) AssertCanonical(e *Element) {
+	f.checkLayout(e)
 	if !e.IsReduced(f.widths) {
 		panic("canonical check needs a reduced element")
 	}

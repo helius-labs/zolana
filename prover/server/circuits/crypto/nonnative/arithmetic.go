@@ -102,6 +102,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *
 	for i, t := range inputTerms {
 		terms[i] = term{coef: big.NewInt(t.Coef), factors: t.Factors}
 		for _, e := range t.Factors {
+			f.checkLayout(e)
 			if _, ok := elementIndices[e]; !ok {
 				elementIndices[e] = len(elements)
 				elements = append(elements, e)
@@ -422,6 +423,9 @@ func (f *Field) Lazy(inputTerms ...Term) *Element {
 	terms := make([]term, len(inputTerms))
 	for i, t := range inputTerms {
 		terms[i] = term{coef: big.NewInt(t.Coef), factors: t.Factors}
+		for _, e := range t.Factors {
+			f.checkLayout(e)
+		}
 	}
 	coefficientMin, coefficientMax := lazyCoefficientIntervals(terms)
 	for i := range coefficientMin {
@@ -432,7 +436,7 @@ func (f *Field) Lazy(inputTerms ...Term) *Element {
 	degree := len(coefficientMin) - 1
 	fold := f.arithmetic.fold(limbCount, degree)
 	expressionForm := f.foldedForms(terms, degree, fold)
-	e := &Element{limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount), valueMin: new(big.Int), valueMax: new(big.Int)}
+	e := &Element{layout: f.layout, limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount), valueMin: new(big.Int), valueMax: new(big.Int)}
 	for j := 0; j < limbCount; j++ {
 		lo, hi := new(big.Int), new(big.Int)
 		for i := range coefficientMin {
