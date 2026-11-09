@@ -10,3 +10,5 @@
    - a builder keeps its own copy of every slice it holds for deferred use
    - a nonnative hint encoder checks the signed window its decoder assumes, the ed25519 and x25519 hint encoders pass raw limbs and every such hint feeds a constrained output
    - a failed optimization precondition falls back, and a failed correctness precondition panics
+   - an element carries the layout of its field and no field operation accepts another layout
+   - a field refuses a layout whose top limb would hold no modulus bit, in construction and in hint headers
