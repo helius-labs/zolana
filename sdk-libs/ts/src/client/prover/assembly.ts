@@ -1146,6 +1146,8 @@ export function assembleSlots(
   const inputOwnerFields: bigint[] = [];
   const runs: InputTreeRun[] = [];
   const treeIndexes: number[] = [];
+  // In a deposit, a random dummy opens its tree.
+  const deposit = proofInputs.inputUtxos.every((input) => input.isDummy());
   let proofIndex = 0;
   let dummyProofIndex = 0;
   for (let index = 0; index < proofInputs.inputUtxos.length; index++) {
@@ -1160,11 +1162,13 @@ export function assembleSlots(
     const openIndex = runs.findIndex((run) => run.treeId === treeId);
     const openRun = runs[openIndex];
     if (input.isDummy()) {
-      if (runs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
-      if (openRun === undefined || (input.isCompact() && openIndex !== INPUT_TREE_SLOT)) {
-        throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", {
-          details: { index },
-        });
+      if (!(deposit && openRun === undefined && !input.isCompact())) {
+        if (runs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
+        if (openRun === undefined || (input.isCompact() && openIndex !== INPUT_TREE_SLOT)) {
+          throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", {
+            details: { index },
+          });
+        }
       }
       const proof = dummyNullifierProofs[dummyProofIndex++];
       if (!proof) {
@@ -1173,17 +1177,17 @@ export function assembleSlots(
         });
       }
       validateNullifierProof(input, proof, index);
-      checkNullifierRoot(openRun, proof, expectedTree, index);
+      const treeIndex = joinNullifierRun(runs, openIndex, treeId, proof, expectedTree, index);
       const converted = createDummyTransferInput(
         input,
         proof,
         input.publishedNullifier(),
-        openIndex,
+        treeIndex,
       );
       transferInputs.push(converted);
       nullifiers.push(bigintToBytes(converted.nullifier, "nullifier") as Bytes32);
       inputOwnerFields.push(converted.ownerPublicKeyHash);
-      treeIndexes.push(openIndex);
+      treeIndexes.push(treeIndex);
       continue;
     }
     let treeIndex: number;
@@ -1197,24 +1201,7 @@ export function assembleSlots(
         });
       }
       validateNullifierProof(input, proof, index);
-      if (openRun !== undefined) {
-        treeIndex = openIndex;
-        checkNullifierRoot(openRun, proof, expectedTree, index);
-      } else {
-        checkNewTree(runs);
-        if (proof.merkleContext.tree !== expectedTree) {
-          throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", {
-            details: { index },
-          });
-        }
-        runs.push({
-          treeId,
-          nullifierRoot: new Uint8Array(proof.root) as Bytes32,
-          nullifierRootIndex: proof.rootIndex,
-          state: undefined,
-        });
-        treeIndex = runs.length - 1;
-      }
+      treeIndex = joinNullifierRun(runs, openIndex, treeId, proof, expectedTree, index);
       owner = ownerField(input, index);
       converted = createCachedInput(input, proof, owner, treeIndex);
     } else {
@@ -1294,6 +1281,35 @@ interface InputTreeRun {
   readonly nullifierRoot: Bytes32;
   readonly nullifierRootIndex: number;
   state: Readonly<{ root: Bytes32; index: number }> | undefined;
+}
+
+/** A run opened here publishes no state root. */
+function joinNullifierRun(
+  runs: InputTreeRun[],
+  openIndex: number,
+  treeId: TreeId,
+  proof: NonInclusionProof,
+  expectedTree: Address,
+  index: number,
+): number {
+  const openRun = runs[openIndex];
+  if (openRun !== undefined) {
+    checkNullifierRoot(openRun, proof, expectedTree, index);
+    return openIndex;
+  }
+  checkNewTree(runs);
+  if (proof.merkleContext.tree !== expectedTree) {
+    throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", {
+      details: { index },
+    });
+  }
+  runs.push({
+    treeId,
+    nullifierRoot: new Uint8Array(proof.root) as Bytes32,
+    nullifierRootIndex: proof.rootIndex,
+    state: undefined,
+  });
+  return runs.length - 1;
 }
 
 function checkNewTree(runs: readonly InputTreeRun[]): void {
