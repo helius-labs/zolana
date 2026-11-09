@@ -12,7 +12,7 @@ pub fn pad_input_utxos(
     input_utxos: &mut Vec<SppProofInputUtxo>,
     shape: Shape,
 ) -> Result<(), TransactionError> {
-    pad_inputs(input_utxos, shape, false)
+    pad_inputs(input_utxos, shape, false, None)
 }
 
 /// Pad inputs to the shape without moving existing slots.
@@ -25,6 +25,7 @@ pub(super) fn pad_inputs(
     input_utxos: &mut Vec<SppProofInputUtxo>,
     shape: Shape,
     compact: bool,
+    ring_program_id: Option<Address>,
 ) -> Result<(), TransactionError> {
     // 1. Reject an input count above the shape's capacity.
     if input_utxos.len() > shape.n_inputs() {
@@ -36,15 +37,16 @@ pub(super) fn pad_inputs(
     // 2. Select the padding tree. Random dummy commitments and nullifiers use
     //    the last declared tree, as the prover does for those slots. Compact
     //    padding takes the first tree: SPP reads its omitted tree index as 0.
-    //    A deposit has only dummies and pads in its first dummy's tree.
-    let tree_ids = if input_utxos.iter().all(SppProofInputUtxo::is_dummy) {
-        input_utxos
-            .first()
-            .map(|dummy| vec![dummy.tree_id])
-            .ok_or(TransactionError::NoInputs)?
-    } else {
-        input_tree_ids(input_utxos)?
-    };
+    //    A ring deposit has only dummies and pads in its first dummy's tree.
+    let tree_ids =
+        if ring_program_id.is_some() && input_utxos.iter().all(SppProofInputUtxo::is_dummy) {
+            input_utxos
+                .first()
+                .map(|dummy| vec![dummy.tree_id])
+                .ok_or(TransactionError::NoInputs)?
+        } else {
+            input_tree_ids(input_utxos)?
+        };
     let padding_tree_id = *if compact {
         tree_ids.first()
     } else {

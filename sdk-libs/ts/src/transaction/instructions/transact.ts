@@ -1038,6 +1038,7 @@ export class ConfidentialTransfer {
     owner: ShieldedAddress,
     outputTreeId: TreeId,
     feePayer: Address,
+    ringProgramId: Address,
   ): ConfidentialTransfer {
     ConfidentialTransfer.#deposit = true;
     try {
@@ -1045,7 +1046,9 @@ export class ConfidentialTransfer {
         owner,
         [ProofInputUtxo.dummy(undefined, outputTreeId)],
         feePayer,
-      ).withOutputTreeId(outputTreeId);
+      )
+        .withOutputTreeId(outputTreeId)
+        .withRingProgramId(ringProgramId);
     } finally {
       ConfidentialTransfer.#deposit = false;
     }

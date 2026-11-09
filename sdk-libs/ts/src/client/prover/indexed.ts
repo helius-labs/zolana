@@ -414,8 +414,12 @@ function checkStatement(inputs: IndexedProofInputs): void {
   // Inputs from different trees may interleave, so a dummy only needs an
   // earlier input to have opened the tree it names. Compact padding, a dummy
   // publishing nullifier 0, carries the nullifier its witness is taken for.
-  // A frame of only dummies lets any dummy open a tree.
-  const deposit = inputs.payload.inputs.every((input) => input.isDummy === 1n);
+  // On a ring circuit, a frame of only dummies lets any dummy open a tree.
+  const deposit =
+    (inputs.circuit === "transferRing" ||
+      inputs.circuit === "transferRingAuthority" ||
+      inputs.circuit === "transferAnonymousRingEddsa") &&
+    inputs.payload.inputs.every((input) => input.isDummy === 1n);
   const used = new Set<number>();
   inputs.lookups.forEach((lookup, index) => {
     const input = inputs.payload.inputs[index];

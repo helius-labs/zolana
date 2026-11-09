@@ -28,7 +28,7 @@ use crate::{
         proving_key::ExpectedProvingKey,
         transact::{
             assembly::{
-                assemble_transaction, AssembledTransaction, OwnerMode, PublicInputs,
+                AssembleTransaction, AssembledTransaction, OwnerMode, PublicInputs,
                 TransferInputUtxo,
             },
             OwnerAuthorization,
@@ -118,15 +118,17 @@ impl ConfidentialEddsaProver<'_> {
             external_data_hash,
             private_tx_hash: private_tx,
             input_flags,
-        } = assemble_transaction(
-            &self.inputs,
-            &self.outputs,
-            &self.blinding_seed,
-            self.output_tree_id,
-            &cache.external_data_hash,
-            &OwnerMode::SolanaEddsa,
-            self.allow_dummy_inputs,
-        )?;
+        } = AssembleTransaction {
+            inputs: &self.inputs,
+            outputs: &self.outputs,
+            blinding_seed: &self.blinding_seed,
+            output_tree_id: self.output_tree_id,
+            external_data_hash: &cache.external_data_hash,
+            owner_mode: &OwnerMode::SolanaEddsa,
+            ring_program_id: None,
+            allow_dummy_inputs: self.allow_dummy_inputs,
+        }
+        .assemble()?;
         let authorization = self.owner.authorize(&private_tx, &external_data_hash)?;
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,

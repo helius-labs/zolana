@@ -538,16 +538,29 @@ func TestResolvePreparedRejectsAnInputCountMismatch(t *testing.T) {
 	}
 }
 
-func TestOnlyAFrameOfDummiesOpensATreeWithOne(t *testing.T) {
-	for name, dummies := range map[string][]bool{"deposit": {true, true}, "mixed": {true, false}} {
+func TestOnlyARingFrameOfDummiesOpensATreeWithOne(t *testing.T) {
+	cases := map[string]struct {
+		dummies []bool
+		circuit common.CircuitType
+		opens   bool
+	}{
+		"ring deposit":    {dummies: []bool{true, true}, circuit: common.TransferRingCircuitType, opens: true},
+		"default deposit": {dummies: []bool{true, true}, circuit: common.TransferConfidentialCircuitType, opens: false},
+		"mixed":           {dummies: []bool{true, false}, circuit: common.TransferRingCircuitType, opens: false},
+	}
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			request, _, _ := fixture(t)
 			var prepared transfer.TransferParametersJSON
 			if err := json.Unmarshal(request.Prepared, &prepared); err != nil {
 				t.Fatal(err)
 			}
+			prepared.CircuitType, request.CircuitType = tc.circuit, tc.circuit
+			if tc.circuit == common.TransferRingCircuitType {
+				prepared.RingProgramID = "0x5"
+			}
 			commitment := request.Inputs[0].Commitment
-			for index, dummy := range dummies {
+			for index, dummy := range tc.dummies {
 				prepared.Inputs[index].IsDummy = "0x0"
 				request.Inputs[index].Commitment = commitment
 				if dummy {
@@ -557,7 +570,10 @@ func TestOnlyAFrameOfDummiesOpensATreeWithOne(t *testing.T) {
 			}
 			request.Prepared = encoded(t, prepared)
 			err := Validate(encoded(t, request))
-			if (err == nil) != (name == "deposit") {
+			if tc.opens && err != nil {
+				t.Fatalf("%s frame: %v", name, err)
+			}
+			if !tc.opens && (err == nil || !strings.Contains(err.Error(), "input tree starts with a dummy")) {
 				t.Fatalf("%s frame: %v", name, err)
 			}
 		})

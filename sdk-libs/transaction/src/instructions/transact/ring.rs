@@ -2,7 +2,7 @@ use solana_address::Address;
 use spr_interface::instruction::instruction_data::transact::OwnerTag;
 use spr_keypair::{shielded::ShieldedAddress, PublicKey};
 
-use super::{ConfidentialTransaction, Recipient};
+use super::{ConfidentialTransaction, Recipient, SppProofInputUtxo};
 use crate::{error::TransactionError, Mint, WalletUtxo};
 
 impl ConfidentialTransaction {
@@ -20,13 +20,17 @@ impl ConfidentialTransaction {
         Ok(transaction)
     }
 
-    /// [`new_deposit`](Self::new_deposit) in a custom ring.
+    /// SPP refuses the deposit unless `output_tree_id` has dummy-input headroom
+    /// for every input slot.
     pub fn new_deposit_with_ring(
         output_tree_id: u16,
         payer: Address,
         ring_program_id: Address,
     ) -> Result<Self, TransactionError> {
-        let mut transaction = Self::new_deposit(output_tree_id, payer)?;
+        let dummy = SppProofInputUtxo::dummy(output_tree_id)?;
+        let mut transaction =
+            Self::initialized(vec![dummy], Vec::new(), payer, vec![output_tree_id])?;
+        transaction.output_tree_id = output_tree_id;
         transaction.ring_program_id = Some(ring_program_id);
         Ok(transaction)
     }

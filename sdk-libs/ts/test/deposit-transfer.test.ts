@@ -12,13 +12,15 @@ import { ShieldedKeypair } from "../src/keypair/index.js";
 import { AssetRegistry, ConfidentialTransfer, SOL_MINT } from "../src/transaction/index.js";
 
 const PAYER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
+const RING = address("11111111111111111111111111111112");
+const RING_CIRCUIT = { kind: "ring", ring: RING } as const;
 
 describe("ConfidentialTransfer.newDeposit", () => {
   it("spends only dummies of its tree, funds the outputs from the deposit leg and opens that tree on the indexed route", async () => {
     await initializePoseidon();
     const funder = ShieldedKeypair.generate();
     const recipient = ShieldedKeypair.generate().shieldedAddress();
-    const transfer = ConfidentialTransfer.newDeposit(funder.shieldedAddress(), 7, PAYER);
+    const transfer = ConfidentialTransfer.newDeposit(funder.shieldedAddress(), 7, PAYER, RING);
     transfer.deposit(SOL_MINT, 5n, { kind: "sol", funder: PAYER });
     transfer.send(recipient, SOL_MINT, 5n);
 
@@ -30,14 +32,14 @@ describe("ConfidentialTransfer.newDeposit", () => {
     expect(proof.externalData.interfaceTransfers).toEqual([
       { kind: "sol", isDeposit: true, amount: 5n, userSolAccount: PAYER },
     ]);
-    const request = decodeIndexedInputs(prepareTransfer(proof).inputs);
+    const request = decodeIndexedInputs(prepareTransfer(proof, RING_CIRCUIT).inputs);
     expect(request.trees.map((tree) => tree.id)).toEqual([7]);
   });
 
   it("refuses a recipient past the deposit and a source of another asset", async () => {
     await initializePoseidon();
     const funder = ShieldedKeypair.generate();
-    const transfer = ConfidentialTransfer.newDeposit(funder.shieldedAddress(), 0, PAYER);
+    const transfer = ConfidentialTransfer.newDeposit(funder.shieldedAddress(), 0, PAYER, RING);
     expect(() => transfer.deposit(PAYER, 1n, { kind: "sol", funder: PAYER })).toThrow(
       "TRANSACTION_DEPOSIT_ASSET_MISMATCH",
     );
@@ -51,7 +53,7 @@ describe("a deposit on the client route", () => {
   it("opens its tree on the padding proof and publishes the roots the prover route does", async () => {
     await initializePoseidon();
     const funder = ShieldedKeypair.generate();
-    const transfer = ConfidentialTransfer.newDeposit(funder.shieldedAddress(), 7, PAYER);
+    const transfer = ConfidentialTransfer.newDeposit(funder.shieldedAddress(), 7, PAYER, RING);
     transfer.deposit(SOL_MINT, 5n, { kind: "sol", funder: PAYER });
     transfer.send(ShieldedKeypair.generate().shieldedAddress(), SOL_MINT, 5n);
     const proof = transfer.sign(funder, new AssetRegistry());
@@ -69,7 +71,7 @@ describe("a deposit on the client route", () => {
       rootIndex: 2,
     }));
 
-    const assembled = assemble(proof, [], dummyProofs);
+    const assembled = assemble(proof, [], dummyProofs, RING_CIRCUIT);
     expect(assembled.instructionData.inputs.map((input) => input.treeIndex)).toEqual(
       proof.inputUtxos.map(() => 0),
     );
@@ -82,7 +84,7 @@ describe("a deposit on the client route", () => {
       nullifierRoot,
       nullifierRootIndex: 2,
     });
-    const prepared = prepareTransfer(proof);
+    const prepared = prepareTransfer(proof, RING_CIRCUIT);
     const complete = prepared.finish([
       {
         treeId: 7,
@@ -93,5 +95,16 @@ describe("a deposit on the client route", () => {
     ]);
     expect(assembled.publicInputHash).toEqual(complete.publicInputHash);
     expect(assembled.instructionData).toEqual(complete.instructionData);
+  });
+
+  it("refuses the frame outside a ring on both routes", async () => {
+    await initializePoseidon();
+    const funder = ShieldedKeypair.generate();
+    const transfer = ConfidentialTransfer.newDeposit(funder.shieldedAddress(), 7, PAYER, RING);
+    transfer.deposit(SOL_MINT, 5n, { kind: "sol", funder: PAYER });
+    transfer.send(ShieldedKeypair.generate().shieldedAddress(), SOL_MINT, 5n);
+    const proof = transfer.sign(funder, new AssetRegistry());
+    expect(() => prepareTransfer(proof)).toThrow("CLIENT_NO_INPUTS");
+    expect(() => assemble(proof, [], [])).toThrow("CLIENT_NO_INPUTS");
   });
 });

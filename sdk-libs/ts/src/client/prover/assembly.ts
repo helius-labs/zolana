@@ -388,8 +388,10 @@ export function prepareTransfer(
 ): PreparedTransferAssembly {
   try {
     const checked = checkedTransferPlan(proofInputs, circuit);
-    const slots = prepareSlots(proofInputs.inputUtxos, (input) =>
-      bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
+    const slots = prepareSlots(
+      proofInputs.inputUtxos,
+      (input) => bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
+      "ring" in circuit,
     );
     return prepareTransferUnchecked(proofInputs, slots, checked);
   } catch (cause) {
@@ -431,8 +433,12 @@ function assembleUnchecked(
   circuit: TransferCircuit,
 ): AssembledTransfer {
   const checked = checkedTransferPlan(proofInputs, circuit);
-  const slots = assembleSlots(proofInputs, spendProofs, dummyNullifierProofs, (input) =>
-    bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
+  const slots = assembleSlots(
+    proofInputs,
+    spendProofs,
+    dummyNullifierProofs,
+    (input) => bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
+    "ring" in circuit,
   );
   const prepared = prepareTransferUnchecked(proofInputs, slots, checked);
   const complete = prepared.finish(slots.inputTrees);
@@ -1075,11 +1081,11 @@ export function prepareInput(
 export function prepareSlots(
   inputs: readonly ProofInputUtxo[],
   ownerField: (input: ProofInputUtxo, index: number) => bigint,
+  ring = false,
 ): PreparedSlots {
   const treeIds: TreeId[] = [];
   const treeIndexes: number[] = [];
-  // In a deposit, a random dummy opens its tree.
-  const deposit = inputs.every((input) => input.isDummy());
+  const deposit = ring && inputs.every((input) => input.isDummy());
   const transferInputs = inputs.map((input, index) => {
     let treeSlot = treeIds.indexOf(input.treeId);
     if (input.isDummy() && !(deposit && treeSlot === -1 && !input.isCompact())) {
@@ -1133,21 +1139,22 @@ export function prepareSlots(
  * proof is taken for, and it must name the first tree.
  *
  * `ownerField` is the caller's rail: it is the one thing Rust's `OwnerMode`
- * varies, and every rail shares the rest of this loop.
+ * varies, and every rail shares the rest of this loop. `ring` lets a frame of
+ * only dummies, a ring deposit, open its tree on a random dummy.
  */
 export function assembleSlots(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[],
   ownerField: (input: ProofInputUtxo, index: number) => bigint,
+  ring = false,
 ): AssembledSlots {
   const transferInputs: TransferInput[] = [];
   const nullifiers: Bytes32[] = [];
   const inputOwnerFields: bigint[] = [];
   const runs: InputTreeRun[] = [];
   const treeIndexes: number[] = [];
-  // In a deposit, a random dummy opens its tree.
-  const deposit = proofInputs.inputUtxos.every((input) => input.isDummy());
+  const deposit = ring && proofInputs.inputUtxos.every((input) => input.isDummy());
   let proofIndex = 0;
   let dummyProofIndex = 0;
   for (let index = 0; index < proofInputs.inputUtxos.length; index++) {

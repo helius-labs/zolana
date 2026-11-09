@@ -21,7 +21,7 @@ use crate::{
         cache::CacheSelection,
         field::be,
         transact::assembly::{
-            assemble_transaction, validate_shape, AssembledTransaction, OwnerMode, PublicInputs,
+            validate_shape, AssembleTransaction, AssembledTransaction, OwnerMode, PublicInputs,
             TransferInputUtxo,
         },
         Shape, TransferInputs, TreeSlotFields,
@@ -74,27 +74,30 @@ impl RingAuthorityProver {
     pub fn build(self) -> Result<RingAuthorityProofResult, ClientError> {
         validate_shape(self.shape, self.inputs.len(), self.outputs.len())?;
 
+        let cache = CacheSelection::derive(
+            &self.inputs,
+            &self.outputs,
+            Default::default(),
+            &self.external_data,
+        )?;
+
         let AssembledTransaction {
             inputs: assembled_inputs,
             outputs: assembled_outputs,
             external_data_hash,
             private_tx_hash: private_tx,
             input_flags,
-        } = assemble_transaction(
-            &self.inputs,
-            &self.outputs,
-            &self.blinding_seed,
-            self.output_tree_id,
-            &CacheSelection::derive(
-                &self.inputs,
-                &self.outputs,
-                Default::default(),
-                &self.external_data,
-            )?
-            .external_data_hash,
-            &OwnerMode::RingAuthority,
-            self.allow_dummy_inputs,
-        )?;
+        } = AssembleTransaction {
+            inputs: &self.inputs,
+            outputs: &self.outputs,
+            blinding_seed: &self.blinding_seed,
+            output_tree_id: self.output_tree_id,
+            external_data_hash: &cache.external_data_hash,
+            owner_mode: &OwnerMode::RingAuthority,
+            ring_program_id: None,
+            allow_dummy_inputs: self.allow_dummy_inputs,
+        }
+        .assemble()?;
 
         // Bind the ring program: ring_program_id is the ring's pk_field. The UTXOs
         // themselves carry ring_program_id; the circuit binds each non-dummy UTXO's

@@ -147,8 +147,9 @@ impl IndexedTransferPreparation<'_> {
         {
             return Err(super::invalid());
         }
-        // A frame of only dummies lets any dummy open a tree.
-        let deposit = transaction.input_utxos.iter().all(|input| input.is_dummy());
+        // Inside a ring, a frame of only dummies lets any dummy open a tree.
+        let deposit =
+            ring.is_some() && transaction.input_utxos.iter().all(|input| input.is_dummy());
         let mut trees: Vec<IndexedTree> = Vec::new();
         let mut lookups = Vec::new();
         let mut local_inputs = Vec::new();
@@ -1048,29 +1049,38 @@ mod tests {
     }
 
     #[test]
-    fn a_deposit_opens_the_tree_of_its_dummies() {
+    fn a_ring_deposit_opens_the_tree_of_its_dummies_and_the_default_ring_refuses_it() {
         let owner = ShieldedKeypair::new_ed25519().unwrap();
         let sender = owner.shielded_address().unwrap();
         let payer = sender.solana_address().unwrap();
+        let ring = Address::new_from_array([5; 32]);
         let mut transaction =
-            spr_transaction::instructions::transact::ConfidentialTransaction::new_deposit(4, payer)
-                .unwrap();
+            spr_transaction::instructions::transact::ConfidentialTransaction::new_deposit_with_ring(
+                4, payer, ring,
+            )
+            .unwrap();
         transaction.deposit_sol(5, payer).unwrap();
         transaction.transfer_sol(&sender, 5).unwrap();
         let transaction = transaction
             .encrypt_with_viewing_key(&sender, &spr_keypair::ViewingKey::new())
             .unwrap();
-        let prepared = IndexedTransferPreparation {
-            transaction,
-            rail: IndexedTransferRail::Confidential,
-        }
-        .prepare(&owner)
-        .unwrap();
+        let prepare = |rail| {
+            IndexedTransferPreparation {
+                transaction: transaction.clone(),
+                rail,
+            }
+            .prepare(&owner)
+        };
+        let prepared = prepare(IndexedTransferRail::Ring(ring)).unwrap();
         assert!(prepared
             .data
             .inputs
             .iter()
             .all(|input| input.tree_index == 0));
+        assert!(matches!(
+            prepare(IndexedTransferRail::Confidential),
+            Err(ClientError::NoInputs)
+        ));
     }
 
     #[test]

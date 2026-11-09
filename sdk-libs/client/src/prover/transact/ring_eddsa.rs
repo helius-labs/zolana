@@ -21,7 +21,7 @@ use crate::{
         cache::CacheSelection,
         field::be,
         transact::assembly::{
-            assemble_transaction, confidential_marked_output_owner_pk_hashes, validate_shape,
+            confidential_marked_output_owner_pk_hashes, validate_shape, AssembleTransaction,
             AssembledTransaction, OwnerMode, PublicInputs, TransferInputUtxo,
         },
         Shape, TransferInputs, TreeSlotFields,
@@ -85,15 +85,17 @@ impl RingTransferProver {
             external_data_hash,
             private_tx_hash: private_tx,
             input_flags,
-        } = assemble_transaction(
-            &self.inputs,
-            &self.outputs,
-            &self.blinding_seed,
-            self.output_tree_id,
-            &cache.external_data_hash,
-            &OwnerMode::SolanaEddsa,
-            self.allow_dummy_inputs,
-        )?;
+        } = AssembleTransaction {
+            inputs: &self.inputs,
+            outputs: &self.outputs,
+            blinding_seed: &self.blinding_seed,
+            output_tree_id: self.output_tree_id,
+            external_data_hash: &cache.external_data_hash,
+            owner_mode: &OwnerMode::SolanaEddsa,
+            ring_program_id: self.ring_program_id,
+            allow_dummy_inputs: self.allow_dummy_inputs,
+        }
+        .assemble()?;
         let published_output_owner_pk_hashes =
             confidential_marked_output_owner_pk_hashes(&self.external_data, self.outputs.len())?;
 

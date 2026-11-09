@@ -134,7 +134,8 @@ fn constructor_rejects_missing_and_dummy_first_inputs() {
 fn a_deposit_spends_only_dummies_of_its_tree() {
     let funder = keypair(1);
     let recipient = keypair(2).shielded_address().unwrap();
-    let mut tx = ConfidentialTransaction::new_deposit(7, payer(&funder)).unwrap();
+    let ring = Address::new_from_array([9; 32]);
+    let mut tx = ConfidentialTransaction::new_deposit_with_ring(7, payer(&funder), ring).unwrap();
     tx.deposit_sol(5, payer(&funder)).unwrap();
     tx.transfer_sol(&recipient, 5).unwrap();
     let key = ViewingKey::new();
@@ -406,10 +407,7 @@ fn padding_extends_last_tree_without_touching_existing_inputs() {
     );
     error(pad_input_utxos(&mut vec![], Shape::IN1_OUT2), E::NoInputs);
     let mut dummies = vec![SppProofInputUtxo::dummy(4).unwrap()];
-    pad_input_utxos(&mut dummies, Shape::IN2_OUT2).unwrap();
-    assert!(dummies
-        .iter()
-        .all(|dummy| dummy.is_dummy() && dummy.tree_id == 4));
+    error(pad_input_utxos(&mut dummies, Shape::IN2_OUT2), E::NoInputs);
     let mut many = (0..=MAX_INPUT_TREES)
         .map(|t| SppProofInputUtxo::from(wallet_utxo(&owner, Mint::SOL, 1, t as u16, t as u8)))
         .collect();

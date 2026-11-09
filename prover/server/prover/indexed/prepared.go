@@ -150,9 +150,9 @@ func decodePrepared(request Request) (*Prepared, error) {
 		return nil, fmt.Errorf("invalid prepared shape")
 	}
 	// Inputs from different trees may interleave, so a dummy only needs an
-	// earlier input to have opened the tree it names. A frame of only dummies
-	// lets any dummy open a tree.
-	deposit := true
+	// earlier input to have opened the tree it names. On a ring circuit, a frame
+	// of only dummies lets any dummy open a tree.
+	deposit := ringCircuit(request.CircuitType)
 	for _, input := range prepared.inputs {
 		deposit = deposit && input.dummy
 	}
@@ -219,4 +219,14 @@ func fields(hashes []Hash) []*big.Int {
 		result[index] = new(big.Int).SetBytes(hash[:])
 	}
 	return result
+}
+
+func ringCircuit(circuit common.CircuitType) bool {
+	switch circuit {
+	case common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType,
+		common.TransferRingAuthorityExitCircuitType, common.TransferAnonymousRingEddsaCircuitType:
+		return true
+	default:
+		return false
+	}
 }

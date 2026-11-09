@@ -227,7 +227,7 @@ impl MergeProver {
         } = self.transaction;
         let [mint_chunk_0, mint_chunk_1] = pack_be::<32, 2>(output_utxo.asset.asset.as_array());
         let inputs = attach_input_proofs(input_utxos, &self.proofs, &self.dummy_nullifier_proofs)?;
-        let assembled_inputs = assemble_inputs(&inputs, &OwnerMode::Merge)?;
+        let assembled_inputs = assemble_inputs(&inputs, &OwnerMode::Merge, None)?;
         let input_tree_context = assembled_inputs.single_tree_context()?;
         let assembled_outputs =
             assemble_outputs(std::slice::from_ref(&output_utxo), output_tree_id)?;
