@@ -1,0 +1,25 @@
+name: Install pinned surfpool
+description: Cache surfpool by its release tag and install the pinned release asset on a miss.
+inputs:
+  working-directory:
+    description: Directory of the zolana justfile.
+    required: false
+    default: .
+runs:
+  using: composite
+  steps:
+    - id: tag
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: echo "tag=$(just --evaluate surfpool-release-tag)" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ${{ inputs.working-directory }}/target/tools/surfpool
+        key: surfpool-${{ runner.os }}-${{ steps.tag.outputs.tag }}
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: just install-surfpool

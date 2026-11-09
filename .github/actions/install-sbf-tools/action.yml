@@ -1,5 +1,5 @@
 name: Install pinned SBF platform tools
-description: Cache the platform tools and install them only on a cache miss, with retries.
+description: Cache the platform tools and install the pinned release asset on a cache miss, with retries.
 inputs:
   version:
     description: Platform tools version, the SBF_TOOLS_VERSION pin.
@@ -13,10 +13,24 @@ runs:
         key: sbf-tools-${{ runner.os }}-${{ inputs.version }}
     - name: Install platform tools
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ inputs.version }}
       run: |
-        for attempt in 1 2 3; do
-          cargo build-sbf --tools-version "${{ inputs.version }}" --install-only && exit 0
-          echo "platform tools install failed, attempt $attempt"
-          sleep $((attempt * 15))
-        done
-        exit 1
+        set -euo pipefail
+        # cargo build-sbf reads the tools here and downloads nothing once they exist.
+        tools="$HOME/.cache/solana/$VERSION/platform-tools"
+        if [[ ! -x "$tools/rust/bin/rustc" ]]; then
+          case "$VERSION/$(uname -sm)" in
+            "v1.54/Linux x86_64") sha256=fcc41631c7f77561bf5412218bf297501dccf0305ea280f338f0ace2aab9f31e ;;
+            *) echo "no platform tools sha256 pinned for $VERSION on $(uname -sm)" >&2; exit 1 ;;
+          esac
+          asset=platform-tools-linux-x86_64.tar.bz2
+          download="$(mktemp -d)"
+          "$GITHUB_ACTION_PATH/../../../tools/ci/release-asset.sh" anza-xyz/platform-tools "$VERSION" "$asset" "$sha256" "$download"
+          rm -rf "$tools"
+          mkdir -p "$tools"
+          tar -xjf "$download/$asset" -C "$tools"
+          rm -rf "$download"
+        fi
+        "$tools/rust/bin/rustc" --version

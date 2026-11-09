@@ -6,6 +6,9 @@ sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
 surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.6.0-light")
 surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.6.0")
 surfpool-bin := env_var_or_default("SURFPOOL_BIN", "target/tools/surfpool")
+smart-account-so := "target/deploy/squads_smart_account_program.so"
+# A Squads upgrade on mainnet changes the dump and needs a new pin.
+smart-account-sha256 := "1c95bd7be140589d2aec38a85d7ecfe70ec69639277f622c898f821ab1d636fa"
 
 # Per-clone port isolation: set ZOLANA_PORT_OFFSET in a local (gitignored) .env
 # (auto-loaded above) to shift every service port by a fixed amount so concurrent
@@ -1218,12 +1221,17 @@ install-surfpool:
         arm64|aarch64) arch=arm64 ;;
         *) echo "unsupported surfpool architecture: $(uname -m)" >&2; exit 1 ;;
     esac
+    case "{{surfpool-release-tag}}/${os}-${arch}" in
+        v1.6.0-light/linux-x64) sha256=acf0ccb172ea0208bbbf3583a98ae39b39cabf43bddf30221e5ec0040db37409 ;;
+        v1.6.0-light/darwin-arm64) sha256=c87f6e1f7911e94720cad586c9295934ba6a32e2aecfb062d7d6c057de2e9531 ;;
+        v1.6.0-light/darwin-x64) sha256=252cde97d9b6ee09063bccee039ebf50d2b8f1b95de4c79184fb2423cd3cf42f ;;
+        *) echo "no surfpool sha256 pinned for {{surfpool-release-tag}} on ${os}-${arch}" >&2; exit 1 ;;
+    esac
     asset="surfpool-${os}-${arch}.tar.gz"
-    url="https://github.com/Lightprotocol/surfpool/releases/download/{{surfpool-release-tag}}/${asset}"
     mkdir -p target/tools
     tmpdir=$(mktemp -d)
     trap 'rm -rf "$tmpdir"' EXIT
-    curl -sSfL "$url" -o "$tmpdir/$asset"
+    tools/ci/release-asset.sh Lightprotocol/surfpool "{{surfpool-release-tag}}" "$asset" "$sha256" "$tmpdir"
     tar -xzf "$tmpdir/$asset" -C "$tmpdir"
     surfpool_bin=$(find "$tmpdir" -type f -name surfpool -perm -111 | head -n 1)
     if [[ -z "$surfpool_bin" ]]; then
@@ -1283,15 +1291,24 @@ deploy-devnet *programs:
 # Download the Squads smart account program binary from mainnet into `target/deploy`.
 # Run once before `test-spp-validator*` recipes; requires `solana` CLI and network access.
 fetch-smart-account:
+    #!/usr/bin/env bash
+    set -euo pipefail
     mkdir -p target/deploy
-    solana program dump SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG \
-        target/deploy/squads_smart_account_program.so \
-        --url https://api.mainnet-beta.solana.com
+    dump="{{smart-account-so}}.dump"
+    trap 'rm -f "$dump"' EXIT
+    for attempt in 1 2 3; do
+        solana program dump SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG "$dump" \
+            --url https://api.mainnet-beta.solana.com && break
+        (( attempt < 3 )) || exit 1
+        sleep $((attempt * 10))
+    done
+    echo "{{smart-account-sha256}}  $dump" | shasum -a 256 -c -
+    mv "$dump" {{smart-account-so}}
 
 ensure-smart-account:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [[ ! -f target/deploy/squads_smart_account_program.so ]]; then
+    if ! echo "{{smart-account-sha256}}  {{smart-account-so}}" | shasum -a 256 -c - >/dev/null 2>&1; then
         just fetch-smart-account
     fi
 

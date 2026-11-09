@@ -1,5 +1,5 @@
 name: Install Anza CLI
-description: Cache the pinned Anza release, install it with retries on a miss, fail when the binaries are absent.
+description: Cache the pinned Anza release, install its release asset with retries on a miss, fail when the binaries are absent.
 inputs:
   version:
     description: Agave release tag, the AGAVE_VERSION pin.
@@ -13,20 +13,27 @@ runs:
         key: anza-${{ runner.os }}-${{ inputs.version }}
     - name: Install the Anza toolchain
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
-        bin="$HOME/.local/share/solana/install/active_release/bin"
+        install="$HOME/.local/share/solana/install"
+        bin="$install/active_release/bin"
         if [[ ! -x "$bin/solana" ]]; then
-          installer="$(mktemp)"
-          for attempt in 1 2 3 4 5; do
-            if curl -sSfL --retry 5 --retry-all-errors --retry-delay 5 \
-                 "https://release.anza.xyz/${{ inputs.version }}/install" -o "$installer" \
-               && sh "$installer"; then
-              break
-            fi
-            echo "anza install failed, attempt $attempt"
-            sleep $((attempt * 15))
-          done
+          case "$VERSION/$(uname -sm)" in
+            "v4.2.2/Linux x86_64") sha256=5fc8684f7430038105fde953d4308ed56addf627f658daa61709f345448247ee ;;
+            *) echo "no Anza release sha256 pinned for $VERSION on $(uname -sm)" >&2; exit 1 ;;
+          esac
+          asset=solana-release-x86_64-unknown-linux-gnu.tar.bz2
+          download="$(mktemp -d)"
+          "$GITHUB_ACTION_PATH/../../../tools/ci/release-asset.sh" anza-xyz/agave "$VERSION" "$asset" "$sha256" "$download"
+          release="$install/releases/$VERSION"
+          rm -rf "$release"
+          mkdir -p "$release"
+          tar -xjf "$download/$asset" -C "$release"
+          rm -rf "$download"
+          ln -sfn "$release/solana-release" "$install/active_release"
         fi
         "$bin/solana" --version
         "$bin/cargo-build-sbf" --version
