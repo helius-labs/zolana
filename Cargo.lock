@@ -10912,7 +10912,7 @@ dependencies = [
 
 [[package]]
 name = "spr-macros"
-version = "0.9.0"
+version = "0.8.0"
 dependencies = [
  "anchor-syn",
  "borsh",
@@ -10943,7 +10943,7 @@ dependencies = [
 
 [[package]]
 name = "spr-program"
-version = "0.9.0"
+version = "0.8.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-circom",

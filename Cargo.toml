@@ -90,7 +90,7 @@ spr-user-registry-interface = { path = "program-libs/user-registry-interface", v
 spr-tree = { path = "program-libs/tree", version = "0.9.0" }
 spr-keypair = { path = "sdk-libs/keypair", version = "0.9.0" }
 spr-instruction = { path = "sdk-libs/instruction", version = "0.9.0" }
-spr-program = { path = "sdk-libs/program", version = "0.9.0" }
+spr-program = { path = "sdk-libs/program", version = "0.8.0" }
 # The ZK crates live in helius-labs/zk-tools (zk-dsl/).
 spr-zk-dsl = "0.8.0"
 spr-zk-gadgets = "0.8.0"
