@@ -204,7 +204,11 @@ async function read(
   try {
     return await readBoundedJson(response, MAX_FILE_BYTES);
   } catch (error) {
-    throw refused(error instanceof TransportFailure ? "policy_malformed" : "policy_unavailable");
+    throw refused(
+      error instanceof TransportFailure && error.kind !== "read"
+        ? "policy_malformed"
+        : "policy_unavailable",
+    );
   }
 }
 

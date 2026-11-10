@@ -142,9 +142,7 @@ pub trait Rpc {
     }
 
     /// Whether `error` is transient for the post-submission confirmation poll
-    /// (`wait_for_indexed_transaction`). Indexer data-plane polling
-    /// (`IndexerPollConfig::poll_until`, the merkle-proof retry loop) deliberately
-    /// retries every error and does not consult this.
+    /// (`wait_for_indexed_transaction`).
     fn should_retry(&self, error: &ClientError) -> bool {
         false
     }
@@ -364,9 +362,7 @@ pub trait AsyncRpc: Send + Sync {
     }
 
     /// Whether `error` is transient for the post-submission confirmation poll
-    /// (`wait_for_indexed_transaction_async`). Indexer data-plane polling
-    /// (`IndexerPollConfig::poll_until`) deliberately retries every error and does
-    /// not consult this.
+    /// (`wait_for_indexed_transaction_async`).
     fn should_retry(&self, error: &ClientError) -> bool {
         false
     }

@@ -35,6 +35,7 @@ import type { RegistryRecord, UserRecordsLookup } from "./ports.js";
 import { decodeBase64 } from "./internal.js";
 import {
   DEFAULT_INDEXER_POLL_CONFIG,
+  attempts,
   pollUntil,
   validatePollConfig,
   type IndexerRpcConfig,
@@ -71,8 +72,8 @@ export class SprIndexer {
     context?: RequestContext,
   ): Promise<GetEncryptedUtxosByTagsResponse> {
     const owned = copyTagRequest(request);
-    return pollIndexer(config, context, async () => {
-      const method = "getEncryptedUtxosByTags";
+    const method = "getEncryptedUtxosByTags";
+    return pollIndexer(method, config, context, async (attempt) => {
       try {
         const response = await this.#api.getEncryptedUtxosByTags(
           {
@@ -80,7 +81,7 @@ export class SprIndexer {
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
             ...wirePageControls(owned),
           },
-          context,
+          attempt,
         );
         return convertEncryptedUtxosResponse(response, method);
       } catch (cause) {
@@ -95,8 +96,8 @@ export class SprIndexer {
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByTagsResponse> {
     const owned = copyTagRequest(request);
-    return pollIndexer(config, context, async () => {
-      const method = "getShieldedTransactionsByTags";
+    const method = "getShieldedTransactionsByTags";
+    return pollIndexer(method, config, context, async (attempt) => {
       try {
         const response = await this.#api.getShieldedTransactionsByTags(
           {
@@ -104,7 +105,7 @@ export class SprIndexer {
             ...(owned.ringProgramId === undefined ? {} : { ringProgramId: owned.ringProgramId }),
             ...wirePageControls(owned),
           },
-          context,
+          attempt,
         );
         return convertShieldedTransactionsResponse(response, method);
       } catch (cause) {
@@ -119,15 +120,15 @@ export class SprIndexer {
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsByNullifiersResponse> {
     const owned = copyNullifierRequest(request);
-    return pollIndexer(config, context, async () => {
-      const method = "getShieldedTransactionsByNullifiers";
+    const method = "getShieldedTransactionsByNullifiers";
+    return pollIndexer(method, config, context, async (attempt) => {
       try {
         const response = await this.#api.getShieldedTransactionsByNullifiers(
           {
             nullifiers: owned.nullifiers.map((nullifier) => hash(nullifier)),
             ...wirePageControls(owned),
           },
-          context,
+          attempt,
         );
         return convertShieldedTransactionsResponse(response, method);
       } catch (cause) {
@@ -142,10 +143,10 @@ export class SprIndexer {
     context?: RequestContext,
   ): Promise<UserRecordsLookup> {
     const requested = copyOwners(owners);
-    return pollIndexer(config, context, async () => {
-      const method = "getUserRecords";
+    const method = "getUserRecords";
+    return pollIndexer(method, config, context, async (attempt) => {
       try {
-        const response = await this.#api.getUserRecords({ owners: requested }, context);
+        const response = await this.#api.getUserRecords({ owners: requested }, attempt);
         if (response.records.length !== requested.length) {
           throw invalidResponse(method, "$.records", requested.length, response.records.length);
         }
@@ -174,12 +175,12 @@ export class SprIndexer {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<GetShieldedTransactionsBySignatureResponse> {
-    return pollIndexer(config, context, async () => {
-      const method = "getShieldedTransactionsBySignature";
+    const method = "getShieldedTransactionsBySignature";
+    return pollIndexer(method, config, context, async (attempt) => {
       try {
         const response = await this.#api.getShieldedTransactionsBySignature(
           { txSignature: signature },
-          context,
+          attempt,
         );
         return convertShieldedTransactionsBySignatureResponse(response, method);
       } catch (cause) {
@@ -195,12 +196,12 @@ export class SprIndexer {
     context?: RequestContext,
   ): Promise<GetMerkleProofsResponse> {
     const requested = copyLeaves(leaves);
-    return pollIndexer(config, context, async () => {
-      const method = "getMerkleProofs";
+    const method = "getMerkleProofs";
+    return pollIndexer(method, config, context, async (attempt) => {
       try {
         const response = await this.#api.getMerkleProofs(
           { treeAccount, leaves: requested.map((leaf) => hash(leaf)) },
-          context,
+          attempt,
         );
         return Object.freeze({
           context: Object.freeze({
@@ -222,12 +223,12 @@ export class SprIndexer {
     context?: RequestContext,
   ): Promise<GetNonInclusionProofsResponse> {
     const requested = copyLeaves(leaves);
-    return pollIndexer(config, context, async () => {
-      const method = "getNonInclusionProofs";
+    const method = "getNonInclusionProofs";
+    return pollIndexer(method, config, context, async (attempt) => {
       try {
         const response = await this.#api.getNonInclusionProofs(
           { treeAccount, leaves: requested.map((leaf) => hash(leaf)) },
-          context,
+          attempt,
         );
         return Object.freeze({
           context: Object.freeze({
@@ -563,10 +564,15 @@ function decodeSalt(value: string, method: string, path: string): Bytes16 {
   return bytes as Bytes16;
 }
 
+/**
+ * One request, or under `requireSlot` a poll until the indexer reaches the
+ * slot. Either way `context.timeoutMs` bounds the whole call.
+ */
 async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint }> }>>(
+  method: string,
   config: IndexerRpcConfig | undefined,
   context: RequestContext | undefined,
-  request: () => Promise<T>,
+  request: (context: RequestContext | undefined) => Promise<T>,
 ): Promise<T> {
   const rawConfig: unknown = config;
   if (
@@ -581,35 +587,43 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
     });
   }
   const target = config?.requireSlot;
-  if (target === undefined) return request();
+  if (target === undefined) return request(context);
   const poll = validatePollConfig(config?.poll ?? DEFAULT_INDEXER_POLL_CONFIG);
-  const attempts = poll.numRetries + 1;
   let latest: bigint | undefined;
-  let responses = 0;
-  try {
-    return await pollUntil(
-      request,
-      (response) => {
-        responses++;
-        latest = response.context.slot;
-        return latest >= target;
-      },
-      { config: poll, ...(context === undefined ? {} : { context }) },
-    );
-  } catch (cause) {
-    // Fewer responses than attempts means the schedule ended on a failure, so
-    // `cause` already carries the precise reason and its structured cause.
-    if (latest === undefined || responses !== attempts) throw cause;
-    if (!isClientError(cause) || cause.code !== "CLIENT_POLL_TIMED_OUT") throw cause;
-    throw new ClientError("CLIENT_INDEXER_NOT_CAUGHT_UP", {
-      details: {
-        target: target.toString(),
-        latest: latest.toString(),
-        attempts,
-      },
-    });
-  }
+  return await pollUntil(
+    request,
+    (response) => {
+      latest = response.context.slot;
+      return latest >= target;
+    },
+    {
+      config: poll,
+      ...(context === undefined ? {} : { context }),
+      method,
+      // The final attempt decides: an answer below the slot is a lag, a
+      // transient failure a timeout carrying its cause.
+      onTimeout: (exhausted, lastCause) =>
+        lastCause !== undefined || latest === undefined
+          ? new ClientError("CLIENT_POLL_TIMED_OUT", {
+              details: {
+                attempts: attempts(exhausted),
+                ...(lastCause === undefined ? {} : { lastCause }),
+              },
+            })
+          : new ClientError("CLIENT_INDEXER_NOT_CAUGHT_UP", {
+              details: {
+                target: target.toString(),
+                latest: latest.toString(),
+                attempts: attempts(exhausted),
+              },
+            }),
+    },
+  );
 }
+
+const JSON_RPC_MIN_CONTEXT_SLOT = -32016;
+const JSON_RPC_METHOD_NOT_FOUND = -32601;
+const JSON_RPC_INTERNAL_ERROR = -32603;
 
 export function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
@@ -617,8 +631,14 @@ export function wrapIndexer(cause: unknown, method: string): ClientError {
     cause instanceof ApiError && cause.code === "API_JSON_RPC"
       ? cause.details?.["rpcCode"]
       : undefined;
-  if (rpcCode === -32016) {
+  // `-32016` is a minimum context slot the indexer has not reached, and `-32603`
+  // is the indexer's internal error, a transient database failure as often as a
+  // bug, whose body Photon scrubs. Both are retried, as Rust `indexer_error` does.
+  if (rpcCode === JSON_RPC_MIN_CONTEXT_SLOT || rpcCode === JSON_RPC_INTERNAL_ERROR) {
     return new ClientError("CLIENT_INDEXER", { details: { method, retryable: true }, cause });
+  }
+  if (rpcCode === JSON_RPC_METHOD_NOT_FOUND) {
+    return new ClientError("CLIENT_UNSUPPORTED_RPC_METHOD", { details: { method }, cause });
   }
   const code = externalCode(cause);
   if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });

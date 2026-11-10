@@ -142,41 +142,33 @@ const ATTESTATION_RETRY_AFTER_CAP_SECS: u64 = 30;
 const PROVE_REQUEST_TIMEOUT_SECS: u64 = 600;
 #[cfg(feature = "reqwest")]
 const PROVE_CONNECT_TIMEOUT_SECS: u64 = 10;
-/// Per-request bound on a status poll.
-///
-/// The status endpoint reads one Redis key and returns; it is not the request
-/// that 600s was sized for. Sharing the prove timeout let a single hung poll
-/// block a worker for ten minutes, and since the poll loop retries, the delays
-/// stacked: a 220-worker run whose proofs had all finished or been reaped sat
-/// wedged for over half an hour, every worker parked inside a status GET.
-const STATUS_POLL_TIMEOUT_SECS: u64 = 30;
-/// Polling cadence and ceiling for async (queued) proofs. Redis-backed provers
-/// queue batch, transfer, and merge proofs and return a job handle immediately
-/// instead of blocking; the client then polls the status endpoint until the
-/// proof completes or `max_wait_secs` elapses. The first batch job loads a
-/// multi-GB proving key before proving, so the default ceiling is generous.
+/// Bound on one prover GET: a status poll, health, the proving-key catalog, the
+/// signed policy and attestation. Each reads a small answer, so a server that accepts the
+/// connection and never answers fails the request here instead of holding the
+/// caller for the 600s a prove may take. A status poll is also cut at the
+/// queued proof's remaining wait.
+const GET_TIMEOUT_SECS: u64 = 30;
+/// Polling cadence and ceiling for queued proofs. A Redis-backed prover queues
+/// proofs and returns a job handle at once; the client then polls the status
+/// endpoint until the proof completes or `max_wait_secs` elapses.
 ///
 /// Held on the [`ProverClient`] and overridable via
-/// [`ProverClient::with_async_poll_config`], mirroring light-client's
-/// `RetryConfig` (a client-held config with a `Default`).
+/// [`ProverClient::with_async_poll_config`].
 #[derive(Clone, Copy, Debug)]
 pub struct AsyncPollConfig {
-    /// Seconds between status polls (floored at 1 so it can't spin).
+    /// Ceiling of the gap between status polls. Polling starts at 25ms and
+    /// doubles up to this, so a fast proof is collected quickly and a slow one
+    /// is not polled every 25ms for its whole duration.
     pub poll_interval_secs: u64,
-    /// Wall-clock seconds to wait for a queued proof before returning a timeout
-    /// error.
-    ///
-    /// Wall clock, measured from the first poll. It used to be a running total
-    /// of time *slept*, which bounds nothing: the time inside each request did
-    /// not count, so with a 600s request timeout this "1200s" ceiling permitted
-    /// well over a day of waiting.
+    /// Wall-clock seconds from the first poll to wait for a queued proof
+    /// before returning a timeout error.
     pub max_wait_secs: u64,
 }
 
 impl Default for AsyncPollConfig {
     fn default() -> Self {
         Self {
-            poll_interval_secs: 3,
+            poll_interval_secs: 1,
             max_wait_secs: 1200,
         }
     }
@@ -671,17 +663,14 @@ fn next_poll_interval_ms(current_ms: u64, cap_ms: u64) -> u64 {
         .min(cap_ms.max(INITIAL_POLL_MS))
 }
 
-/// How long is left before the deadline, or `Err` if it has passed.
-///
-/// Shared by the blocking and async poll loops so one definition of "expired"
-/// covers both. `started`/`max_wait` are wall clock: the previous version added
-/// up only the sleeps, which meant time spent inside a request was free and the
-/// ceiling bounded nothing.
+/// `wait_ms`, cut at the queued proof's deadline, or `Err` once that has passed.
+/// `started` and `max_wait` are wall clock, so time spent inside requests
+/// counts against the ceiling.
 fn remaining_before_deadline(
     job_id: &str,
     started: Instant,
     max_wait: Duration,
-    poll_interval_ms: u64,
+    wait_ms: u64,
 ) -> Result<Duration, ClientError> {
     let elapsed = started.elapsed();
     let Some(remaining) = max_wait.checked_sub(elapsed) else {
@@ -690,7 +679,7 @@ fn remaining_before_deadline(
             elapsed.as_secs()
         )));
     };
-    Ok(Duration::from_millis(poll_interval_ms).min(remaining))
+    Ok(Duration::from_millis(wait_ms).min(remaining))
 }
 
 impl AsyncProverClient {
@@ -949,12 +938,9 @@ impl AsyncProverClient {
 
     async fn get(&self, path: &str) -> Result<(StatusCode, String), ClientError> {
         let url = self.endpoint.url(path)?;
-        self.call(Call::get(
-            &url,
-            Duration::from_secs(STATUS_POLL_TIMEOUT_SECS),
-        ))
-        .await
-        .map_err(|e| e.into_client_error(&get_label(path)))
+        self.call(Call::get(&url, Duration::from_secs(GET_TIMEOUT_SECS)))
+            .await
+            .map_err(|e| e.into_client_error(&get_label(path)))
     }
 
     async fn call(&self, call: Call<'_>) -> Result<(StatusCode, String), CallError> {
@@ -1010,7 +996,7 @@ impl AsyncProverClient {
         session
             .policy(|url| async move {
                 let request = HttpRequest::get(url)
-                    .with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                    .with_timeout(Duration::from_secs(GET_TIMEOUT_SECS))
                     .with_body_limit(MAX_SIGNED_POLICY_BYTES);
                 let response = self
                     .send_http(request)
@@ -1042,7 +1028,7 @@ impl AsyncProverClient {
             attempt += 1;
             let nonce = TeeSession::nonce()?;
             let request = HttpRequest::get(self.endpoint.attestation_url(&nonce)?)
-                .with_timeout(Duration::from_secs(STATUS_POLL_TIMEOUT_SECS))
+                .with_timeout(Duration::from_secs(GET_TIMEOUT_SECS))
                 .with_body_limit(MAX_ATTESTATION_BYTES);
             let response = match self.send_http(request).await {
                 Ok(response) => response,
@@ -1165,8 +1151,9 @@ impl AsyncProverClient {
         let started = Instant::now();
         let mut interval_ms = INITIAL_POLL_MS;
         loop {
-            let call = Call::get(&url, Duration::from_secs(STATUS_POLL_TIMEOUT_SECS));
-            let (status, text) = match self.call(call).await {
+            let timeout =
+                remaining_before_deadline(job_id, started, max_wait, GET_TIMEOUT_SECS * 1_000)?;
+            let (status, text) = match self.call(Call::get(&url, timeout)).await {
                 Ok(response) => response,
                 Err(CallError::Refused(error)) => return Err(error),
                 Err(CallError::Connect(_) | CallError::Read(_)) => {
@@ -2815,6 +2802,39 @@ mod tests {
         assert_paths(
             &server.requests(),
             ["/prove/test", "/prove/test/status?jobId=job-slow-status"],
+        );
+    }
+
+    /// A status GET is cut at the remaining wait, so a status endpoint that
+    /// holds the request open cannot keep the client past `max_wait_secs`.
+    #[test]
+    fn a_hung_status_poll_ends_at_the_max_wait() {
+        let server = MockServer::respond_with(vec![
+            MockResponse::json(202, json!({ "jobId": "job-hung-status" })),
+            MockResponse::slow_json(
+                200,
+                json!({ "status": "processing" }),
+                Duration::from_secs(4),
+            ),
+        ]);
+
+        let started = Instant::now();
+        let err = queued_prover_client(server.url())
+            .send("{}", Delivery::Queued, &test_key())
+            .expect_err("the hung poll must time out");
+        let elapsed = started.elapsed();
+
+        assert!(
+            err.to_string().contains("async proof timed out"),
+            "expected a timeout, got {err}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "gave up only after {elapsed:?}"
+        );
+        assert_paths(
+            &server.requests(),
+            ["/prove/test", "/prove/test/status?jobId=job-hung-status"],
         );
     }
 

@@ -686,6 +686,45 @@ describe("attestation retries", () => {
     }
   });
 
+  it("asks again for an attestation whose body is cut off", async () => {
+    vi.useFakeTimers();
+    try {
+      const cutOff = (): Response =>
+        new Response(
+          new ReadableStream({
+            pull: (controller) => controller.error(new TypeError("connection reset")),
+          }),
+        );
+      const session = new TeeSession(livePolicy);
+      const attestationUrl = new URL("https://prover.invalid/attestation");
+      const answers = [cutOff, () => Response.json({ quote: "00" })];
+      const fetch = vi.fn<typeof globalThis.fetch>(() => {
+        const answer = answers.shift();
+        if (answer === undefined) throw new Error("unexpected request");
+        return Promise.resolve(answer());
+      });
+      const attempt = session
+        .attest(fetch, attestationUrl, composeSignal(undefined, "attest"))
+        .catch((caught: unknown) => caught);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await attempt).toMatchObject({ details: { check: "malformed_attestation" } });
+      expect(fetch).toHaveBeenCalledTimes(2);
+
+      const lost = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(cutOff()));
+      const exhausted = session
+        .attest(lost, attestationUrl, composeSignal(undefined, "attest"))
+        .catch((caught: unknown) => caught);
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(await exhausted).toMatchObject({
+        code: "CLIENT_PROVER_TEE_ATTESTATION",
+        details: { check: "unavailable" },
+      });
+      expect(lost).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lets a joining call time out while the shared attestation hangs", async () => {
     const hung = vi.fn<typeof globalThis.fetch>(() => new Promise<Response>(() => undefined));
     const session = new TeeSession(livePolicy);
@@ -882,6 +921,22 @@ describe("a prover that lost the attested key", () => {
       );
     expect(
       await calls("aws-nitro", broken, { code: expect.stringMatching(/^CLIENT_PROVER_/u) }),
+    ).toEqual([attestation, health]);
+  });
+
+  it("reports an encrypted answer cut off mid-body as a request failure", async () => {
+    const cutOff = (): Response =>
+      new Response(
+        new ReadableStream({
+          pull: (controller) => controller.error(new TypeError("connection reset")),
+        }),
+        { headers: { "Spr-Tee": "v1" } },
+      );
+    expect(
+      await calls("aws-nitro", cutOff, {
+        code: "CLIENT_REQUEST",
+        details: { method: "health", retryable: true },
+      }),
     ).toEqual([attestation, health]);
   });
 });

@@ -2,8 +2,12 @@
 export const MAX_ATTEMPTS = 3;
 /** Wait between attempts, mirroring `PROVE_RETRY_BACKOFF_SECS`. */
 export const RETRY_DELAY_MS = 2_000n;
-/** Bound on one attestation request, mirroring `STATUS_POLL_TIMEOUT_SECS`. */
-export const ATTESTATION_TIMEOUT_MS = 30_000;
+/**
+ * Bound on one prover GET: attestation, a status poll, health and the proving-key
+ * catalog, mirroring the Rust client's `GET_TIMEOUT_SECS`. A caller's own
+ * `timeoutMs` replaces it for health and the catalog.
+ */
+export const GET_TIMEOUT_MS = 30_000;
 const RETRY_AFTER_CAP_MS = 30_000n;
 
 const IMF_FIXDATE =
