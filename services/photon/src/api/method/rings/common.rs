@@ -55,17 +55,20 @@ pub(super) fn validate_nullifiers(nullifiers: &[Hash]) -> Result<(), PhotonApiEr
     Ok(())
 }
 
+/// One proof's inputs: at most 52, for `merge_52_1`.
+pub(crate) const MAX_PROOF_LEAVES: usize = 64;
+
 pub(super) fn validate_proof_leaves(leaves: &[Hash]) -> Result<(), PhotonApiError> {
     if leaves.is_empty() {
         return Err(PhotonApiError::ValidationError(
             "At least one leaf must be provided".to_string(),
         ));
     }
-    if len_exceeds_page_limit(leaves.len()) {
+    if leaves.len() > MAX_PROOF_LEAVES {
         return Err(PhotonApiError::ValidationError(format!(
             "Too many leaves requested {}. Maximum allowed: {}",
             leaves.len(),
-            PAGE_LIMIT
+            MAX_PROOF_LEAVES
         )));
     }
     if let Some(leaf) = leaves.iter().find(|leaf| !is_bn254_field_element(&leaf.0)) {
