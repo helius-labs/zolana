@@ -1,5 +1,7 @@
+use litesvm::LiteSVM;
 use solana_account::{Account, ReadableAccount};
 use solana_address::Address;
+use solana_clock::{Clock, MAX_PROCESSING_AGE};
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
@@ -192,6 +194,25 @@ impl Rpc for SprProgramTest {
     }
 
     fn get_latest_blockhash(&self) -> Result<(Hash, u64), ClientError> {
-        Ok((self.svm.latest_blockhash(), 0))
+        Ok((
+            self.svm.latest_blockhash(),
+            last_valid_block_height(&self.svm),
+        ))
     }
+
+    fn get_block_height(&self) -> Result<u64, ClientError> {
+        Ok(block_height(&self.svm))
+    }
+}
+
+/// litesvm runs one block per slot, so its slot is its block height.
+fn block_height(svm: &LiteSVM) -> u64 {
+    svm.get_sysvar::<Clock>().slot
+}
+
+/// The last block height at which the latest blockhash lands, as a validator
+/// reports it: [`MAX_PROCESSING_AGE`] blocks on. litesvm itself accepts its
+/// latest blockhash at any slot, until the blockhash is expired.
+pub(crate) fn last_valid_block_height(svm: &LiteSVM) -> u64 {
+    block_height(svm).saturating_add(MAX_PROCESSING_AGE as u64)
 }

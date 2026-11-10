@@ -12,8 +12,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use spr_client::{
-    IndexerRequirement, MergeSubmission, ProofDataSource, ProverClient, Rpc,
-    SignedPrivateTransaction, Submission,
+    IndexerRequirement, MergeSubmission, ProverClient, Rpc, SignedPrivateTransaction, Submission,
 };
 use spr_interface::{instruction::instruction_data::transact::OwnerTag, state::read_tree_id};
 use spr_keypair::ShieldedKeypair;
@@ -143,9 +142,7 @@ fn a_client_over_the_harness_sends_a_transfer_with_account_tagged_padding() {
         expected_tags
     );
 
-    let client = harness
-        .into_client(ProverClient::local())
-        .with_proof_data_source(ProofDataSource::Client);
+    let client = harness.into_client(ProverClient::local());
     let signed = SignedPrivateTransaction {
         transaction,
         settlement_transfers: Vec::new(),
@@ -195,9 +192,7 @@ fn a_client_submission_proves_the_owner_authorization_for_a_relayer() {
         transaction,
         settlement_transfers: Vec::new(),
     };
-    let client = harness
-        .into_client(ProverClient::local())
-        .with_proof_data_source(ProofDataSource::Client);
+    let client = harness.into_client(ProverClient::local());
     // A missing EdDSA capability keeps the default rail's owner signature
     // requirement. Having only the payer must never authorize the sender.
     let default = Submission::new(&signed, payer.pubkey(), &sender)
@@ -249,9 +244,7 @@ fn a_client_over_the_harness_merges_a_wallets_utxos() {
     let nullifiers: Vec<_> = inputs.iter().map(|input| input.nullifier).collect();
     write_merging_record(&mut harness, owner.pubkey(), &wallet);
 
-    let client = harness
-        .into_client(ProverClient::local())
-        .with_proof_data_source(ProofDataSource::Client);
+    let client = harness.into_client(ProverClient::local());
     let merge = MergeTransaction::new(inputs)
         .expect("merge")
         .with_output_tree_id(tree_id)

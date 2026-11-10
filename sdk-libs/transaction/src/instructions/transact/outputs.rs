@@ -311,6 +311,11 @@ impl ConfidentialTransaction {
             .sum()
     }
 
+    /// What the inputs and the public transfers leave of `asset` after the
+    /// declared outputs. When they fall short, the error reports the totals,
+    /// as input selection does: `available` is what comes in (inputs plus a
+    /// net deposit) and `requested` what goes out (outputs plus a net
+    /// withdrawal).
     pub(super) fn change(&self, asset: &Mint) -> Result<u64, TransactionError> {
         let public = self.public_amount(asset)?;
         let declared_output_sum: i128 = self
@@ -319,17 +324,22 @@ impl ConfidentialTransaction {
             .filter(|output| &output.asset == asset)
             .map(|output| i128::from(output.amount))
             .sum();
-        let leftover = self
+        let available = self
             .input_sum(asset)
-            .checked_add(public)
-            .and_then(|v| v.checked_sub(declared_output_sum))
+            .checked_add(public.max(0))
             .ok_or(TransactionError::SelectedBalanceOverflow)?;
-        if leftover < 0 {
+        let requested = declared_output_sum
+            .checked_sub(public.min(0))
+            .ok_or(TransactionError::SelectedBalanceOverflow)?;
+        let amount = |value: i128| {
+            u64::try_from(value).map_err(|_| TransactionError::SelectedBalanceOverflow)
+        };
+        if requested > available {
             return Err(TransactionError::InsufficientBalance {
-                requested: (-leftover) as u64,
-                available: 0,
+                requested: amount(requested)?,
+                available: amount(available)?,
             });
         }
-        u64::try_from(leftover).map_err(|_| TransactionError::SelectedBalanceOverflow)
+        amount(available - requested)
     }
 }

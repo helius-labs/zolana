@@ -140,10 +140,10 @@ every merged amount; `MergeSubmission::with_prover` keeps it in process.
 Any indexer serves a client. A blocking one answers the indexer half of
 `Rpc` and implements `WitnessReader`, which has a default over `Rpc`:
 `impl WitnessReader for MyIndexer {}`. `spr_program_test::SprProgramTest`
-is one: `harness.into_client(ProverClient::local())
-.with_proof_data_source(ProofDataSource::Client)` is a client whose RPC and
-indexer are the litesvm harness, so a transfer proves, sends and confirms in
-one process beside a prover server.
+is one: `harness.into_client(ProverClient::local())` is a client whose RPC
+and indexer are the litesvm harness, so a transfer proves, sends and confirms
+in one process beside a prover server. It fetches the proof data from the
+harness itself, since the prover's indexer cannot see the litesvm trees.
 
 # Prover data source
 
