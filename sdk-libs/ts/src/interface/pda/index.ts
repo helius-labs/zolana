@@ -10,6 +10,7 @@ import {
 
 import { copyBytes, encodeBase58, fail, sha256, unsigned, unsignedBigint } from "../internal.js";
 import {
+  BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
   SHIELDED_POOL_CPI_AUTHORITY,
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
@@ -111,6 +112,18 @@ export async function ringAuthAddress(ringProgramId: Address): Promise<Address> 
 
 export async function protocolConfigAddress(): Promise<Address> {
   return (await derive("protocol_config"))[0];
+}
+
+/**
+ * Named for Rust's `pda::program_data`: the loader account holding the shielded
+ * pool's bytecode and upgrade authority.
+ */
+export async function programDataAddress(): Promise<Address> {
+  const [address] = await getProgramDerivedAddress({
+    programAddress: BPF_LOADER_UPGRADEABLE_PROGRAM_ID,
+    seeds: [addressEncoder.encode(SHIELDED_POOL_PROGRAM_ID)],
+  });
+  return address;
 }
 
 export function solInterfaceAddress(): Address {

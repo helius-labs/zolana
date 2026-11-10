@@ -1,14 +1,27 @@
 import { createAssociatedTokenAccountInstruction } from "../interface/instructions/index.js";
-import { SPL_TOKEN_PROGRAM_ID } from "../interface/program.js";
 import { associatedTokenAddress, splInterfaceWithBump } from "../interface/pda/index.js";
 import {
   DepositAsset,
-  TransactWithdrawal,
+  TransactSettlement,
   type Address,
   type Instruction,
+  type TransactWithdrawal,
 } from "../interface/types.js";
+import { TransactionError } from "../transaction/error.js";
 import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { SOL_MINT } from "../transaction/asset.js";
+
+/**
+ * The token program an SPL settlement of `mint` uses. There is no default: the
+ * associated token account depends on it, and guessing the classic program for
+ * a Token-2022 mint settles against an account that does not exist.
+ */
+function requiredTokenProgram(mint: Address, tokenProgram: Address | null | undefined): Address {
+  if (tokenProgram === undefined || tokenProgram === null) {
+    throw new TransactionError("TRANSACTION_MISSING_SPL_TOKEN_PROGRAM", { mint });
+  }
+  return tokenProgram;
+}
 
 /** @internal Derives the depositor's associated token account when none is named. */
 export async function resolveDepositSettlement(
@@ -21,7 +34,7 @@ export async function resolveDepositSettlement(
   missingAccount: () => Error,
 ): Promise<DepositAsset> {
   if (input.asset === SOL_MINT) return DepositAsset.sol();
-  const tokenProgram = input.splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
+  const tokenProgram = requiredTokenProgram(input.asset, input.splTokenProgram);
   const sourceTokenAccount =
     input.splTokenAccount ??
     (input.depositor === undefined
@@ -40,17 +53,17 @@ export async function resolveWithdrawalSettlement(
   if (asset === SOL_MINT) {
     return {
       target: WithdrawalTarget.sol({ recipient }),
-      accounts: TransactWithdrawal.sol({ recipient }),
+      accounts: TransactSettlement.solWithdrawal({ recipient }),
     };
   }
-  const tokenProgram = splTokenProgram ?? SPL_TOKEN_PROGRAM_ID;
+  const tokenProgram = requiredTokenProgram(asset, splTokenProgram);
   const [recipientTokenAccount, [splTokenInterface, splInterfaceBump]] = await Promise.all([
     associatedTokenAddress(recipient, asset, tokenProgram),
     splInterfaceWithBump(asset),
   ]);
   return {
     target: WithdrawalTarget.spl({ recipientTokenAccount, splTokenInterface, splInterfaceBump }),
-    accounts: TransactWithdrawal.spl({
+    accounts: TransactSettlement.splWithdrawal({
       mint: asset,
       splTokenInterface,
       recipientTokenAccount,
@@ -73,7 +86,7 @@ export async function withdrawalSetupInstructions(
       payer: input.payer,
       owner: input.recipient,
       mint: input.asset,
-      ...(input.splTokenProgram === undefined ? {} : { tokenProgram: input.splTokenProgram }),
+      tokenProgram: requiredTokenProgram(input.asset, input.splTokenProgram),
     }),
   ];
 }

@@ -27,9 +27,10 @@ import {
   type InputUtxo,
   type MergeTransactInstructionData,
   type DepositSplAccounts,
+  type InterfaceTransfer,
   type TransactInstructionData,
+  type TransactSettlement,
   type TreeContext,
-  type TransactWithdrawal,
   type TreeFeeSchedule,
 } from "../types.js";
 import { circuitCacheAccess } from "../types.js";
@@ -38,6 +39,7 @@ import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
   cacheAddress,
   nullifierPdaAddress,
+  programDataAddress,
   protocolConfigAddress,
   solInterfaceAddress,
   splAssetCounterAddress,
@@ -332,18 +334,53 @@ export async function depositInstruction(
   );
 }
 
-function settlementAccounts(withdrawal?: TransactWithdrawal): AccountMeta[] {
-  if (withdrawal === undefined) return [];
-  if (withdrawal.kind === "sol") {
-    return [meta(SOL_INTERFACE, false, true), meta(withdrawal.recipient, false, true)];
+/**
+ * One account group per interface transfer, in transfer order, each of its
+ * transfer's kind. Mirrors Rust `append_interface_transfer_accounts`, which the
+ * program loader reads back group by group.
+ */
+function settlementAccounts(
+  transfers: readonly InterfaceTransfer[],
+  settlements: readonly TransactSettlement[],
+): AccountMeta[] {
+  if (settlements.length !== transfers.length) {
+    fail("INTERFACE_INVALID_SHAPE", {
+      name: "settlements",
+      expected: transfers.length,
+      actual: settlements.length,
+    });
   }
-  return [
-    meta(SHIELDED_POOL_CPI_AUTHORITY, false, false),
-    meta(withdrawal.mint, false, false),
-    meta(withdrawal.splTokenInterface, false, true),
-    meta(withdrawal.recipientTokenAccount, false, true),
-    meta(withdrawal.tokenProgram, false, false),
-  ];
+  return transfers.flatMap((transfer, index) => {
+    const settlement = settlements[index];
+    const name = `settlements[${String(index)}]`;
+    if (settlement?.kind !== transfer.kind) {
+      fail("INTERFACE_INVALID_SHAPE", { name, expected: transfer.kind, actual: settlement?.kind });
+    }
+    switch (settlement.kind) {
+      case "solDeposit":
+        return [meta(SOL_INTERFACE, false, true), meta(settlement.depositor, true, true)];
+      case "solWithdrawal":
+        return [meta(SOL_INTERFACE, false, true), meta(settlement.recipient, false, true)];
+      case "splDeposit":
+        return [
+          meta(settlement.mint, false, false),
+          meta(settlement.splTokenInterface, false, true),
+          meta(settlement.tokenAuthority, true, false),
+          meta(settlement.sourceTokenAccount, false, true),
+          meta(settlement.tokenProgram, false, false),
+        ];
+      case "splWithdrawal":
+        return [
+          meta(SHIELDED_POOL_CPI_AUTHORITY, false, false),
+          meta(settlement.mint, false, false),
+          meta(settlement.splTokenInterface, false, true),
+          meta(settlement.recipientTokenAccount, false, true),
+          meta(settlement.tokenProgram, false, false),
+        ];
+      default:
+        return fail("INTERFACE_INVALID_SHAPE", { name });
+    }
+  });
 }
 
 /**
@@ -413,7 +450,8 @@ export interface TransactAccountsInput {
    * authorizes no spend, so a sponsor can pay for a spend it does not own.
    */
   readonly ownerSigners: readonly SignerAccount[];
-  readonly withdrawal?: TransactWithdrawal;
+  /** One per entry of `data.interfaceTransfers`, in that order and of its kind. */
+  readonly settlements?: readonly TransactSettlement[];
   readonly cache?: TransactCacheAccounts;
   readonly data: TransactInstructionData;
 }
@@ -424,6 +462,7 @@ async function transactAccounts(
   signerPdas: readonly Address[],
 ): Promise<AccountMeta[]> {
   validateSingleInputTree(input.data.inputs, input.data.treeContexts);
+  const settlements = settlementAccounts(input.data.interfaceTransfers, input.settlements ?? []);
   return [
     meta(input.payer, true, true),
     meta(input.outputTree, false, true),
@@ -436,7 +475,7 @@ async function transactAccounts(
     )),
     ...input.ownerSigners.map((signer) => meta(signer, true, false)),
     ...signerPdas.map((pda) => meta(pda, false, false)),
-    ...settlementAccounts(input.withdrawal),
+    ...settlements,
     ...cacheAccountMetas(input.cache),
   ];
 }
@@ -453,7 +492,7 @@ export async function transactInstruction(input: TransactAccountsInput): Promise
 /**
  * Mirrors Rust `Transact::cpi_accounts`: the `transactInstruction` accounts
  * with the calling program's signing PDAs listed, readonly and unsigned,
- * after the owner signers and before the withdrawal and cache accounts. The
+ * after the owner signers and before the settlement and cache accounts. The
  * program signs for those PDAs inside its CPI.
  *
  * @experimental
@@ -467,9 +506,11 @@ export async function transactCpiAccounts(
 
 /**
  * Mirrors Rust `RingTransact::instruction`. `ringAuth` is unsigned here, the ring
- * program signs it inside its CPI. `inputs` are the payload's spent inputs. The
- * input trees, then one nullifier PDA per input under its own tree, follow the
- * fixed prefix ending in `ringAuth`.
+ * program signs it inside its CPI. `inputs`, `treeContexts` and
+ * `interfaceTransfers` are the payload's. The input trees, then one nullifier
+ * PDA per input under its own tree, follow the fixed prefix ending in
+ * `ringAuth`; one settlement group per interface transfer follows the owner
+ * signers.
  */
 export async function ringTransactAccounts(
   input: Readonly<{
@@ -480,8 +521,10 @@ export async function ringTransactAccounts(
     ringAuth: Address;
     inputs: readonly InputUtxo[];
     treeContexts: readonly TreeContext[];
+    interfaceTransfers: readonly InterfaceTransfer[];
     ownerSigners?: readonly SignerAccount[];
-    withdrawal?: TransactWithdrawal;
+    /** One per entry of `interfaceTransfers`, in that order and of its kind. */
+    settlements?: readonly TransactSettlement[];
     cache?: TransactCacheAccounts;
   }>,
 ): Promise<readonly AccountMeta[]> {
@@ -494,6 +537,7 @@ export async function ringTransactAccounts(
       reason: "one distinct input tree per tree context",
     });
   }
+  const settlements = settlementAccounts(input.interfaceTransfers, input.settlements ?? []);
   const nullifierPdas = await Promise.all(
     input.inputs.map((spent) => {
       const tree = input.inputTrees[spent.treeIndex];
@@ -512,14 +556,21 @@ export async function ringTransactAccounts(
     ...input.inputTrees.map((tree) => meta(tree, false, true)),
     ...nullifierPdas.map((pda) => meta(pda, false, true)),
     ...(input.ownerSigners ?? []).map((signer) => meta(signer, true, false)),
-    ...settlementAccounts(input.withdrawal),
+    ...settlements,
     ...cacheAccountMetas(input.cache),
   ];
 }
 
+/**
+ * Mirrors Rust `CreateProtocolConfig::instruction`. `feePayer` funds the config
+ * account. `initializationAuthority` must be the shielded pool's upgrade
+ * authority, which the program reads from its own ProgramData account; it may
+ * be the same key as `feePayer`.
+ */
 export async function createProtocolConfigInstruction(
   input: Readonly<{
-    authority: SignerAccount;
+    feePayer: SignerAccount;
+    initializationAuthority: SignerAccount;
     protocolAuthority: Address;
     treeCreationAuthority: Address;
     treeCreationIsPermissionless: boolean;
@@ -540,10 +591,17 @@ export async function createProtocolConfigInstruction(
     .bool(input.splInterfaceCreationIsPermissionless, "splInterfaceCreationIsPermissionless")
     .bytes(addressBytes(input.feeAuthority, "feeAuthority"))
     .finish();
+  const [protocolConfig, programData] = await Promise.all([
+    protocolConfigAddress(),
+    programDataAddress(),
+  ]);
   return instruction(tagged(InstructionTag.createProtocolConfig, payload), [
-    meta(input.authority, true, true),
-    meta(await protocolConfigAddress(), false, true),
+    meta(input.feePayer, true, true),
+    meta(input.initializationAuthority, true, false),
+    meta(protocolConfig, false, true),
     meta(SYSTEM_PROGRAM, false, false),
+    meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+    meta(programData, false, false),
   ]);
 }
 

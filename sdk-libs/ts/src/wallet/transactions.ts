@@ -24,6 +24,7 @@ import {
   createWithdrawal,
   type TransferDestination,
 } from "./actions.js";
+import { resolveSplTokenProgram } from "./asset-metadata.js";
 import { wrapWalletError } from "./error.js";
 import { authorizePrivateTransaction } from "./private-transaction.js";
 import { withdrawalSetupInstructions } from "../flows/settlement.js";
@@ -75,6 +76,7 @@ export interface WithdrawalTransactionParams extends PrivateTransactionParams {
   readonly recipient: Address;
   readonly asset?: Address;
   readonly amount: bigint;
+  /** The mint's token program; read from the mint account when omitted. */
   readonly splTokenProgram?: Address | null;
 }
 
@@ -140,11 +142,17 @@ export async function buildWithdrawalTransaction(
 ): Promise<Transaction> {
   try {
     const asset = input.asset ?? SOL_MINT;
+    const tokenProgram = await resolveSplTokenProgram(
+      input.client,
+      asset,
+      input.splTokenProgram,
+      context,
+    );
     const setupInstructions = await withdrawalSetupInstructions({
       payer: input.feePayer,
       recipient: input.recipient,
       asset,
-      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
+      ...(tokenProgram === undefined ? {} : { splTokenProgram: tokenProgram }),
     });
     const created = await createWithdrawal({
       wallet: input.wallet,
@@ -152,7 +160,7 @@ export async function buildWithdrawalTransaction(
       recipient: input.recipient,
       asset,
       amount: input.amount,
-      ...(input.splTokenProgram === undefined ? {} : { splTokenProgram: input.splTokenProgram }),
+      ...(tokenProgram === undefined ? {} : { splTokenProgram: tokenProgram }),
     });
     return await buildAuthorizedTransaction(input, created.transaction, setupInstructions, context);
   } catch (cause) {

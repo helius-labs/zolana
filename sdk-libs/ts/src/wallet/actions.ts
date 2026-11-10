@@ -4,7 +4,7 @@ import {
   type Address,
   type Bytes32,
   type RequestContext,
-  TransactWithdrawal,
+  type TransactWithdrawal,
 } from "../interface/types.js";
 import { MAX_INPUT_TREES } from "../interface/tree-slot.js";
 import { ShieldedAddress } from "../keypair/shielded.js";

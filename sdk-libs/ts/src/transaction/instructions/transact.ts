@@ -9,6 +9,7 @@ import {
 import { InstructionTag, SOL_INTERFACE } from "../../interface/program.js";
 import {
   CONFIDENTIAL_EDDSA_SHAPES,
+  MAX_OUTPUTS,
   RING_AUTHORITY_MAX_WIDTH,
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
   isTransactShape,
@@ -251,8 +252,12 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
   if (data.outputs.length !== data.resolvedOwnerTags.length) {
     throw new TransactionError("TRANSACTION_OUTPUT_TAG_MISMATCH");
   }
-  if (data.outputs.length > 0xffff || data.messages.length > 0xffff) {
-    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
+  // The program reads at most `MAX_OUTPUTS` outputs; the message count is a u8.
+  if (data.outputs.length > MAX_OUTPUTS || data.messages.length > 0xff) {
+    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS", {
+      outputs: data.outputs.length,
+      messages: data.messages.length,
+    });
   }
   const checkedInteger = (value: bigint, byteLength: number, signed = false): void => {
     const bits = byteLength * 8;
