@@ -311,6 +311,7 @@ fn verify(
     }
     MergeProofStatement {
         n_inputs: result.nullifiers.len(),
+        ring: false,
         public_input_hash: result.public_input_hash,
     }
     .verify(proof)

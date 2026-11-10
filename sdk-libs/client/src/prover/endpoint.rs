@@ -1,14 +1,15 @@
 //! Prover URLs, and keeping a gateway `api-key` out of printed ones.
 
+#[cfg(feature = "reqwest")]
+use std::borrow::Cow;
+
+use spr_api::redact_api_key;
 use url::{Host, Url};
 
 use crate::{
     error::ClientError,
     prover::{tee::ATTESTATION_PATH, ExpectedProvingKey},
 };
-
-const API_KEY: &str = "api-key";
-const REDACTED: &str = "redacted";
 
 /// A prover base URL. Request paths go before its query, so every query
 /// parameter, a gateway `api-key` among them, rides on every request.
@@ -87,7 +88,10 @@ impl ProverEndpoint {
     }
 
     pub(crate) fn redacted(&self) -> String {
-        redact_api_key(self.base.as_ref().map_or("", Url::as_str))
+        self.base.as_ref().map_or_else(
+            || "invalid URL".to_owned(),
+            |url| redact_api_key(url.as_str()).into_owned(),
+        )
     }
 }
 
@@ -101,48 +105,17 @@ pub(crate) fn scrub(mut error: reqwest::Error) -> reqwest::Error {
     error
 }
 
-/// `url` with any `api-key` query value masked, for printing. A URL without a
-/// key comes back as given.
-pub fn redact_api_key(url: &str) -> String {
-    match Url::parse(url) {
-        Ok(mut parsed) if has_api_key(&parsed) => {
-            redact_in_place(&mut parsed);
-            parsed.into()
-        }
-        Ok(_) => url.to_string(),
-        Err(_) => "invalid URL".to_string(),
-    }
-}
-
-fn is_api_key(pair: &str) -> bool {
-    pair.split_once('=')
-        .is_some_and(|(name, _)| name == API_KEY)
-}
-
-fn has_api_key(url: &Url) -> bool {
-    url.query()
-        .is_some_and(|query| query.split('&').any(is_api_key))
-}
-
-/// Rewrites only the key's value, so the other parameters keep their encoding.
+/// Masks the `api-key` value in place with [`redact_api_key`]. A URL that would
+/// not parse once masked, which masking a query value cannot produce, loses its
+/// whole query instead.
+#[cfg(feature = "reqwest")]
 fn redact_in_place(url: &mut Url) {
-    if !has_api_key(url) {
-        return;
+    if let Cow::Owned(redacted) = redact_api_key(url.as_str()) {
+        match Url::parse(&redacted) {
+            Ok(redacted) => *url = redacted,
+            Err(_) => url.set_query(None),
+        }
     }
-    let masked = url
-        .query()
-        .unwrap_or_default()
-        .split('&')
-        .map(|pair| {
-            if is_api_key(pair) {
-                format!("{API_KEY}={REDACTED}")
-            } else {
-                pair.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("&");
-    url.set_query(Some(&masked));
 }
 
 #[cfg(test)]
@@ -241,19 +214,19 @@ mod tests {
     }
 
     #[test]
-    fn only_the_key_value_is_masked() {
+    fn the_printed_endpoint_masks_only_the_key_value() {
         assert_eq!(
-            redact_api_key("https://gateway.invalid/v1/spr?a=%20x&api-key=secret&b=2"),
+            ProverEndpoint::parse("https://gateway.invalid/v1/spr?a=%20x&api-key=secret&b=2")
+                .redacted(),
             "https://gateway.invalid/v1/spr?a=%20x&api-key=redacted&b=2"
         );
         assert_eq!(
-            redact_api_key("http://127.0.0.1:3001"),
-            "http://127.0.0.1:3001"
+            ProverEndpoint::parse("http://127.0.0.1:3001").redacted(),
+            "http://127.0.0.1:3001/"
         );
         assert_eq!(
-            redact_api_key("https://prover.invalid/?api-keys=not-the-key"),
-            "https://prover.invalid/?api-keys=not-the-key"
+            ProverEndpoint::parse("not a url ?api-key=secret").redacted(),
+            "invalid URL"
         );
-        assert_eq!(redact_api_key("not a url ?api-key=secret"), "invalid URL");
     }
 }

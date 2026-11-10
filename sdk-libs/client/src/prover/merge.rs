@@ -3,7 +3,7 @@ pub use public_inputs::{MergePublicInputBinding, MergePublicInputs};
 
 use num_bigint::BigUint;
 use solana_address::Address;
-use spr_hasher::primitives::pack_be;
+use spr_hasher::primitives::{pack_be, right_align};
 use spr_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -31,7 +31,7 @@ use spr_transaction::{
 use crate::{
     error::ClientError,
     prover::{
-        field::{be, right_align, right_align_slice},
+        field::{be, right_align_slice},
         transact::{
             assembly::{
                 assemble_inputs, assemble_outputs, private_tx_hash, without_compact_padding,

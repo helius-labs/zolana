@@ -106,7 +106,7 @@ fn run_check(opts: VksCheckOptions) -> Result<()> {
     if problems.is_empty() {
         if let Some(prover_url) = opts.prover_url {
             // Only compare prover keys once the program's key set matched.
-            let shown = redact_api_key(&prover_url);
+            let shown = redact_api_key(&prover_url).into_owned();
             let checked = (|| -> Result<()> {
                 let prover = opts.tee.apply(ProverClient::new(prover_url))?;
                 if prover.has_tee() {

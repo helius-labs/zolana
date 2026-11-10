@@ -19,8 +19,7 @@ use crate::{
     prover::{
         cache::CacheSelection,
         client::{Delivery, ProveRequest},
-        field::be,
-        indexed::hex_field,
+        field::{be, hex_field},
         json::to_json_ring,
         proving_key::ExpectedProvingKey,
         transact::assembly::{

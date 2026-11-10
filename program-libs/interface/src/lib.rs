@@ -13,6 +13,7 @@ pub mod pda;
 pub mod shape;
 pub mod state;
 pub mod tree_slot;
+pub mod utxo_hash;
 pub mod verifying_keys;
 
 pub use state::{NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE};

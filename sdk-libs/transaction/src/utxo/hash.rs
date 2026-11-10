@@ -3,9 +3,8 @@ use spr_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
-use spr_interface::tree_slot::tree_id_field;
 
-use super::{Blinding, DUMMY_DOMAIN};
+use super::{Blinding, ProofInputUtxo};
 use crate::error::TransactionError;
 
 pub fn ring_program_id_proof_input_hash(
@@ -35,15 +34,5 @@ pub(crate) fn dummy_utxo_hash(
     blinding: &Blinding,
     tree_id: u16,
 ) -> Result<[u8; 32], TransactionError> {
-    let ring_hash = Poseidon::hashv(&[&[0u8; 32], &[0u8; 32]])?;
-    let owner_hash = owner_utxo_hash(&[0u8; 32], blinding)?;
-    Ok(Poseidon::hashv(&[
-        &right_align(&DUMMY_DOMAIN.to_be_bytes()),
-        &tree_id_field(tree_id),
-        &[0u8; 32],
-        &[0u8; 32],
-        &[0u8; 32],
-        &ring_hash,
-        &owner_hash,
-    ])?)
+    ProofInputUtxo::dummy_fields(blinding, tree_id).hash()
 }

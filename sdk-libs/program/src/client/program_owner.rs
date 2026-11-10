@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use solana_address::Address;
 use solana_signature::Signature;
+use spr_interface::ZERO_NULLIFIER_PUBKEY;
 use spr_keypair::{
     constants::BLINDING_LEN, hash::owner_hash, NullifierKey, PublicKey, ShieldedAddress,
     ViewingKey, X25519Pubkey,
@@ -40,10 +41,9 @@ impl ProgramOwner {
         NullifierKey::from_secret([0u8; BLINDING_LEN])
     }
 
-    pub fn nullifier_pubkey() -> Result<[u8; 32], ClientError> {
-        Ok(Self::nullifier_key()
-            .pubkey()
-            .map_err(ClientErrorKind::InvalidOwner)?)
+    /// The public key of [`Self::nullifier_key`], `Poseidon(0)`.
+    pub const fn nullifier_pubkey() -> [u8; 32] {
+        ZERO_NULLIFIER_PUBKEY
     }
 
     pub fn confidential_view_tag(&self) -> [u8; 32] {
@@ -51,14 +51,14 @@ impl ProgramOwner {
     }
 
     pub fn owner_hash(&self) -> Result<[u8; 32], ClientError> {
-        Ok(owner_hash(&self.public_key(), &Self::nullifier_pubkey()?)
+        Ok(owner_hash(&self.public_key(), &Self::nullifier_pubkey())
             .map_err(ClientErrorKind::InvalidOwner)?)
     }
 
     pub fn address(&self, viewing_pubkey: X25519Pubkey) -> Result<ShieldedAddress, ClientError> {
         Ok(ShieldedAddress::for_pda(
             &self.pda,
-            Self::nullifier_pubkey()?,
+            Self::nullifier_pubkey(),
             viewing_pubkey,
         ))
     }
@@ -94,7 +94,7 @@ impl ProgramOwner {
         leaf_index: u64,
     ) -> Result<WalletUtxo, ClientError> {
         let key = Self::nullifier_key();
-        let nullifier_pubkey = Self::nullifier_pubkey()?;
+        let nullifier_pubkey = Self::nullifier_pubkey();
         let utxo = Utxo {
             owner: self.public_key(),
             asset: output.asset,

@@ -1,7 +1,7 @@
 use spr_tree::nullifier_tree::constants::NUM_BATCHES;
 use spr_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
 
-pub const STATE_HEIGHT: usize = 32;
+pub const STATE_HEIGHT: usize = spr_tree::UTXO_TREE_HEIGHT;
 /// Maximum number of updated Solana slots whose final state-tree roots can
 /// coexist on chain. Slots without a tree update consume no history entry.
 pub const STATE_ROOT_HISTORY_CAPACITY: usize = spr_tree::smt::ROOT_HISTORY_CAPACITY;
@@ -11,7 +11,8 @@ pub const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE: u64 =
     spr_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_BATCH_SIZE;
 pub const NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE: u64 =
     spr_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_ZKP_BATCH_SIZE;
-pub const NULLIFIER_TREE_HEIGHT: u32 = 40;
+pub const NULLIFIER_TREE_HEIGHT: u32 =
+    spr_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_TREE_HEIGHT;
 pub const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY: u32 =
     spr_tree::nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES as u32;
 

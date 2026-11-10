@@ -4,19 +4,14 @@ use serde::Serialize;
 
 use crate::{
     error::ClientError,
-    prover::inputs::{
-        BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
-        TransferOutput, TreeSlotFields,
+    prover::{
+        field::{hex_biguint as big_uint_to_string, hex_field as fe_to_string},
+        inputs::{
+            BatchAddressAppendInputs, CacheReadInputs, MergeInputs, TransferInput, TransferInputs,
+            TransferOutput, TreeSlotFields,
+        },
     },
 };
-
-fn big_uint_to_string(value: &BigUint) -> String {
-    format!("0x{}", value.to_str_radix(16))
-}
-
-fn fe_to_string(bytes: &[u8; 32]) -> String {
-    big_uint_to_string(&BigUint::from_bytes_be(bytes))
-}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct UtxoParamsJson {

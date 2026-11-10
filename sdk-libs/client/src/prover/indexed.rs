@@ -24,7 +24,10 @@ use spr_interface::{
 };
 use zeroize::Zeroizing;
 
-use super::{field::right_align_slice, Delivery, ExpectedProvingKey, Proof, Shape};
+use super::{
+    field::{hex_field, right_align_slice},
+    Delivery, ExpectedProvingKey, Proof, Shape,
+};
 use crate::ClientError;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -541,10 +544,6 @@ pub fn serialize_commitment<S: serde::Serializer>(
     value
         .map(|bytes| Address::from(bytes).to_string())
         .serialize(serializer)
-}
-
-pub fn hex_field(field: &[u8; 32]) -> String {
-    format!("0x{}", BigUint::from_bytes_be(field).to_str_radix(16))
 }
 
 fn scalar_one() -> [u8; 32] {

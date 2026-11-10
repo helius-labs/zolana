@@ -1,5 +1,6 @@
-pub const STATE_TREE_HEIGHT: usize = 32;
-pub const NULLIFIER_TREE_HEIGHT: usize = 40;
+pub const STATE_TREE_HEIGHT: usize = spr_tree::UTXO_TREE_HEIGHT;
+pub const NULLIFIER_TREE_HEIGHT: usize =
+    spr_tree::nullifier_tree::constants::DEFAULT_NULLIFIER_TREE_HEIGHT as usize;
 
 /// The runtime's ceiling on the account data one transaction may load, and what
 /// a transaction carrying no `set_loaded_accounts_data_size_limit` instruction

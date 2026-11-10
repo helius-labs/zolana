@@ -3163,7 +3163,7 @@ mod tests {
         ));
         proof["resolution"] = json!({"trees":[{"tree":tree.tree.to_string(),"id":3,
             "utxoRoot":"0x0","nullifierRoot":"0x0","utxoRootIndex":0,"nullifierRootIndex":0}],
-            "publicInputHash":super::super::indexed::hex_field(&hash)});
+            "publicInputHash":crate::prover::field::hex_field(&hash)});
         (request, proof)
     }
 
