@@ -10,7 +10,7 @@ publish = ["crates-io"]
 
 [features]
 default = []
-# `localnet`: boot a surfpool validator and Photon through the `zolana` CLI and
+# `localnet`: boot a surfpool validator and Photon through the `spr` CLI and
 # talk to them with the RPC and indexer clients.
 localnet = ["spr-client/client"]
 # Resolve the shielded-pool .so via SHIELDED_POOL_PROGRAM_PATH (env var or

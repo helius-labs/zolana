@@ -60,7 +60,7 @@ impl Circuit {
     }
 
     fn check(&self) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_zolana"))
+        Command::new(env!("CARGO_BIN_EXE_spr"))
             .args([
                 "zk",
                 "compile",
@@ -72,7 +72,7 @@ impl Circuit {
             .arg(self.dir.join("Cargo.toml"))
             .env("CARGO_TARGET_DIR", self.dir.join("target"))
             .output()
-            .expect("run zolana")
+            .expect("run spr")
     }
 }
 

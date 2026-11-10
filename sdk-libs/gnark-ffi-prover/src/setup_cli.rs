@@ -119,7 +119,7 @@ fn run<C: Circuit>(prover: &Prover<C>, command: Command<C>) -> Result<(), String
     // A fixed-seed key is an insecure test setup: its generated file only
     // compiles with the program's `insecure-test-setup` feature. A key from
     // fresh system randomness is a production setup of whoever ran it, so a
-    // deployment can drop that feature and `zolana vks check` accepts it. Both
+    // deployment can drop that feature and `spr vks check` accepts it. Both
     // pin the sha256 of the `pk.bin` written next to `vk.bin`.
     let setup_kind = if insecure_test_keys {
         groth16_solana::vk::setup::SetupKind::InsecureTest

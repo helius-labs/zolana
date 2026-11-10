@@ -124,7 +124,7 @@ program_data_len() {
 
 # Check the verifying keys embedded in a shielded-pool binary: every one a
 # production setup of a proving key this build pins, none missing. See
-# `zolana vks check --help`.
+# `spr vks check --help`.
 check_verifying_keys() {
     cargo run -q -p spr-cli -- vks check --shielded-pool "$@"
 }

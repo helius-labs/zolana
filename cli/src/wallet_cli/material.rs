@@ -95,7 +95,7 @@ pub(super) fn run_new(opts: NewWalletOptions) -> Result<()> {
     );
     // `wallet new` only writes the file; point the operator at the explicit
     // on-chain step so the offline behavior is not mistaken for registration.
-    println!("next: zolana wallet register --keypair {}", path.display());
+    println!("next: spr wallet register --keypair {}", path.display());
     Ok(())
 }
 
@@ -103,7 +103,7 @@ pub(super) fn run_address(opts: AddressOptions) -> Result<()> {
     let path = config_keypair_path(opts.keypair.keypair.as_deref(), &CliConfigFile::load()?);
     if !path.exists() {
         bail!(
-            "wallet not found at {}; create it with `zolana wallet new --outfile {}`",
+            "wallet not found at {}; create it with `spr wallet new --outfile {}`",
             path.display(),
             path.display()
         );
@@ -120,7 +120,7 @@ pub(super) fn run_address(opts: AddressOptions) -> Result<()> {
 pub(super) fn load_sender_from_resolved_sync(sync: &ResolvedSyncOptions) -> Result<WalletMaterial> {
     if !sync.keypair_path.exists() {
         bail!(
-            "wallet not found at {}; create it with `zolana wallet new --outfile {}`",
+            "wallet not found at {}; create it with `spr wallet new --outfile {}`",
             sync.keypair_path.display(),
             sync.keypair_path.display()
         );

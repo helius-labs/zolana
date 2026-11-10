@@ -14,7 +14,7 @@ docker compose -f docker/docker-compose.yml up -d
 Copy `docker/.env.example` to `docker/.env` and fill it in first (auto-loaded).
 
 Photon indexes an external host Solana RPC (default `host.docker.internal:8899`)
-— run the validator yourself via the zolana CLI / `just`.
+— run the validator yourself via the spr CLI / `just`.
 
 ## Build photon from source (opt-in)
 

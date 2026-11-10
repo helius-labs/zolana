@@ -294,7 +294,7 @@ jobs:
         with:
           name: localnet-tools-${{ github.sha }}
           path: |
-            target/debug/zolana
+            target/debug/spr
             target/debug/xtask
             target/debug/photon
             target/prover-server
@@ -443,7 +443,7 @@ jobs:
         with:
           name: localnet-tests-${{ github.sha }}
           path: target/nextest-archives
-      - run: chmod 0755 target/debug/zolana target/debug/xtask target/debug/photon target/prover-server
+      - run: chmod 0755 target/debug/spr target/debug/xtask target/debug/photon target/prover-server
       - name: Download example test keys
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
