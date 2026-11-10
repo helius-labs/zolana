@@ -9,6 +9,7 @@
 
 use num_bigint::BigUint;
 use spr_keypair::{NullifierKey, ShieldedKeypair};
+use zeroize::Zeroizing;
 
 use crate::{
     error::ClientError,
@@ -60,8 +61,9 @@ fn complete_owned_inputs(
     nullifier_key: &NullifierKey,
     inputs: &mut [TransferInput],
 ) -> Result<(), ClientError> {
-    let secret = right_align_slice(&*nullifier_key.secret())?;
-    let secret = be(&secret);
+    // `BigUint` cannot be wiped, so each input gets its own copy and no
+    // other one is kept.
+    let secret = Zeroizing::new(right_align_slice(&*nullifier_key.secret())?);
     for (index, input) in inputs.iter_mut().enumerate() {
         // Padding, an address and another owner's input arrive complete; only an
         // input waiting for this authority is absent.
@@ -73,7 +75,7 @@ fn complete_owned_inputs(
         if BigUint::from_bytes_be(&nullifier) != input.nullifier {
             return Err(ClientError::InputNullifierMismatch { index });
         }
-        input.nullifier_secret = Some(secret.clone());
+        input.nullifier_secret = Some(be(&secret));
     }
     Ok(())
 }

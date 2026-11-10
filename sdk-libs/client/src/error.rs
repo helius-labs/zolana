@@ -243,6 +243,12 @@ pub enum ClientError {
     #[error("prover server error: {0}")]
     ProverServer(String),
 
+    /// The prover answered with more than the client reads. The `reqwest`
+    /// transports stop reading just past the limit, so an oversized answer
+    /// cannot exhaust memory.
+    #[error("prover response exceeds {limit} bytes", limit = crate::prover::MAX_RESPONSE_BYTES)]
+    ProverResponseTooLarge,
+
     #[error("indexer proof data not ready")]
     IndexerProofDataNotReady,
 
