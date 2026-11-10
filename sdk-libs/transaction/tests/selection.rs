@@ -334,3 +334,53 @@ fn custom_ring_shape_selection_keeps_its_existing_keys() {
         (1, 2)
     );
 }
+
+#[test]
+fn the_signer_rail_needs_every_owner_to_sign() {
+    use spr_transaction::instructions::transact::TransactRail;
+
+    let owner = Address::new_from_array([1; 32]);
+    let relayer = Address::new_from_array([2; 32]);
+    assert_eq!(
+        TransactRail::select(&[owner], &[relayer, owner]),
+        TransactRail::ConfidentialSigner
+    );
+    assert_eq!(
+        TransactRail::select(&[owner], &[relayer]),
+        TransactRail::ConfidentialEddsa
+    );
+    assert_eq!(
+        TransactRail::select(&[], &[relayer]),
+        TransactRail::ConfidentialSigner
+    );
+}
+
+#[test]
+fn each_rail_picks_the_cheapest_shape_of_its_own_list() {
+    use spr_transaction::instructions::transact::{Shape, TransactRail};
+
+    assert_eq!(
+        TransactRail::ConfidentialSigner
+            .canonical_shape(1, 2)
+            .unwrap(),
+        Shape::new(1, 2)
+    );
+    assert_eq!(
+        TransactRail::ConfidentialEddsa
+            .canonical_shape(1, 2)
+            .unwrap(),
+        Shape::IN2_OUT8
+    );
+    assert_eq!(
+        TransactRail::ConfidentialEddsa
+            .canonical_shape(17, 9)
+            .unwrap(),
+        Shape::new(24, 16)
+    );
+    assert!(matches!(
+        TransactRail::ConfidentialEddsa.canonical_shape(49, 2),
+        Err(TransactionError::UnsupportedShape { n_in: 49, n_out: 2 })
+    ));
+    assert!(TransactRail::ConfidentialEddsa.supports(Shape::new(48, 16)));
+    assert!(!TransactRail::ConfidentialSigner.supports(Shape::new(48, 16)));
+}

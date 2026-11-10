@@ -1,5 +1,6 @@
-//! One prover HTTP exchange, shared by the blocking and async clients and
-//! encrypted to the attested key when the client requires a TEE.
+//! One prover HTTP exchange, encrypted to the attested key when the client
+//! requires a TEE. [`AsyncProverClient`](super::AsyncProverClient) makes every
+//! call; the blocking `ProverClient` runs it.
 
 use std::{mem, time::Duration};
 

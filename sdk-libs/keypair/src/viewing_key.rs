@@ -325,8 +325,9 @@ mod tests {
         );
         let pda = Address::new_from_array([3; 32]);
         let owned = PdaRoleExpansion::new(&key.secret_bytes(), pda.to_bytes());
-        // These are order-two translates of the former fixed derivation peers.
-        // Clamping kills the torsion, bypassing an exact-coordinate blacklist.
+        // Each alias is a fixed peer point translated by an order-two point.
+        // Clamping kills the torsion, so an exact-coordinate blacklist would
+        // let it through.
         for alias in [
             "178bfe424f295736d60f0b9c30ec17044f7fba8cf9e30dcd6bb0e5ecafa7f71a",
             "99160eca742ac5b450c0c841133666ae9803b8c99cb6b69a88c5cc407e376a17",

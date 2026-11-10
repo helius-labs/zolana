@@ -4,189 +4,189 @@ UTXO serialization and private transaction construction: the encrypted and
 plaintext UTXO layouts, the builder that turns input and output UTXOs into a
 balanced transaction, and the hashes and proof inputs a prover consumes.
 
-The crate holds no state and performs no IO. Fetching transactions and proofs is
-`spr-client`. A wallet syncs by fetching the transactions for its tags and
-decrypting them (step 1); the SDK keeps no wallet state.
+The crate holds no state and performs no IO. Fetching transactions, proving and
+submitting are `spr-client`. A wallet syncs by fetching the transactions for its
+tags and decrypting them (step 1); the SDK keeps no wallet state.
 
-Steps marked ***(tvc)*** need key material. The rest run on values. The flow
-below describes the intended API; the Status section lists the remaining
-implementation differences.
+Key material stays behind two traits. `ShieldedKeys` (this crate) answers
+decryption, nullifier and transaction-viewing-key requests and returns results,
+not keys; `ShieldedKeypair` and `LocalShieldedKeys` implement it in process.
+`ProofAuthority` (`spr-client`) puts the nullifier secret into the witness just
+before proving. Every other step runs on values.
 
 ## Transaction flow
 
-1. **Sync Balances**
-    1. request encrypted UTXOs from the indexer by view tag,
-       `SprClient::get_shielded_transactions_by_tags` ***(client)***
-    2. decrypt them, `Tvc::decrypt` ***(tvc)*** or `decrypt_transactions` when
-       the keypair is local, into `SpendableUtxo`s: commitment, nullifier, raw
-       tree id, leaf index, asset id, slot, and signature. The indexer reports
-       the tree id with the slot, and decryption checks it by recomputing the
-       commitment under it; the tree account is `pda::tree(tree_id)` wherever
-       one is needed.
-    3. drop notes whose nullifier is already published ***(client)***: within a
-       batch from the nullifier lists it contains, which is all
-       `decrypt_transactions` uses, across batches through
-       `get_shielded_transactions_by_nullifiers`
-    4. **result:** unspent UTXOs as values
+```rust
+let scan = UtxoScan::new(&keypair, &assets)
+    .with_indexer_config(IndexerRpcConfig::at_slot(confirmed_slot))
+    .fetch(&client)?;
+let inputs = select_spend(scan.spendable.utxos(), mint, amount)?;
+let mut transaction = ConfidentialTransaction::new(inputs, fee_payer.pubkey())?;
+transaction.transfer(&recipient, mint, amount)?;
+let signed = SignedPrivateTransaction {
+    transaction: transaction.encrypt(&keypair)?,
+    settlement_transfers: Vec::new(),
+};
+let signature = Submission::new(&signed, fee_payer.pubkey(), &keypair)
+    .send_sync(&client, &[&fee_payer])?;
+```
 
-2. **Select Input UTXOs (Client)**
+1. **Sync balances**
 
-    Selection defines what the transaction spends and stays open to custom
-    selection and merging strategies and to PDA-owned UTXOs with data. It is an
-    iterator over the notes from step 1; only 2.4 is a call.
+    `UtxoScan::fetch` (`spr-client`) does this step; by hand it is:
 
-    1. filter by asset, spend tree, and eligible kind, skipping the zero-amount
-       notes that padding and empty change leave behind
-    2. sort largest first
-    3. take UTXOs until the amount is covered, within the supported input count
-    4. convert each to an `SppProofInputUtxo`, `SppProofInputUtxo::from`, a
-       field move that takes no key. Dummies and UTXOs the indexer did not
-       return go through `SppProofInputUtxoParams`, which applies the key last.
-    5. **result:** list of `SppProofInputUtxo`, each with its commitment and
-       nullifier
+    1. request the transactions by view tag,
+       `get_shielded_transactions_by_tags`, as `ShieldedTransaction`s
+    2. decrypt them, `decrypt`, into a `DecryptionResult` of candidate
+       `WalletUtxo`s: the note, its commitment, nullifier, tree id, leaf
+       index, slot and signature. Decryption checks nothing yet; the tree
+       account is `pda::tree(tree_id)` wherever one is needed.
+    3. verify them, `verify_spendable`: keep the notes the keys own whose
+       commitment recomputes under their tree id, derive each nullifier again
+       and drop the notes spent within the batch. `decrypt_spendable` runs 1.2
+       and 1.3. Spends in other transactions come from
+       `get_shielded_transactions_by_nullifiers`, which `UtxoScan` follows
+       until a round finds nothing new.
+    4. **result:** a `SpendableDecryptionResult`: per-asset `balances` and the
+       ring- or data-bearing `utxos_with_data`. `UtxoScan` also stamps each
+       UTXO with the indexer's newest output tree (`latest_tree_id`) and its
+       first-spend transaction viewing key (`with_transaction_keys`).
 
-3. **Create Output UTXOs (Client)**
+2. **Select input UTXOs**
 
-    Outputs define what the transaction produces: custom program logic, and
-    multi-transfer, withdrawal, or deposit flows.
+    `select_spend(spendable.utxos(), asset, amount)` takes default-ring UTXOs of
+    one asset, the largest first, until they cover the amount, within
+    `MAX_SPEND_INPUTS` inputs and `MAX_INPUT_TREES` trees.
+    `select_spend_excluding` leaves out the UTXOs of a spend that is prepared
+    but not sent. A balance that needs more inputs or trees is merged first
+    (see Merge). Custom selection works on the same `WalletUtxo` values.
 
-    1. instantiate from the input UTXOs and fee payer,
-       `ConfidentialTransaction::new`
-    2. add outputs directly, or through `transfer`, `withdraw`, and `deposit`,
-       which declare the private and public transfers to balance
-    3. optionally pin the sender rail and the output tree, `with_sender_rail`,
-       `with_ring_program_id`, `with_output_tree_id`
-    4. optionally choose a supported shape, calculate change, and pad the slots
-       explicitly
+3. **Create output UTXOs**
+
+    1. open the builder on the inputs, in the caller's order,
+       `ConfidentialTransaction::new(inputs, payer)`. It requires a real input
+       in slot 0 and checks each real input's commitment. Variants:
+       `new_compact` pads with compact padding, `new_with_ring` builds in a
+       custom ring, `new_with_addresses` reserves addresses, and
+       `from_proof_inputs` takes `SppProofInputUtxo`s a program SDK assembles
+       itself.
+    2. add outputs and public transfers: `transfer`, `transfer_sol`,
+       `transfer_with_ring`, `deposit`, `deposit_sol`, `withdraw`,
+       `withdraw_sol`, `withdraw_to`, or a custom `SppProofOutputUtxo` through
+       `add_output_utxo`
+    3. optionally pick the output tree, `with_output_tree_id` (default: the
+       first real input's `latest_tree_id`, else tree 0), and the accounts
+       expected to sign, `with_transaction_signers`, which selects the
+       in-proof EdDSA rail for an owner that will not sign
+    4. optionally fix the shape, `pad_utxos(shape, &sender)`; otherwise step 4
+       picks it
     5. **result:** a configurable `ConfidentialTransaction`
 
-4. **Encrypt Output UTXOs**
+4. **Finalize and encrypt**
 
-    `ConfidentialTransaction::encrypt` consumes the builder, completes any
-    preparation the caller omitted, and returns an immutable transaction for
-    authorization and proving. Preparation supplied earlier must still agree
-    with the builder contents; a conflict is an error.
+    `ConfidentialTransaction::encrypt(&keys)` is `finalize(&sender)` followed
+    by `FinalizedTransaction::encrypt_with_keys`.
 
-    1. complete preparation ***(client)***
-        1. net public amounts per asset, calculate missing SOL and SPL change,
-           and determine the required output count
-        2. choose a supported shape that fits both sides, or validate the
-           caller's; not every input/output combination has one
-        3. pad both sides, validate balance, and fix slot order and tree
-           assignment: real inputs keep the caller's order, which may
-           interleave trees, and dummies follow them, each built for its
-           assigned tree. Output padding appends dummy outputs after the
-           caller's outputs and the change. Each dummy publishes the view tag
-           of an input owner other than the fee payer, else of a real output
-           owner; a transaction naming neither keeps a zero-amount SOL change
-           for the sender. A transaction built with `new_compact` pads with
+    1. finalize, keyless, into a `FinalizedTransaction`
+        1. calculate change per asset and, unless `pad_utxos` already ran,
+           choose the cheapest supported shape that fits, `canonical_shape`;
+           not every input/output combination has one
+        2. pad without moving existing slots. Change follows the caller's
+           outputs in asset first-use order, then dummy outputs. Each dummy
+           publishes the view tag of the first input owner other than the fee
+           payer, else of a real output owner, the sender first; a transaction
+           naming neither keeps a zero-amount SOL change for the sender. Dummy
+           inputs follow the real ones. A `new_compact` transaction pads with
            compact padding instead: each padding slot publishes 0, the
            instruction leaves it out, and the transaction reveals its real
            input and output counts.
-        4. take the first nullifier from the final input order; it seeds the
-           output blindings and the transaction viewing key
-    2. derive the slot values ***(client)***
-        1. derive each output's blinding from one seed, the nullifier fixed in
-           4.1, and the slot's final position
-        2. compute each output's commitment and owner tag
-    3. encrypt ***(tvc)***
-        1. derive the transaction viewing key from the first nullifier
-        2. take the caller's salt (`random_salt`, or a constant in a fixture)
-        3. encrypt each real slot to the owner it already names, attaching
-           that owner's view tag; a dummy slot carries random bytes of a real
-           slot's length, and compact padding carries nothing
-    4. hash the external data, `ExternalData::hash` ***(client)***
-        1. serialize the filled slots with their owner tags, the transaction
-           viewing pubkey, the salt, and the interface transfers
-        2. append the settlement accounts and the resolved owner tags
-        3. the Solana program recomputes this hash from the instruction data
-           and accounts
-    5. hash the private transaction, `PrivateTxHash::new(..).hash()`
-       ***(client)***
-        1. input commitments from step 2 and output commitments from 4.2: zero
-           for circuit dummy slots, the real commitment for every real output,
-           a zero-value one included
-        2. the private transaction blinding, derived from the first nullifier
-           and the seed. It stays private, so the published hash cannot be
-           tested against guessed inputs.
-        3. each chain folds only its nonzero entries, so padding slots do not
-           change the hash
-    6. **result:** an immutable transaction with every slot filled, its
-       commitments, `external_data_hash`, and `private_tx_hash`, which the
-       proof covers and the transact instruction publishes
+        3. derive each output's blinding from the first input nullifier, the
+           blinding seed and the slot's final position
+        4. resolve each output's owner tag and the settlement transfers
+    2. encrypt
+        1. take the transaction viewing key cached on the first input, or
+           request it from `keys` for the first nullifier
+        2. draw a fresh salt, `random_salt`
+        3. encrypt each real output to the owner it names; a dummy slot carries
+           random bytes of a real slot's length, and compact padding carries
+           nothing
+    3. **result:** `SppProofInputs`: the final input and output slots, the
+       blinding seed, output tree, payer, cache accounts and the
+       `ExternalData` the instruction publishes, with each output's
+       commitment, owner tag and ciphertext. Its hashes are computed from
+       these fields:
+        - `ExternalData::hash`: the outputs, the transaction viewing pubkey,
+          the salt, the interface transfers, the settlement accounts and the
+          resolved owner tags. The Solana program recomputes it from the
+          instruction data and accounts.
+        - `padding_independent_private_tx_hash`: the input and output
+          commitments, zero for padding, and the private transaction blinding
+          derived from the first nullifier and the seed. Each chain folds only
+          its nonzero entries, so padding does not change it, and the blinding
+          stays private, so the published hash cannot be tested against
+          guessed inputs.
+        - `message_hash`: `sha256(private_tx_hash || external_data_hash)`,
+          which an owner on the in-proof EdDSA rail signs
 
-5. **Prove (TVC)**
+5. **Prove**
 
-    `SprClient::prove_transact`
+    `SprClient::prove_transact(proof_inputs, config, &authority)` returns
+    `TransactIxData`.
 
-    1. anonymous EdDSA transfers sign
-       `sha256(private_tx_hash || external_data_hash)` inside the proof.
-       Ordinary transfers use the Solana signer in step 7.
-    2. send the input commitments; the prover fetches the state-inclusion and
-       nullifier non-inclusion witnesses itself
-    3. assemble the witness and request the proof,
-       `ProverClient::prove_transact`; the nullifier key enters here
-    4. verify the proof locally, `verify_confidential_transfer_inputs`
-    5. compress it for the Solana program, `ProofCompressed::to_transact_proof`
-    6. **result:** `TransactIxData`
+    1. by default the prover fetches the state-inclusion and nullifier
+       non-inclusion witnesses itself; `ProofDataSource::Client` fetches them
+       in the client
+    2. `authority` fills in the nullifier secret of the inputs it owns
+    3. the client verifies the proof against the statement it computed and
+       compresses it for the program
+    4. `prove_transact_confidential_eddsa` proves the in-proof EdDSA rail, with
+       the owner signing `message_hash`
 
-6. **Build Transaction (Client)**
-    1. validate the settlement accounts against the interface transfers,
-       `SettlementAccountValidation`
-    2. build the transact instruction with payer, trees, owner signers,
-       settlement accounts, proof, and data, `Transact::instruction`
-    3. set the compute budget in the v1 message header, `ComputeBudgetConfig`,
-       applied by `compile_message`
-    4. fetch the latest blockhash, after proving
-    5. **result:** unsigned Solana transaction
+6. **Build the transaction**
+    1. build the `transact` instruction, `Transact { .. }.instruction()`
+       (`spr-instruction`), with the payer, input trees, output tree, owner
+       signers (`SppProofInputs::owner_signer_pubkeys`), settlement accounts
+       (`withdraw_to` returns them) and the instruction data
+    2. compile the v1 message with its compute budget in the header,
+       `compile_message` with `ComputeBudgetConfig`, over a blockhash fetched
+       beside the proof
+    3. **result:** unsigned Solana transaction
 
-7. **Sign (Client)**
-    1. fee payer signs the Solana transaction, `sign_transaction`
-    2. each distinct input owner signs on the EdDSA rail
-    3. **result:** signed Solana transaction
+7. **Sign**
 
-8. **Submit and Confirm (Client)**
-    1. send the transaction, `Rpc::create_and_send_transaction`
-    2. wait for Solana confirmation
-    3. wait for the indexer, `SprClient::confirm_private_transaction`;
-       `IndexerRpcConfig::at_slot` then gates the next sync
+    `sign_transaction`: the fee payer and each owner signer sign; an owner
+    authorized inside the proof does not.
+
+8. **Submit and confirm**
+    1. send the transaction
+    2. `SprClient::confirm_private_transaction` waits for Solana confirmation
+       and for the indexer to index it
+    3. pass the landed slot to the next sync, `IndexerRpcConfig::at_slot`
     4. **result:** confirmed transaction visible to the next sync
 
-Split and merge are intended to follow the same lifecycle: a builder consumed
-by `encrypt`, then authorization, proving, and submission.
+`Submission` (`spr-client`) runs steps 5 to 8: `send_sync` proves, signs, sends
+and confirms, and `finish_unsigned_sync` stops at the unsigned message for a fee
+payer whose key lives elsewhere.
+
+## Merge
+
+A merge turns up to `MAX_MERGE_INPUTS` plain UTXOs of one asset on one tree into
+one: `select_merge` picks them, `MergeTransaction::new(inputs)` validates them,
+and `encrypt(&keys)` returns `MergeProofInputs`, padded with compact padding to
+the circuit width the input count selects. `MergeSubmission` (`spr-client`)
+proves and submits it; see the [client README](../client/README.md#merging).
 
 ## Construction invariants
 
-An input's commitment and nullifier must agree with its UTXO fields, tree id,
-and data hashes. Build through `SppProofInputUtxoParams` or convert from a
-verified `SpendableUtxo`, and do not modify the committed fields afterwards. A
-padding input that changes tree must be rebuilt, for example with
-`dummy_with_blinding`; a real input must keep describing its existing tree leaf.
+A `WalletUtxo` converts into an `SppProofInputUtxo` by moving fields, never by
+rehashing: its commitment and nullifier are the published values. Construction
+checks each real input's commitment against its fields, tree id and data
+hashes, but trusts the supplied nullifier. A padding input that changes tree
+must be rebuilt, for example with `SppProofInputUtxo::dummy_with_blinding`; a
+real input must keep describing its existing tree leaf.
 
-The builder stays configurable until `encrypt` consumes it. `encrypt` fixes the
-first input nullifier and every output position before deriving blindings, then
-produces ciphertexts, commitments, and hashes that agree. The returned
-transaction must prevent mutation of those values and their nested inputs and
-outputs; consuming the builder does not enforce that while the returned fields
-stay public.
-
-## Status
-
-`SppProofInputUtxo` holds no key material, decryption returns a `SpendableUtxo`
-that converts into one by moving fields, and `ProofAuthority` completes the
-witness with the nullifier secret before proving. The remaining differences from
-the flow above:
-
-- `ConfidentialTransaction::new` still requires a shape and inputs padded to it,
-  and callers must call `pad_output_utxos` before `encrypt`. Automatic
-  completion of omitted preparation is not implemented.
-- `encrypt` stores output commitments in `external_data.outputs` but returns the
-  ingredients for both hashes rather than the hashes; `message_hash` and witness
-  assembly recompute the commitments from the output UTXOs.
-- `SpendableUtxo`, `SppProofInputUtxo`, and `SppProofInputs` still expose public
-  mutable fields, so nothing enforces the immutability above.
-- `PrivateTxHash::new` has two call sites: `spp_proof_inputs.rs`, which builds
-  its vectors from the output UTXOs and their dummy flags, and
-  `assembly::private_tx_hash`, which every prover rail goes through.
-- Merkle witnesses are still fetched by the client rather than the prover.
-- Split and merge still use `prepare`/`finalize`.
+The builder stays configurable until `finalize` consumes it. Finalizing fixes the
+first input nullifier and every output position before deriving blindings, so
+the ciphertexts, commitments and hashes agree. `SppProofInputs` keeps public
+fields, and nothing in the type stops a caller from changing a slot, the output
+tree or the external data after encryption and making them disagree.

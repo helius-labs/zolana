@@ -184,8 +184,8 @@ impl WalletUtxo {
         self.utxo.ring_program_id.is_none() && self.ring_data_hash.is_none()
     }
 
-    /// No ring binding and no attached data: the only UTXOs a split or a merge
-    /// takes, since their spend input drops the committed data hashes.
+    /// No ring binding and no attached data: the only UTXOs a merge takes,
+    /// since its spend input drops the committed data hashes.
     pub fn is_plain(&self) -> bool {
         self.is_default_ring_spendable() && self.data_hash.is_none() && self.utxo.data.is_empty()
     }

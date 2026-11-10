@@ -2,13 +2,12 @@
 //!
 //! The circuit needs two things per input tree: a state-inclusion proof for
 //! every real input, and a nullifier non-inclusion proof for every slot,
-//! padding included. Those came from two indexer methods and three round
-//! trips, and every caller stitched them together itself -- one of them by
-//! hand-rolling a scoped thread to overlap two of the three.
+//! padding included. They come from two indexer methods.
 //!
-//! [`WitnessReader`] is that stitching, shaped as the Photon RPC it is meant to
-//! become: slots in, complete witnesses out. Moving it to the server later is
-//! then a change of implementation rather than of every call site.
+//! [`WitnessReader`] makes both reads for a transaction's slots and returns
+//! complete witnesses: slots in, witnesses out. The client uses it when it
+//! fetches the proof data itself (`ProofDataSource::Client`, or a prover of
+//! the caller's); otherwise the prover server makes these reads.
 
 use spr_interface::pda;
 use spr_transaction::utxo::SppProofInputUtxo;

@@ -79,11 +79,9 @@ Source: [encryption](../src/instructions/transact/encryption.rs),
 | INV-TX-ENC-01 | post / C | `encrypt` completes omitted shape selection/change/padding and produces outputs whose published commitments and decryptable plaintexts describe the same amounts, owners, data, blindings and output tree. | [x] `construction.rs::generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output`, `construction.rs::encrypted_explicit_data_and_memo_survive_with_their_commitment_hashes`. |
 | INV-TX-ENC-02 | post / H | Every output blinding uses the transaction's first nullifier, derived output seed, and final physical slot index. | [x] `construction.rs::generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output` verifies every recovered slot; `encrypted_explicit_data_and_memo_survive_with_their_commitment_hashes` checks replacement of caller blindings. Independent derivation vectors: `commitments.rs::derivation_domains_match_committed_cross_language_vectors_and_bind_each_parameter`. |
 | INV-TX-ENC-03 | post / C | Sender outputs use `Account(0)` only when the Ed25519/PDA sender equals the payer; other owners use their inline tag. Published owner tags resolve to the owner whose viewing key encrypts the slot. | [x] `construction.rs::mixed_rings_and_relayed_owner_tags_match_recovered_owners`, `construction.rs::pda_sender_owner_tags_resolve_for_self_paid_and_relayed_transactions`. |
-| INV-TX-ENC-04 | retired | P-256 owner encodings fail key decoding. The former custom-ring ownership path was removed. | Key decoding coverage lives in `spr-keypair`. |
 | INV-TX-ENC-05 | post / H | Normal transfers/change/padding inherit the builder's ring; `transfer_with_ring` overrides only its output. Custom-ring outputs are encoded as `RingConfidential`, default-ring outputs as `Confidential`. | [x] `construction.rs::mixed_rings_and_relayed_owner_tags_match_recovered_owners`, `construction.rs::generated_sol_and_spl_operations_conserve_each_mint_and_recover_every_output`. |
-| INV-TX-ENC-06 | post / C | Owner signers exclude dummies and the payer, deduplicate owner identities, and preserve first occurrence. `signer_pk_hashes` is payer-first, zero-padded to width, and returns `UnsupportedShape` if the run does not fit. | [x] `commitments.rs::signers_are_payer_first_deduplicated_by_identity_and_exclude_dummies`. |
+| INV-TX-ENC-06 | post / C | Owner signers are the owners of real inputs in slot order, then the owners of outputs with a nonzero data hash, deduplicated by owner identity in first-occurrence order; dummies are excluded, and the fee payer is listed only when it is one of those owners. `signer_pk_hashes` maps them to owner identities in the same order, zero-pads to width, and returns `UnsupportedShape` if they do not fit. | [x] `commitments.rs::signers_are_owners_deduplicated_by_identity_and_exclude_the_payer_and_dummies`. |
 | INV-TX-ENC-07 | pre / H | Empty transaction-key responses cause `IncompleteDerivation { got: 0, want: 1 }`; key-holder errors propagate from builder encryption. | [x] `construction.rs::key_holder_errors_and_empty_response_propagate_and_requests_use_first_input`. |
-| INV-TX-ENC-08 | retired | P-256 owner detection APIs were removed with the spend path. | Unknown owner encodings are rejected by `spr-keypair`. |
 | INV-TX-ENC-09 | post / H | Builder encryption requests one transaction viewing key naming the returned sender viewing key and the stored first input nullifier, and publishes the returned key in its encryption context. | [x] `construction.rs::key_holder_errors_and_empty_response_propagate_and_requests_use_first_input`. |
 
 ## Settlement and external data
@@ -111,8 +109,7 @@ Source: [settlement](../src/instructions/transact/settlement.rs),
 
 Source: [UTXO hashing](../src/utxo/note.rs), [output hashing](../src/utxo/output.rs),
 [dummy inputs](../src/utxo/input.rs), [wallet conversion](../src/utxo/wallet.rs),
-[transaction hashes](../src/instructions/transact/transaction.rs),
-[ring authority](../src/instructions/ring_authority.rs).
+[transaction hashes](../src/instructions/transact/transaction.rs).
 
 | ID | Kind / severity | Invariant | Coverage / required assertions |
 |---|---|---|---|
@@ -161,7 +158,7 @@ Source: [formats](../src/serialization/mod.rs), [schemes](../src/serialization/s
 
 | ID | Kind / severity | Invariant | Coverage / required assertions |
 |---|---|---|---|
-| INV-TX-WIRE-01 | wire / H | Scheme bytes are Proofless=0, AnonymousRecipient=1, AnonymousSender=2, Confidential=3, RingConfidential=4, Merge=6, PlaintextTransfer=7, RingDeposit=8; AnonymousRecipient, AnonymousSender and RingDeposit are reserved without implementations. Every other byte returns `BadDiscriminator`. | [x] `formats.rs::scheme_discriminators_cover_the_entire_byte_space`, `encoders_publish_the_expected_envelope_and_scheme_with_decodable_bodies`, and `proofless_full_fields_use_exact_borsh_and_resolve_the_published_mint`; ring-confidential emission: `construction.rs::mixed_rings_and_relayed_owner_tags_match_recovered_owners`. |
+| INV-TX-WIRE-01 | wire / H | Scheme bytes are Proofless=0, AnonymousRecipient=1, AnonymousSender=2, Confidential=3, RingConfidential=4, Merge=6, PlaintextTransfer=7, RingDeposit=8; AnonymousRecipient and AnonymousSender are reserved without implementations, and RingDeposit payloads are unwrapped by the ring's client (`ShieldedTransaction::unwrap_ring_deposit`), not by wallet decryption. Every other byte returns `BadDiscriminator`. | [x] `formats.rs::scheme_discriminators_cover_the_entire_byte_space`, `encoders_publish_the_expected_envelope_and_scheme_with_decodable_bodies`, and `proofless_full_fields_use_exact_borsh_and_resolve_the_published_mint`; ring-confidential emission: `construction.rs::mixed_rings_and_relayed_owner_tags_match_recovered_owners`. |
 | INV-TX-WIRE-02 | pre / H | `Data::validate` and the Wincode payload serialization/deserialization wrappers require records to be unique and ordered RingData then UtxoData then Memo, with exact duplicate/order errors. `Data::new` itself does not validate. | [x] `formats.rs::payload_wrappers_validate_all_record_kinds_on_write_and_read`. Direct permutations/duplicates are also checked in `behavior.rs::every_record_kind_rejects_duplicates` and `record_order_accepts_canonical_subsets_and_rejects_every_other_permutation`. |
 | INV-TX-WIRE-03 | post / M | Memo-only data is accepted and accessible; proofless encode/decode preserves memo contents. | [x] `behavior.rs::memo_only_is_valid`, `memo_round_trips_and_is_readable`, `proofless.rs::memo_round_trips_through_proofless_serialization`. |
 | INV-TX-WIRE-04 | pre / H | Wincode payload decoders reject truncation and trailing bytes; payloads with key schemas reject malformed keys, and payloads with `Data` validate canonical records. Plaintext-transfer decoding also rejects a wrong type prefix. | [ ] Partial: `formats.rs::exact_payload_decoders_reject_every_truncation_trailing_bytes_and_invalid_prefix` checks exact framing and the plaintext type prefix; malformed-key mutations at individual payload key fields remain. |
@@ -195,7 +192,7 @@ Source: [scan and verification](../src/decrypt.rs),
 | INV-TX-SCAN-11 | pre / H | Key-holder address/decrypt/derive errors propagate; a parsed payload that rebuilds no note (for example a missing first nullifier or ring ID) and malformed bytes are skipped. An asset id or deposit mint the asset registry does not know is reported instead (INV-TX-SCAN-15). | [x] `decryption.rs::key_holder_failures_propagate_and_verification_preserves_candidates`, `decryption.rs::plaintexts_that_rebuild_no_note_skip_their_slot`. |
 | INV-TX-SCAN-12 | post / C | `decrypt` decrypts a merge's output from the merge transaction alone: the published ciphertext of the amount and mint (proof-bound on a default merge, unverified on a ring merge, so the rebuilt commitment check of INV-TX-SCAN-13 is what accepts it), with the key derived from the wallet's nullifier secret and the first input nullifier, the derived merge blinding and a ring merge's published ring-data hash. It needs none of the merge's inputs, so a merge of a note the wallet never saw decrypts with the whole total, and chained merges decrypt in any batch order. | [x] `decryption.rs::a_merge_decrypts_from_its_own_transaction`, `decryption.rs::a_merge_of_a_note_the_owner_never_saw_decrypts_with_the_whole_total`, `decryption.rs::merge_outputs_decrypt_from_the_batch_in_any_order`. |
 | INV-TX-SCAN-13 | pre / C | A merge output is kept only when it decrypts under the wallet's own key and its rebuilt commitment equals the published one. A foreign owner's merge, a tampered ciphertext, a wrong commitment, a ring data hash without a ring program and a ring program without a ring data hash each decrypt nothing; the wallet's own merges still spend their inputs. | [x] `decryption.rs::a_merge_output_decrypts_only_under_its_owners_key_and_commitment`. |
-| INV-TX-SCAN-14 | pre / H | Anonymous recipient, anonymous sender and ring deposit schemes retain their enum values but produce no candidates or decryption requests. | [x] `decryption.rs::reserved_encryption_schemes_do_not_request_decryption`. |
+| INV-TX-SCAN-14 | pre / H | Anonymous recipient, anonymous sender and ring deposit payloads produce no wallet candidates or decryption requests. | [x] `decryption.rs::reserved_encryption_schemes_do_not_request_decryption`. |
 | INV-TX-SCAN-15 | pre / H | An output whose asset the registry does not know is left out and reported, its decoded asset id in `unknown_asset_ids` or, for a deposit this wallet owns, its mint in `unknown_mints`, on both results; the rest of the batch still decodes. A reported asset id is unverified until the asset is registered and the commitment checks. | [x] `decryption.rs::outputs_in_unregistered_assets_are_reported_without_failing_the_scan`, `decryption.rs::altered_encryption_context_and_ciphertext_cannot_create_spendable_notes`. |
 | INV-TX-SCAN-16 | post / M | `DecryptionResult::extend` decrypts only the transactions it is given, decrypts their merges from their own ciphertexts without decrypting earlier transactions again, and leaves the result equal to one `decrypt` over all the transactions. A merge found before the merge it spends decrypts at once; nothing waits on a later batch. | [x] `decryption.rs::extending_a_result_decrypts_only_the_new_transactions`, `decryption.rs::a_merge_found_before_the_merge_it_spends_decrypts_at_once`. |
 | INV-TX-SCAN-17 | post / C | `verify_owned` applies the checks of `verify_spendable` (owner, nullifier key, resolved data hashes, recomputed commitment, one UTXO per commitment, nullifiers derived again) but keeps spent UTXOs, in the order the `DecryptionResult` holds them, and names the spent ones by nullifier; `OwnedUtxos::spendable` equals `verify_spendable`, its result without the spent ones. | [x] `decryption.rs::owned_utxos_keep_the_spent_ones_and_derive_their_nullifiers_again`. |
@@ -291,8 +288,9 @@ Source: [keys](../src/keys.rs), [registry](../src/asset.rs).
   the first accepted ID in its balance entry; use a consistent registry in balance
   guarantees rather than implying verification repairs arbitrary candidates.
 - Scanning is batch-local and does not authenticate indexer leaf indices or establish
-  global unspent status. It ignores anonymous recipient/sender and ring-deposit
-  envelopes, whose enum discriminators are reserved without implementations.
+  global unspent status. It ignores anonymous recipient/sender envelopes, whose
+  discriminators are reserved without implementations, and ring-deposit
+  envelopes, which the ring's client reads.
 - A local holder checks viewing-key presence but not consistency of its nullifier
   key with the supplied address. Builder encryption accepts the first value of a
   nonempty key response; scanning checks exact response counts.
@@ -302,8 +300,8 @@ Source: [keys](../src/keys.rs), [registry](../src/asset.rs).
 
 ## Implementation priorities and evidence
 
-Implement tests only after all five document reviews are complete. Prioritize the
-actual wallet path and financial assertions before broadening parser matrices:
+Prioritize the actual wallet path and financial assertions before broadening
+parser matrices:
 
 1. **Builder to recovered spendable notes:** independently construct valid input
    commitments; call `ConfidentialTransaction`, transfer/deposit/withdraw, pad and
@@ -316,7 +314,7 @@ actual wallet path and financial assertions before broadening parser matrices:
    shape, capacity, overflow and settlement error with a valid control fixture;
    assert exact error fields and unchanged accessible state (BUILD-01–11/14–15,
    SETTLE-01–05). Use representable shortage amounts for exact error metadata;
-   shortages beyond `u64::MAX` expose a separate open question below.
+   shortages beyond `u64::MAX` are a separate open question above.
 3. **Spend verification:** mixed owned/foreign/tampered/spent/duplicate batches,
    independent expected balances and metadata, batch-order permutations and
    key-holder request/response failures (SCAN-01–11, ENC-07/09, KEYS-03–05).
@@ -335,65 +333,21 @@ is acceptable; it must not also compute every expected result of the behavior
 under test. Do not turn the implementation questions into successful-behavior
 regression tests without first deciding the intended contract.
 
-Test files: [construction](construction.rs), [settlement](settlement.rs),
-[commitments](commitments.rs), [merge](merge.rs), [decryption](decryption.rs),
-[formats](formats.rs), [history](history.rs), [assets](assets.rs),
-[behavior](behavior.rs), [keys](keys.rs), [confidential](confidential.rs),
-[proofless](proofless.rs),
-[hash vectors](hash_vectors.rs), and
-[constant vectors](constants_vectors.rs). The fixed hash vectors are low-level
-evidence; builder behavior is exercised separately through its public API.
+Test files: [construction](construction.rs), [selection](selection.rs),
+[settlement](settlement.rs), [commitments](commitments.rs),
+[private transaction hash](private_tx_hash.rs),
+[address inputs](address_inputs.rs), [merge](merge.rs),
+[decryption](decryption.rs), [synced transaction keys](synced_transaction_keys.rs),
+[formats](formats.rs), [serde](serde.rs), [history](history.rs),
+[assets](assets.rs), [behavior](behavior.rs), [keys](keys.rs),
+[confidential](confidential.rs), [proofless](proofless.rs),
+[hash vectors](hash_vectors.rs), and [constant vectors](constants_vectors.rs).
+The fixed hash vectors are low-level evidence; builder behavior is exercised
+separately through its public API.
 
-## Execution and review record
+## Running
 
-Run `cargo test -p spr-transaction --offline` from the repository root. Tests
-are hermetic and use the existing dependencies. `just test-sdk-libs` includes this
-crate in the broader SDK gate. No SBF build, prover, validator or indexer is needed.
-
-Initial verification (2026-09-19): `cargo test -p spr-transaction --offline`
-passes all 36 integration tests: 18 formerly inline tests moved here (with two old
-mint fixtures updated), one constants-vector test, and 17 repaired hash-vector
-tests. There are zero inline unit tests and three existing ignored doctests.
-The hash vectors use public low-level assembly with all golden bytes unchanged;
-this is hash compatibility evidence, not builder coverage.
-All five successive subagent document reviews completed before adding new tests.
-
-The measured baseline for `sdk-libs/transaction/src` is **627/2825 lines (22.19%)**
-and **78/305 functions (25.57%)** under `llvm-cov`. This excludes dependency
-coverage and is not a branch-coverage claim. Re-run the same coverage scope after
-new tests, retaining the invariant evidence as the semantic coverage assessment.
-
-Final verification (2026-09-19): **114 integration tests pass**, zero inline unit
-tests remain, and the same three pre-existing doctest examples remain ignored.
-The 87 invariant rows have **77 covered and 10 partial** entries; the partial
-entries name the remaining case matrices or independent-vector gaps. Open
-implementation questions above are separate from those coverage counts.
-
-| Source coverage | Repaired existing suite | Expanded suite |
-|---|---|---|
-| Lines | 627/2825 (22.19%) | 2658/2825 (94.09%) |
-| Functions | 78/305 (25.57%) | 273/305 (89.51%) |
-| Regions | 761/3724 (20.44%) | 3409/3724 (91.54%) |
-
-Measured with `cargo llvm-cov -p spr-transaction --offline --json --summary-only`
-and aggregated only over report filenames containing `/sdk-libs/transaction/src/`.
-Tests, dependencies and unrelated workspace crates are excluded from these totals.
-Region coverage is not branch coverage. Formatting and source-scope checks also
-passed: source edits only remove the five migrated inline test modules.
-
-Post-implementation review strengthened merge recovery to use the intended owner's
-viewing key as well as the transaction key, checked caller-supplied viewing-key
-ordering, and changed scanner rejection tests to compare the complete spendable
-result. `decryption.rs::altered_encryption_context_and_ciphertext_cannot_create_spendable_notes`
-tests salt/key/slot/ciphertext changes with a valid control. Its ciphertext mutation
-still parses as an amount-66 candidate for the original amount-67 commitment;
-verification excludes it. This checks the commitment boundary without assuming an
-authenticated cipher.
-
-| Pass | Review focus | Result |
-|---|---|---|
-| 1 | Construction, balance, padding and mutation safety | Reviewed source and vector assertions: clarified layer-specific validation, change bounds, order and retry requirements; scoped balance guarantees to canonical inputs; recorded malformed-dummy, mint-ID, settlement and sender-consistency gaps; refreshed repaired-vector evidence. |
-| 2 | Commitments, settlement, signer and ring binding | Reviewed both transaction and canonical program hash implementations: added settlement account/bump and owner-resolution cases, signer width/identity boundaries, reserved owner detection and hash default/domain checks; recorded unchecked ring authority, account resolution and hash-recovery trust boundaries. |
-| 3 | Encoding, decryption and key-holder trust boundaries | Reviewed serialization, scanner, local-holder code and migrated tests: added exact wire-layout/proofless cases, sparse physical slots, failure propagation and empty/mixed batch routing; clarified validation layers, duplicate selection and unauthenticated decoding; recorded lossy encoder, metadata and preimage-verification boundaries. |
-| 4 | Merge, coverage evidence and missing edge cases | Reviewed merge constructors, both encryption paths, owner checks, derivations and existing key assertions: added exact indexed error/data matrices, physical-slot dummy vectors, key-holder request routing and accessor filtering; clarified plaintext hash limits and recorded unchecked commitments, duplicate inputs and caller-supplied keys. |
-| 5 | Independent final audit of requirements and testability | Checked source links, unique IDs and existing covered assertions; separated missing-context coverage, added transaction-key request routing, recorded oversized-deficit diagnostics, and prioritized independent wallet/balance/spend assertions. Recorded the measured baseline without presenting line coverage as invariant coverage. |
+Run `cargo test -p spr-transaction` from the repository root; the `serde` test
+needs `--features serde`. The tests are hermetic: no SBF build, prover,
+validator or indexer. `just test-sdk-libs` runs this crate with the other SDK
+crates.

@@ -1,9 +1,9 @@
 //! Rebuild the `GeneralEvent` view from an `EMIT_EVENT` payload and the
-//! instruction that emitted it. The transact/merge reconstruction mirrors what
-//! the program used to write into the event field for field: outputs 1:1 with
-//! the instruction's outputs under their resolved owner tag, messages verbatim,
-//! and queue sequence numbers counted up from the first sequence emitted for
-//! each input's own tree.
+//! instruction that emitted it. A transact or merge event carries only the
+//! trees and the values assigned at execution; reconstruction takes the rest
+//! from the instruction: outputs 1:1 with the instruction's outputs under their
+//! resolved owner tag, messages verbatim, and queue sequence numbers counted up
+//! from the first sequence emitted for each input's own tree.
 
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
