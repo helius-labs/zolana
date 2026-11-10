@@ -401,6 +401,7 @@ build-cli:
 
 test-cli:
     cargo nextest run -p spr-cli
+    cargo nextest run -p spr-canary
     cargo nextest run -p xtask
 
 # === Bench ===

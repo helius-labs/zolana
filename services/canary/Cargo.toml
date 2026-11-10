@@ -1,0 +1,24 @@
+[package]
+name = "spr-canary"
+version = "0.1.0"
+description = "Synthetic private transfer canary for a deployed SPR network."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "spr-canary"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+solana-commitment-config = { workspace = true }
+solana-keypair = { workspace = true }
+solana-signature = { workspace = true }
+solana-signer = { workspace = true }
+solana-transaction = { workspace = true }
+spr-client = { workspace = true, features = ["client"] }
+spr-keypair = { workspace = true }
+spr-transaction = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }

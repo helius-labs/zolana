@@ -49,3 +49,11 @@ target "forester" {
   platforms = split(",", PLATFORMS)
   tags = ["${REGISTRY}/zolana-forester:${TAG}"]
 }
+
+# Synthetic-transfer canary (Rust), built with the workspace as context; not in the default group.
+target "canary" {
+  context = "."
+  dockerfile = "services/canary/Dockerfile"
+  platforms = split(",", PLATFORMS)
+  tags = ["${REGISTRY}/zolana-canary:${TAG}"]
+}

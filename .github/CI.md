@@ -71,7 +71,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     3. Unused dependencies: `cargo machete`.
     4. Rust linting: `just clippy`.
     5. Workspace compilation: `just check-all`.
-    6. `spr-cli`: `cargo nextest run`.
+    6. `spr-cli` and `spr-canary`: `cargo nextest run`.
     7. `xtask`: `cargo nextest run`.
     8. `spr-interface`: `cargo nextest run`.
     9. `spr-instruction`: `cargo nextest run`.
@@ -294,7 +294,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     1. Service image: `docker/build-push-action`.
     2. Photon smoke test: `tools/check-photon-image.sh`.
     3. Prover smoke test: `docker run`.
-    4. Forester smoke test: `docker run`.
+    4. Forester and canary smoke tests: `docker run`.
     5. Image publication: `docker push`.
     6. Provenance: `actions/attest-build-provenance`.
 

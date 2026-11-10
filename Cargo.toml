@@ -40,6 +40,7 @@ members = [
     "sdk-libs/transaction",
     "services/photon",
     "services/rpc-http",
+    "services/canary",
     "sdk-tests/client/rust",
     "sdk-tests/compression/program",
     "sdk-tests/compression/prover",

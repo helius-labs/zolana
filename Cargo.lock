@@ -10654,6 +10654,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "spr-canary"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "solana-commitment-config",
+ "solana-keypair",
+ "solana-signature",
+ "solana-signer",
+ "solana-transaction",
+ "spr-client",
+ "spr-keypair",
+ "spr-transaction",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "spr-cli"
 version = "0.1.0"
 dependencies = [

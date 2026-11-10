@@ -32,6 +32,14 @@
       "title": "Zolana TEE policy freshness",
       "description": "Keeps the signed TEE prover policy in force (AWS Lambda)",
       "smoke": "docker run --rm --entrypoint /usr/local/bin/tee-policy \"$image\" --help >/dev/null"
+    },
+    "canary": {
+      "repository": "zolana-canary",
+      "context": ".",
+      "file": "services/canary/Dockerfile",
+      "title": "Zolana Canary",
+      "description": "Synthetic private transfer canary",
+      "smoke": "docker run --rm \"$image\" --version"
     }
   }
 }
