@@ -18,7 +18,7 @@ pub use get_user_records::get_user_records;
 
 #[cfg(test)]
 mod tests {
-    use super::common::validate_proof_leaves;
+    use super::common::{validate_proof_leaves, MAX_PROOF_LEAVES};
     use crate::api::error::PhotonApiError;
     use crate::common::bn254::BN254_FIELD_SIZE_MINUS_ONE_BYTES;
     use crate::common::rings_tree::RingsTreeKind;
@@ -59,6 +59,20 @@ mod tests {
             error,
             PhotonApiError::ValidationError(message)
                 if message.contains("outside the BN254 scalar field")
+        ));
+    }
+
+    #[test]
+    fn validate_proof_leaves_caps_one_proof() {
+        let leaf = Hash::from(BN254_FIELD_SIZE_MINUS_ONE_BYTES);
+        assert!(validate_proof_leaves(&vec![leaf.clone(); MAX_PROOF_LEAVES]).is_ok());
+
+        let error = validate_proof_leaves(&vec![leaf; MAX_PROOF_LEAVES + 1])
+            .expect_err("more leaves than one proof takes should be rejected");
+
+        assert!(matches!(
+            error,
+            PhotonApiError::ValidationError(message) if message.contains("Too many leaves")
         ));
     }
 
