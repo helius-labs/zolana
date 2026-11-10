@@ -9,7 +9,7 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
 use solana_signature::Signature;
-use spr_instruction::instruction::MergeTransact;
+use spr_instruction::instruction::{CacheWriteAccounts, MergeTransact};
 use spr_interface::{instruction::instruction_data::merge_transact::MergeTransactIxData, pda};
 use spr_keypair::{NullifierKey, ShieldedAddress};
 use spr_transaction::instructions::merge::MergeProofInputs;
@@ -18,7 +18,7 @@ use spr_user_registry_interface::{user_record_pda, MergeEncryptionScheme, UserRe
 use crate::{
     error::ClientError,
     prover::{
-        merge::{MergeProofResult, MergeProver},
+        merge::{MergeCacheTarget, MergeProofResult, MergeProver},
         requests,
         verify::MergeProofStatement,
         witness::InputWitnesses,
@@ -61,6 +61,25 @@ pub struct MergeSubmission<'a> {
     pub nullifier_key: &'a NullifierKey,
     /// Proves this merge in place of the client's prover.
     pub prover: Option<Arc<dyn Prover>>,
+    /// Also writes the merged UTXO to this cache slot; `None` only appends it
+    /// to the output tree.
+    pub cache: Option<MergeCache>,
+}
+
+/// The cache slot a merge also writes its output to, beside appending it to
+/// the output tree. The proof binds the cache account and the slot. The
+/// cache's write authority signs the merge; it may be the fee payer. The
+/// cache must exist when the merge lands: prepend its `CreateCache` to the
+/// message otherwise.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MergeCache {
+    /// The cache account, `pda::cache(rent_sponsor, nonce)`, on the merge's
+    /// output tree.
+    pub address: Address,
+    /// Below `CACHE_CAPACITY`.
+    pub slot: u8,
+    /// The cache's write authority.
+    pub writer: Address,
 }
 
 /// A merge proved and verified against its owner's record, ready for any fee
@@ -74,11 +93,15 @@ pub struct ProvedMerge {
     pub data: MergeTransactIxData,
     /// The UTXO the merge appends to the output tree.
     pub output_hash: [u8; 32],
+    /// The cache the merge also writes its output to; the slot is in
+    /// [`Self::data`].
+    pub cache: Option<CacheWriteAccounts>,
 }
 
 impl ProvedMerge {
-    /// The `merge_transact` `payer` pays for and signs. It verifies a Groth16
-    /// proof: give its transaction [`MERGE_CU_LIMIT`].
+    /// The `merge_transact` `payer` pays for and signs, beside the cache's
+    /// writer for a cached merge. It verifies a Groth16 proof: give its
+    /// transaction [`MERGE_CU_LIMIT`].
     pub fn instruction(&self, payer: Address) -> Instruction {
         MergeTransact {
             input_tree: pda::tree(self.input_tree_id),
@@ -86,7 +109,7 @@ impl ProvedMerge {
             payer,
             user_record: self.user_record,
             data: self.data.clone(),
-            cache: None,
+            cache: self.cache,
         }
         .instruction()
     }
@@ -105,12 +128,20 @@ impl<'a> MergeSubmission<'a> {
             address,
             nullifier_key,
             prover: None,
+            cache: None,
         }
     }
 
     #[must_use]
     pub fn with_prover(mut self, prover: Arc<dyn Prover>) -> Self {
         self.prover = Some(prover);
+        self
+    }
+
+    /// Also write the merged UTXO to `cache`.
+    #[must_use]
+    pub fn with_cache(mut self, cache: MergeCache) -> Self {
+        self.cache = Some(cache);
         self
     }
 
@@ -140,7 +171,10 @@ impl<'a> MergeSubmission<'a> {
             nullifier_key: self.nullifier_key.clone(),
             proofs: witnesses.spend_proofs,
             dummy_nullifier_proofs: witnesses.dummy_nullifier_proofs,
-            cache: None,
+            cache: self.cache.map(|cache| MergeCacheTarget {
+                address: cache.address,
+                slot: cache.slot,
+            }),
         }
         .build()?;
         let proof = match &self.prover {
@@ -160,14 +194,18 @@ impl<'a> MergeSubmission<'a> {
             user_record,
             data: result.instruction_data(ProofCompressed::try_from(proof)?.to_merge_proof()?),
             output_hash: result.output_hash,
+            cache: self.cache.map(|cache| CacheWriteAccounts {
+                cache: cache.address,
+                writer: cache.writer,
+            }),
         })
     }
 
     /// The unsigned v1 message of this merge, which `fee_payer` pays for and
-    /// signs alone, and the last block height it can land at. The blockhash
-    /// is fetched beside the proof and retried after proving if that request
-    /// is still pending, failed, or began more than ten seconds ago, including
-    /// RPC latency.
+    /// signs, beside a [`MergeCache::writer`] other than `fee_payer`, and the
+    /// last block height it can land at. The blockhash is fetched beside the
+    /// proof and retried after proving if that request is still pending,
+    /// failed, or began more than ten seconds ago, including RPC latency.
     /// Proof errors return without waiting for the blockhash request.
     pub async fn finish_unsigned<R: AsyncRpc, I: AsyncIndexer>(
         &self,
@@ -191,7 +229,8 @@ impl<'a> MergeSubmission<'a> {
     }
 
     /// Prove, sign with `fee_payer`, send through `client` and wait until the
-    /// merge is confirmed and indexed.
+    /// merge is confirmed and indexed. A cached merge sent this way needs
+    /// `fee_payer` as its [`MergeCache::writer`].
     pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncSprClient<R, I>,

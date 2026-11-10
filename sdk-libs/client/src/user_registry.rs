@@ -172,14 +172,12 @@ pub async fn build_registration_transaction<R: AsyncRpc>(
     address: &ShieldedAddress,
     payer: Option<Pubkey>,
 ) -> Result<Option<VersionedMessage>, ClientError> {
-    let payer = payer.unwrap_or(owner);
-    let data = register_fields(address)?;
-    let existing = fetch_user_record_optional_checked_async(rpc, owner).await?;
-    let Some(instructions) = registration_instructions(owner, payer, data, existing)? else {
+    let Some(instructions) = build_registration_instructions(rpc, owner, address, payer).await?
+    else {
         return Ok(None);
     };
     let (blockhash, _) = rpc.get_latest_blockhash().await?;
-    unsigned_registration_message(payer, &instructions, blockhash).map(Some)
+    unsigned_registration_message(payer.unwrap_or(owner), &instructions, blockhash).map(Some)
 }
 
 /// Blocking [`build_registration_transaction`].
@@ -189,14 +187,39 @@ pub fn build_registration_transaction_sync<R: Rpc>(
     address: &ShieldedAddress,
     payer: Option<Pubkey>,
 ) -> Result<Option<VersionedMessage>, ClientError> {
-    let payer = payer.unwrap_or(owner);
-    let data = register_fields(address)?;
-    let existing = fetch_user_record_optional_checked(rpc, owner)?;
-    let Some(instructions) = registration_instructions(owner, payer, data, existing)? else {
+    let Some(instructions) = build_registration_instructions_sync(rpc, owner, address, payer)?
+    else {
         return Ok(None);
     };
     let (blockhash, _) = rpc.get_latest_blockhash()?;
-    unsigned_registration_message(payer, &instructions, blockhash).map(Some)
+    unsigned_registration_message(payer.unwrap_or(owner), &instructions, blockhash).map(Some)
+}
+
+/// The instructions of [`build_registration_transaction`], with the same
+/// checks, for a caller that adds its own (for example
+/// [`set_merge_encryption_instruction`]) and compiles the message itself,
+/// fee payer `payer` or `owner`, with one blockhash. Fetches only the record.
+pub async fn build_registration_instructions<R: AsyncRpc>(
+    rpc: &R,
+    owner: Pubkey,
+    address: &ShieldedAddress,
+    payer: Option<Pubkey>,
+) -> Result<Option<Vec<Instruction>>, ClientError> {
+    let data = register_fields(address)?;
+    let existing = fetch_user_record_optional_checked_async(rpc, owner).await?;
+    registration_instructions(owner, payer.unwrap_or(owner), data, existing)
+}
+
+/// Blocking [`build_registration_instructions`].
+pub fn build_registration_instructions_sync<R: Rpc>(
+    rpc: &R,
+    owner: Pubkey,
+    address: &ShieldedAddress,
+    payer: Option<Pubkey>,
+) -> Result<Option<Vec<Instruction>>, ClientError> {
+    let data = register_fields(address)?;
+    let existing = fetch_user_record_optional_checked(rpc, owner)?;
+    registration_instructions(owner, payer.unwrap_or(owner), data, existing)
 }
 
 /// Build the unsigned v1 message that replaces the keys in `owner`'s record
