@@ -4,15 +4,11 @@
 
 The SDK publishes as `@heliuslabs/spr`, and its client, indexer and API
 names take the `Spr` prefix.
-Indexer history reads use gTFA-style pagination with string tokens and slot
-filters, and wallet sync resumes each key from a slot checkpoint.
-The client proves anonymous ring transfers from an owner signer or a
-prepared owner signature.
-Clients can take the confidential signer and merge proving keys from an
-attested prover at runtime instead of the keys the SDK pins.
-The signed prover policy now has two parts: a release that the pinned release
-keys approve, and a short-lived freshness part, signed by the freshness keys the
-release names, that keeps it in force.
+Indexer history reads page by string token and slot filter, and wallet sync
+resumes each key from a slot checkpoint.
+The client proves anonymous ring transfers, takes proving keys from an attested
+prover at runtime, and trusts a prover release only while a short-lived signed
+freshness part keeps it in force.
 
 Breaking
 
@@ -117,8 +113,6 @@ Added
 - `ZolanaClient.proveConfidentialEddsaTransact` authorizes one owner inside the proof and returns the remaining transaction signers, while `signTransactMessage` and `transactMessageDigest` expose the signed statement.
 - `PrivateTransactionParams.owner` lets transfer, withdrawal and split builders accept an owner signature inside the proof while another account pays the transaction fee.
 - `ConfidentialTransfer.withConfidentialEddsaShape` and `selectConfidentialEddsaShape` select among twelve proof shapes with up to 48 inputs and 16 outputs.
-- `TransactionIntent` kind `ringDeposit` shows an approval handler a ring deposit and its recipient, and the private transaction builders and `ZolanaClient` refuse to prove a transaction under that intent.
-- `@heliuslabs/zolana/internal` exports `writeTransactOutput`, `writeOwnerTag`, `readData` and `SHIELDED_ADDRESS_LENGTH`, so an extension codec writes transact outputs and reads `Data` fields in the SDK layout.
 - `@heliuslabs/zolana/internal` exposes the building blocks an extension
   package composes, and the `.d.ts` files keep `@internal` declarations such
   as `Wallet._replace`, both outside semver.

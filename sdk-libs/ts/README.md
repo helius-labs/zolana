@@ -33,7 +33,7 @@ seed.
 import {
   createKeyPairSignerFromPrivateKeyBytes,
   getSignatureFromTransaction,
-  sendAndConfirmTransactionFactory,
+  sendTransactionWithoutConfirmingFactory,
   signTransactionWithSigners,
   type Address,
   type KeyPairSigner,
@@ -58,7 +58,7 @@ const client = await createSprClient({});
 declare function loadOwnerSeed(): Promise<Bytes32>;
 const ownerSeed = await loadOwnerSeed();
 
-const feePayer = await createKeyPairSignerFromPrivateKeyBytes(ownerSeed);
+const owner = await createKeyPairSignerFromPrivateKeyBytes(ownerSeed);
 const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(ownerSeed));
 ownerSeed.fill(0);
 
@@ -67,14 +67,11 @@ const wallet = new Wallet({ identity: keypair.shieldedAddress() });
 // implements the same `WalletKeys` interface and drops in here.
 const keys = LocalKeys.fromKeypair(keypair, client.proofService);
 
-const sendAndConfirm = sendAndConfirmTransactionFactory({
-  rpc: client.solanaRpc,
-  rpcSubscriptions: client.solanaRpcSubscriptions,
-});
+const sendTransaction = sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc });
 
 async function submit(transaction: Transaction, signer: KeyPairSigner) {
   const signed = await signTransactionWithSigners([signer], transaction);
-  await sendAndConfirm(signed, { commitment: "confirmed" });
+  await sendTransaction(signed, { commitment: "confirmed" });
   return getSignatureFromTransaction(signed);
 }
 
@@ -86,11 +83,11 @@ await syncWallet({
 
 const deposit = await buildDepositTransaction({
   client,
-  feePayer: feePayer.address,
+  feePayer: owner.address,
   recipient: keypair.shieldedAddress(),
   amount: 100_000_000n,
 });
-const signature = await submit(deposit, feePayer);
+const signature = await submit(deposit, owner);
 const slot = await client.confirmTransaction(signature);
 
 await syncWallet({
@@ -109,8 +106,8 @@ console.log(getPrivateTransactions(wallet));
 direct client calls, `atSlot(slot)` builds the same gate as a per-request
 config.
 
-For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
-the same owner seed, as shown above.
+The shielded keypair and the Solana signer must use the same owner seed, as
+shown above.
 
 Every build and sync takes the wallet's privacy roles as `WalletKeys`: the
 wallet derivations (`ShieldedKeys`: `decrypt`, `derive`, `transactionKeys`) and
@@ -202,10 +199,6 @@ must reproduce the requested public statement before transaction assembly. A
 prover started without an indexer refuses these requests with
 `CLIENT_PROVER_INDEXER_UNCONFIGURED`.
 
-The Helius deployment must activate the corresponding REST routes, prover
-pools and TEE header forwarding before these calls can succeed. The SDK
-does not infer those capabilities from the hostname.
-
 Use `attestProver` and `checkProverProvingKeys` for gateway readiness;
 the operator `/health` route is not part of the public Helius API.
 
@@ -255,19 +248,20 @@ depositor's source token account:
 ```ts
 const deposit = await buildDepositTransaction({
   client,
-  feePayer: feePayer.address,
+  feePayer: owner.address,
   recipient: keypair.shieldedAddress(),
   asset: mint,
   splTokenAccount: sourceTokenAccount,
   amount: 1_000_000n,
 });
-await submit(deposit, feePayer);
+await submit(deposit, owner);
 ```
 
 The standard SPL Token program is used by default. For Token-2022, also pass
 `splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID`.
 
-Passing a `ShieldedAddress` skips the lookup.
+`recipient` takes a Solana `Address`, which the SDK looks up in the onchain
+registry, or a `ShieldedAddress`, which it uses as is.
 
 ### Registration
 
@@ -279,11 +273,11 @@ import { buildRegistrationTransaction } from "@heliuslabs/spr";
 
 const registration = await buildRegistrationTransaction({
   client,
-  owner: feePayer.address,
+  owner: owner.address,
   address: keypair.shieldedAddress(),
 });
 if (registration !== undefined) {
-  await submit(registration, feePayer);
+  await submit(registration, owner);
 }
 ```
 
@@ -318,11 +312,11 @@ const transfer = await buildTransferTransaction({
   client,
   wallet,
   keys,
-  feePayer: feePayer.address,
+  feePayer: owner.address,
   recipient: recipientSolanaAddress,
   amount: 25_000_000n,
 });
-const slot = await client.confirmTransaction(await submit(transfer, feePayer));
+const slot = await client.confirmTransaction(await submit(transfer, owner));
 await syncWallet({ client, wallet, keys, config: { requireSlot: slot } });
 ```
 
@@ -342,7 +336,7 @@ const transfer = await buildMultiTransferTransaction({
   client,
   wallet,
   keys,
-  feePayer: feePayer.address,
+  feePayer: owner.address,
   payments: [
     { recipient: merchantSolanaAddress, amount: 25_000_000n },
     { recipient: feeCollectorSolanaAddress, amount: 250_000n },
@@ -365,11 +359,11 @@ const withdrawal = await buildWithdrawalTransaction({
   client,
   wallet,
   keys,
-  feePayer: feePayer.address,
+  feePayer: owner.address,
   recipient: publicRecipient,
   amount: 10_000_000n,
 });
-const slot = await client.confirmTransaction(await submit(withdrawal, feePayer));
+const slot = await client.confirmTransaction(await submit(withdrawal, owner));
 await syncWallet({ client, wallet, keys, config: { requireSlot: slot } });
 ```
 
@@ -394,7 +388,7 @@ const sponsored = await buildTransferTransaction({
   recipient: recipientSolanaAddress,
   amount: 25_000_000n,
 });
-const signed = await signTransactionWithSigners([sponsor, feePayer], sponsored);
+const signed = await signTransactionWithSigners([sponsor, owner], sponsored);
 ```
 
 ## Wallet sync and persistence
@@ -414,8 +408,8 @@ Persist wallet state with `serializeWallet` and restore it with
 contains UTXO data and must be encrypted at rest.
 
 History reads accept `{paginationToken?, limit?, filters?, minContextSlot?}`
-and return `{context, data, paginationToken}`, in the gTFA-style pagination of
-Helius `getTransactionsForAddress`. `data` groups the events or outputs of each
+and return `{context, data, paginationToken}`, the same pagination as Helius
+`getTransactionsForAddress`. `data` groups the events or outputs of each
 Solana transaction, so `limit` never splits a transaction. Pass the returned
 `paginationToken` back unchanged, with the same filters, until it is `null`.
 To resume a later scan, keep the final page's `context.slot` and send
@@ -491,32 +485,15 @@ Advanced protocol users can import low-level instruction builders from
 
 ## API reference
 
-The release workflow publishes the generated TypeDoc reference from
-`ts-sdk-v*` tags. The tag version must match this package's version. Published
-versions are immutable:
+The TypeDoc reference of every release:
 
 - latest: <https://helius-labs.github.io/zolana/ts-sdk/>.
-- explicit version:
-  <https://helius-labs.github.io/zolana/ts-sdk/v0.1.3-alpha/>.
+- one version: `https://helius-labs.github.io/zolana/ts-sdk/v<version>/`.
 - version index:
   <https://helius-labs.github.io/zolana/ts-sdk/versions.json>.
 
-GitHub Pages must use GitHub Actions as its source before the first release
-workflow runs.
-
-The intended long-term canonical location is
-`https://www.helius.dev/privacy/api/`, with immutable versions such as
-`https://www.helius.dev/privacy/api/v0.1.3-alpha/`. Migrate only after the Helius
-website proxies `/privacy/api/*` to the GitHub Pages `/zolana/ts-sdk/*` origin.
-At that point, update the release workflow's `PUBLIC_BASE_URL`; existing GitHub
-Pages URLs remain available as the backing origin.
-
 ## Important notes
 
-- Ed25519 is the supported owner scheme for registration and private
-  transactions. `ShieldedKeypair.generate()` defaults to Ed25519.
-- Viewing keys use X25519. P-256-owned notes, registry records, viewing keys
-  and wallet snapshots are unsupported.
 - Non-loopback indexer and prover URLs must use HTTPS.
 - Protect signer seeds and shielded key material. Encrypt serialized wallet
   state and avoid logging private balances, UTXOs, or keys.

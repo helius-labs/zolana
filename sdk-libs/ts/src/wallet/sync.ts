@@ -534,9 +534,8 @@ async function runWalletSync(
     const validatedPoll = Object.freeze({ ...poll, numRetries: Math.max(poll.numRetries, 1) });
     const ungated: IndexerRpcConfig = Object.freeze({ poll: validatedPoll });
     const requireSlot = input.config?.requireSlot ?? clientConfig?.requireSlot;
-    // Freshness is established ONCE per sync, on the first indexer request, not on
-    // every request. Applying it per request meant paying the wait per tag chunk,
-    // per collector, per page.
+    // Freshness is established once per sync, on the first indexer request, so the
+    // wait is paid once rather than per tag chunk, collector and page.
     let pendingGate: IndexerRpcConfig | undefined =
       requireSlot === undefined ? undefined : Object.freeze({ poll: validatedPoll, requireSlot });
     const nextRpcConfig = (): IndexerRpcConfig => {

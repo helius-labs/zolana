@@ -72,19 +72,18 @@ import { asField } from "./assembly.js";
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 /** An error body is a code and a message; anything larger is not read. */
 const MAX_REASON_BYTES = 4096;
-/// Per-request bound, mirroring the Rust client's `PROVE_REQUEST_TIMEOUT_SECS`.
-/// Generous enough for a cold prove that first loads a 63MB proving key, so a
-/// clean server-side timeout still returns before it.
+/**
+ * Per-request bound, mirroring the Rust client's `PROVE_REQUEST_TIMEOUT_SECS`.
+ * Generous enough for a cold prove that first loads a 63MB proving key, so a
+ * clean server-side timeout still returns before it.
+ */
 const REQUEST_TIMEOUT_MS = 600_000;
 /**
  * First gap between status polls, doubling up to `pollIntervalCapMs`.
  *
- * Matches the Rust client's `INITIAL_POLL_MS`. A flat interval pays its full
- * length on every proof: at 3s, a proof that finished in 1.3s still waited for
- * the next tick, which was most of the TypeScript SDK's per-transfer latency and
- * looked like slow local compute because sleeping burns no CPU and issues no
- * request. Starting small and backing off keeps the common case tight without
- * hammering the prover while a genuinely long proof runs.
+ * Matches the Rust client's `INITIAL_POLL_MS`. A short first gap returns a fast
+ * proof without waiting out a long tick, and backing off spares the prover
+ * while a long proof runs.
  */
 const INITIAL_POLL_INTERVAL_MS = 25;
 /**
@@ -104,9 +103,11 @@ type Route = "sync" | "queued" | "indexed";
 /** Maps an indexed refusal body to the caller's error, `undefined` keeps the prover's own. */
 export type ProverRefusal = (body: Readonly<Record<string, unknown>>) => Error | undefined;
 
-/// Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
-/// returns a job handle instead of a proof, and the client polls the proving
-/// key's `/prove/<key>/status` until it completes.
+/**
+ * Polling cadence and ceiling for queued (async) proofs. A Redis-backed prover
+ * returns a job handle instead of a proof, and the client polls the proving
+ * key's `/prove/<key>/status` until it completes.
+ */
 export interface AsyncPollConfig {
   /**
    * Ceiling for the gap between status polls. Polling starts at 25ms and
@@ -579,10 +580,8 @@ export class ProverClient {
           );
         }
         if (status === "completed") {
-          // Rust unwraps the envelope on the key's presence, not on its type:
-          // `value.get("result").map_or(&value, ..)`. Requiring an object here
-          // sent a `result: null` back into the parser as the whole envelope,
-          // where the missing proof read as malformed rather than as absent.
+          // Like Rust, unwrap the envelope on the key's presence, not on its type,
+          // so a `result: null` reaches the parser as an absent proof.
           const result = isObject(value) && "result" in value ? value["result"] : value;
           return result;
         }

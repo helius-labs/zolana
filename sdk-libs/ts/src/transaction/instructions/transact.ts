@@ -171,9 +171,9 @@ export function resolveShape(inputs: number, outputs: number, declared?: Shape):
 }
 
 /**
- * The ciphertext ordinal that keys AES-CTR for the slot at `position`, the
- * counterpart of Rust `slot_ordinal`. Every published output of a confidential
- * transfer carries a ciphertext, so the ordinal is the output position. It is a
+ * The ciphertext ordinal that keys AES-CTR for the slot at `position`. Every
+ * published output of a confidential transfer carries a ciphertext, so the
+ * ordinal is the output position. It is a
  * `u32` in the HKDF `info` string, and a wrapped value would reuse a
  * `(key, nonce)` pair across two slots.
  */
@@ -380,9 +380,11 @@ export function createExternalData(input: ExternalDataInit): ExternalData {
   return sealExternalData(snapshot);
 }
 
-/// The builders re-enter through `createExternalData` so a derived value is
-/// copied and frozen exactly like the original; a caller keeping the value it
-/// passed cannot reach into either.
+/**
+ * The builders re-enter through `createExternalData` so a derived value is
+ * copied and frozen exactly like the original; a caller keeping the value it
+ * passed cannot reach into either.
+ */
 function sealExternalData(fields: ExternalDataFields): ExternalData {
   const set = (changed: Partial<ExternalDataFields>): ExternalData =>
     createExternalData({ ...fields, ...changed });
@@ -964,7 +966,7 @@ export interface PreparedTransfer {
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
   proofOutputs(): readonly ProofOutputUtxo[];
-  /** Mirrors Rust `RecordSlots::append`: places the velocity record after the real inputs and at `recordSlot` among the outputs. */
+  /** Places the velocity record after the real inputs and at `recordSlot` among the outputs. */
   withAppendedSlot(extension: RecordSlotExtension): PreparedTransfer;
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
@@ -992,7 +994,7 @@ interface Recipient {
   readonly address: ShieldedAddress;
   readonly asset: Address;
   readonly amount: bigint;
-  /** Resolved at `prepare`, mirrors Rust `RecipientRing`, `default` is an exit when the transfer runs in a ring. */
+  /** Resolved at `prepare`; `default` is an exit when the transfer runs in a ring. */
   readonly ring: RecipientRing;
 }
 
@@ -1078,7 +1080,7 @@ export class ConfidentialTransfer {
     this.#push({ address: recipient, asset, amount, ring: "transfer" });
   }
 
-  /** The UTXO leaves the transfer ring for the default ring. Mirrors Rust `send_default_ring`. */
+  /** The UTXO leaves the transfer ring for the default ring. */
   sendDefaultRing(recipient: ShieldedAddress, asset: Address, amount: bigint): void {
     this.#push({ address: recipient, asset, amount, ring: "default" });
   }
@@ -1392,7 +1394,7 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
   });
 }
 
-/** Mirrors Rust `RecordSlots::append`. */
+/** Places the velocity record after the real inputs and at `recordSlot` among the outputs. */
 function appendRecordSlot(
   fields: PreparedTransferFields,
   extension: RecordSlotExtension,

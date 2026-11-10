@@ -75,11 +75,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function parseProof(value: unknown): Proof {
-  // Rust unwraps before it validates: `proof_from_value` reads `proof` off
-  // whatever it was handed, falling back to the whole value, and only then
-  // separates a proof the server declined to send from one it sent badly. A null
-  // is `ProverServer`; anything with bytes in it can still be `ProofParse`.
-  // Validating the envelope first turned an absent proof into a malformed one.
+  // Like Rust `proof_from_value`, unwrap before validating: read `proof` off the
+  // value, falling back to the whole value, and only then separate a proof the
+  // server declined to send (null, `CLIENT_PROVER_SERVER`) from one it sent badly.
   const proofValue = isRecord(value) && Object.hasOwn(value, "proof") ? value["proof"] : value;
   if (proofValue === null) {
     throw new ClientError("CLIENT_PROVER_SERVER", { details: { reason: "null proof" } });
@@ -143,10 +141,12 @@ function compressG1(point: Bytes64, name: string): Bytes32 {
   return result as Bytes32;
 }
 
-/// Solana's big-endian G2 encoding stores each Fq2 value as c1 || c0: the
-/// four 32-byte coordinates are `x1 || x0 || y1 || y0`. Returns them in that
-/// order after checking the point is on the curve, or all zeros for the
-/// identity placeholder of a dummy proof.
+/**
+ * Solana's big-endian G2 encoding stores each Fq2 value as c1 || c0: the
+ * four 32-byte coordinates are `x1 || x0 || y1 || y0`. Returns them in that
+ * order after checking the point is on the curve, or all zeros for the
+ * identity placeholder of a dummy proof.
+ */
 function g2Coordinates(point: Bytes128): [bigint, bigint, bigint, bigint] {
   const values = [0, 32, 64, 96].map((offset) =>
     bytesToBigInt(point.subarray(offset, offset + 32)),
@@ -230,11 +230,13 @@ function parseG2(value: unknown, path: string): Bytes128 {
   return result as Bytes128;
 }
 
-/// The prover writes every coordinate as `0x%064x`, but the Rust parser reads
-/// it through `BigInt::from_str_radix(trim_start_matches("0x"), 16)`, which
-/// takes the same digits with the prefix left off. Accept both so a producer
-/// the Rust client handles is not rejected here; the digits are always read as
-/// hexadecimal, prefix or not, exactly as Rust reads them.
+/**
+ * The prover writes every coordinate as `0x%064x`, but the Rust parser reads
+ * it through `BigInt::from_str_radix(trim_start_matches("0x"), 16)`, which
+ * takes the same digits with the prefix left off. Accept both so a producer
+ * the Rust client handles is not rejected here; the digits are always read as
+ * hexadecimal, prefix or not, exactly as Rust reads them.
+ */
 function parseCoordinate(value: unknown, path: string): bigint {
   if (typeof value !== "string") invalid(path);
   const digits = /^0[xX]/u.test(value) ? value.slice(2) : value;
@@ -244,7 +246,9 @@ function parseCoordinate(value: unknown, path: string): bigint {
   return result;
 }
 
-/// Rust reads both commitment fields as `#[serde(default)] Vec<String>`, an explicit `[]` is absent.
+/**
+ * Rust reads both commitment fields as `#[serde(default)] Vec<String>`, an explicit `[]` is absent.
+ */
 function present(value: unknown): boolean {
   return value !== undefined && !(Array.isArray(value) && value.length === 0);
 }
