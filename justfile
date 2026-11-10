@@ -1405,16 +1405,19 @@ ensure-photon:
     fi
     just build-photon
 
-# Build the localnet release artifacts and regenerate cli/release-artifacts.lock:
-# version-suffixed program .so files, an account-snapshot bundle (generated
-# in-process with LiteSVM -- no keypairs or running validator needed), and the
-# prover/photon binaries for the host platform plus linux-x64 (Go cross-compile
-# for the prover; Docker for the linux photon, so docker must be running).
-# Stages assets and rewrites the lockfile only, unless you forward flags to
-# `create-release`: add `--upload` to publish via `gh release create`
-# (re-published cleanly, tag re-pointed at HEAD) and `--prerelease` to mark a
-# GitHub pre-release. Example: `just release v0.1.0-alpha --upload --prerelease`.
-release tag *args: build-programs fetch-smart-account
+# Build the localnet release artifacts and regenerate cli/release-artifacts.lock.
+# The lock pins the shielded-pool and user-registry programs to their deployed
+# releases (shielded-pool-v1.0.0, user-registry-v1.0.0, checked against their
+# SHA256SUMS), and the release bundles the Squads smart-account program, an
+# account-snapshot bundle of the deployed shielded pool (generated in-process
+# with LiteSVM -- no keypairs or running validator needed), and the CLI,
+# prover and photon binaries for the host platform plus linux-x64 (Go
+# cross-compile for the prover; Docker for the linux Rust binaries, so docker
+# must be running). Stages assets and rewrites the lockfile only, unless you
+# forward flags to `create-release`: add `--upload` to publish via
+# `gh release create` and `--prerelease` to mark a GitHub pre-release.
+# Example: `just release cli-v0.10.0 --upload`.
+release tag *args: fetch-smart-account
     cargo run -p xtask -- create-release --tag {{tag}} {{args}}
 
 # === Formatting and linting ===

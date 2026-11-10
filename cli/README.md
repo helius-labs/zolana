@@ -77,15 +77,24 @@ Optional wallet path:
 zolana dev start          # or: zolana test-env
 ```
 
-By default `dev start` bootstraps a ready-to-use localnet from a pinned GitHub
-release: it downloads the shielded-pool, user-registry, and Squads smart-account
-programs, an account-snapshot bundle (protocol config, asset counter, the pool
-tree at the default tree address, and the Squads authority accounts), and the
-prover and Photon binaries, plus the custom surfpool binary from its own release.
-Every artifact is verified against the sha256 lockfile embedded in the CLI
-(`cli/release-artifacts.lock`) and cached under `~/.config/zolana/cache/<tag>/`,
-so repeat starts are offline. This means a fresh `cargo install --path cli` can
-boot a fully-initialized localnet with no repo checkout and nothing prebuilt.
+By default `dev start` bootstraps a ready-to-use localnet from pinned GitHub
+releases: the deployed shielded-pool and user-registry programs from their own
+releases (`shielded-pool-v1.0.0`, `user-registry-v1.0.0`), and from the CLI's
+release the Squads smart-account program, an account-snapshot bundle (protocol
+config, asset counter, the pool tree at the default tree address, and the
+Squads authority accounts), and the prover and Photon binaries, plus the custom
+surfpool binary from its own release. Every artifact is verified against the
+sha256 lockfile embedded in the CLI (`cli/release-artifacts.lock`) and cached
+under `~/.config/zolana/cache/<release tag>/`, so repeat starts are offline.
+This means a fresh `cargo install --path cli` can boot a fully-initialized
+localnet with no repo checkout and nothing prebuilt.
+
+`zolana dev artifacts` downloads the same pinned artifacts for tools that start
+a localnet themselves, such as `spr-program-test`'s `FixtureLocalnet`, and
+prints their paths as `VARIABLE=path` lines (`ZOLANA_CLI_BIN`,
+`SHIELDED_POOL_PROGRAM_PATH`, `PROVER_BIN`, `ZOLANA_PHOTON_BIN`,
+`SURFPOOL_BIN`). In GitHub Actions, append them to the job environment with
+`zolana dev artifacts >> "$GITHUB_ENV"`.
 
 Skip the indexer or prover:
 
@@ -106,12 +115,12 @@ Passing any explicit `--sbf-program` also implies local mode. Override the
 release download host with `ZOLANA_RELEASE_URL`.
 
 In local mode the prover fetches indexed proof data from the Photon that
-`dev start` launches. The pinned release prover predates indexed proofs, so SDK
-clients against a release localnet select client proof data.
+`dev start` launches.
 
-Maintainers publish the release with
-`just release <tag> --upload --prerelease` (omit the flags for a dry run that only
-stages assets and regenerates the lockfile). It builds the programs, the host +
-linux-x64 prover/photon binaries, snapshots the initialized accounts in-process
-with LiteSVM (no keypairs or running validator needed), and regenerates the
-lockfile. The `zolana` CLI is built last so it embeds that lockfile.
+Maintainers publish the release with `just release <tag> --upload` (omit the
+flag for a dry run that only stages assets and regenerates the lockfile). It
+downloads the deployed programs and checks them against their releases'
+`SHA256SUMS`, builds the host + linux-x64 prover/photon binaries, snapshots the
+initialized accounts in-process with LiteSVM (no keypairs or running validator
+needed), and regenerates the lockfile. The `zolana` CLI is built last so it
+embeds that lockfile.

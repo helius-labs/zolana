@@ -439,6 +439,12 @@ pub(crate) enum DevCommand {
         #[command(subcommand)]
         command: DevPoolCommand,
     },
+
+    #[command(
+        name = "artifacts",
+        about = "Download this release's localnet artifacts and print their paths as VARIABLE=path lines"
+    )]
+    Artifacts,
 }
 
 #[derive(Debug, Subcommand)]

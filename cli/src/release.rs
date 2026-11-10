@@ -44,6 +44,9 @@ pub(crate) struct Asset {
 #[derive(Debug, Deserialize)]
 pub(crate) struct ProgramAsset {
     pub role: String,
+    /// The release the program is downloaded from: a deployed program's own
+    /// release (`shielded-pool-v1.0.0`), or `release_tag` for one bundled here.
+    pub release_tag: String,
     #[serde(flatten)]
     pub file: Asset,
 }
@@ -75,18 +78,41 @@ impl Release {
     /// Downloads (cache-first) each pinned program `.so` and pairs it with the
     /// on-chain program id so the caller can build `--bpf-program` args.
     pub(crate) fn program_specs(&self) -> Result<Vec<ProgramSpec>> {
-        let base = release_base_url();
         self.lock
             .programs
             .iter()
             .map(|program| {
-                let path = ensure_file(&self.lock.release_tag, &program.file, &base)?;
                 Ok(ProgramSpec {
                     address: program_id_for_role(&program.role)?,
-                    path: path_string(&path)?,
+                    path: path_string(&self.program_file(program)?)?,
                 })
             })
             .collect()
+    }
+
+    fn program_file(&self, program: &ProgramAsset) -> Result<PathBuf> {
+        ensure_file(&program.release_tag, &program.file, &release_base_url())
+    }
+
+    /// Downloads the artifacts a localnet started with `--local` takes from the
+    /// environment, and returns each as `(variable, path)`.
+    pub(crate) fn localnet_environment(&self) -> Result<Vec<(&'static str, PathBuf)>> {
+        let shielded_pool = self
+            .lock
+            .programs
+            .iter()
+            .find(|program| program.role == "shielded_pool")
+            .ok_or_else(|| anyhow!("release-artifacts.lock has no shielded_pool program"))?;
+        Ok(vec![
+            ("ZOLANA_CLI_BIN", env::current_exe()?),
+            (
+                "SHIELDED_POOL_PROGRAM_PATH",
+                self.program_file(shielded_pool)?,
+            ),
+            ("PROVER_BIN", self.prover_binary()?),
+            ("ZOLANA_PHOTON_BIN", self.photon_binary()?),
+            ("SURFPOOL_BIN", self.surfpool_binary()?),
+        ])
     }
 
     /// Downloads and extracts the account-snapshot bundle, returning the
@@ -137,7 +163,7 @@ impl Release {
             "{SURFPOOL_BASE_URL}/{}/{asset_name}",
             self.lock.surfpool_tag
         );
-        println!("Downloading {url}");
+        eprintln!("Downloading {url}");
         let bytes = http_get(&url)?;
         let archive = dir.join(&asset_name);
         fs::write(&archive, &bytes)
@@ -160,6 +186,15 @@ impl Release {
         }
         Ok(bin)
     }
+}
+
+/// `zolana dev artifacts`: downloads the pinned localnet artifacts and prints
+/// them as `VARIABLE=path` lines, ready to append to `$GITHUB_ENV`.
+pub(crate) fn print_localnet_environment() -> Result<()> {
+    for (variable, path) in Release::load()?.localnet_environment()? {
+        println!("{variable}={}", path_string(&path)?);
+    }
+    Ok(())
 }
 
 fn program_id_for_role(role: &str) -> Result<String> {
@@ -219,7 +254,7 @@ fn ensure_file(tag: &str, asset: &Asset, base_url: &str) -> Result<PathBuf> {
     }
 
     let url = format!("{base_url}/{tag}/{}", asset.name);
-    println!("Downloading {url}");
+    eprintln!("Downloading {url}");
     let bytes = http_get(&url)?;
     verify_bytes(&bytes, asset)?;
     // Write to a temp file then rename so an interrupted download never leaves a
@@ -365,6 +400,20 @@ mod tests {
         assert!(binary_roles.contains(&"prover"));
         assert!(binary_roles.contains(&"photon"));
         assert!(!lock.accounts.name.is_empty());
+    }
+
+    #[test]
+    fn deployed_programs_come_from_their_own_releases() {
+        let lock = lock();
+        let tag = |role: &str| {
+            lock.programs
+                .iter()
+                .find(|program| program.role == role)
+                .map(|program| program.release_tag.as_str())
+        };
+        assert_eq!(tag("shielded_pool"), Some("shielded-pool-v1.0.0"));
+        assert_eq!(tag("user_registry"), Some("user-registry-v1.0.0"));
+        assert_eq!(tag("smart_account"), Some(lock.release_tag.as_str()));
     }
 
     #[test]

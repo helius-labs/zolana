@@ -108,16 +108,20 @@ hits the production-critical surface quickly. For full-workspace coverage use `j
 
 ## Install the CLI
 
-Install the `zolana` binary straight from the repository (builds from source, so
-it pulls the workspace's git dependencies; not published to crates.io):
+Download the prebuilt `zolana` binary for your platform from the
+[`cli-v0.10.0` release](https://github.com/helius-labs/zolana/releases/tag/cli-v0.10.0)
+(`zolana-linux-x64-cli-v0.10.0`, `zolana-darwin-arm64-cli-v0.10.0`; checksums in
+its `SHA256SUMS`), or build it from the repository (it pulls the workspace's git
+dependencies; not published to crates.io):
 
 ```bash
-cargo install --git https://github.com/helius-labs/zolana --tag v0.4.0-alpha spr-cli
+cargo install --git https://github.com/helius-labs/zolana --tag cli-v0.10.0 spr-cli
 ```
 
 `zolana dev start` then fetches a version-pinned, pre-initialized localnet
-(programs, account snapshots, prover, and Photon) from the matching release. See
-[`cli/README.md`](cli/README.md) for commands and the `--local` dev flow.
+(the deployed programs, account snapshots, prover, and Photon) from the pinned
+releases. See [`cli/README.md`](cli/README.md) for commands, `zolana dev
+artifacts` and the `--local` dev flow.
 
 ## CI
 
