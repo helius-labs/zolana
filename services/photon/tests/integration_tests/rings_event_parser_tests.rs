@@ -16,8 +16,9 @@ use photon_indexer::{
     },
     common::rings_tree::RingsTreeKind,
     dao::generated::{
-        blocks, indexed_trees, rings_output_payloads, rings_outputs, rings_transaction_payloads,
-        rings_transactions, rings_tx_nullifiers, state_trees, transactions, tree_metadata,
+        blocks, indexed_trees, rings_messages, rings_output_payloads, rings_outputs,
+        rings_transaction_payloads, rings_transactions, rings_tx_nullifiers, state_trees,
+        transactions, tree_metadata,
     },
     ingester::{
         parser::{
@@ -597,6 +598,57 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     assert_eq!(resumed_encrypted.pagination_token, None);
 }
 
+/// A transaction is found through a message's view tag as well as an output's,
+/// and once even when both of its tags are asked for.
+#[tokio::test]
+async fn tag_lookup_matches_message_tags_once() {
+    let db = fresh_rings_database().await;
+    let output_tag = [7u8; 32];
+    let message_tag = [8u8; 32];
+    seed_tagged_transaction_history(&db, output_tag, 0..3).await;
+    let tagged = rings_transactions::Entity::find_by_id(2_i64)
+        .one(&db)
+        .await
+        .unwrap()
+        .expect("seeded transaction");
+    rings_messages::Entity::insert(rings_messages::ActiveModel {
+        message_id: Set(1),
+        rings_tx_id: Set(tagged.rings_tx_id),
+        slot: Set(tagged.slot),
+        message_index: Set(0),
+        view_tag: Set(message_tag.to_vec()),
+        payload: Set(vec![5u8; 32]),
+    })
+    .exec(&db)
+    .await
+    .expect("seed message");
+
+    let events = |tags: Vec<[u8; 32]>| {
+        let db = db.clone();
+        async move {
+            let request = GetRingsByTagsRequest {
+                tags: tags.into_iter().map(Hash::from).collect(),
+                ..Default::default()
+            };
+            get_shielded_transactions_by_tags(&db, request)
+                .await
+                .expect("tags lookup")
+                .data
+                .into_iter()
+                .map(|item| item.signature)
+                .collect::<Vec<_>>()
+        }
+    };
+
+    let by_message = events(vec![message_tag]).await;
+    assert_eq!(by_message.len(), 1);
+    assert_eq!(by_message[0].0, signature_at(1));
+
+    let by_both = events(vec![output_tag, message_tag]).await;
+    assert_eq!(by_both.len(), 3, "the message's transaction appears once");
+
+    assert!(events(vec![[9u8; 32]]).await.is_empty());
+}
 #[test]
 fn rings_snapshot_filter_keeps_nullifier_tree_batch_updates() {
     let tx = batch_update_transaction_info(Pubkey::new_unique());

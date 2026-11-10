@@ -230,44 +230,44 @@ pub(super) async fn hydrate_shielded_transactions(
         .collect()
 }
 
+/// The transactions a query matches, as a CTE of `rings_tx_id`s or a filter on `pt`.
+enum MatchSql {
+    Ids(String),
+    Filter(String),
+}
+
 fn match_by_sql(
     values: &[Hash],
     match_by: MatchBy,
     ring_config: Option<Pubkey>,
     backend: DatabaseBackend,
     params: &mut Vec<Value>,
-) -> String {
+) -> MatchSql {
     match match_by {
         // Recipient tags are unknown until the deposit openings are decrypted.
-        MatchBy::Tags if values.is_empty() && ring_config.is_some() => "TRUE".to_string(),
+        MatchBy::Tags if values.is_empty() && ring_config.is_some() => {
+            MatchSql::Filter("TRUE".to_string())
+        }
+        // Starting from the view-tag indexes keeps a sparse wallet from scanning every transaction.
         MatchBy::Tags => {
             let output_filter = tags_sql(values, backend, params);
             let message_filter = tags_sql(values, backend, params);
-            format!(
-                "EXISTS (
-                    SELECT 1
-                    FROM rings_outputs po
-                    WHERE po.rings_tx_id = pt.rings_tx_id
-                    AND po.view_tag IN ({output_filter})
-                )
-                OR EXISTS (
-                    SELECT 1
-                    FROM rings_messages pm
-                    WHERE pm.rings_tx_id = pt.rings_tx_id
-                    AND pm.view_tag IN ({message_filter})
-                )"
-            )
+            MatchSql::Ids(format!(
+                "SELECT po.rings_tx_id FROM rings_outputs po WHERE po.view_tag IN ({output_filter})
+                UNION
+                SELECT pm.rings_tx_id FROM rings_messages pm WHERE pm.view_tag IN ({message_filter})"
+            ))
         }
         MatchBy::Nullifiers => {
             let nullifier_filter = tags_sql(values, backend, params);
-            format!(
+            MatchSql::Filter(format!(
                 "EXISTS (
                     SELECT 1
                     FROM rings_tx_nullifiers pn
                     WHERE pn.rings_tx_id = pt.rings_tx_id
                     AND pn.nullifier IN ({nullifier_filter})
                 )"
-            )
+            ))
         }
     }
 }
@@ -303,10 +303,18 @@ async fn fetch_matching_rings_transactions(
     let selection_ring = ring_filter_sql(query.ring_config, backend, &mut params);
     let lookahead = bind_u64_as_i64(&mut params, backend, query.page.limit + 1)?;
     let result_ring = ring_filter_sql(query.ring_config, backend, &mut params);
+    let (matched, from, filter) = match match_filter {
+        MatchSql::Ids(ids) => (
+            format!("matched AS ({ids}), "),
+            "rings_transactions pt JOIN matched m ON m.rings_tx_id = pt.rings_tx_id",
+            "TRUE".to_string(),
+        ),
+        MatchSql::Filter(filter) => (String::new(), "rings_transactions pt", filter),
+    };
     let sql = format!(
-        "WITH selected AS (
-        SELECT DISTINCT pt.slot, pt.signature FROM rings_transactions pt
-        WHERE ({match_filter}) {page_filter} {selection_ring}
+        "WITH {matched}selected AS (
+        SELECT DISTINCT pt.slot, pt.signature FROM {from}
+        WHERE ({filter}) {page_filter} {selection_ring}
         ORDER BY pt.slot ASC, pt.signature ASC LIMIT {lookahead}
     ) SELECT pt.rings_tx_id, pt.slot, pt.signature, pt.event_index, pt.tx_viewing_pk,
         pt.salt, pt.proofless, pt.ring_config, rc.program_id AS ring_program_id
