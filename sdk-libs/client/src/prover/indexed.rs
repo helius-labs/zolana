@@ -1,5 +1,3 @@
-mod batch;
-pub use batch::{BatchAnchor, IndexedBatchRequest, ProvenIndexedBatch};
 mod merge;
 pub use merge::{IndexedMergePreparation, PreparedIndexedMerge, ProvenIndexedMerge};
 

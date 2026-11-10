@@ -248,8 +248,6 @@ pub struct ProverClient {
 enum Tee {
     /// Plaintext, witness included.
     Off,
-    /// Plaintext, address-append proofs only.
-    TreeBatches,
     /// Encrypted, only to a prover attesting to the session's policy.
     On(Box<TeeSession>),
     /// Never sent: every call fails with the error.
@@ -351,13 +349,6 @@ impl ProverClient {
     #[must_use]
     pub fn with_signed_tee(mut self, policy: SignedTeePolicy) -> Self {
         self.client = self.client.with_signed_tee(policy);
-        self
-    }
-
-    /// See [`AsyncProverClient::for_tree_batches`].
-    #[must_use]
-    pub fn for_tree_batches(mut self) -> Self {
-        self.client = self.client.for_tree_batches();
         self
     }
 
@@ -801,17 +792,10 @@ impl AsyncProverClient {
         self
     }
 
-    /// Plaintext to any prover, every proof but a nullifier-tree batch refused.
-    #[must_use]
-    pub fn for_tree_batches(mut self) -> Self {
-        self.tee = Tee::TreeBatches;
-        self
-    }
-
     /// Whether calls go only to an attested prover, encrypted, never in
     /// plaintext.
     pub fn has_tee(&self) -> bool {
-        !matches!(self.tee, Tee::Off | Tee::TreeBatches)
+        !matches!(self.tee, Tee::Off)
     }
 
     /// Override the queued-proof polling config (see [`AsyncPollConfig`]).
@@ -995,7 +979,7 @@ impl AsyncProverClient {
 
     async fn recipient(&self) -> Result<Option<Recipient<'_>>, ClientError> {
         let session = match &self.tee {
-            Tee::Off | Tee::TreeBatches => return Ok(None),
+            Tee::Off => return Ok(None),
             Tee::On(session) => session,
             Tee::Broken(error) => return Err(ClientError::Tee(error.clone())),
         };
@@ -1024,7 +1008,7 @@ impl AsyncProverClient {
     /// Attest the prover now against the [`Self::with_tee`] policy.
     pub async fn attest(&self) -> Result<AttestedProver, ClientError> {
         let tee = match &self.tee {
-            Tee::Off | Tee::TreeBatches => return Err(ClientError::Tee(TeeError::NoPolicy)),
+            Tee::Off => return Err(ClientError::Tee(TeeError::NoPolicy)),
             Tee::On(session) => session,
             Tee::Broken(error) => return Err(ClientError::Tee(error.clone())),
         };
@@ -1092,9 +1076,6 @@ impl AsyncProverClient {
             route,
             key,
         } = request;
-        if matches!(self.tee, Tee::TreeBatches) && !key.is_address_append() {
-            return Err(ClientError::Tee(TeeError::NoPolicy));
-        }
         let url = route.url(&self.endpoint, key)?;
         crate::prover::timing::note(0, "prover_request_bytes", body.len());
         let mut delivery = delivery;
@@ -1483,34 +1464,6 @@ mod tests {
             ),
             Err(ClientError::Tee(TeeError::NoPolicy))
         ));
-    }
-
-    #[test]
-    fn a_tree_batch_client_sends_only_batch_proofs_in_plaintext() {
-        let batch = ExpectedProvingKey::batch_address_append(40, 4999).unwrap();
-        let mut proof = gnark_proof();
-        proof["provingKeySha256"] = json!(hex::encode(batch.sha256));
-        let server = MockServer::respond_with(vec![MockResponse::json(200, proof)]);
-        let address: std::net::SocketAddr =
-            server.url().trim_start_matches("http://").parse().unwrap();
-        let http = reqwest::blocking::Client::builder()
-            .resolve("prover.invalid", address)
-            .build()
-            .unwrap();
-        let client =
-            ProverClient::with_client(format!("http://prover.invalid:{}", address.port()), http)
-                .for_tree_batches();
-        assert!(!client.has_tee());
-        assert!(matches!(
-            client.send("{}", Delivery::InResponse, &test_key()),
-            Err(ClientError::Tee(TeeError::NoPolicy))
-        ));
-        client
-            .send("{}", Delivery::InResponse, &batch)
-            .expect("a plaintext batch proof");
-        let requests = server.requests();
-        assert_eq!(requests.len(), 1);
-        assert!(!requests[0].encrypted);
     }
 
     #[test]

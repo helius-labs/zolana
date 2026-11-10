@@ -24,6 +24,6 @@ pub use types::{
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     GetUserRecordsResponse, HistoryFilters, IndexedShieldedTransaction, MerkleContext, MerkleProof,
     NonInclusionProof, OutputContext, OutputSlot, Page, PaginationToken, ProveResult,
-    RingHistoryOptions, ShieldedTransaction, ShieldedTransactionStream, SlotFilter,
-    TransactionEvents, TransactionOutputs, UserRecord, MAX_USER_RECORD_OWNERS,
+    RingHistoryOptions, ShieldedTransaction, SlotFilter, TransactionEvents, TransactionOutputs,
+    UserRecord, MAX_USER_RECORD_OWNERS,
 };
