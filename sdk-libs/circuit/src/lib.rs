@@ -8,7 +8,7 @@
 //!
 //! This crate uses `core` and `alloc`. Native execution links `std` for the
 //! thread-local requirement scope in `check`, and Xark's native execution and
-//! proving dependencies require `std` at the pinned revision.
+//! proving dependencies require `std` at the pinned version.
 
 #![no_std]
 
