@@ -156,6 +156,11 @@ fn ed25519_signatures_are_deterministic_and_reject_tampering() {
 }
 
 #[test]
+fn ed25519_verification_is_strict() {
+    cases::signing::verify_message_is_strict();
+}
+
+#[test]
 fn encrypted_slots_are_unique_and_recipient_bound() {
     let mut world = KeypairWorld::default();
     for name in ["sender", "alice", "stranger"] {
