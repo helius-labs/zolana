@@ -50,7 +50,6 @@ impl Workspace {
             manifest: self.0.join("app/Cargo.toml"),
             root: self.0.clone(),
             target: self.0.join("target"),
-            xark_wasm: None,
             xark_dependency: String::new(),
             metadata: Vec::new(),
             lib_name: None,

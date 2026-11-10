@@ -70,9 +70,6 @@ struct Package {
     manifest: PathBuf,
     root: PathBuf,
     target: PathBuf,
-    /// The resolved xark-wasm package's directory, whose `js/` holds the
-    /// worker pool and client modules a package with a prover ships.
-    xark_wasm: Option<PathBuf>,
     xark_dependency: String,
     /// The `cargo metadata` output, which resolves every manifest and the
     /// lockfile.
@@ -95,14 +92,37 @@ impl Package {
     fn verifier_dir(&self) -> Result<PathBuf> {
         Ok(self.crate_dir()?.join("src/verifier"))
     }
+}
 
-    /// The directory of the xark-wasm modules a package with a prover ships.
-    fn xark_js_dir(&self) -> Result<PathBuf> {
-        let runtime = self.xark_wasm.as_ref().ok_or_else(|| {
-            error("a WASM package with a prover needs xark-wasm (spr-program's `wasm-prover` feature); pass --no-prover to build without one")
-        })?;
-        Ok(runtime.join("js"))
+/// The directory of the xark-wasm modules a package with a prover ships, from
+/// the xark-wasm the WASM build's own `features` resolve. `package`'s metadata
+/// enables only workspace members' features, so it lacks xark-wasm when
+/// spr-program is a dependency rather than a member.
+fn xark_js_dir(package: &Package, features: &str) -> Result<PathBuf> {
+    let output = Command::new("cargo")
+        .args(["metadata", "--format-version", "1", "--manifest-path"])
+        .arg(&package.manifest)
+        .args(["--features", features])
+        .output()?;
+    if !output.status.success() {
+        return Err(error(String::from_utf8_lossy(&output.stderr)));
     }
+    let data: Value = serde_json::from_slice(&output.stdout)?;
+    let mut runtimes = data["packages"]
+        .as_array()
+        .ok_or_else(|| error("cargo returned no packages"))?
+        .iter()
+        .filter(|candidate| candidate["name"] == "xark-wasm");
+    let runtime = runtimes.next().ok_or_else(|| {
+        error("a WASM package with a prover needs xark-wasm (spr-program's `wasm-prover` feature); pass --no-prover to build without one")
+    })?;
+    if runtimes.next().is_some() {
+        return Err(error("the WASM build must resolve one xark-wasm"));
+    }
+    Path::new(json_str(runtime, "manifest_path")?)
+        .parent()
+        .map(|runtime| runtime.join("js"))
+        .ok_or_else(|| error("invalid xark-wasm manifest path"))
 }
 
 fn run(command: &mut Command) -> Result<()> {
@@ -171,21 +191,6 @@ fn package(selection: &PackageSelection) -> Result<Package> {
         .ok_or_else(|| error("Xark must come from crates.io or a pinned Git revision"))?;
     let xark_dependency =
         xark_source::pinned_dependency(source, json_str(language, "version")?).map_err(error)?;
-    let mut runtimes = packages
-        .iter()
-        .filter(|package| package["name"] == "xark-wasm");
-    let xark_wasm = runtimes
-        .next()
-        .map(|runtime| {
-            Path::new(json_str(runtime, "manifest_path")?)
-                .parent()
-                .map(Path::to_path_buf)
-                .ok_or_else(|| error("invalid xark-wasm manifest path"))
-        })
-        .transpose()?;
-    if runtimes.next().is_some() {
-        return Err(error("all workspace packages must use the same xark-wasm"));
-    }
     let lib_name = selected["targets"].as_array().and_then(|targets| {
         targets
             .iter()
@@ -202,7 +207,6 @@ fn package(selection: &PackageSelection) -> Result<Package> {
         manifest: json_str(selected, "manifest_path")?.into(),
         root: json_str(&data, "workspace_root")?.into(),
         target: json_str(&data, "target_directory")?.into(),
-        xark_wasm,
         xark_dependency,
         metadata: output.stdout,
         lib_name,
@@ -599,6 +603,11 @@ fn bridge(
         WasmTarget::Web => "web",
         WasmTarget::Nodejs => "nodejs",
     };
+    let xark_js = if options.no_prover {
+        None
+    } else {
+        Some(xark_js_dir(package, features)?)
+    };
     let settings = wasm_cache::Settings {
         crate_dir: package.crate_dir()?,
         workspace_root: &package.root,
@@ -614,12 +623,10 @@ fn bridge(
             .iter()
             .map(|program| (program.name.as_str(), out.join(&program.name)))
             .collect(),
-        copied: if options.no_prover {
-            Vec::new()
-        } else {
-            let js = package.xark_js_dir()?;
-            XARK_POOL_FILES.iter().map(|file| js.join(file)).collect()
-        },
+        copied: xark_js
+            .iter()
+            .flat_map(|js| XARK_POOL_FILES.iter().map(|file| js.join(file)))
+            .collect(),
     }
     .digest()?;
     if wasm_cache::up_to_date(directory, &settings) {
@@ -682,10 +689,9 @@ fn bridge(
         if options.wasm_target == Some(WasmTarget::Nodejs) {
             fs::write(staging.join("package.json"), "{\"type\":\"commonjs\"}\n")?;
         }
-        if !options.no_prover {
+        if let Some(js) = &xark_js {
             let pool = staging.join("xark");
             fs::create_dir(&pool)?;
-            let js = package.xark_js_dir()?;
             for file in XARK_POOL_FILES {
                 fs::copy(js.join(file), pool.join(file))?;
             }
