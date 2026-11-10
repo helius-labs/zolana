@@ -494,7 +494,7 @@ fn rings_output_context_from_parts(
 ) -> Result<RingsOutputContext, PhotonApiError> {
     Ok(RingsOutputContext {
         hash: hash_from_vec(hash)?,
-        tree: pubkey_from_vec(tree)?,
+        tree: Some(pubkey_from_vec(tree)?),
         tree_id: tree_id_from_column(tree_id)?,
         leaf_index: u64_from_i64(leaf_index, "leaf index")?,
     })

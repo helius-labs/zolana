@@ -275,9 +275,9 @@ describe("abort and timeout composition", () => {
   });
 });
 
-// The transport rewrites before parsing and the codec decides afterwards, so
-// these two have to agree per field about which ones can carry a string. The
-// bodies are raw text because `JSON.stringify` would round the literal under
+// The transport quotes a literal past the safe-integer bound before parsing and
+// the codec reads that string on every integer field, within the field's range.
+// The bodies are raw text because `JSON.stringify` would round the literal under
 // test before the transport ever saw it.
 describe("integers past the safe-integer bound", () => {
   function respondWith(body: string): SprApi {
@@ -290,8 +290,8 @@ describe("integers past the safe-integer bound", () => {
     });
   }
 
-  function merkleProofsBody(leafIndex: string, rootSeq: string): string {
-    return `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":0,"slot":1},"proofs":[{"leaf":"${HASH}","merkleContext":{"treeType":0,"tree":"${HASH}"},"path":["${HASH}"],"leafIndex":${leafIndex},"root":"${HASH}","rootSeq":${rootSeq},"rootIndex":0}]}}`;
+  function merkleProofsBody(leafIndex: string, rootSeq: string, rootIndex = "0"): string {
+    return `{"id":"test-account","jsonrpc":"2.0","result":{"context":{"blockTime":0,"slot":1},"proofs":[{"leaf":"${HASH}","merkleContext":{"treeType":0,"tree":"${HASH}"},"path":["${HASH}"],"leafIndex":${leafIndex},"root":"${HASH}","rootSeq":${rootSeq},"rootIndex":${rootIndex}}]}}`;
   }
 
   it("reads a u64 above the safe-integer bound without losing precision", async () => {
@@ -313,14 +313,20 @@ describe("integers past the safe-integer bound", () => {
     expect(response.context.blockTime).toBe(-1_700_000_000n);
   });
 
-  it("refuses an unsafe number on a capped field as a number, not a quoted string", async () => {
-    // One past MAX_SAFE_INTEGER: the transport must leave it unquoted so the
-    // decoder's precision-loss refusal fires on a number, not on a string type.
-    const api = respondWith(merkleProofsBody("9007199254740992", "0"));
+  it("reads an index past the safe-integer bound as exactly as a sequence", async () => {
+    const api = respondWith(merkleProofsBody("9007199254740993", "0"));
+
+    const response = await api.getMerkleProofs(REQUEST);
+
+    expect(response.proofs[0]?.leafIndex).toBe(9_007_199_254_740_993n);
+  });
+
+  it("refuses a quoted literal past the range of its field", async () => {
+    const api = respondWith(merkleProofsBody("0", "0", "9007199254740992"));
 
     const error = await expectApiError(api.getMerkleProofs(REQUEST), "API_INVALID_RESULT");
 
-    expect(error.details?.["path"]).toBe("$.proofs[0].leafIndex");
+    expect(error.details?.["path"]).toBe("$.proofs[0].rootIndex");
     expect(error.details?.["schemaCode"]).toBe("INDEXER_SCHEMA_INVALID_INTEGER");
   });
 

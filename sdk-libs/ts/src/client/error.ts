@@ -100,7 +100,8 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_MISSING_OUTPUT: NoDetails;
   readonly CLIENT_RPC: Readonly<{ method?: string; reason?: string }>;
   /** Carries no response text: an indexer body can hold caller data. */
-  readonly CLIENT_INDEXER: Readonly<{ method: string; retryable: boolean }>;
+  /** `contextSlot` is the slot a `-32016` minimum-context-slot answer reports the indexer at. */
+  readonly CLIENT_INDEXER: Readonly<{ method: string; retryable: boolean; contextSlot?: string }>;
   /** Indexer response exceeded the client's 10 MiB ceiling or Photon's (`-32008`). */
   readonly CLIENT_INDEXER_RESPONSE_TOO_LARGE: MethodDetails;
   readonly CLIENT_UNSUPPORTED_RPC_METHOD: MethodDetails;
@@ -410,7 +411,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_NULLIFIER_PROOF_LEAF_MISMATCH: { index: "number" },
   CLIENT_NULLIFIER_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_RPC: { method: "string", reason: "string" },
-  CLIENT_INDEXER: { method: "string", retryable: "boolean" },
+  CLIENT_INDEXER: { method: "string", retryable: "boolean", contextSlot: "string" },
   CLIENT_INDEXER_RESPONSE_TOO_LARGE: { method: "string" },
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
   CLIENT_INDEXER_TIMEOUT: { signature: "string", expectedTags: "number", attempts: "number" },
@@ -472,6 +473,7 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_PROOF_PARSE: [],
   CLIENT_RPC: [],
   CLIENT_FIELD_TOO_LONG: [],
+  CLIENT_INDEXER: ["method", "retryable"],
   CLIENT_INDEXER_TIMEOUT: [],
   CLIENT_PROOF_PATH_LENGTH: ["got", "expected"],
   CLIENT_POLL_TIMED_OUT: ["attempts"],

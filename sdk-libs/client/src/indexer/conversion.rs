@@ -155,9 +155,8 @@ fn convert_output_slot(slot: ApiOutputSlot) -> OutputSlot {
     }
 }
 
-/// The wire still carries the deprecated `tree` account beside `tree_id`. Only
-/// the id is read: it is what the commitment folds in, so it is checked by
-/// recomputation, while the account is a derivation of it.
+/// Only `tree_id` is read: it is what the commitment folds in, so it is checked
+/// by recomputation, while the deprecated `tree` account is a derivation of it.
 fn convert_output_context(context: spr_api::RingsOutputContext) -> OutputContext {
     OutputContext {
         hash: context.hash.into(),
