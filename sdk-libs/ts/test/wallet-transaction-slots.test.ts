@@ -25,6 +25,7 @@ function reader(events: readonly { leaf: bigint; tags: readonly Bytes32[] }[]) {
               outputContext: {
                 hash: filled(slotIndex + 1),
                 tree: TREE,
+                treeId: 0,
                 leafIndex: event.leaf + BigInt(slotIndex),
               },
               payload: new Uint8Array(),
@@ -64,5 +65,19 @@ describe("owner tags", () => {
 
     expect(tags.size).toBe(1);
     expect(tags.get(0)).toBe(getAddressDecoder().decode(filled(2)));
+  });
+
+  it("returns no slots for a leaf no event holds", async () => {
+    const slots = await fetchTransactionSlots({
+      rpc: reader([
+        { leaf: 0n, tags: [filled(1)] },
+        { leaf: 50n, tags: [filled(2)] },
+      ]),
+      signature: SIGNATURE,
+      leafIndex: 7n,
+    });
+
+    expect(slots.ownerTags.size).toBe(0);
+    expect(slots.leaves.size).toBe(0);
   });
 });

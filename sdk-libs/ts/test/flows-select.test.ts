@@ -1,9 +1,11 @@
-import { address, type Address } from "@solana/kit";
+import { address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import type { Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { Data, Utxo, Wallet } from "../src/transaction/index.js";
+import { treeAddress } from "../src/interface/pda/index.js";
+import { isDefaultRingSpendable } from "../src/transaction/wallet/state.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
 import {
   MAX_SPEND_INPUTS,
@@ -14,8 +16,8 @@ import {
 } from "../src/flows/select.js";
 import { MAX_INPUT_TREES } from "../src/interface/tree-slot.js";
 
-const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
-const OTHER_TREE = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
+const TREE = treeAddress(0);
+const OTHER_TREE = treeAddress(1);
 const MINT = address("So11111111111111111111111111111111111111112");
 
 function filled(value: number): Bytes32 {
@@ -43,11 +45,12 @@ function policy(overrides: Partial<SpendPolicy> = {}): SpendPolicy {
   };
 }
 
-function walletWith(utxos: readonly (readonly [bigint, Address?])[]): Wallet {
+/** `[amount, treeId]` per UTXO, tree 0 when the id is left out. */
+function walletWith(utxos: readonly (readonly [bigint, number?])[]): Wallet {
   const keypair = ShieldedKeypair.generate();
   const wallet = new Wallet({ identity: keypair.shieldedAddress(), registry: new AssetRegistry() });
   wallet._replace({
-    utxos: utxos.map(([amount, tree], index) => ({
+    utxos: utxos.map(([amount, treeId = 0], index) => ({
       utxo: new Utxo({
         owner: keypair.signingPublicKey(),
         asset: MINT,
@@ -55,7 +58,12 @@ function walletWith(utxos: readonly (readonly [bigint, Address?])[]): Wallet {
         blinding: filled(index + 1),
         data: new Data(),
       }),
-      outputContext: { hash: filled(index + 1), tree: tree ?? TREE, leafIndex: BigInt(index) },
+      outputContext: {
+        hash: filled(index + 1),
+        tree: treeAddress(treeId),
+        treeId,
+        leafIndex: BigInt(index),
+      },
       nullifier: filled(index + 100),
       spent: false,
     })),
@@ -124,7 +132,7 @@ describe("UTXO selection", () => {
   });
 
   it("filters to a fixed tree", () => {
-    const wallet = walletWith([[50n, OTHER_TREE], [20n]]);
+    const wallet = walletWith([[50n, 1], [20n]]);
     const selection = selectUtxos({
       wallet,
       asset: MINT,
@@ -136,7 +144,7 @@ describe("UTXO selection", () => {
   });
 
   it("takes only the tree it spends from when eligible funds straddle trees", () => {
-    const wallet = walletWith([[50n, OTHER_TREE], [20n]]);
+    const wallet = walletWith([[50n, 1], [20n]]);
     const selection = selectUtxos({
       wallet,
       asset: MINT,
@@ -147,7 +155,7 @@ describe("UTXO selection", () => {
   });
 
   it("groups a spend across trees and refuses more trees than the policy admits", () => {
-    const wallet = walletWith([[50n, OTHER_TREE], [20n], [5n, OTHER_TREE]]);
+    const wallet = walletWith([[50n, 1], [20n], [5n, 1]]);
     const selection = selectUtxos({
       wallet,
       asset: MINT,
@@ -207,5 +215,74 @@ describe("UTXO selection", () => {
         policy: policy({ ordering: "smallestFirst" }),
       }),
     ).toThrow("tooFew 1 2");
+  });
+
+  it("merges the tree holding the most UTXOs, smallest first, the lowest id on a tie", () => {
+    const merge = (wallet: Wallet) =>
+      selectUtxos({
+        wallet,
+        asset: MINT,
+        target: { kind: "consolidate", minInputs: 2 },
+        policy: policy({ ordering: "smallestFirst", tree: { kind: "fullest" } }),
+      });
+    // Tree 0 holds the two smallest UTXOs, tree 1 holds three.
+    const fuller = merge(walletWith([[1n], [2n], [9n, 1], [7n, 1], [8n, 1]]));
+    expect(fuller.trees).toEqual([OTHER_TREE]);
+    expect(fuller.entries.map((entry) => entry.utxo.amount)).toEqual([7n, 8n, 9n]);
+    expect(fuller.total).toBe(24n);
+
+    const tie = merge(walletWith([[9n, 1], [8n, 1], [5n], [6n]]));
+    expect(tie.trees).toEqual([TREE]);
+    expect(tie.entries.map((entry) => entry.utxo.amount)).toEqual([5n, 6n]);
+  });
+
+  it("refuses a merge when no tree holds two eligible UTXOs", () => {
+    expect(() =>
+      selectUtxos({
+        wallet: walletWith([[1n], [2n, 1]]),
+        asset: MINT,
+        target: { kind: "consolidate", minInputs: 2 },
+        policy: policy({ ordering: "smallestFirst", tree: { kind: "fullest" } }),
+      }),
+    ).toThrow("tooFew 1 2");
+  });
+});
+
+describe("spend eligibility", () => {
+  const keypair = ShieldedKeypair.generate();
+  const entry = (
+    input: Readonly<{ data?: Data; dataHash?: Bytes32; ringDataHash?: Bytes32; ring?: boolean }>,
+  ) => ({
+    utxo: new Utxo({
+      owner: keypair.signingPublicKey(),
+      asset: MINT,
+      amount: 1n,
+      blinding: filled(1),
+      data: input.data ?? new Data(),
+      ...(input.ring === true ? { ringProgramId: MINT } : {}),
+    }),
+    outputContext: { hash: filled(1), tree: TREE, treeId: 0, leafIndex: 0n },
+    nullifier: filled(2),
+    ...(input.dataHash === undefined ? {} : { dataHash: input.dataHash }),
+    ...(input.ringDataHash === undefined ? {} : { ringDataHash: input.ringDataHash }),
+    spent: false,
+  });
+
+  it("spends a data-carrying UTXO on the default ring but never splits or merges it", () => {
+    const withData = entry({
+      data: new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }]),
+      dataHash: filled(3),
+    });
+    expect(isDefaultRingSpendable(withData)).toBe(true);
+    expect(isPlainUtxo(withData)).toBe(false);
+    expect(isDefaultRingSpendable(entry({}))).toBe(true);
+    expect(isPlainUtxo(entry({}))).toBe(true);
+  });
+
+  it("keeps ring-bound UTXOs off the default ring", () => {
+    for (const ringBound of [entry({ ring: true }), entry({ ringDataHash: filled(4) })]) {
+      expect(isDefaultRingSpendable(ringBound)).toBe(false);
+      expect(isPlainUtxo(ringBound)).toBe(false);
+    }
   });
 });

@@ -1,8 +1,9 @@
 import { transactionItems, outputItems } from "./helpers/pages.js";
-import { address, getAddressDecoder, type Signature } from "@solana/kit";
+import { getAddressDecoder, type Signature } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Bytes32 } from "../src/interface/index.js";
+import { treeAddress } from "../src/interface/pda/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
   Data,
@@ -24,7 +25,7 @@ import {
 import { syncWallet } from "../src/wallet/sync.js";
 import { syncReads, plainCipher } from "./helpers/clients.js";
 
-const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
+const TREE = treeAddress(0);
 const SIGNATURE = "1".repeat(64) as Signature;
 
 const TAG_TIP = 1n;
@@ -99,7 +100,7 @@ function seedUtxo(wallet: Wallet, keypair: ShieldedKeypair): void {
           blinding: bytes(3),
           data: new Data([]),
         }),
-        outputContext: { hash: bytes(6), tree: TREE, leafIndex: 7n },
+        outputContext: { hash: bytes(6), tree: TREE, treeId: 0, leafIndex: 7n },
         nullifier: bytes(8),
         spent: false,
       },

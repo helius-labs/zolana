@@ -19,7 +19,7 @@ Breaking
 - The package is published as `@heliuslabs/spr`, with the same subpaths → replace the `@heliuslabs/zolana` dependency and every `@heliuslabs/zolana` import specifier with `@heliuslabs/spr`.
 - `ZolanaClient`, `ZolanaClientConfig`, `createZolanaClient`, `ZolanaIndexer`, `ZolanaApi`, `ZolanaApiConfig` and `ZOLANA_GATEWAY_PATH` become `SprClient`, `SprClientConfig`, `createSprClient`, `SprIndexer`, `SprApi`, `SprApiConfig` and `SPR_GATEWAY_PATH` → rename them in imports and code.
 - `SprIndexer.getShieldedTransactionsByTags`, `getShieldedTransactionsByNullifiers` and `getEncryptedUtxosByTags` take `PageOptions` (`paginationToken`, `limit`, `filters.slot`, `minContextSlot`) and return a `Page` of `{context, data, paginationToken}` with the events or outputs of each Solana transaction grouped in `data` → upgrade Photon with the SDK, pass `paginationToken` back until it is `null`, and resume a later scan that has no `lt` or `lte` bound with `filters: { slot: { gt } }` set to the final page's `context.slot`.
-- `serializeWallet` writes snapshot version 5 with slot checkpoints, and `SerializedCursor` and `SerializedSyncCursors` become `SerializedSyncCheckpoint` and `SerializedSyncCheckpoints` → restore earlier snapshots with `deserializeWallet`, which keeps the wallet state and rescans history once.
+- `serializeWallet` writes snapshot version 5 with slot checkpoints and each UTXO's tree id, which `WalletUtxo.outputContext.treeId` and `OutputContext.treeId` now require, and `SerializedCursor` and `SerializedSyncCursors` become `SerializedSyncCheckpoint` and `SerializedSyncCheckpoints` → set `treeId` on every output context you build, and restore earlier snapshots with `deserializeWallet`, which keeps the wallet state, places their UTXOs in tree 0 and rescans history once.
 - `Prover` requires `proveAnonymousRingTransact` → implement the method on custom provers.
 - `ProverInputs`, `IndexedProofInputs` and `CircuitId` add anonymous ring variants → forward them in custom `ProofService` and `ProofAuthority` implementations.
 - `ShieldedPda`, `ProgramOwner`, `bindProgramTransaction`, `decodeProgramTransaction`, `toProgramWalletUtxo`, `transactCpiAccounts` and the `Program*` types move to the experimental `@heliuslabs/spr/program` subpath and may change in any release → import them from `@heliuslabs/spr/program` instead of `/keypair`, `/transaction` and `/interface`.
@@ -43,8 +43,8 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
-- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows.
-- `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note, and now stores the note.
+- `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note and misclassified authored spends containing one as withdrawals or splits; it now stores the note and omits those history rows.
+- `syncWallet` dropped UTXOs appended to any tree but tree 0, and transfers and withdrawals passed over data-carrying UTXOs that `Wallet.balance()` counted; UTXOs now sync and spend in their own tree, a transfer or withdrawal takes any UTXO outside a ring, which is what `Wallet.balance()` counts, and a merge takes the tree holding the most UTXOs.
 - `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
 
 ## 0.8.0-alpha — 2026-11-03

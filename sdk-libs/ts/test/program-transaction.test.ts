@@ -277,6 +277,7 @@ function sdkWalletUtxo(value: FixtureInputUtxo, assets: AssetRegistry): WalletUt
     outputContext: {
       hash: bytes32(value.utxoHash),
       tree: treeAddress(value.treeId),
+      treeId: 0,
       leafIndex: BigInt(value.leafIndex),
     },
     nullifier: bytes32(value.nullifier),

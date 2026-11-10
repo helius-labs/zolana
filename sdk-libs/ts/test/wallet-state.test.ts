@@ -33,7 +33,7 @@ function utxoEntry(keypair: ShieldedKeypair, amount: bigint, index: number) {
       blinding: filled(index + 1),
       data: new Data(),
     }),
-    outputContext: { hash: filled(index + 1), tree: TREE, leafIndex: BigInt(index) },
+    outputContext: { hash: filled(index + 1), tree: TREE, treeId: 0, leafIndex: BigInt(index) },
     nullifier: filled(index + 20),
     spent: false,
   };

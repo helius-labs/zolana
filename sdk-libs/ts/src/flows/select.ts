@@ -1,6 +1,10 @@
 import { SPP_SUPPORTED_SHAPES } from "../interface/shape.js";
 import type { Address } from "../interface/types.js";
-import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
+import {
+  isDefaultRingSpendable,
+  type Wallet,
+  type WalletUtxo,
+} from "../transaction/wallet/state.js";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
@@ -26,14 +30,14 @@ export function maxSpendInputs(outputs: number): number {
   return Math.min(MAX_SPEND_INPUTS, widest);
 }
 
-/** @internal Rust `WalletUtxo::is_plain`, a UTXO the default rail can always prove. */
+/**
+ * @internal Rust `WalletUtxo::is_plain`: default-ring spendable with no
+ * attached data, the only UTXOs a split or a merge takes, since their spend
+ * input drops the committed data hashes. A transfer or withdrawal takes any
+ * `isDefaultRingSpendable` UTXO.
+ */
 export function isPlainUtxo(entry: WalletUtxo): boolean {
-  return (
-    entry.utxo.ringProgramId === undefined &&
-    entry.ringDataHash === undefined &&
-    entry.dataHash === undefined &&
-    entry.utxo.data.isEmpty()
-  );
+  return isDefaultRingSpendable(entry) && entry.dataHash === undefined && entry.utxo.data.isEmpty();
 }
 
 /** @internal */
@@ -55,11 +59,14 @@ export interface SpendPolicy {
   /**
    * `infer` takes the trees the selected UTXOs happen to sit in, up to
    * `maxTrees` of them. A rail that publishes one input tree passes
-   * `maxTrees: 1`.
+   * `maxTrees: 1`. `fullest` takes only the eligible UTXOs of the tree that
+   * holds the most of them, the lowest tree id on a tie, as Rust
+   * `select_merge` does.
    */
   readonly tree:
     | Readonly<{ kind: "fixed"; tree: Address }>
-    | Readonly<{ kind: "infer"; maxTrees: number }>;
+    | Readonly<{ kind: "infer"; maxTrees: number }>
+    | Readonly<{ kind: "fullest" }>;
   readonly errors: SpendSelectionErrors;
 }
 
@@ -88,7 +95,7 @@ export function selectUtxos(
   }>,
 ): SelectedSpendInputs {
   const policy = input.policy;
-  const candidates = input.wallet
+  const eligible = input.wallet
     .utxos()
     .filter(
       (entry) =>
@@ -98,7 +105,8 @@ export function selectUtxos(
         policy.eligible(entry) &&
         (policy.tree.kind !== "fixed" || entry.outputContext.tree === policy.tree.tree),
     );
-  if (policy.tree.kind === "infer" && candidates.length === 0) {
+  const candidates = policy.tree.kind === "fullest" ? fullestTree(eligible) : eligible;
+  if (policy.tree.kind !== "fixed" && candidates.length === 0) {
     throw policy.errors.insufficient({ asset: input.asset, requested: 1n, available: 0n });
   }
   const sorted = [...candidates].sort((left, right) => {
@@ -142,6 +150,27 @@ export function selectUtxos(
     throw policy.errors.insufficient({ asset: input.asset, requested: amount, available: total });
   }
   return grouped(entries, input.asset, policy, total);
+}
+
+/** The entries of the tree holding the most of them; the lowest tree id wins a tie. */
+function fullestTree(entries: readonly WalletUtxo[]): readonly WalletUtxo[] {
+  const trees = new Map<number, WalletUtxo[]>();
+  for (const entry of entries) {
+    const run = trees.get(entry.outputContext.treeId);
+    if (run === undefined) trees.set(entry.outputContext.treeId, [entry]);
+    else run.push(entry);
+  }
+  let fullest: Readonly<{ treeId: number; entries: readonly WalletUtxo[] }> | undefined;
+  for (const [treeId, run] of trees) {
+    if (
+      fullest === undefined ||
+      run.length > fullest.entries.length ||
+      (run.length === fullest.entries.length && treeId < fullest.treeId)
+    ) {
+      fullest = { treeId, entries: run };
+    }
+  }
+  return fullest?.entries ?? [];
 }
 
 /**
