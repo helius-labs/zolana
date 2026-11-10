@@ -11,7 +11,10 @@
 // that already has this module path, as pseudo-versions:
 //
 //	go get github.com/helius-labs/zolana/sdk-libs/gnark-sdk@<commit>
-//	go get github.com/helius-labs/zolana/prover/server@<commit>
+//	go get github.com/helius-labs/zolana/prover/server/circuits/gadget@<commit>
+//
+// The second names a circuit package rather than the module root: the root is
+// the prover server, whose GPU backend imports a private module.
 //
 // It also repeats prover/server's replacement of
 // github.com/reilabs/gnark-lean-extractor/v3, because Go does not apply the
