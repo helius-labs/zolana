@@ -15,15 +15,17 @@ import {
   ConfidentialTransfer,
   ProofInputUtxo,
   SOL_MINT,
+  TransactionError,
   Utxo,
   WithdrawalTarget,
+  encodeConfidentialSlots,
   privateTxBlinding,
   privateTxHash,
   transactOutputBlinding,
   type PreparedTransfer,
   type SppProofInputs,
 } from "../src/transaction/index.js";
-import { nonZeroHashChain } from "../src/transaction/internal.js";
+import { encodeAddress, nonZeroHashChain } from "../src/transaction/internal.js";
 import { concatBytes } from "../src/interface/bytes.js";
 
 // A fee sponsor that owns nothing in the transfer. The tag rule must never let
@@ -83,13 +85,15 @@ function expectDerivedBlindings(prepared: PreparedTransfer, signed: SppProofInpu
   });
 }
 
+function vectorKeypair(seed: number): ShieldedKeypair {
+  const bytes = new Uint8Array(32).fill(seed);
+  // The 32-byte array has the length `Bytes32` requires.
+  return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(bytes as Bytes32));
+}
+
 describe("dummy output owner tags", () => {
   it.each(vectors.cases)("matches real output encoding: $name", (vector) => {
-    const keypair = (seed: number): ShieldedKeypair => {
-      const bytes = new Uint8Array(32).fill(seed);
-      // The 32-byte array has the length `Bytes32` requires.
-      return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(bytes as Bytes32));
-    };
+    const keypair = vectorKeypair;
     const sender = keypair(vectors.sender_seed);
     const recipient = keypair(vectors.recipient_seed);
     const transfer = new ConfidentialTransfer(
@@ -124,6 +128,65 @@ describe("dummy output owner tags", () => {
       expect(signed.externalData.outputs[index]?.data).toHaveLength(participantData?.length ?? 0);
     });
     expectDerivedBlindings(prepared, signed);
+  });
+
+  it("pads every slot to the shared vector ciphertext length, ring transfers included", () => {
+    const sender = vectorKeypair(vectors.sender_seed);
+    const recipient = vectorKeypair(vectors.recipient_seed);
+    const ring = encodeAddress(new Uint8Array(32).fill(vectors.ring_seed));
+    for (const [ringProgramId, expected] of [
+      [undefined, vectors.slot_len],
+      [ring, vectors.ring_slot_len],
+    ] as const) {
+      const transfer = new ConfidentialTransfer(
+        sender.shieldedAddress(),
+        [solInput(sender, BigInt(vectors.input_amount))],
+        FOREIGN_PAYER,
+      ).withShape({ inputs: 1, outputs: vectors.outputs });
+      if (ringProgramId !== undefined) transfer.withRingProgramId(ringProgramId);
+      transfer.send(recipient.shieldedAddress(), SOL_MINT, 4n);
+      const signed = transfer.sign(sender, new AssetRegistry());
+      expect(signed.outputs.filter((output) => output.isDummy())).toHaveLength(vectors.outputs - 2);
+      expect(signed.externalData.outputs.map((output) => output.data?.length)).toEqual(
+        Array.from({ length: vectors.outputs }, () => expected),
+      );
+    }
+  });
+
+  it("refuses a slot encoded for someone other than the owner its tag names", () => {
+    const sender = ShieldedKeypair.generate();
+    const recipient = ShieldedKeypair.generate();
+    const stranger = ShieldedKeypair.generate();
+    const transfer = new ConfidentialTransfer(
+      sender.shieldedAddress(),
+      [solInput(sender, 10n)],
+      FOREIGN_PAYER,
+    );
+    transfer.send(recipient.shieldedAddress(), SOL_MINT, 4n);
+    const prepared = transfer.prepare();
+    const viewingKey = sender.viewingKey();
+    const tx = viewingKey.transactionViewingKey(prepared.firstNullifier);
+    const salt = new Uint8Array(16).fill(5) as Parameters<PreparedTransfer["finalize"]>[0]["salt"];
+    const payload = encodeConfidentialSlots(prepared.outputs, new AssetRegistry(), tx, salt);
+    const strangerTag = stranger.signingPublicKey().confidentialViewTag();
+    for (const slotIndex of [0, 1]) {
+      const forged = payload.map((slot, index) =>
+        slot !== undefined && index === slotIndex ? { ...slot, viewTag: strangerTag } : slot,
+      );
+      let caught: unknown;
+      try {
+        prepared.finalize({ txViewingPublicKey: tx.publicKey(), salt, payload: forged });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(TransactionError);
+      expect(caught).toMatchObject({
+        code: "TRANSACTION_OWNER_TAG_MISMATCH",
+        details: { slotIndex },
+      });
+    }
+    tx.destroy();
+    viewingKey.destroy();
   });
 
   it("names the sender, not a foreign fee payer, on every padding slot", () => {
