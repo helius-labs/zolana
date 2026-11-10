@@ -28,7 +28,7 @@ use rand::RngCore;
 use spr_client::prover::SERVER_ADDRESS;
 use spr_client::{
     spawn_prover, verify_confidential_transfer_proof, ProverClient, ProverExt, PublicTransfers,
-    Rpc, Shape, TransferInputUtxo, TransferProver,
+    Rpc, Shape, SignerRail, TransferInputUtxo, TransferProver,
 };
 use spr_hasher::primitives::solana_owner_identity;
 use spr_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
@@ -228,6 +228,7 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         allow_dummy_inputs: true,
         shape,
         cache_accounts: Default::default(),
+        rail: SignerRail,
     };
     let mut result = prover
         .build()
@@ -322,6 +323,7 @@ fn compact_transfer_2_4_proof_verifies() {
         allow_dummy_inputs: false,
         shape: Shape::new(2, 4),
         cache_accounts: Default::default(),
+        rail: SignerRail,
     };
 
     let mut result = prover.build().expect("build compact witness");
@@ -378,6 +380,7 @@ fn dummy_transfer_2_4_proof_verifies() {
         allow_dummy_inputs: true,
         shape: Shape::new(2, 4),
         cache_accounts: Default::default(),
+        rail: SignerRail,
     };
 
     let mut result = prover.build().expect("build witness with one real input");

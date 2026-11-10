@@ -3,8 +3,8 @@
 use groth16_solana::groth16::{Groth16Verifier, Groth16Verifyingkey};
 use solana_address::Address;
 use spr_client::{
-    prover::verify_proof_statement, AnonymousRingEddsaProver, Prover, ProverClient, ProverExt,
-    PublicTransfers, RingTransferProver, Rpc, Shape, TransferInputUtxo,
+    prover::verify_proof_statement, AnonymousRingEddsaRail, Prover, ProverClient, ProverExt,
+    PublicTransfers, RingSignerRail, Rpc, Shape, TransferInputUtxo, TransferProver,
 };
 use spr_interface::{
     instruction::{
@@ -50,7 +50,7 @@ const TEST_TREE_ID: u16 = 0;
 
 /// One real zero-value Solana-owned ring input + dummy padding, dummy outputs. The
 /// real input balances at zero so the witness selects the eddsa (Solana-only) rail.
-fn eddsa_prover(n_in: usize, n_out: usize) -> (RingTransferProver, Vec<NullifierKey>) {
+fn eddsa_prover(n_in: usize, n_out: usize) -> (TransferProver<RingSignerRail>, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let signer = ed25519_keypair();
     let (mut inputs, keys) = build_real_inputs(&mut indexer, &[(signer.clone(), 0)]);
@@ -71,7 +71,7 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> (RingTransferProver, Vec<Nullifier
     let mut signer_pk_hashes = vec![owner_pk_hash(&signer)];
     signer_pk_hashes.resize(shape.signer_width(), [0u8; 32]);
     (
-        RingTransferProver {
+        TransferProver {
             inputs,
             outputs,
             blinding_seed,
@@ -80,8 +80,11 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> (RingTransferProver, Vec<Nullifier
             public_transfers: PublicTransfers::default(),
             signer_pk_hashes,
             allow_dummy_inputs: true,
-            ring_program_id: Some(ring_program()),
             shape,
+            cache_accounts: Default::default(),
+            rail: RingSignerRail {
+                ring_program_id: Some(ring_program()),
+            },
         },
         keys,
     )
@@ -90,7 +93,7 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> (RingTransferProver, Vec<Nullifier
 /// Shape 3x3: two real nonzero Solana-owned ring inputs (100 + 150) consolidated
 /// into one real ring-owned recipient output (250) plus dummy padding. Exercises
 /// multiple real inputs, a real recipient, and value conservation on the eddsa rail.
-fn eddsa_multi_real() -> (RingTransferProver, Vec<NullifierKey>) {
+fn eddsa_multi_real() -> (TransferProver<RingSignerRail>, Vec<NullifierKey>) {
     let mut indexer = TestIndexer::new();
     let first_signer = ed25519_keypair();
     let second_signer = ed25519_keypair();
@@ -113,7 +116,7 @@ fn eddsa_multi_real() -> (RingTransferProver, Vec<NullifierKey>) {
         &blinding_seed,
     );
     (
-        RingTransferProver {
+        TransferProver {
             inputs,
             outputs,
             blinding_seed,
@@ -127,8 +130,11 @@ fn eddsa_multi_real() -> (RingTransferProver, Vec<NullifierKey>) {
                 [0u8; 32],
             ],
             allow_dummy_inputs: true,
-            ring_program_id: Some(ring_program()),
             shape: Shape::new(3, 4),
+            cache_accounts: Default::default(),
+            rail: RingSignerRail {
+                ring_program_id: Some(ring_program()),
+            },
         },
         keys,
     )
@@ -155,7 +161,7 @@ fn prove_and_verify_anonymous_with_address() {
         &blinding_seed,
     );
     let shape = Shape::new(2, 2);
-    let mut result = AnonymousRingEddsaProver {
+    let mut result = TransferProver {
         inputs,
         outputs,
         blinding_seed,
@@ -164,9 +170,12 @@ fn prove_and_verify_anonymous_with_address() {
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes: vec![[0u8; 32]; shape.signer_width()],
         allow_dummy_inputs: true,
-        owner: (&owner.signing_key).into(),
-        ring_program_id: Some(ring_program()),
         shape,
+        cache_accounts: Default::default(),
+        rail: AnonymousRingEddsaRail {
+            owner: (&owner.signing_key).into(),
+            ring_program_id: Some(ring_program()),
+        },
     }
     .build()
     .expect("build anonymous ring witness");
@@ -195,7 +204,7 @@ fn owner_pk_hash(keypair: &ShieldedKeypair) -> [u8; 32] {
 }
 
 fn prove_and_verify_eddsa(
-    (prover, keys): (RingTransferProver, Vec<NullifierKey>),
+    (prover, keys): (TransferProver<RingSignerRail>, Vec<NullifierKey>),
     n_in: usize,
     n_out: usize,
 ) {

@@ -1,6 +1,7 @@
 use super::ProofInputUtxo;
 use num_bigint::BigUint;
 use serde::Serialize;
+use zeroize::Zeroizing;
 
 use crate::{
     error::ClientError,
@@ -16,6 +17,23 @@ fn big_uint_to_string(value: &BigUint) -> String {
 
 fn fe_to_string(bytes: &[u8; 32]) -> String {
     big_uint_to_string(&BigUint::from_bytes_be(bytes))
+}
+
+/// [`big_uint_to_string`] for key material: neither the digits nor the
+/// encoded value outlive the request without being wiped.
+fn secret_to_string(value: &BigUint) -> Zeroizing<String> {
+    let digits = Zeroizing::new(value.to_str_radix(16));
+    let mut encoded = Zeroizing::new(String::with_capacity(digits.len() + 2));
+    encoded.push_str("0x");
+    encoded.push_str(&digits);
+    encoded
+}
+
+fn serialize_secret<S: serde::Serializer>(
+    value: &Zeroizing<String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(value)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,8 +80,8 @@ pub(crate) struct InputParamsJson {
     pub nullifier: String,
     #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
-    #[serde(rename = "nullifierSecret")]
-    pub nullifier_secret: String,
+    #[serde(rename = "nullifierSecret", serialize_with = "serialize_secret")]
+    pub nullifier_secret: Zeroizing<String>,
 }
 
 /// One public tree slot. Mirrors Go `common.TreeSlotParamsJSON`.
@@ -111,8 +129,8 @@ pub(crate) struct TransferInputsJson {
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
-    #[serde(rename = "blindingSeed")]
-    pub blinding_seed: String,
+    #[serde(rename = "blindingSeed", serialize_with = "serialize_secret")]
+    pub blinding_seed: Zeroizing<String>,
     #[serde(rename = "publicAssets")]
     pub public_assets: Vec<String>,
     #[serde(rename = "publicAmounts")]
@@ -205,7 +223,7 @@ fn input_to_json(index: usize, input: &TransferInput) -> Result<InputParamsJson,
         tree_slot: big_uint_to_string(&input.tree_slot),
         nullifier: big_uint_to_string(&input.nullifier),
         owner_pk_hash: big_uint_to_string(&input.owner_pk_hash),
-        nullifier_secret: big_uint_to_string(nullifier_secret),
+        nullifier_secret: secret_to_string(nullifier_secret),
     })
 }
 
@@ -311,8 +329,8 @@ pub(crate) struct MergeParametersJson {
     pub owner_pk_hash: String,
     #[serde(rename = "userNullifierPk")]
     pub user_nullifier_pk: String,
-    #[serde(rename = "userNullifierSecret")]
-    pub user_nullifier_secret: String,
+    #[serde(rename = "userNullifierSecret", serialize_with = "serialize_secret")]
+    pub user_nullifier_secret: Zeroizing<String>,
     #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
@@ -377,7 +395,7 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str, ring: bool) -> St
         output_ciphertext_salt: (!ring).then(|| big_uint_to_string(&inputs.output_ciphertext_salt)),
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
-        user_nullifier_secret: big_uint_to_string(&inputs.user_nullifier_secret),
+        user_nullifier_secret: secret_to_string(&inputs.user_nullifier_secret),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
@@ -470,7 +488,17 @@ fn transfer_inputs_json(
     inputs: &TransferInputs,
     circuit_type: &str,
 ) -> Result<String, ClientError> {
-    let json = TransferInputsJson {
+    Ok(
+        serde_json::to_string(&transfer_inputs_params(inputs, circuit_type)?)
+            .expect("JSON serialization failed for valid struct"),
+    )
+}
+
+fn transfer_inputs_params(
+    inputs: &TransferInputs,
+    circuit_type: &str,
+) -> Result<TransferInputsJson, ClientError> {
+    Ok(TransferInputsJson {
         circuit_type: circuit_type.to_string(),
         n_inputs: inputs.inputs.len(),
         n_outputs: inputs.outputs.len(),
@@ -480,7 +508,7 @@ fn transfer_inputs_json(
         output_tree_id: big_uint_to_string(&inputs.output_tree_id),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
-        blinding_seed: big_uint_to_string(&inputs.blinding_seed),
+        blinding_seed: secret_to_string(&inputs.blinding_seed),
         public_assets: inputs
             .public_assets
             .iter()
@@ -505,8 +533,7 @@ fn transfer_inputs_json(
             .collect(),
         cache: cache_reads_to_json(&inputs.cache),
         public_input_hash: big_uint_to_string(&inputs.public_input_hash),
-    };
-    Ok(serde_json::to_string(&json).expect("JSON serialization failed for valid struct"))
+    })
 }
 
 /// Serialize the Solana-only confidential transfer witness to the prover server's
@@ -525,6 +552,58 @@ pub(crate) fn to_json_ring_authority(inputs: &TransferInputs) -> Result<String, 
 /// Serialize the eddsa confidential policy-ring transfer witness.
 pub(crate) fn to_json_ring(inputs: &TransferInputs) -> Result<String, ClientError> {
     transfer_inputs_json(inputs, "transfer-ring")
+}
+
+/// The owner fields of the prover's EdDSA transfer requests, complete and
+/// indexed.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnerSignatureJson {
+    owner_public_key: String,
+    owner_signature: String,
+    message_hash_low: String,
+    message_hash_high: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_owner_pk_hash: Option<String>,
+}
+
+impl OwnerSignatureJson {
+    pub(crate) fn new(
+        authorization: &crate::prover::transact::EddsaAuthorization,
+        default_owner_pk_hash: Option<&[u8; 32]>,
+    ) -> Self {
+        let (high, low) = authorization.message_digest.split_at(16);
+        Self {
+            owner_public_key: format!("0x{}", hex::encode(authorization.owner_public_key)),
+            owner_signature: format!("0x{}", hex::encode(authorization.owner_signature)),
+            message_hash_low: format!("0x{}", hex::encode(low)),
+            message_hash_high: format!("0x{}", hex::encode(high)),
+            default_owner_pk_hash: default_owner_pk_hash.map(crate::prover::indexed::hex_field),
+        }
+    }
+}
+
+/// An EdDSA transfer request: the Solana-only witness under `circuit_type`
+/// followed by the in-circuit owner's fields, serialized once.
+pub(crate) fn to_json_signed(
+    inputs: &TransferInputs,
+    circuit_type: &str,
+    owner: OwnerSignatureJson,
+) -> Result<Zeroizing<String>, ClientError> {
+    #[derive(Serialize)]
+    struct SignedTransferJson {
+        #[serde(flatten)]
+        transfer: TransferInputsJson,
+        #[serde(flatten)]
+        owner: OwnerSignatureJson,
+    }
+    let json = SignedTransferJson {
+        transfer: transfer_inputs_params(inputs, circuit_type)?,
+        owner,
+    };
+    Ok(Zeroizing::new(
+        serde_json::to_string(&json).expect("JSON serialization failed for valid struct"),
+    ))
 }
 
 #[cfg(test)]

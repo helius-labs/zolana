@@ -1,9 +1,9 @@
 use spr_interface::{
     instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
-    pda, N_PUBLIC_SLOTS,
+    pda,
 };
 use spr_transaction::{
-    instructions::transact::{CacheAccounts, SppProofInputs, TransactRail},
+    instructions::transact::{CacheAccounts, SppProofInputs},
     utxo::SppProofInputUtxo,
 };
 
@@ -13,12 +13,9 @@ use crate::{
     prover::{
         requests::CircuitRequest,
         transact::{
-            assembly::{input_utxos_from_nullifiers, TransferInputUtxo},
-            confidential_eddsa::{
-                confidential_eddsa_signer_pk_hashes, ConfidentialEddsaProver,
-                ConfidentialEddsaTransferInputs, EddsaAuthorization,
-            },
-            eddsa::TransferProver,
+            assembly::{input_utxos_from_nullifiers, transact_ix_data, TransferInputUtxo},
+            confidential_eddsa::{ConfidentialEddsaTransferInputs, EddsaAuthorization},
+            transfer::{ConfidentialEddsaRail, SignerRail, TransferProver, TransferRail},
             OwnerAuthorization,
         },
         verify::{verify_confidential_eddsa_transfer_inputs, verify_confidential_transfer_inputs},
@@ -297,90 +294,14 @@ pub fn assemble_with_dummy_policy(
     dummy_nullifier_proofs: &[NonInclusionProof],
     allow_dummy_inputs: bool,
 ) -> Result<AssembledTransfer, ClientError> {
-    let shape = proof_inputs.check_shape()?;
-
-    let spr_transaction::ExternalData {
-        expiry_unix_ts,
-        interface_transfers,
-        data_hash,
-        ring_data_hash,
-        tx_viewing_pk,
-        salt,
-        outputs,
-        messages,
-        ..
-    } = proof_inputs.external_data.clone();
-    let interface_transfers = interface_transfers
-        .iter()
-        .copied()
-        .map(spr_transaction::instructions::transact::SettlementTransfer::interface_transfer)
-        .collect();
-
-    let cache_accounts = proof_inputs.cache_accounts;
-    let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
-    let public_transfers = proof_inputs.public_transfers()?;
-    let result = TransferProver {
-        inputs: attach_input_proofs(
-            proof_inputs.input_utxos,
-            input_proofs,
-            dummy_nullifier_proofs,
-        )?,
-        outputs: proof_inputs.output_utxos,
-        blinding_seed: proof_inputs.blinding_seed,
-        output_tree_id: proof_inputs.output_tree_id,
-        external_data: proof_inputs.external_data,
-        public_transfers,
-        signer_pk_hashes,
+    assemble_on(
+        proof_inputs,
+        input_proofs,
+        dummy_nullifier_proofs,
         allow_dummy_inputs,
-        shape,
-        cache_accounts,
-    }
-    .build()?;
-    let (n_inputs, n_outputs) = (shape.n_inputs() as u8, shape.n_outputs() as u8);
-    let circuit_id = match result.cache_access {
-        Some(access) => {
-            CircuitId::ConfidentialSignerCached(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8, access)
-        }
-        None => CircuitId::ConfidentialSigner(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8),
-    };
-    let prover_inputs = result.inputs;
-    let public_input_hash = result.public_input_hash;
-    let nullifiers = result.nullifiers;
-    let private_tx = result.private_tx_hash;
-
-    if nullifiers.len() != shape.n_inputs() {
-        return Err(ClientError::WitnessInputCountMismatch {
-            got: nullifiers.len(),
-            expected: shape.n_inputs(),
-        });
-    }
-
-    let inputs = input_utxos_from_nullifiers(&nullifiers, &result.input_tree_indexes)?;
-
-    let ix = TransactIxData {
-        proof: TransactProof::zeroed(),
-        expiry_unix_ts,
-        private_tx_hash: private_tx,
-        circuit: circuit_id,
-        inputs,
-        tree_contexts: result.tree_contexts,
-        interface_transfers,
-        data_hash,
-        ring_data_hash,
-        tx_viewing_pk,
-        salt,
-        outputs,
-        messages,
-    };
-
-    Ok(AssembledTransfer {
-        prover_inputs,
-        authorization: None,
-        public_input_hash,
-        input_tree_ids: result.tree_ids,
-        cache_accounts,
-        ix,
-    })
+        SignerRail,
+        |inputs| (inputs, None),
+    )
 }
 
 /// [`assemble`] for the `ConfidentialEddsa` rail: `owner` signs the
@@ -408,13 +329,36 @@ pub fn assemble_confidential_eddsa_with_dummy_policy<'a>(
     allow_dummy_inputs: bool,
     owner: impl Into<OwnerAuthorization<'a>>,
 ) -> Result<AssembledTransfer, ClientError> {
-    let owner = owner.into();
-    let shape = proof_inputs.check_shape_for(TransactRail::ConfidentialEddsa)?;
-    let signer_pk_hashes = confidential_eddsa_signer_pk_hashes(&proof_inputs, &owner.public_key())?;
+    assemble_on(
+        proof_inputs,
+        input_proofs,
+        dummy_nullifier_proofs,
+        allow_dummy_inputs,
+        ConfidentialEddsaRail {
+            owner: owner.into(),
+        },
+        |inputs| (inputs.transfer, Some(inputs.authorization)),
+    )
+}
+
+/// Build `proof_inputs` on `rail` and assemble its `Transact` instruction
+/// data from the same build. `split` separates the rail's request inputs into
+/// the witness and the in-circuit owner's signature.
+fn assemble_on<R: TransferRail>(
+    proof_inputs: SppProofInputs,
+    input_proofs: &[SpendProof],
+    dummy_nullifier_proofs: &[NonInclusionProof],
+    allow_dummy_inputs: bool,
+    rail: R,
+    split: impl FnOnce(R::Inputs) -> (TransferInputs, Option<EddsaAuthorization>),
+) -> Result<AssembledTransfer, ClientError> {
+    let kind = rail.kind();
+    let shape = proof_inputs.check_shape_for(kind.transact_rail())?;
+    let signer_pk_hashes = kind.transaction_signers(&proof_inputs, shape)?;
     let external = proof_inputs.external_data.clone();
     let cache_accounts = proof_inputs.cache_accounts;
     let public_transfers = proof_inputs.public_transfers()?;
-    let result = ConfidentialEddsaProver {
+    let result = TransferProver {
         inputs: attach_input_proofs(
             proof_inputs.input_utxos,
             input_proofs,
@@ -427,9 +371,9 @@ pub fn assemble_confidential_eddsa_with_dummy_policy<'a>(
         public_transfers,
         signer_pk_hashes,
         allow_dummy_inputs,
-        owner,
         shape,
         cache_accounts,
+        rail,
     }
     .build()?;
     if result.nullifiers.len() != shape.n_inputs() {
@@ -438,33 +382,17 @@ pub fn assemble_confidential_eddsa_with_dummy_policy<'a>(
             expected: shape.n_inputs(),
         });
     }
-    let ConfidentialEddsaTransferInputs {
-        transfer: prover_inputs,
-        authorization,
-    } = result.inputs;
-    let ix = TransactIxData {
-        proof: TransactProof::zeroed(),
-        expiry_unix_ts: external.expiry_unix_ts,
-        private_tx_hash: result.private_tx_hash,
-        circuit: authorization.circuit(shape, result.cache_access),
-        inputs: input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?,
-        tree_contexts: result.tree_contexts,
-        interface_transfers: external
-            .interface_transfers
-            .iter()
-            .copied()
-            .map(spr_transaction::instructions::transact::SettlementTransfer::interface_transfer)
-            .collect(),
-        data_hash: external.data_hash,
-        ring_data_hash: external.ring_data_hash,
-        tx_viewing_pk: external.tx_viewing_pk,
-        salt: external.salt,
-        outputs: external.outputs,
-        messages: external.messages,
-    };
+    let ix = transact_ix_data(
+        external,
+        result.private_tx_hash,
+        result.circuit,
+        input_utxos_from_nullifiers(&result.nullifiers, &result.input_tree_indexes)?,
+        result.tree_contexts,
+    );
+    let (prover_inputs, authorization) = split(result.inputs);
     Ok(AssembledTransfer {
         prover_inputs,
-        authorization: Some(authorization),
+        authorization,
         public_input_hash: result.public_input_hash,
         input_tree_ids: result.tree_ids,
         cache_accounts,
