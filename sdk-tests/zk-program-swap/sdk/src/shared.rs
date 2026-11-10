@@ -1,10 +1,7 @@
 use anyhow::Result;
 use solana_address::Address;
 use spr_keypair::ShieldedAddress;
-use spr_transaction::{
-    utxo::Blinding,
-    {instructions::transact::SppProofOutputUtxo, utxo::SppProofInputUtxo},
-};
+use spr_transaction::{instructions::transact::SppProofOutputUtxo, utxo::SppProofInputUtxo};
 
 use crate::err;
 
@@ -22,16 +19,8 @@ pub fn input_sum(inputs: &[SppProofInputUtxo], asset: &Address) -> i128 {
         .sum()
 }
 
-// A Blinding is already a 32-byte big-endian field element. Asserted at compile
-// time so a Blinding width change is a build error, not a silent mismatch.
-const _: () = assert!(core::mem::size_of::<Blinding>() == 32);
-
-pub(crate) fn right_align_blinding(blinding: &Blinding) -> [u8; 32] {
-    *blinding
-}
-
 #[cfg(test)]
-pub(crate) fn test_blinding(byte: u8) -> Blinding {
+pub(crate) fn test_blinding(byte: u8) -> spr_transaction::utxo::Blinding {
     let mut blinding = [byte; 32];
     blinding[0] = 0;
     blinding

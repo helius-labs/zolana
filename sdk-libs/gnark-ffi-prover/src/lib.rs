@@ -20,6 +20,13 @@
 //! [`Prover::setup_insecure_test_keys`] (setup CLI `--insecure-test-keys`)
 //! generates reproducible keys from a fixed public seed. Anyone can forge
 //! proofs against them, so they are for tests only.
+//!
+//! Link one prover crate per binary. Every prover crate's archive is named
+//! `libprover.a` and exports the same unmangled C symbols (`Setup`, `Prove`,
+//! `LoadKeys`, ...) and its own Go runtime, so a binary that depends on two
+//! prover crates fails to link on duplicate symbols, or both crates bind to
+//! whichever archive the linker finds first. Give each prover crate its own
+//! test or application binary.
 
 mod ffi;
 mod proof;

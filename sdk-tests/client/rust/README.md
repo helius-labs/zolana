@@ -16,18 +16,18 @@ building an instruction.
 ### Flow
 
 1. **Sync balances.** Fetch the sender's transactions by view tag,
-   `get_shielded_transactions_by_tags`, and decrypt them, `decrypt_transactions`.
-   Each note comes back as a `SpendableUtxo` carrying its commitment, its
-   nullifier, its tree id and leaf index, and the slot it was published in. An
-   `IndexerRpcConfig::at_slot` gate makes the read wait for the transaction
-   just sent.
-2. **Select input UTXOs.** Pick from the decrypted balance and convert with
-   `SppProofInputUtxo::from`, a field move that needs no key because step 1
-   already computed everything the proof hashes.
-3. **Create output UTXOs.** The shape fixes both slot counts, so the inputs are
-   padded to it with `pad_input_utxos` before `ConfidentialTransaction::new`
-   opens on them. Then `transfer` or `withdraw`, then `pad_output_utxos` fills
-   the free output slots once the change and the recipient are known.
+   `get_shielded_transactions_by_tags`, and decrypt them with
+   `decrypt_spendable`, which returns the spendable `Balances`. Each note is a
+   `WalletUtxo` carrying its commitment, its nullifier, its tree id and leaf
+   index, and the slot it was published in. An `IndexerRpcConfig::at_slot` gate
+   makes the read wait for the transaction just sent.
+2. **Select input UTXOs.** Pick `WalletUtxo`s from the decrypted balance by
+   value. They need no key from here on, because step 1 already computed
+   everything the proof hashes.
+3. **Create output UTXOs.** `ConfidentialTransaction::new` opens on the
+   selected inputs. Then `transfer_sol` or `withdraw_sol` (`transfer` or
+   `withdraw` for an SPL mint), then `pad_utxos` adds the change and pads the
+   inputs and outputs to the shape.
 4. **Encrypt.** `encrypt` produces the ciphertexts, the external data hash and
    the private transaction hash in one call.
 5. **Prove.** `prove_transact` fetches the witnesses and returns

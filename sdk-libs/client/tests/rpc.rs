@@ -104,10 +104,9 @@ fn an_instruction_count_reproduces_the_implicit_legacy_budget() {
     assert_eq!(ComputeBudgetConfig::for_instruction_count(0).cu_limit, 0);
 }
 
-/// Legacy partial signing tolerated the same signer twice;
-/// `VersionedTransaction::try_new` refuses a list longer than the required
-/// signatures. A fee payer that also owns a shielded input arrives twice,
-/// so the duplicate is dropped rather than passed on.
+/// `VersionedTransaction::try_new` refuses a signer list longer than the
+/// message's required signatures. A fee payer that also owns a shielded input
+/// arrives twice, so the duplicate is dropped rather than passed on.
 #[test]
 fn a_repeated_signer_is_passed_once() {
     use solana_keypair::Keypair;
