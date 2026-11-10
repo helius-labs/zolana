@@ -10629,7 +10629,7 @@ dependencies = [
 
 [[package]]
 name = "spr-account-checks"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "rand 0.8.8",
  "solana-account-view 2.0.0",
@@ -10641,7 +10641,7 @@ dependencies = [
 
 [[package]]
 name = "spr-api"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "http 1.5.0",
  "reqwest",
@@ -10685,7 +10685,7 @@ dependencies = [
 
 [[package]]
 name = "spr-client"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -10746,7 +10746,7 @@ dependencies = [
 
 [[package]]
 name = "spr-event"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "borsh",
  "wincode",
@@ -10754,7 +10754,7 @@ dependencies = [
 
 [[package]]
 name = "spr-event-parser"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "borsh",
  "proptest",
@@ -10787,7 +10787,7 @@ dependencies = [
 
 [[package]]
 name = "spr-gnark-ffi-prover"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "groth16-solana",
  "num-bigint 0.4.8",
@@ -10799,7 +10799,7 @@ dependencies = [
 
 [[package]]
 name = "spr-gnark-ffi-prover-build"
-version = "0.8.0"
+version = "0.9.0"
 
 [[package]]
 name = "spr-hasher"
@@ -10822,7 +10822,7 @@ dependencies = [
 
 [[package]]
 name = "spr-indexer-api"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "base64 0.22.1",
  "bs58",
@@ -10836,7 +10836,7 @@ dependencies = [
 
 [[package]]
 name = "spr-instruction"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "borsh",
  "bytemuck",
@@ -10854,7 +10854,7 @@ dependencies = [
 
 [[package]]
 name = "spr-interface"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "arrayvec",
  "borsh",
@@ -10877,7 +10877,7 @@ dependencies = [
 
 [[package]]
 name = "spr-keypair"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aes",
  "ark-bn254 0.6.0",
@@ -10932,7 +10932,7 @@ dependencies = [
 
 [[package]]
 name = "spr-merkle-tree"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "num-bigint 0.4.8",
  "num-traits",
@@ -10983,7 +10983,7 @@ dependencies = [
 
 [[package]]
 name = "spr-program-test"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "base64 0.22.1",
  "litesvm",
@@ -11064,7 +11064,7 @@ dependencies = [
 
 [[package]]
 name = "spr-protocol-instructions"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "borsh",
  "solana-address 2.6.1",
@@ -11076,7 +11076,7 @@ dependencies = [
 
 [[package]]
 name = "spr-prover-tee"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aes-gcm",
  "ciborium",
@@ -11112,7 +11112,7 @@ dependencies = [
 
 [[package]]
 name = "spr-smart-account-client"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "borsh",
  "sha2 0.10.9",
@@ -11189,7 +11189,7 @@ dependencies = [
 
 [[package]]
 name = "spr-transaction"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "borsh",
@@ -11216,7 +11216,7 @@ dependencies = [
 
 [[package]]
 name = "spr-tree"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -11254,7 +11254,7 @@ dependencies = [
 
 [[package]]
 name = "spr-user-registry-interface"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "borsh",
  "solana-instruction",
