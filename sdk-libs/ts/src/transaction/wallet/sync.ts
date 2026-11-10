@@ -126,14 +126,6 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
   let unparsedTransactions = 0;
   for (const [transaction, tx] of transactions.entries()) {
     let classified = false;
-    if (!tx.proofless && tx.txViewingPublicKey === undefined && tx.salt === undefined) {
-      for (const slotIndex of tx.outputSlots.keys()) {
-        mergeSites.push({ transaction, slot: slotIndex });
-        classified = true;
-      }
-      if (!classified) unparsedTransactions++;
-      continue;
-    }
     for (const [index, slot] of tx.outputSlots.entries()) {
       let scheme: EncryptedScheme;
       try {
@@ -142,7 +134,11 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
         continue;
       }
       const tag = bytesKey(slot.viewTag);
-      if (scheme === EncryptedScheme.split) {
+      // A merge output is named by its scheme, as Rust reads it. A missing
+      // viewing key and salt prove nothing: any sender can publish without them.
+      if (scheme === EncryptedScheme.merge) {
+        mergeSites.push({ transaction, slot: index });
+      } else if (scheme === EncryptedScheme.split) {
         pushInto(senderSites, tag, transaction);
       } else {
         pushInto(recipientSites, tag, { transaction, slot: index });
@@ -378,8 +374,11 @@ class SyncPass {
    * transaction.
    */
   #storeInTx(utxo: Utxo, tx: IndexedShieldedTransaction): void {
-    const hash = utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID);
-    const slot = tx.outputSlots.find((candidate) => equalBytes(candidate.outputContext.hash, hash));
+    const hash = this.#commitment(utxo, undefined, undefined);
+    const slot =
+      hash === undefined
+        ? undefined
+        : tx.outputSlots.find((candidate) => equalBytes(candidate.outputContext.hash, hash));
     if (slot === undefined) {
       this.undecryptableCandidates++;
       return;
@@ -396,18 +395,52 @@ class SyncPass {
   ): boolean {
     let stored = false;
     for (const utxo of utxos) {
-      if (
-        !equalBytes(
-          utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, dataHash, ringDataHash),
-          outputContext.hash,
-        )
-      ) {
+      const hash = this.#commitment(utxo, dataHash, ringDataHash);
+      if (hash === undefined || !equalBytes(hash, outputContext.hash)) {
         this.undecryptableCandidates++;
         continue;
       }
       if (this.#store(utxo, outputContext, dataHash, ringDataHash) !== "pending") stored = true;
     }
     return stored;
+  }
+
+  /**
+   * The commitment of a decoded UTXO, or `undefined` when its fields are not
+   * the field elements a commitment is built from (a blinding at or above the
+   * modulus, a ring data hash without a ring). No published commitment can
+   * match one, so the output is not ours.
+   */
+  #commitment(
+    utxo: Utxo,
+    dataHash: Bytes32 | undefined,
+    ringDataHash: Bytes32 | undefined,
+  ): Bytes32 | undefined {
+    try {
+      return utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, dataHash, ringDataHash);
+    } catch (error) {
+      if (error instanceof TransactionError) return undefined;
+      throw error;
+    }
+  }
+
+  /** Whether the registry names `mint`, as balances and spends need it to. */
+  #registered(mint: Address): boolean {
+    try {
+      this.#assets.assetId(mint);
+      return true;
+    } catch (error) {
+      if (error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_MINT") {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  #holds(viewingPublicKey: X25519PublicKey): boolean {
+    return this.#viewingPublicKeys.some((held) =>
+      equalBytes(held.toBytes(), viewingPublicKey.toBytes()),
+    );
   }
 
   #record(row: PrivateTransaction): void {
@@ -738,6 +771,14 @@ class SyncPass {
         return;
       }
       this.#resolveAssetCandidate(siteKey);
+      // Value enters the pool only in registered assets, yet a transfer may
+      // append a zero-amount output of any mint. Stored, one of a mint the
+      // registry cannot name would fail every later sync until that mint is
+      // registered; it holds nothing, so it is skipped.
+      if (utxo.amount === 0n && !this.#registered(utxo.asset)) {
+        this.undecryptableCandidates++;
+        return;
+      }
       if (
         this.#storeRecipientUtxos([utxo], outputContext, deposit.dataHash, deposit.ringDataHash)
       ) {
@@ -772,14 +813,24 @@ class SyncPass {
         frame.scheme === EncryptedScheme.ringConfidential)
     ) {
       let utxo: Utxo;
-      let ciphertext: Uint8Array;
+      let embedded: ReturnType<typeof splitEmbeddedKey>;
       try {
-        ciphertext = splitEmbeddedKey(body).rest;
+        embedded = splitEmbeddedKey(body);
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
       }
-      const decrypted = this.#decryptSlot(viewingPublicKey, tx, ciphertext, site.slot, siteKey);
+      // The slot names the viewing key it is encrypted to. Another held key
+      // opens it on its own visit; one this wallet does not hold means the
+      // output is not ours, and the key holder is not asked to open it.
+      if (!equalBytes(embedded.key.toBytes(), viewingPublicKey.toBytes())) {
+        if (!this.#holds(embedded.key)) {
+          this.undecryptableCandidates++;
+          this.#processedSlots.add(siteKey);
+        }
+        return;
+      }
+      const decrypted = this.#decryptSlot(viewingPublicKey, tx, embedded.rest, site.slot, siteKey);
       if (decrypted === undefined) return;
       try {
         utxo = confidentialUtxo(decodeConfidential(decrypted), this.#owner, this.#assets);
@@ -842,20 +893,23 @@ class SyncPass {
     }
   }
 
-  /** Check after every key round and newly discovered input has been resolved. */
-  assertOwnedMergesDecoded(sites: readonly Site[], identityTag: Bytes32): void {
+  /**
+   * A transaction with no viewing key and no salt that spends a UTXO this
+   * wallet holds is a merge of the wallet's own notes, and its output is the
+   * wallet's: committing without it would lose the merged value. Only the
+   * spent nullifiers prove that; a view tag or a missing envelope does not,
+   * since any sender can publish either. Check after every key round and newly
+   * discovered input has been resolved.
+   */
+  assertOwnedMergesDecoded(): void {
     const ownedNullifiers = new Set(this.#utxos.map((entry) => bytesKey(entry.nullifier)));
-    for (const site of sites) {
-      if (this.#processedSlots.has(`${String(site.transaction)}:${String(site.slot)}`)) continue;
-      const tx = this.#transactions[site.transaction];
-      const slot = tx?.outputSlots[site.slot];
-      if (tx === undefined || slot === undefined) continue;
-      if (this.#outputHashes.has(bytesKey(slot.outputContext.hash))) continue;
-      if (
-        equalBytes(slot.viewTag, identityTag) ||
-        tx.nullifiers.some((nullifier) => ownedNullifiers.has(bytesKey(nullifier)))
-      ) {
-        throw new TransactionError("TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE");
+    for (const tx of this.#transactions) {
+      if (tx.proofless || tx.txViewingPublicKey !== undefined || tx.salt !== undefined) continue;
+      if (!tx.nullifiers.some((nullifier) => ownedNullifiers.has(bytesKey(nullifier)))) continue;
+      for (const slot of tx.outputSlots) {
+        if (!this.#outputHashes.has(bytesKey(slot.outputContext.hash))) {
+          throw new TransactionError("TRANSACTION_MERGE_OUTPUT_UNDECRYPTABLE");
+        }
       }
     }
   }
@@ -1037,7 +1091,7 @@ export async function decryptTransactions(
         await memo.resolve(input.context);
         continue;
       }
-      pass.assertOwnedMergesDecoded(mergeSites, identityTag);
+      pass.assertOwnedMergesDecoded();
       return commitPass(input, pass, index, viewingKeyHistory);
     }
     throw new TransactionError("TRANSACTION_KEYS_UNRESOLVED");

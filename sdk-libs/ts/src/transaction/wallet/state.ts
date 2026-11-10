@@ -122,8 +122,9 @@ export interface SyncReport {
   /**
    * Compact asset ids that failed to decode because the wallet's registry did
    * not know them, ascending. The client sync layer uses this to lazily
-   * backfill the registry from chain and retry; it stays empty when every id is
-   * known.
+   * backfill the registry from chain and retry; an id still listed after that
+   * names no registered asset, so its output is not the wallet's and the sync
+   * commits without it. It stays empty when every id is known.
    */
   readonly unknownAssetIds: readonly bigint[];
   /**

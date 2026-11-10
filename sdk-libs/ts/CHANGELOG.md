@@ -45,6 +45,7 @@ Fixed
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
 - `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows.
 - `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note, and now stores the note.
+- Any sender could make every later `syncWallet` fail and commit nothing with one output under the wallet's tag naming an unregistered asset id or a zero-amount unregistered mint, carrying a blinding outside the field, or posing as a merge in a transaction without a viewing key; such outputs are now skipped, an asset id that the registry, read at or past the fetched slots, does not name is reported in `SyncReport.unknownAssetIds`, and only an unreadable merge that spends the wallet's own notes still fails the sync.
 - `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
 
 ## 0.8.0-alpha — 2026-11-03
