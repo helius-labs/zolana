@@ -11184,6 +11184,7 @@ dependencies = [
  "spr-transaction",
  "spr-tree",
  "spr-user-registry-interface",
+ "thiserror 2.0.20",
  "tokio",
 ]
 

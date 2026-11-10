@@ -8,6 +8,7 @@
 
 pub mod actions;
 pub mod authority;
+mod error;
 #[cfg(feature = "parallel")]
 mod parallel;
 mod scan;
@@ -30,6 +31,7 @@ pub use authority::{
     ApprovalRequest, ClientEd25519WalletAuthority, EncryptedEnvelope, EncryptedTransfer,
     KeypairWalletAuthority, SyncWalletAuthority, WalletAuthority, WalletSyncMaterial,
 };
+pub use error::WalletError;
 pub use scan::SyncConfig;
 pub use state::{
     CheckpointStream, Filter, PrivateTransaction, PrivateTransactionDirection,

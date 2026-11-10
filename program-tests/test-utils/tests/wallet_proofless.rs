@@ -138,7 +138,7 @@ fn sync_discovers_and_spends_proofless_deposit() {
             3,
             DEFAULT_TAG_WINDOW,
         )
-        .expect("sync input_utxo");
+        .expect("sync spend");
     assert!(
         wallet.is_spent(wallet.utxos.first().expect("spent utxo")),
         "deposit spent by its nullifier"

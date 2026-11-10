@@ -1,4 +1,5 @@
 use solana_address::Address;
+use spr_instruction::ExternalDataHashError;
 use spr_keypair::KeypairError;
 use thiserror::Error;
 
@@ -85,20 +86,8 @@ pub enum TransactionError {
     #[error("ring data present without ring program id")]
     MissingRingProgramId,
 
-    #[error("program/ring data on this output cannot be processed yet")]
-    UnsupportedOutputData,
-
-    #[error("poseidon hash failed: {0}")]
-    Poseidon(String),
-
-    #[error("hash failed: {0}")]
-    Hash(String),
-
     #[error("transaction has no output slots")]
     MissingOutput,
-
-    #[error("output slot count mismatch: {got} ciphertext(s) for {expected} output(s)")]
-    OutputSlotCountMismatch { got: usize, expected: usize },
 
     #[error("plaintext output {index} has an out-of-order, duplicate or gapped slot {position}")]
     InvalidPlaintextOutputPosition { index: usize, position: u32 },
@@ -112,11 +101,11 @@ pub enum TransactionError {
     #[error("output slot {slot_index} is encrypted to an owner other than the one it publishes")]
     OwnerTagMismatch { slot_index: usize },
 
-    #[error("output slot {slot_index} has no view tag chosen for its recipient")]
-    RecipientViewTagUnset { slot_index: usize },
-
     #[error("owner tag count mismatch: {got} owner tag(s) for {expected} output(s)")]
     OwnerTagCountMismatch { got: usize, expected: usize },
+
+    #[error("{got} settlement account pair(s) for {expected} interface transfer(s)")]
+    SettlementAccountCountMismatch { got: usize, expected: usize },
 
     #[error("the keys do not hold the sender the transaction was finalized for")]
     SenderAddressMismatch,
@@ -144,11 +133,6 @@ pub enum TransactionError {
 
     #[error("input {index} does not match its published commitment")]
     InputCommitmentMismatch { index: usize },
-
-    /// The input slots are final at construction, so a caller that has not
-    /// padded to the shape's input count is refused rather than padded for.
-    #[error("shape declares {expected} input slot(s), got {got}")]
-    InputCountMismatch { got: usize, expected: usize },
 
     /// Slot 0's nullifier seeds every output blinding, the private-transaction
     /// blinding and the transaction viewing key, so a dummy there moves all of
@@ -352,6 +336,27 @@ pub enum TransactionError {
 impl From<AddressInputError> for TransactionError {
     fn from(e: AddressInputError) -> Self {
         Self::InvalidAddressInput(e)
+    }
+}
+
+impl From<ExternalDataHashError> for TransactionError {
+    fn from(e: ExternalDataHashError) -> Self {
+        match e {
+            ExternalDataHashError::Serialize(error) => Self::Serialize(error.to_string()),
+            ExternalDataHashError::SettlementAccountCount { expected, provided } => {
+                Self::SettlementAccountCountMismatch {
+                    got: provided,
+                    expected,
+                }
+            }
+            ExternalDataHashError::ResolvedOwnerTagCount { expected, provided } => {
+                Self::OwnerTagCountMismatch {
+                    got: provided,
+                    expected,
+                }
+            }
+            ExternalDataHashError::Hasher(error) => error.into(),
+        }
     }
 }
 

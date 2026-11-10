@@ -82,14 +82,8 @@ pub enum ClientError {
     #[error("too many outputs: got {got}, shape holds at most {max}")]
     TooManyOutputs { got: usize, max: usize },
 
-    #[error("insufficient balance for asset: requested {requested}, available {available}")]
-    InsufficientBalance { requested: u64, available: u64 },
-
     #[error("selected balance overflow")]
     SelectedBalanceOverflow,
-
-    #[error("unsigned input {index} is no longer available in the wallet")]
-    UnsignedInputUnavailable { index: usize },
 
     #[error("fee payer does not match the payer bound into the private transaction")]
     FeePayerMismatch,
@@ -105,20 +99,6 @@ pub enum ClientError {
 
     #[error("address lookup tables are not supported")]
     AddressLookupTable,
-
-    #[error(
-        "tree is required: wallet holds unspent asset {asset:?} across {tree_count} pool trees"
-    )]
-    AmbiguousTree {
-        asset: solana_address::Address,
-        tree_count: usize,
-    },
-
-    #[error("SPL token account is required for mint {mint}")]
-    MissingSplTokenAccount { mint: Pubkey },
-
-    #[error("mint {mint} is owned by unsupported SPL token program {owner}")]
-    UnsupportedSplTokenProgram { mint: Pubkey, owner: Pubkey },
 
     #[error("mint {mint} is not registered with the shielded pool")]
     SplAssetNotRegistered { mint: Address },
@@ -164,17 +144,8 @@ pub enum ClientError {
     )]
     UserRegistryNullifierKeyMismatch { owner: Pubkey },
 
-    #[error("a transaction supports a single public SPL asset; got a second distinct asset")]
-    MultiplePublicSplAssets,
-
-    #[error("a transaction supports a single withdrawal")]
-    WithdrawalAlreadySet,
-
-    #[error("a transaction must input_utxo at least one input")]
+    #[error("a transaction must spend at least one input")]
     NoInputs,
-
-    #[error("input {index} is not Solana-owned")]
-    EddsaInputNotSolanaOwned { index: usize },
 
     #[error("the prepared owner signature does not verify over the transaction message digest")]
     OwnerSignatureMismatch,
@@ -189,9 +160,6 @@ pub enum ClientError {
 
     #[error("output {index} blinding does not match the transaction seed and first nullifier")]
     OutputBlindingMismatch { index: usize },
-
-    #[error("merge input {index} has a different signing rail than the owner; merge requires all inputs share one owner")]
-    MergeInputRailMismatch { index: usize },
 
     #[error("merge input {index} has a different asset; merge requires a single shared asset")]
     MergeInputAssetMismatch { index: usize },
@@ -215,27 +183,6 @@ pub enum ClientError {
         proof_tree: [u8; 32],
         input_tree: [u8; 32],
     },
-
-    #[error("split amount {amount} is not divisible into {parts} equal parts")]
-    SplitNotDivisible { amount: u64, parts: u8 },
-
-    #[error("split input utxo {hash:?} is not available in the wallet")]
-    InputUtxoUnavailable { hash: [u8; 32] },
-
-    #[error(
-        "input utxo {hash:?} is on tree {utxo_tree:?}, not the resolved input_utxo tree {spend_tree:?}"
-    )]
-    InputUtxoTreeMismatch {
-        hash: [u8; 32],
-        utxo_tree: solana_address::Address,
-        spend_tree: solana_address::Address,
-    },
-
-    #[error("split input utxo {hash:?} carries program or utxo data, which is not supported")]
-    SplitInputHasData { hash: [u8; 32] },
-
-    #[error("split input utxo {hash:?} is bound to a ring, which is not supported")]
-    SplitInputRingMismatch { hash: [u8; 32] },
 
     #[error("value exceeds 32 bytes")]
     ValueTooLong,
@@ -341,9 +288,7 @@ pub enum ClientError {
     /// Padding carries a genuine zero, so this names a real input, and the wire
     /// has no way to say "absent": sending it would publish the padding secret
     /// and prove the input as a dummy.
-    #[error(
-        "no nullifier secret for input {index}, which a real input_utxo needs to prove ownership"
-    )]
+    #[error("no nullifier secret for input {index}, which a real spend needs to prove ownership")]
     MissingNullifierSecret { index: usize },
 
     /// The nullifier an input carries is not the one its completing secret
@@ -363,11 +308,6 @@ pub enum ClientError {
     /// into this ring here -- it has to be built under it.
     #[error("input {index} belongs to a different ring program than the merge")]
     InputRingProgramMismatch { index: usize },
-
-    /// A merge input carries a data hash. `Merge::new` rejects these, so
-    /// reaching the witness with one means the input was built elsewhere.
-    #[error("merge input {index} carries a data hash, which merge does not support")]
-    MergeInputHasData { index: usize },
 
     #[error(
         "indexer returned incomplete input proofs: expected {expected}, got {state} state and {nullifier} nullifier proofs"
@@ -403,9 +343,6 @@ pub enum ClientError {
     #[error("nullifier proof {index} targets a different tree")]
     NullifierProofTreeMismatch { index: usize },
 
-    #[error("expected {expected} input tree-index entries, got {actual}")]
-    InputTreeIndexCountMismatch { expected: usize, actual: usize },
-
     #[error("transaction has no output slots")]
     MissingOutput,
 
@@ -421,6 +358,13 @@ pub enum ClientError {
 
     #[error("indexer error: {0}")]
     Indexer(String),
+
+    #[error("invalid page limit: {0}")]
+    InvalidPageLimit(&'static str),
+
+    /// The indexer answered with a field this client cannot decode.
+    #[error("invalid indexer field {field}: {reason}")]
+    InvalidIndexerField { field: String, reason: String },
 
     /// The indexer answered with a rate-limit or internal JSON-RPC error.
     /// Acted on by `Rpc::should_retry` during the confirmation poll.
@@ -475,7 +419,7 @@ pub enum ClientError {
     InputTreeUnresolved { tree_id: u16 },
 
     #[error(
-        "a proof cannot input_utxo both a default-ring and a ring-bound UTXO of the hidden owner: the ring input_utxo would name the hidden owner"
+        "a proof cannot spend both a default-ring and a ring-bound UTXO of the hidden owner: the ring spend would name the hidden owner"
     )]
     AnonymousRingEddsaMixedDefaultAndRingSpend,
 
@@ -484,16 +428,8 @@ pub enum ClientError {
     )]
     AnonymousRingEddsaPublishedOwnerLeaksIdentity { index: usize },
 
-    #[error(
-        "input {index} is not a real input_utxo, and this transaction forbids dummy input slots"
-    )]
+    #[error("input {index} is not a real spend, and this transaction forbids dummy input slots")]
     NonSpendInputNotAllowed { index: usize },
-
-    #[error("deposit funding account not found: {address:?}")]
-    AccountNotFound { address: [u8; 32] },
-
-    #[error("SOL deposit funding account {sender:?} must be the signing authority")]
-    DepositSenderNotSigner { sender: [u8; 32] },
 }
 
 impl ClientError {

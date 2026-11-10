@@ -49,6 +49,7 @@ spr-program-test = { workspace = true, features = ["localnet"] }
 spr-transaction = { workspace = true }
 spr-tree = { workspace = true }
 spr-user-registry-interface = { workspace = true, features = ["solana"] }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 # smart_account::settings pins the Anchor discriminator scheme in its unit test.

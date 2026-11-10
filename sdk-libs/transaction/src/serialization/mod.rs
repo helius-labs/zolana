@@ -122,8 +122,8 @@ pub trait UtxoSerialization {
             EncryptedScheme::Merge => OutputDataEncoding::VerifiablyEncrypted(blob),
             _ => OutputDataEncoding::Encrypted(blob),
         };
-        let data = borsh::to_vec(&output_data)
-            .map_err(|e| TransactionError::Deserialize(e.to_string()))?;
+        let data =
+            borsh::to_vec(&output_data).map_err(|e| TransactionError::Serialize(e.to_string()))?;
         Ok(MessageData { view_tag, data })
     }
 }
