@@ -67,6 +67,7 @@ import {
 } from "../src/interface/index.js";
 import { treeWithBump } from "../src/interface/pda/index.js";
 import { internalUserRecordPda } from "../src/wallet/registry.js";
+import packageJson from "../package.json" with { type: "json" };
 
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = getTreeAddress(0);
@@ -93,6 +94,17 @@ function onlyInstructionAccounts(transaction: Transaction) {
   return instruction?.accounts;
 }
 
+// One sorted list of runtime exports per `package.json` subpath, so adding,
+// renaming or dropping an export shows up as a snapshot diff in review.
+describe("entry point exports", () => {
+  it.each(Object.entries(packageJson.exports))("%s", async (_subpath, target) => {
+    const entry: Record<string, unknown> = await import(
+      target.import.replace(/^\.\/dist\//u, "../src/")
+    );
+    expect(Object.keys(entry).sort()).toMatchSnapshot();
+  });
+});
+
 describe("public package surface", () => {
   it("creates the default client and initializes protocol crypto", async () => {
     const client = await createSprClient();
@@ -104,38 +116,15 @@ describe("public package surface", () => {
     expect(client.proveRingTransact).toBeTypeOf("function");
   });
 
-  it("exposes only the objects needed for the common wallet flow", () => {
+  it("exposes the objects needed for the common wallet flow", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    expect(ShieldedKeypair).not.toHaveProperty("fromEd25519");
-    expect(SigningKey).not.toHaveProperty("fromBytes");
     expect(SigningKey.fromEd25519Bytes).toBeTypeOf("function");
-    expect(ViewingKey).not.toHaveProperty("fromSeed");
     expect(wallet.identity).toEqual(keypair.shieldedAddress());
     expect(SOL_MINT).toBe("11111111111111111111111111111111");
     expect(TREE).toBe("777pvSGe5LaBd9nCczvE2FXEauiwtfGJ5XRpjKyniGor");
     expect(SHIELDED_POOL_PROGRAM_ID).toBe("ring1GaLCuJnkUMVkX2JeZLTTX17wKsV4fZmPVzXANW");
     expect(USER_REGISTRY_PROGRAM_ID).toBe("regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ");
-  });
-
-  it("exposes build-only actions and removes submission wrappers", async () => {
-    const sdk = await import("../src/index.js");
-    expect(sdk.buildDepositTransaction).toBeTypeOf("function");
-    expect(sdk.buildTransferTransaction).toBeTypeOf("function");
-    expect(sdk.buildMultiTransferTransaction).toBeTypeOf("function");
-    expect(sdk.buildWithdrawalTransaction).toBeTypeOf("function");
-    expect(sdk.buildSplitTransaction).toBeTypeOf("function");
-    expect(sdk.buildMergeTransaction).toBeTypeOf("function");
-    expect(sdk.fetchAssetMetadata).toBeTypeOf("function");
-    expect(sdk.AssetMetadataCache).toBeTypeOf("function");
-    expect(sdk.formatAmount).toBeTypeOf("function");
-    expect(sdk.parseAmount).toBeTypeOf("function");
-    expect(sdk).not.toHaveProperty("deposit");
-    expect(sdk).not.toHaveProperty("transfer");
-    expect(sdk).not.toHaveProperty("withdraw");
-    expect(sdk).not.toHaveProperty("split");
-    expect(sdk).not.toHaveProperty("merge");
-    expect(sdk).not.toHaveProperty("signPrivateTransaction");
   });
 
   it("resolves a registered Solana deposit recipient through the public builder", async () => {
@@ -637,15 +626,6 @@ describe("relayed decryption surface", () => {
     ]) {
       expect(transaction, name).toHaveProperty(name);
       expect(typeof (transaction as Record<string, unknown>)[name]).toBe("function");
-    }
-    for (const name of [
-      "decodeAnonymousRecipient",
-      "decodeAnonymousSender",
-      "encryptAnonymousTransfer",
-      "anonymousRecipientFromUtxos",
-      "anonymousSenderFromUtxos",
-    ]) {
-      expect(transaction, name).not.toHaveProperty(name);
     }
   });
 

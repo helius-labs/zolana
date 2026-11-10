@@ -208,17 +208,17 @@ describe("TEE policy", () => {
     ).toBe("certificate_validity");
   });
 
-  it("refuses the retired devnet-d deployment with a supplied pin", () => {
-    const retired = decode.record(
+  it("refuses another deployment's attestation under a supplied pin", () => {
+    const foreign = decode.record(
       json("../../../prover/tee/testdata/devnet_d_tee_3_attestation.json"),
-      "retired",
+      "foreign",
     );
-    const nonce = hexToBytes(decode.string(retired["nonce"], "nonce"));
-    const at = Number(decode.integer(retired["captured_at"], "captured_at"));
+    const nonce = hexToBytes(decode.string(foreign["nonce"], "nonce"));
+    const at = Number(decode.integer(foreign["captured_at"], "captured_at"));
     expect(
       check(() =>
         verifyAttestation(
-          retired["attestation"],
+          foreign["attestation"],
           readTeePolicy(
             new URL("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json", import.meta.url),
           ),

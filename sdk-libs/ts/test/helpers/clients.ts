@@ -6,7 +6,6 @@ import type {
   GetEncryptedUtxosByTagsResponse,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
-  PaginationToken,
   RpcContext,
 } from "../../src/client/rpc.js";
 import { DEFAULT_TREE_ID } from "../../src/interface/tree-slot.js";
@@ -26,11 +25,6 @@ export const BLOCKHASH: LatestBlockhash = Object.freeze({
   blockhash: blockhash("11111111111111111111111111111111"),
   lastValidBlockHeight: 1n,
 });
-
-/** A fake indexer pages by slot, the signature only has to be valid base58. */
-export function chainPosition(slot: bigint): PaginationToken {
-  return `1:${slot}:${"1".repeat(64)}`;
-}
 
 export function transactionsPage(
   overrides: Partial<GetShieldedTransactionsByTagsResponse> = {},

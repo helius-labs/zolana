@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SRC = [join(ROOT, "src")];
-const TESTS = ["test", "api/test", "transaction/test", "wallet/test"].map((dir) => join(ROOT, dir));
+const TESTS = [join(ROOT, "test")];
 
 /** The checked Kit signature bridge, plus the gate's own pattern. */
 const ALLOWED_DOUBLE_CAST = new Set(["src/keypair/shielded.ts", "test/casts.test.ts"]);

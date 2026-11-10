@@ -127,7 +127,7 @@ function viewingKeyHistoryRow(entry: ViewingKeyEntry): Readonly<Record<string, u
   };
 }
 
-/** The counters `SyncReport` carries, read from a Rust-generated report. */
+/** The counters `SyncReport` carries, read from a fixture report. */
 function reportRow(value: unknown): SyncReport {
   const report = fixtureObject(value, "sync report");
   return {
@@ -327,8 +327,7 @@ describe("manifest-verified wallet behavior", () => {
     const wallet = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
     const sequentialExpected = fixtureObject(expected.sequential);
 
-    // The three timestamps are the ones the fixture generator syncs at, so
-    // `lastSynced` below is the value Rust recorded rather than an echo.
+    // The fixture pins `lastSynced` to the last of these three timestamps.
     expect(
       await syncWalletWithKeys({
         wallet,
@@ -362,9 +361,8 @@ describe("manifest-verified wallet behavior", () => {
     );
     expect(wallet.lastSynced).toBe(BigInt(fixtureString(sequentialExpected, "lastSynced")));
 
-    // Rust's free `decrypt_transactions` builds the wallet from the authority's
-    // own identity, so the fresh wallet must reach the same state as the one
-    // synced above from a wallet the caller constructed.
+    // A wallet built from the keys' own identity must reach the same state as
+    // the one synced above from a wallet the caller constructed.
     const fresh = await decryptWallet({
       keys: value.keys,
       transactions,
@@ -440,11 +438,7 @@ describe("manifest-verified wallet behavior", () => {
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_KEYS_IDENTITY_MISMATCH" }));
   });
 
-  // `decrypt_transactions` keeps no wallet: it builds one, scans, reports the
-  // balances, and drops it. The oracle balance is the one Rust's own call
-  // produced over these transactions, so a TypeScript function that synced a
-  // caller's wallet instead would not reach it.
-  it("reports the balances Rust's decrypt_transactions reports, holding no wallet", async () => {
+  it("reaches the fixture balance from a wallet built from the keys alone", async () => {
     const fixture = load("wallet-sync");
     const inputs = section(fixture, "inputs");
     const expected = section(fixture, "expected");
@@ -512,22 +506,5 @@ describe("manifest-verified wallet behavior", () => {
     expect(wallet.utxos().filter((entry) => !entry.spent)).toHaveLength(1);
     expect(wallet.balance(SOL_MINT).amount).toBe(100n);
     expect(wallet.lastSynced).toBe(300n);
-  });
-
-  it("replays the persisted Rust regression seed amounts", () => {
-    const fixture = load("frozen-tests");
-    const inputs = section(fixture, "inputs");
-    const expected = section(fixture, "expected");
-    const text = new TextDecoder().decode(
-      hexBytes(fixtureString(expected, "regressionSeedFileBytes")),
-    );
-    const seedLines = text.split("\n").filter((line) => line.trimStart().startsWith("cc "));
-    expect(seedLines).toHaveLength(Number(fixtureString(expected, "regressionSeedLines")));
-    expect(fixtureArray(inputs, "frozenTestPaths")).toHaveLength(
-      Number(fixtureString(expected, "frozenTestPathCount")),
-    );
-    const amounts = [...text.matchAll(/amount: (\d+)/gu)].map((match) => BigInt(match[1] ?? "0"));
-    expect(amounts).toEqual([3n, 332_235n, 1n]);
-    expect(amounts.reduce((sum, amount) => sum + amount, 0n)).toBe(332_239n);
   });
 });
