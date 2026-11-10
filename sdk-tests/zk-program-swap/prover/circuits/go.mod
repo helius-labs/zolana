@@ -5,8 +5,8 @@ go 1.27.3
 require (
 	github.com/consensys/gnark v0.16.4
 	github.com/helius-labs/zolana/prover/server v0.0.0
+	github.com/helius-labs/zolana/sdk-libs/gnark-sdk v0.0.0
 	zolana/gnarkffiprover v0.0.0
-	zolana/gnarksdk v0.0.0
 )
 
 require (
@@ -27,7 +27,7 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 )
 
-replace zolana/gnarksdk => ../../../../sdk-libs/gnark-sdk
+replace github.com/helius-labs/zolana/sdk-libs/gnark-sdk => ../../../../sdk-libs/gnark-sdk
 
 replace github.com/helius-labs/zolana/prover/server => ../../../../prover/server
 

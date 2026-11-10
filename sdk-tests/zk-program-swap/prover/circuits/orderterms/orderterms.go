@@ -3,7 +3,7 @@ package orderterms
 import (
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/gnarksdk"
+	gnarksdk "github.com/helius-labs/zolana/sdk-libs/gnark-sdk"
 )
 
 const TakeModeDerived uint64 = 0

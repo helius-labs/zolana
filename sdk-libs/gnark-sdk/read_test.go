@@ -8,7 +8,7 @@ import (
 
 	spp "github.com/helius-labs/zolana/prover/server/circuits/spp_transaction/shared"
 	"github.com/helius-labs/zolana/prover/server/prover-test/spp/protocol"
-	"zolana/gnarksdk"
+	gnarksdk "github.com/helius-labs/zolana/sdk-libs/gnark-sdk"
 )
 
 type readCircuit struct {

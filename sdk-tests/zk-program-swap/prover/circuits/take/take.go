@@ -5,7 +5,7 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/gnarksdk"
+	gnarksdk "github.com/helius-labs/zolana/sdk-libs/gnark-sdk"
 )
 
 const blindingSeedDomain = 0x53575458 // SWTX; matches the SDK's take_blinding_seed.
