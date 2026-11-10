@@ -11,6 +11,8 @@ export async function prepareMerge(
     invalidAnswers(): Error;
     outputTreeId?: number;
     ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
+    /** The unix time after which the program refuses the merge; none without it. */
+    expiryUnixTs?: bigint;
   }>,
   context?: RequestContext,
 ): Promise<PreparedMerge> {
@@ -43,7 +45,7 @@ export async function prepareMerge(
     ) {
       throw input.invalidAnswers();
     }
-    return new Merge({
+    const merge = new Merge({
       address: input.keys.address(),
       inputs: input.inputs,
       outputBlinding,
@@ -52,7 +54,10 @@ export async function prepareMerge(
       dummyNullifiers,
       ...(input.outputTreeId === undefined ? {} : { outputTreeId: input.outputTreeId }),
       ...(input.ring === undefined ? {} : { ring: input.ring }),
-    }).prepare();
+    });
+    return (
+      input.expiryUnixTs === undefined ? merge : merge.withExpiry(input.expiryUnixTs)
+    ).prepare();
   } finally {
     wipeByteAnswers(answers);
   }

@@ -1130,6 +1130,9 @@ export class ConfidentialTransfer {
     const publicSol = this.#withdrawal?.asset === ZERO_ADDRESS ? -this.#withdrawal.amount : 0n;
     const publicSpl =
       this.#withdrawal && this.#withdrawal.asset !== ZERO_ADDRESS ? -this.#withdrawal.amount : 0n;
+    // A shortfall reports the totals, as Rust does: `available` is what comes
+    // in (inputs plus a net deposit), `requested` what goes out (outputs plus
+    // a net withdrawal).
     const change = (asset: Address, publicAmount: bigint): bigint => {
       const inputs = this.#inputs
         .filter((input) => input.utxo.asset === asset)
@@ -1137,15 +1140,16 @@ export class ConfidentialTransfer {
       const sent = this.#recipients
         .filter((recipient) => recipient.asset === asset)
         .reduce((sum, recipient) => sum + recipient.amount, 0n);
-      const result = inputs + publicAmount - sent;
-      if (result < 0n) {
+      const available = inputs + (publicAmount > 0n ? publicAmount : 0n);
+      const requested = sent - (publicAmount < 0n ? publicAmount : 0n);
+      if (requested > available) {
         throw new TransactionError("TRANSACTION_INSUFFICIENT_BALANCE", {
           asset,
-          requested: (-result).toString(),
-          available: inputs.toString(),
+          requested: requested.toString(),
+          available: available.toString(),
         });
       }
-      return result;
+      return available - requested;
     };
     const splChange = splAsset ? change(splAsset, publicSpl) : 0n;
     const solChange = change(ZERO_ADDRESS, publicSol);

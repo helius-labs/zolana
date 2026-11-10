@@ -56,6 +56,9 @@ const addressEncoder = getAddressEncoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
 
+/** Rounds of spends a sync follows past the UTXOs it starts with. */
+const MAX_NULLIFIER_FOLLOW_UPS = 16;
+
 /** Kit access is required only when the wallet holds a mint the registry cannot resolve. */
 export interface SyncClient extends Pick<
   IndexerReader,
@@ -640,15 +643,21 @@ async function runWalletSync(
     }
 
     // A transaction found by a stable tag can create a UTXO that another
-    // device already spent. Query each newly discovered nullifier once, then
-    // stop: this is an explicit bounded backstop rather than a generic round
-    // loop that re-queries the same stable tags.
-    const followUpNullifiers = walletQueryNullifiers(session.staging).filter(
-      (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
-    );
-    const beforeFollowUp = transactions.size;
-    await scanNullifiers(followUpNullifiers);
-    if (transactions.size !== beforeFollowUp) {
+    // device already spent, and the spend can create the next one, as chained
+    // ring merges do. Each round queries only nullifiers no earlier round
+    // asked about, and the follow-up stops once a round finds nothing, as Rust
+    // does. The bound only stops a chain an indexer keeps extending: a UTXO
+    // it leaves unqueried has no nullifier checkpoint, so the next sync
+    // queries it from the start.
+    for (let round = 0; round < MAX_NULLIFIER_FOLLOW_UPS; round++) {
+      const followUpNullifiers = walletQueryNullifiers(session.staging).filter(
+        (nullifier) => !queriedNullifiers.has(bytesKey(nullifier)),
+      );
+      if (followUpNullifiers.length === 0) break;
+      for (const nullifier of followUpNullifiers) queriedNullifiers.add(bytesKey(nullifier));
+      const beforeFollowUp = transactions.size;
+      await scanNullifiers(followUpNullifiers);
+      if (transactions.size === beforeFollowUp) break;
       ordered = orderedTransactions();
       report = await decryptTransactions({
         wallet: session.staging,
@@ -663,6 +672,7 @@ async function runWalletSync(
           report.unknownAssetFields.length > 0 ||
           walletHasUnknownMint(session.staging))
       ) {
+        registryRefreshed = true;
         if ((await backfillSessionRegistry(session, input.client, context)) > 0) {
           report = await decryptTransactions({
             wallet: session.staging,

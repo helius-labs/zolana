@@ -221,6 +221,38 @@ describe("private transaction construction", () => {
     ).rejects.toMatchObject({ code: "WALLET_INVALID_AMOUNT" });
   });
 
+  it("refuses a zero-value transfer before reserving a UTXO or asking for approval", async () => {
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [100n]);
+    const before = serializeWallet(wallet);
+    const { client, assemble } = capturePrivateBuild();
+    const { approve, requests } = recordingApproval();
+    const keys = localKeys(keypair);
+    const derive = vi.spyOn(keys, "derive");
+    const transactionKeys = vi.spyOn(keys, "transactionKeys");
+
+    await expect(
+      buildTransferTransaction({
+        client,
+        wallet,
+        keys,
+        feePayer: keypair.shieldedAddress().solanaAddress(),
+        recipient: ShieldedKeypair.generate().shieldedAddress(),
+        amount: 0n,
+        approve,
+      }),
+    ).rejects.toMatchObject({
+      code: "WALLET_BUILD_TRANSFER",
+      causeCodes: ["WALLET_INVALID_AMOUNT"],
+    });
+    expect(requests).toHaveLength(0);
+    expect(derive).not.toHaveBeenCalled();
+    expect(transactionKeys).not.toHaveBeenCalled();
+    expect(assemble).not.toHaveBeenCalled();
+    expect(wallet._reservationEntries()).toHaveLength(0);
+    expect(serializeWallet(wallet)).toBe(before);
+  });
+
   it("covers a withdrawal with the largest UTXOs first", async () => {
     const keypair = ShieldedKeypair.generate();
     const created = await createWithdrawal({
@@ -531,6 +563,77 @@ describe("prover indexer lag", () => {
       expect(wallet._reservationEntries()).toHaveLength(0);
     },
   );
+});
+
+describe("merge expiry", () => {
+  /** Builds a merge and returns the expiry its proof was asked for. */
+  async function mergeExpiry(expiryUnixTs?: bigint): Promise<bigint | undefined> {
+    const keypair = spendingKeypair();
+    const shielded = keypair.shieldedAddress();
+    const owner = shielded.solanaAddress();
+    const pda = await internalUserRecordPda(owner);
+    const record = Uint8Array.of(
+      1,
+      ...getAddressEncoder().encode(owner),
+      pda.bump,
+      ...shielded.nullifierPublicKey,
+      ...shielded.viewingPublicKey.toBytes(),
+      1,
+    );
+    let expiry: bigint | undefined;
+    const keys = localKeys(keypair);
+    try {
+      await buildMergeTransaction({
+        client: {
+          proofDataSource: "client",
+          tree: TREE,
+          treeId: 0,
+          getAccount: vi.fn(async (key: Address) =>
+            key === pda.address
+              ? { owner: USER_REGISTRY_PROGRAM_ID, data: record, lamports: 1n }
+              : undefined,
+          ),
+          proveMerge: async ({ prepared }) => {
+            expiry = prepared.expiryUnixTs;
+            const complete = prepareMerge(prepared, TREE).finish({
+              slot: { id: 0, utxoRoot: filled(1), nullifierRoot: filled(2) },
+              utxoRootIndex: 0,
+              nullifierRootIndex: 0,
+            });
+            return {
+              data: complete.instructionData({
+                a: filled(0),
+                b: new Uint8Array(128) as Bytes128,
+                c: filled(0),
+              }),
+              outputHash: complete.outputHash,
+            };
+          },
+          assembleAuthorizedMergeTransaction: vi.fn(async () => TRANSACTION),
+        },
+        wallet: fundedWallet(keypair, [20n, 30n]),
+        keys,
+        feePayer: owner,
+        ...(expiryUnixTs === undefined ? {} : { expiryUnixTs }),
+      });
+    } finally {
+      keys.destroy();
+    }
+    return expiry;
+  }
+
+  it("expires a merge ten minutes after the build unless the caller names a time", async () => {
+    // Anyone who holds a merge proof can send it, so one that was dropped
+    // must not stay valid forever.
+    const now = 1_800_000_000_000;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      expect(await mergeExpiry()).toBe(BigInt(now / 1_000) + 600n);
+      expect(await mergeExpiry(1_900_000_000n)).toBe(1_900_000_000n);
+    } finally {
+      clock.mockRestore();
+    }
+  });
 });
 
 describe("keys at the wallet boundary", () => {
