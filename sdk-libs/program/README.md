@@ -1,5 +1,11 @@
 # spr-program
 
+> **Not for production.** This crate is not audited. Keys from
+> `zolana zk compile --test`, or from any other single-party setup, are insecure:
+> whoever knows the setup's randomness, such as the fixed public seed `--test`
+> uses, can forge proofs. A program that holds real funds needs keys from a
+> trusted setup ceremony, its own verifying keys and an audit.
+
 The SDK for Solana programs built on the shielded pool (SPP). It has three parts:
 
 - **Instructions.** The crate re-exports [`spr-instruction`](../instruction): the SPP

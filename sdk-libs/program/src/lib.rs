@@ -1,3 +1,13 @@
+//! The SDK for Solana programs built on the shielded pool (SPP): its
+//! instruction builders, compressed accounts, and ZK programs with their
+//! circuits, proofs and transaction client.
+//!
+//! **Not for production.** This crate is not audited. Keys from
+//! `zolana zk compile --test`, or from any other single-party setup, are
+//! insecure: whoever knows the setup's randomness, such as the fixed public
+//! seed `--test` uses, can forge proofs. A program that holds real funds needs
+//! keys from a trusted setup ceremony, its own verifying keys and an audit.
+
 #![cfg_attr(not(any(feature = "circuit", feature = "shielded-pda")), no_std)]
 
 extern crate alloc;

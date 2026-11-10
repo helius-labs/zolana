@@ -1,5 +1,11 @@
 //! Zolana protocol operations over Xark and native Rust values.
 //!
+//! **Not for production.** This crate is not audited. A circuit built on it is
+//! only as sound as its keys: keys from `zolana zk compile --test`, or from any
+//! other single-party setup, let whoever knows the setup's randomness, such as
+//! the fixed public seed `--test` uses, forge proofs. A circuit that guards
+//! real funds needs keys from a trusted setup ceremony and an audit.
+//!
 //! This crate uses `core` and `alloc`. Native execution links `std` for the
 //! thread-local requirement scope in `check`, and Xark's native execution and
 //! proving dependencies require `std` at the pinned revision.
