@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     sync::{mpsc, Arc, Mutex},
@@ -10,6 +11,7 @@ use serde_json::{json, Value};
 use solana_account::Account;
 use solana_address::Address;
 use solana_hash::Hash;
+use solana_instruction::error::InstructionError;
 use solana_keypair::Keypair;
 use solana_keypair::Signer;
 use solana_message::VersionedMessage;
@@ -17,6 +19,8 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
+use solana_transaction_error::TransactionError;
+use solana_transaction_status_client_types::{TransactionConfirmationStatus, TransactionStatus};
 use spr_client::{
     client::{AsyncSprClient, SignedPrivateTransaction, SprClient, Submission},
     indexer::{AsyncSprIndexer, SprIndexer},
@@ -677,7 +681,17 @@ fn confirm_private_transaction_sync_times_out_when_indexer_lags() {
         .expect_err("empty indexer response should time out");
     let _ = server.requests();
 
-    assert!(matches!(error, ClientError::IndexerTimeout));
+    // The transaction landed, so the error names it for the caller to wait
+    // on instead of sending it again.
+    let ClientError::TransactionNotIndexed {
+        signature: confirmed,
+        source,
+    } = error
+    else {
+        panic!("expected TransactionNotIndexed, got {error:?}");
+    };
+    assert_eq!(confirmed, signature);
+    assert!(matches!(*source, ClientError::IndexerTimeout));
 }
 
 #[test]
@@ -766,6 +780,111 @@ fn confirm_private_transaction_sync_surfaces_the_last_transient_error() {
             "/getShieldedTransactionsBySignature",
         ]
     );
+    let ClientError::TransactionNotIndexed {
+        signature: confirmed,
+        source,
+    } = error
+    else {
+        panic!("expected TransactionNotIndexed, got {error:?}");
+    };
+    assert_eq!(confirmed, signature);
+    let ClientError::PollTimedOut {
+        attempts,
+        last_error,
+    } = *source
+    else {
+        panic!("expected PollTimedOut, got {source:?}");
+    };
+    assert_eq!(attempts, 2);
+    assert!(last_error
+        .expect("the last transient error is kept")
+        .contains("Internal error"));
+}
+
+/// A transaction that failed on chain returns the chain's error on the first
+/// status read, not a confirmation timeout after the whole schedule, and the
+/// indexer is never asked for it.
+#[test]
+fn confirm_private_transaction_sync_returns_the_chain_error_of_a_failed_transaction() {
+    let signature = Signature::from([25u8; 64]);
+    let failure = TransactionError::InstructionError(0, InstructionError::Custom(7_008));
+    let rpc = MockSubmitRpc::new(signature).with_statuses([Ok(Some(signature_status(
+        TransactionConfirmationStatus::Confirmed,
+        Some(failure.clone()),
+    )))]);
+    let status_reads = rpc.status_reads.clone();
+    let server = MockIndexerServer::respond_with(Vec::new());
+    let client = SprClient::new(
+        rpc,
+        SprIndexer::new(server.url()),
+        ProverClient::new("http://unused.invalid".to_string()),
+    )
+    .with_indexer_poll_config(IndexerPollConfig::new(3, 0, 0));
+
+    let error = client
+        .confirm_private_transaction_sync(signature)
+        .expect_err("a failed transaction is an error");
+
+    let ClientError::SolanaRpcTransaction { source, .. } = &error else {
+        panic!("expected the chain's error, got {error:?}");
+    };
+    assert_eq!(source.get_transaction_error(), Some(failure));
+    assert_eq!(*status_reads.lock().unwrap(), 1);
+    assert!(server.requests().is_empty());
+}
+
+/// A failed status read is retried like an indexer blip, and a status that
+/// is only processed is waited past.
+#[test]
+fn confirm_private_transaction_sync_retries_a_failed_status_read() {
+    let signature = Signature::from([26u8; 64]);
+    let rpc = MockSubmitRpc::new(signature).with_statuses([
+        Err("rpc unavailable"),
+        Ok(Some(signature_status(
+            TransactionConfirmationStatus::Processed,
+            None,
+        ))),
+        Ok(Some(signature_status(
+            TransactionConfirmationStatus::Confirmed,
+            None,
+        ))),
+    ]);
+    let status_reads = rpc.status_reads.clone();
+    let server =
+        MockIndexerServer::respond_with(vec![indexed_transaction_by_signature_response(signature)]);
+    let client = SprClient::new(
+        rpc,
+        SprIndexer::new(server.url()),
+        ProverClient::new("http://unused.invalid".to_string()),
+    )
+    .with_indexer_poll_config(IndexerPollConfig::new(2, 0, 0));
+
+    client
+        .confirm_private_transaction_sync(signature)
+        .expect("confirmed after a failed read");
+
+    assert_eq!(*status_reads.lock().unwrap(), 3);
+    assert_eq!(server.requests(), ["/getShieldedTransactionsBySignature"]);
+}
+
+/// The final status read decides the timeout, as for the indexer: one that
+/// failed reports its error, one that found nothing reports the transaction
+/// unconfirmed.
+#[test]
+fn confirm_private_transaction_sync_times_out_by_the_last_status_read() {
+    let signature = Signature::from([27u8; 64]);
+    let confirm = |statuses: [StatusRead; 2]| {
+        SprClient::new(
+            MockSubmitRpc::new(signature).with_statuses(statuses),
+            SprIndexer::new("http://unused.invalid"),
+            ProverClient::new("http://unused.invalid".to_string()),
+        )
+        .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0))
+        .confirm_private_transaction_sync(signature)
+        .expect_err("never confirmed")
+    };
+
+    let error = confirm([Ok(None), Err("rpc unavailable")]);
     let ClientError::PollTimedOut {
         attempts,
         last_error,
@@ -775,8 +894,14 @@ fn confirm_private_transaction_sync_surfaces_the_last_transient_error() {
     };
     assert_eq!(attempts, 2);
     assert!(last_error
-        .expect("the last transient error is kept")
-        .contains("Internal error"));
+        .expect("the last failed read is kept")
+        .contains("rpc unavailable"));
+
+    let error = confirm([Err("rpc unavailable"), Ok(None)]);
+    assert!(
+        matches!(&error, ClientError::Rpc(message) if message.contains("not confirmed")),
+        "expected not confirmed, got {error:?}"
+    );
 }
 
 /// One signature can carry several Rings events, and nothing stops two of
@@ -923,10 +1048,17 @@ fn funded_utxo(keypair: &ShieldedKeypair, amount: u64) -> WalletUtxo {
     }
 }
 
+/// One answer to a signature status read: the status, or a failed read.
+type StatusRead = Result<Option<TransactionStatus>, &'static str>;
+
 struct MockSubmitRpc {
     signature: Signature,
     view_tags: Vec<[u8; 32]>,
     sent: Arc<Mutex<Vec<VersionedTransaction>>>,
+    /// Answered in order; once empty, every read finds the transaction
+    /// confirmed.
+    statuses: Arc<Mutex<VecDeque<StatusRead>>>,
+    status_reads: Arc<Mutex<usize>>,
 }
 
 impl MockSubmitRpc {
@@ -935,12 +1067,54 @@ impl MockSubmitRpc {
             signature,
             view_tags: Vec::new(),
             sent: Arc::new(Mutex::new(Vec::new())),
+            statuses: Arc::new(Mutex::new(VecDeque::new())),
+            status_reads: Arc::new(Mutex::new(0)),
         }
     }
 
     fn with_view_tags(mut self, view_tags: Vec<[u8; 32]>) -> Self {
         self.view_tags = view_tags;
         self
+    }
+
+    fn with_statuses(self, statuses: impl IntoIterator<Item = StatusRead>) -> Self {
+        self.statuses.lock().unwrap().extend(statuses);
+        self
+    }
+
+    fn status(&self) -> Result<Option<TransactionStatus>, ClientError> {
+        *self.status_reads.lock().unwrap() += 1;
+        self.statuses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .unwrap_or(Ok(Some(signature_status(
+                TransactionConfirmationStatus::Confirmed,
+                None,
+            ))))
+            .map_err(|error| ClientError::Rpc(error.to_owned()))
+    }
+
+    /// `RpcClient::confirm_transaction`: whether a status at confirmed
+    /// commitment is a success, so a failed transaction reads as `false`.
+    fn confirmed(&self) -> Result<bool, ClientError> {
+        Ok(self.status()?.is_some_and(|status| {
+            status.confirmation_status() != TransactionConfirmationStatus::Processed
+                && status.err.is_none()
+        }))
+    }
+}
+
+fn signature_status(
+    confirmation_status: TransactionConfirmationStatus,
+    err: Option<TransactionError>,
+) -> TransactionStatus {
+    TransactionStatus {
+        slot: 11,
+        confirmations: Some(1),
+        status: err.clone().map_or(Ok(()), Err),
+        err,
+        confirmation_status: Some(confirmation_status),
     }
 }
 
@@ -970,8 +1144,16 @@ impl Rpc for MockSubmitRpc {
         Ok(self.signature)
     }
 
+    fn get_signature_statuses(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        assert_eq!(signatures, [self.signature]);
+        Ok(vec![self.status()?])
+    }
+
     fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
-        Ok(true)
+        self.confirmed()
     }
 
     fn transact_output_view_tags_from_signature(
@@ -984,8 +1166,16 @@ impl Rpc for MockSubmitRpc {
 
 #[async_trait]
 impl AsyncRpc for MockSubmitRpc {
+    async fn get_signature_statuses(
+        &self,
+        signatures: Vec<Signature>,
+    ) -> Result<Vec<Option<TransactionStatus>>, ClientError> {
+        assert_eq!(signatures, [self.signature]);
+        Ok(vec![self.status()?])
+    }
+
     async fn confirm_transaction(&self, _signature: Signature) -> Result<bool, ClientError> {
-        Ok(true)
+        self.confirmed()
     }
 
     async fn transact_output_view_tags_from_signature(

@@ -191,7 +191,9 @@ impl<'a> MergeSubmission<'a> {
     }
 
     /// Prove, sign with `fee_payer`, send through `client` and wait until the
-    /// merge is confirmed and indexed.
+    /// merge is confirmed and indexed. As with
+    /// [`Submission::send`](crate::Submission::send),
+    /// [`ClientError::TransactionNotIndexed`] means the merge landed.
     pub async fn send<R: AsyncRpc, I: AsyncIndexer>(
         &self,
         client: &AsyncSprClient<R, I>,
