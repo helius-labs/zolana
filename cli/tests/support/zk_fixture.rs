@@ -25,13 +25,7 @@ fn xark_dependency() -> &'static str {
     DEPENDENCY.get_or_init(|| {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml");
         let output = Command::new("cargo")
-            .args([
-                "metadata",
-                "--no-deps",
-                "--format-version",
-                "1",
-                "--manifest-path",
-            ])
+            .args(["metadata", "--format-version", "1", "--manifest-path"])
             .arg(manifest)
             .output()
             .expect("inspect workspace Xark dependency");
@@ -41,16 +35,17 @@ fn xark_dependency() -> &'static str {
             String::from_utf8_lossy(&output.stderr)
         );
         let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        let source = metadata["packages"]
+        let xark = metadata["packages"]
             .as_array()
             .unwrap()
             .iter()
-            .filter_map(|package| package["dependencies"].as_array())
-            .flatten()
-            .find(|dependency| dependency["name"] == "xark")
-            .and_then(|dependency| dependency["source"].as_str())
-            .expect("workspace declares a Git Xark dependency");
-        xark_source::pinned_git_dependency(source).unwrap()
+            .find(|package| package["name"] == "xark")
+            .expect("workspace resolves a Xark dependency");
+        xark_source::pinned_dependency(
+            xark["source"].as_str().unwrap(),
+            xark["version"].as_str().unwrap(),
+        )
+        .unwrap()
     })
 }
 

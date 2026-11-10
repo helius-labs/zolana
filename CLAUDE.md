@@ -34,8 +34,11 @@ prover
 - go prover server
 - rust prover client
 
-Circuits are written in Xark (`xark`, `xark-groth16`, `xark-wasm`,
-`xark-cli`); the root Cargo manifest pins them to one Git revision. The
+Circuits are written in Xark. `xark`, `xark-groth16` and `xark-wasm` are
+the crates.io release (0.3.0), so the published SDK crates depend only on
+released crates. `xark-cli` alone comes from the Xark fork at one Git
+revision: the Zolana CLI embeds its build, setup and TypeScript client
+generation, which only the fork exposes as a library. The
 protocol circuit types and operations live in `sdk-libs/circuit`
 (`spr-circuit`). ZK programs use the `spr-program` re-exports; standalone
 circuits use `xark` and `spr-circuit` directly. `just check-deps` keeps Xark

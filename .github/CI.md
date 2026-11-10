@@ -6,8 +6,9 @@ Changes under `programs/` run every validation workflow.
 
 Most validation jobs skip draft PRs. TypeScript and deployment-script checks also run on drafts.
 
-Cargo resolves the Xark fork from the commit pinned in the workspace dependencies.
-The Zolana CLI embeds Xark's build, setup and client-generation APIs. Shared Rust
+Cargo resolves Xark from crates.io (0.3.0), except `xark-cli`, which comes from
+the Xark fork commit pinned in the workspace dependencies: the Zolana CLI embeds
+its build, setup and client-generation APIs, which only the fork exposes. Shared Rust
 setup uses Cargo caching; no source checkout preparation or patch application is
 required.
 

@@ -1,19 +1,24 @@
 use super::*;
 
 #[test]
-fn xark_must_be_a_git_dependency_pinned_to_a_revision() {
+fn xark_is_pinned_to_its_crates_io_version_or_git_revision() {
+    assert_eq!(
+        xark_source::pinned_dependency(xark_source::CRATES_IO, "0.3.0").as_deref(),
+        Ok("version = \"=0.3.0\"")
+    );
     let pinned = "git = \"https://github.com/ananas-block/xark\", rev = \"ad7baad\"";
     for source in [
         "git+https://github.com/ananas-block/xark?rev=ad7baad",
         "git+https://github.com/ananas-block/xark?rev=ad7baad#ad7baad990cb",
     ] {
         assert_eq!(
-            xark_source::pinned_git_dependency(source).as_deref(),
+            xark_source::pinned_dependency(source, "0.3.0").as_deref(),
             Ok(pinned)
         );
     }
     for source in [
-        "registry+https://github.com/rust-lang/crates.io-index",
+        "registry+https://example.com/index",
+        "path+file:///xark/crates/lang",
         "git+https://github.com/ananas-block/xark",
         "git+https://github.com/ananas-block/xark?branch=main",
         "git+https://github.com/ananas-block/xark?rev=",
@@ -21,7 +26,7 @@ fn xark_must_be_a_git_dependency_pinned_to_a_revision() {
         "git+?rev=ad7baad",
     ] {
         assert!(
-            xark_source::pinned_git_dependency(source).is_err(),
+            xark_source::pinned_dependency(source, "0.3.0").is_err(),
             "{source}"
         );
     }

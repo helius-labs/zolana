@@ -66,7 +66,7 @@ export class ProgramProver implements Disposable {
   prove(transaction: Pick<ProgramTransaction, "proofInputs" | "publicHash">): ProgramProof {
     if (this.#disposed)
       throw new TransactionError("TRANSACTION_PROGRAM_BUILD", { field: "prover.disposed" });
-    const bundle = this.#session.prove(transaction.proofInputs);
+    const bundle = this.#session.prove(transaction.proofInputs, {});
     try {
       if (!this.#verifier.verify(bundle.proof, bundle.publicInputs))
         throw new ProofVerificationError(this.name, this.verifyingKey);

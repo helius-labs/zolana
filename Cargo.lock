@@ -9900,7 +9900,7 @@ dependencies = [
  "spr-transaction",
  "spr-user-registry-interface",
  "xark-cli",
- "xark-groth16",
+ "xark-groth16 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -10186,7 +10186,7 @@ dependencies = [
  "wasm-bindgen",
  "wincode",
  "xark",
- "xark-groth16",
+ "xark-groth16 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "xark-wasm",
  "zeroize",
 ]
@@ -12290,22 +12290,23 @@ dependencies = [
 [[package]]
 name = "xark"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c76f7a2839e5b867e74d20c468dfab465d7b505c84a5402e6278964402be66a"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
  "num-bigint 0.4.8",
  "serde_json",
- "xark-ir",
+ "xark-ir 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "xark-macros",
- "xark-prover",
- "xark-schema",
+ "xark-prover 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "xark-schema 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "xark-backend"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8#13c3f0c28eb202bc34f075ee5414a01c3cac51b8"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -12321,13 +12322,13 @@ dependencies = [
  "serde",
  "sha2 0.11.0",
  "thiserror 2.0.20",
- "xark-groth16",
+ "xark-groth16 0.3.0 (git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8)",
 ]
 
 [[package]]
 name = "xark-cli"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8#13c3f0c28eb202bc34f075ee5414a01c3cac51b8"
 dependencies = [
  "anyhow",
  "ark-bn254 0.6.0",
@@ -12344,16 +12345,16 @@ dependencies = [
  "tracing-subscriber",
  "xark-backend",
  "xark-frontend",
- "xark-groth16",
- "xark-ir",
- "xark-prover",
- "xark-schema",
+ "xark-groth16 0.3.0 (git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8)",
+ "xark-ir 0.3.0 (git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8)",
+ "xark-prover 0.3.0 (git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8)",
+ "xark-schema 0.3.0 (git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8)",
 ]
 
 [[package]]
 name = "xark-frontend"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8#13c3f0c28eb202bc34f075ee5414a01c3cac51b8"
 dependencies = [
  "addr2line",
  "num-bigint 0.4.8",
@@ -12361,13 +12362,14 @@ dependencies = [
  "rustc-demangle",
  "serde_json",
  "wasmparser",
- "xark-ir",
+ "xark-ir 0.3.0 (git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8)",
 ]
 
 [[package]]
 name = "xark-groth16"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c017d24faf6613ce7c6d173aaca60892ca0b07a303375c846ee79cc8b571b619"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -12378,13 +12380,46 @@ dependencies = [
  "rand 0.8.8",
  "rand_chacha 0.3.1",
  "rayon",
- "xark-ir",
+ "xark-ir 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "xark-groth16"
+version = "0.3.0"
+source = "git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8#13c3f0c28eb202bc34f075ee5414a01c3cac51b8"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ec 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-poly 0.6.0",
+ "ark-serialize 0.6.0",
+ "num-bigint 0.4.8",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
+ "rayon",
+ "xark-ir 0.3.0 (git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8)",
 ]
 
 [[package]]
 name = "xark-ir"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3e669a289b9404b638879df7c6e15a816d733090632c0c6b54fbca325c2e34f"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "crypto-bigint 0.7.5",
+ "num-bigint 0.4.8",
+ "num-traits",
+ "rayon",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "xark-ir"
+version = "0.3.0"
+source = "git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8#13c3f0c28eb202bc34f075ee5414a01c3cac51b8"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -12399,7 +12434,8 @@ dependencies = [
 [[package]]
 name = "xark-macros"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3bdd065c53f8823f9ca659e758e6c5ea4c323e709ddb360163d0e0f674eb4e2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -12409,7 +12445,8 @@ dependencies = [
 [[package]]
 name = "xark-poseidon2"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9911e45b97faffedc0cd5e13360c06d8e57378609f4e679ee7fb0896c4496ee"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -12419,7 +12456,8 @@ dependencies = [
 [[package]]
 name = "xark-prover"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e75496118452f5533ff2bc84b6d753ba913a2707dfc83b0ed744d24f406af52"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -12428,14 +12466,42 @@ dependencies = [
  "rand 0.8.8",
  "serde_json",
  "sha2 0.11.0",
- "xark-groth16",
- "xark-ir",
+ "xark-groth16 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "xark-ir 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "xark-prover"
+version = "0.3.0"
+source = "git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8#13c3f0c28eb202bc34f075ee5414a01c3cac51b8"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "ark-serialize 0.6.0",
+ "num-bigint 0.4.8",
+ "rand 0.8.8",
+ "serde_json",
+ "sha2 0.11.0",
+ "xark-groth16 0.3.0 (git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8)",
+ "xark-ir 0.3.0 (git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8)",
 ]
 
 [[package]]
 name = "xark-schema"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a30b7f8bf2b7296aab0e5d4c704bef3e9f2f8b1106d092a7a47afc3e27b46f5"
+dependencies = [
+ "ark-bn254 0.6.0",
+ "ark-ff 0.6.0",
+ "num-bigint 0.4.8",
+ "serde_json",
+]
+
+[[package]]
+name = "xark-schema"
+version = "0.3.0"
+source = "git+https://github.com/ananas-block/xark?rev=13c3f0c28eb202bc34f075ee5414a01c3cac51b8#13c3f0c28eb202bc34f075ee5414a01c3cac51b8"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -12446,7 +12512,8 @@ dependencies = [
 [[package]]
 name = "xark-wasm"
 version = "0.3.0"
-source = "git+https://github.com/ananas-block/xark?rev=cccbf88c527259620c441c1118014c749ecd582b#cccbf88c527259620c441c1118014c749ecd582b"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b50595bb5ab6a5a7fc1587d7cca3ab4509305e8894f37f40023401976bbdf05"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ff 0.6.0",
@@ -12459,11 +12526,11 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "wasm-bindgen",
- "xark-groth16",
- "xark-ir",
+ "xark-groth16 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "xark-ir 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "xark-poseidon2",
- "xark-prover",
- "xark-schema",
+ "xark-prover 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "xark-schema 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

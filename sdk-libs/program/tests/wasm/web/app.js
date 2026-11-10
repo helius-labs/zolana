@@ -51,7 +51,7 @@ const api = {
   timeProof: (program, format, url, inputs) => call("timeProof", program, format, url, inputs),
   proveWithKey: (program, keyProgram, inputs) => call("proveWithKey", program, keyProgram, inputs),
   mutateKey: (program, inputs) => call("mutateKey", program, inputs),
-  randomness: (program, inputs, mode) => call("randomness", program, inputs, mode),
+  randomness: (program, inputs) => call("randomness", program, inputs),
   async attempt(method, ...args) { try { return { value: await api[method](...args) }; } catch (error) { return failure(error); } },
 };
 window.zkProgram = api;

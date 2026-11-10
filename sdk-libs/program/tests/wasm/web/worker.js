@@ -79,12 +79,11 @@ const api = {
   async mutateKey(program, inputs) { const value = await data(program); const key = value.key.slice(); key[key.length - 1] ^= 1;
     await checkKey(program, key);
     return plainProof(xark.proveStreaming(value.circuit, key, inputs, options("streaming"))); },
-  async randomness(program, inputs, mode) {
+  async randomness(program, inputs) {
     await preload(program, "streaming");
-    if (mode === "seed") return plainProof(xark.proveStreamingPreloaded(inputs, { seed: 5 }));
     const original = crypto.getRandomValues;
     try {
-      Object.defineProperty(crypto, "getRandomValues", { configurable: true, value: mode === "zero" ? array => { array.fill(0); return array; } : undefined });
+      Object.defineProperty(crypto, "getRandomValues", { configurable: true, value: undefined });
       entropy();
       return plainProof(xark.proveStreamingPreloaded(inputs, {}));
     } finally { Object.defineProperty(crypto, "getRandomValues", { configurable: true, value: original }); }

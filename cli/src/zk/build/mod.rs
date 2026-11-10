@@ -70,7 +70,9 @@ struct Package {
     manifest: PathBuf,
     root: PathBuf,
     target: PathBuf,
-    xark_source: PathBuf,
+    /// The resolved xark-wasm package's directory, whose `js/` holds the
+    /// worker pool and client modules a package with a prover ships.
+    xark_wasm: Option<PathBuf>,
     xark_dependency: String,
     /// The `cargo metadata` output, which resolves every manifest and the
     /// lockfile.
@@ -92,6 +94,14 @@ impl Package {
 
     fn verifier_dir(&self) -> Result<PathBuf> {
         Ok(self.crate_dir()?.join("src/verifier"))
+    }
+
+    /// The directory of the xark-wasm modules a package with a prover ships.
+    fn xark_js_dir(&self) -> Result<PathBuf> {
+        let runtime = self.xark_wasm.as_ref().ok_or_else(|| {
+            error("a WASM package with a prover needs xark-wasm (spr-program's `wasm-prover` feature); pass --no-prover to build without one")
+        })?;
+        Ok(runtime.join("js"))
     }
 }
 
@@ -156,23 +166,26 @@ fn package(selection: &PackageSelection) -> Result<Package> {
             "all workspace packages must use the same Xark dependency",
         ));
     }
-    let language_manifest = Path::new(
-        language["manifest_path"]
-            .as_str()
-            .ok_or_else(|| error("Xark has no manifest path"))?,
-    );
-    let language_path = language_manifest
-        .parent()
-        .ok_or_else(|| error("invalid Xark manifest path"))?;
-    let xark_source = language_path
-        .parent()
-        .and_then(Path::parent)
-        .ok_or_else(|| error("invalid Xark source layout"))?
-        .to_path_buf();
     let source = language["source"]
         .as_str()
-        .ok_or_else(|| error("Xark must use a pinned Git dependency"))?;
-    let xark_dependency = xark_source::pinned_git_dependency(source).map_err(error)?;
+        .ok_or_else(|| error("Xark must come from crates.io or a pinned Git revision"))?;
+    let xark_dependency =
+        xark_source::pinned_dependency(source, json_str(language, "version")?).map_err(error)?;
+    let mut runtimes = packages
+        .iter()
+        .filter(|package| package["name"] == "xark-wasm");
+    let xark_wasm = runtimes
+        .next()
+        .map(|runtime| {
+            Path::new(json_str(runtime, "manifest_path")?)
+                .parent()
+                .map(Path::to_path_buf)
+                .ok_or_else(|| error("invalid xark-wasm manifest path"))
+        })
+        .transpose()?;
+    if runtimes.next().is_some() {
+        return Err(error("all workspace packages must use the same xark-wasm"));
+    }
     let lib_name = selected["targets"].as_array().and_then(|targets| {
         targets
             .iter()
@@ -189,7 +202,7 @@ fn package(selection: &PackageSelection) -> Result<Package> {
         manifest: json_str(selected, "manifest_path")?.into(),
         root: json_str(&data, "workspace_root")?.into(),
         target: json_str(&data, "target_directory")?.into(),
-        xark_source,
+        xark_wasm,
         xark_dependency,
         metadata: output.stdout,
         lib_name,
@@ -604,10 +617,8 @@ fn bridge(
         copied: if options.no_prover {
             Vec::new()
         } else {
-            XARK_POOL_FILES
-                .iter()
-                .map(|file| package.xark_source.join("crates/wasm/js").join(file))
-                .collect()
+            let js = package.xark_js_dir()?;
+            XARK_POOL_FILES.iter().map(|file| js.join(file)).collect()
         },
     }
     .digest()?;
@@ -674,11 +685,9 @@ fn bridge(
         if !options.no_prover {
             let pool = staging.join("xark");
             fs::create_dir(&pool)?;
+            let js = package.xark_js_dir()?;
             for file in XARK_POOL_FILES {
-                fs::copy(
-                    package.xark_source.join("crates/wasm/js").join(file),
-                    pool.join(file),
-                )?;
+                fs::copy(js.join(file), pool.join(file))?;
             }
         }
         install_package(&staging, output)

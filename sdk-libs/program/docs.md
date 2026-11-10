@@ -6,7 +6,7 @@ the CLI. [`README.md`](README.md) walks through a program end to end with the
 [timelock escrow](../../sdk-tests/timelock-escrow) example.
 
 A ZK program is a Solana program with Groth16 circuits written in Rust and compiled by
-[Xark](https://github.com/ananas-block/xark/tree/cccbf88c527259620c441c1118014c749ecd582b).
+[Xark](https://github.com/blueshift-gg/xark/tree/v0.3.0).
 Each circuit checks a private state change and binds it to an SPP transaction through the
 transaction's `private_tx_hash`.
 
@@ -805,14 +805,14 @@ manifest; it does not hash key files.
 2. **Branches.** A branch on a private value runs both arms in the circuit, and a requirement
    inside an arm binds only when the arm is taken. Put a check that must always hold before
    the branch. Xark's
-   [`docs/subset.md`](https://github.com/ananas-block/xark/blob/cccbf88c527259620c441c1118014c749ecd582b/docs/subset.md)
+   [`docs/subset.md`](https://github.com/blueshift-gg/xark/blob/v0.3.0/docs/subset.md)
    lists what the circuit build accepts.
 3. **Arithmetic.** `Field` arithmetic wraps around the BN254 modulus. A `uN` input is
    range-checked to `N` bits on entry; use `uN` values with `checked_*` operations or
    `require` where overflow matters.
 4. **Trusted setup.** Each circuit needs a Groth16 setup. The CLI's own setups are insecure
    test setups; a deployment uses Xark's ceremony
-   ([`docs/trusted-setup.md`](https://github.com/ananas-block/xark/blob/cccbf88c527259620c441c1118014c749ecd582b/docs/trusted-setup.md)).
+   ([`docs/trusted-setup.md`](https://github.com/blueshift-gg/xark/blob/v0.3.0/docs/trusted-setup.md)).
    Xark has no external audit yet.
 5. **Data hash privacy.** A state UTXO's data hash is private and hidden by the UTXO
    commitment's blinding. A program that publishes a data hash must include private
