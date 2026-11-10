@@ -74,7 +74,7 @@ impl TransferHarness {
             })
             .collect();
         let mut tx = ConfidentialTransaction::new(inputs, Address::default()).unwrap();
-        let mut expected = Vec::new();
+        let mut sends = Vec::new();
         for (send, recipient) in self.plan.sends.iter().zip(&recipients) {
             let address = recipient.shielded_address().unwrap();
             if send.asset == Asset::Sol {
@@ -83,7 +83,7 @@ impl TransferHarness {
                 tx.transfer(&address, asset_addr(send.asset), send.amount)
                     .unwrap();
             }
-            expected.push((address, mint(send.asset), send.amount));
+            sends.push((address, mint(send.asset), send.amount));
         }
         let mut settlements = Vec::new();
         if let Some(withdraw) = &self.plan.withdraw {
@@ -106,6 +106,8 @@ impl TransferHarness {
                 });
             }
         }
+        // Change leads, SPL in first-use order before SOL; the sends follow.
+        let mut expected = Vec::new();
         let mut seen = Vec::new();
         for input in &self.plan.inputs {
             if seen.contains(&input.asset) {
@@ -141,6 +143,8 @@ impl TransferHarness {
                 ));
             }
         }
+        expected.sort_by_key(|(_, asset, _)| asset.asset == Mint::SOL.asset);
+        expected.extend(sends);
         if self.plan.declared_shape {
             tx.pad_utxos(Shape::IN2_OUT4, &sender.shielded_address().unwrap())
                 .unwrap();

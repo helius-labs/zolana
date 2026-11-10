@@ -1,0 +1,72 @@
+{
+  "description": "Real output slots a self-paid transfer builds, before padding: SPL change, then SOL change, then the recipients in the order they were added. Rust reads it from sdk-libs/transaction/tests/construction.rs, TypeScript from sdk-libs/ts/test/transfer-output-order.test.ts.",
+  "sender_seed": 1,
+  "recipient_seeds": [2, 3],
+  "spl_mint": "So11111111111111111111111111111111111111112",
+  "spl_asset_id": 2,
+  "cases": [
+    {
+      "name": "SOL payment keeps SOL change",
+      "inputs": [{ "asset": "sol", "amount": 10 }],
+      "sends": [{ "recipient": 0, "asset": "sol", "amount": 7 }],
+      "outputs": [
+        { "owner": "sender", "asset": "sol", "amount": 3 },
+        { "owner": "recipient", "recipient": 0, "asset": "sol", "amount": 7 }
+      ]
+    },
+    {
+      "name": "SOL payment of the whole input keeps no change",
+      "inputs": [{ "asset": "sol", "amount": 10 }],
+      "sends": [{ "recipient": 0, "asset": "sol", "amount": 10 }],
+      "outputs": [{ "owner": "recipient", "recipient": 0, "asset": "sol", "amount": 10 }]
+    },
+    {
+      "name": "SPL payment keeps SPL change before SOL change",
+      "inputs": [
+        { "asset": "sol", "amount": 5 },
+        { "asset": "spl", "amount": 8 }
+      ],
+      "sends": [{ "recipient": 0, "asset": "spl", "amount": 3 }],
+      "outputs": [
+        { "owner": "sender", "asset": "spl", "amount": 5 },
+        { "owner": "sender", "asset": "sol", "amount": 5 },
+        { "owner": "recipient", "recipient": 0, "asset": "spl", "amount": 3 }
+      ]
+    },
+    {
+      "name": "two recipients follow both change outputs in the order they were added",
+      "inputs": [
+        { "asset": "sol", "amount": 10 },
+        { "asset": "spl", "amount": 6 }
+      ],
+      "sends": [
+        { "recipient": 1, "asset": "sol", "amount": 3 },
+        { "recipient": 0, "asset": "spl", "amount": 2 }
+      ],
+      "outputs": [
+        { "owner": "sender", "asset": "spl", "amount": 4 },
+        { "owner": "sender", "asset": "sol", "amount": 7 },
+        { "owner": "recipient", "recipient": 1, "asset": "sol", "amount": 3 },
+        { "owner": "recipient", "recipient": 0, "asset": "spl", "amount": 2 }
+      ]
+    },
+    {
+      "name": "partial SPL withdrawal keeps SPL change before SOL change",
+      "inputs": [
+        { "asset": "sol", "amount": 4 },
+        { "asset": "spl", "amount": 8 }
+      ],
+      "withdrawal": { "asset": "spl", "amount": 5 },
+      "outputs": [
+        { "owner": "sender", "asset": "spl", "amount": 3 },
+        { "owner": "sender", "asset": "sol", "amount": 4 }
+      ]
+    },
+    {
+      "name": "full SOL withdrawal keeps a zero SOL change",
+      "inputs": [{ "asset": "sol", "amount": 10 }],
+      "withdrawal": { "asset": "sol", "amount": 10 },
+      "outputs": [{ "owner": "sender", "asset": "sol", "amount": 0 }]
+    }
+  ]
+}

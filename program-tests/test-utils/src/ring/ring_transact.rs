@@ -799,16 +799,8 @@ impl RingHarness {
         let from_keypair = self.actor(from).keypair.clone();
         let mut discovered = DiscoveredOutputs::default();
 
+        // Change leads, SPL in first-use order before SOL; the recipients follow.
         let mut expected = Vec::new();
-        for to in recipients {
-            expected.push((
-                *to,
-                self.actor(to).keypair.signing_pubkey(),
-                send_asset,
-                amount,
-                true,
-            ));
-        }
         // A withdrawal has no recipient and still moves `amount` out of the pool.
         let sent_total = u64::try_from(recipients.len().max(1))?
             .checked_mul(amount)
@@ -819,6 +811,7 @@ impl RingHarness {
                 assets.push(input.asset.asset);
             }
         }
+        assets.sort_by_key(|asset| *asset == SOL_MINT);
         for asset in assets {
             let total: u64 = inputs
                 .iter()
@@ -831,6 +824,15 @@ impl RingHarness {
             if change > 0 {
                 expected.push((from, from_keypair.signing_pubkey(), asset, change, false));
             }
+        }
+        for to in recipients {
+            expected.push((
+                *to,
+                self.actor(to).keypair.signing_pubkey(),
+                send_asset,
+                amount,
+                true,
+            ));
         }
         if expected.is_empty() && self.actor(from).solana_signer.is_some() {
             expected.push((from, from_keypair.signing_pubkey(), SOL_MINT, 0, false));
