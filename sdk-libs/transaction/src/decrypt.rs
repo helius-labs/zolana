@@ -34,8 +34,15 @@ pub struct DecryptionResult {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SpendableDecryptionResult {
+    /// The UTXOs the default-ring circuit spends, those carrying data
+    /// included, and their amounts per asset: the UTXOs [`select_spend`]
+    /// chooses from.
+    ///
+    /// [`select_spend`]: crate::select_spend
     pub balances: Balances,
-    pub utxos_with_data: Vec<WalletUtxo>,
+    /// The ring-bound UTXOs: their commitment binds a ring program or ring
+    /// data, so only their ring spends them and the balances leave them out.
+    pub ring_utxos: Vec<WalletUtxo>,
     /// As on [`DecryptionResult`].
     pub unknown_asset_ids: BTreeSet<u64>,
     /// As on [`DecryptionResult`].
@@ -43,13 +50,13 @@ pub struct SpendableDecryptionResult {
 }
 
 impl SpendableDecryptionResult {
-    /// Every spendable UTXO: the balances' UTXOs, then the data-bearing ones.
+    /// Every spendable UTXO: the balances' UTXOs, then the ring-bound ones.
     pub fn utxos(&self) -> impl Iterator<Item = &WalletUtxo> {
         self.balances
             .assets
             .iter()
             .flat_map(|balance| &balance.utxos)
-            .chain(&self.utxos_with_data)
+            .chain(&self.ring_utxos)
     }
 
     /// Attach to every spendable UTXO the transaction viewing key of a
@@ -66,7 +73,7 @@ impl SpendableDecryptionResult {
             .assets
             .iter_mut()
             .flat_map(|balance| balance.utxos.iter_mut())
-            .chain(self.utxos_with_data.iter_mut())
+            .chain(self.ring_utxos.iter_mut())
             .collect();
         let requests: Vec<TransactionKeyRequest> = utxos
             .iter()
@@ -102,7 +109,7 @@ impl SpendableDecryptionResult {
             .assets
             .iter_mut()
             .flat_map(|balance| &mut balance.utxos)
-            .chain(&mut self.utxos_with_data)
+            .chain(&mut self.ring_utxos)
         {
             utxo.latest_tree_id = latest_tree_id;
         }
@@ -237,19 +244,16 @@ impl OwnedUtxos {
     /// that keeps the spent ones too: it asks the key holder nothing more.
     pub fn spendable(&self) -> SpendableDecryptionResult {
         let mut by_mint: HashMap<Address, AssetBalance> = HashMap::new();
-        let mut utxos_with_data = Vec::new();
+        let mut ring_utxos = Vec::new();
         for wallet_utxo in &self.utxos {
             if self.spent.contains(&wallet_utxo.nullifier) {
                 continue;
             }
             let wallet_utxo = wallet_utxo.clone();
-            if wallet_utxo.utxo.data.utxo_data().is_some()
-                || wallet_utxo.utxo.data.ring_data().is_some()
-                || wallet_utxo.data_hash.is_some()
-                || wallet_utxo.ring_data_hash.is_some()
-                || wallet_utxo.utxo.ring_program_id.is_some()
-            {
-                utxos_with_data.push(wallet_utxo);
+            // The predicate spend selection filters by, so a balance is what
+            // a spend can take.
+            if !wallet_utxo.is_default_ring_spendable() {
+                ring_utxos.push(wallet_utxo);
                 continue;
             }
             let asset = wallet_utxo.utxo.asset;
@@ -270,7 +274,7 @@ impl OwnedUtxos {
         for utxos in balances
             .iter_mut()
             .map(|balance| &mut balance.utxos)
-            .chain(std::iter::once(&mut utxos_with_data))
+            .chain(std::iter::once(&mut ring_utxos))
         {
             utxos.sort_by_key(|utxo| {
                 (
@@ -282,7 +286,7 @@ impl OwnedUtxos {
         }
         SpendableDecryptionResult {
             balances: Balances { assets: balances },
-            utxos_with_data,
+            ring_utxos,
             unknown_asset_ids: self.unknown_asset_ids.clone(),
             unknown_mints: self.unknown_mints.clone(),
         }

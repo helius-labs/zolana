@@ -32,7 +32,7 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         ensure_owner_spl_token_account(&client, &ctx.material.funding, recipient, asset)?
             .map(|(_, token_program)| token_program);
 
-    let inputs = select_spend(ctx.spendable.utxos(), asset, opts.amount)?;
+    let inputs = select_spend(ctx.spendable.utxos(), asset, opts.amount, 0)?;
     let payer = Address::new_from_array(ctx.material.funding.pubkey().to_bytes());
     let mut transaction = ConfidentialTransaction::new(inputs, payer)?;
     let settlement = transaction.withdraw_to(asset, opts.amount, recipient, spl_token_program)?;

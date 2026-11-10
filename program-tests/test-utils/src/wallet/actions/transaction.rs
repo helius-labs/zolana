@@ -469,6 +469,8 @@ pub struct SpendInputParams<'a> {
     pub wallet: &'a Wallet,
     pub asset: Address,
     pub amount: u64,
+    /// The private outputs the spend creates other than its change.
+    pub outputs: usize,
 }
 
 /// Inputs are grouped by tree in first-use order. `trees` contains exactly those
@@ -507,7 +509,12 @@ pub fn select_input_utxos_sync<A: SyncWalletAuthority + ?Sized>(
 fn unsigned_input_utxos(
     request: SpendInputParams<'_>,
 ) -> Result<(Vec<Address>, Vec<WalletUtxo>), ClientError> {
-    let mut selected = select_spend(request.wallet.unspent(), request.asset, request.amount)?;
+    let mut selected = select_spend(
+        request.wallet.unspent(),
+        request.asset,
+        request.amount,
+        request.outputs,
+    )?;
     let mut trees = Vec::new();
     for entry in &selected {
         if !trees.contains(&pda::tree(entry.tree_id())) {
@@ -2132,6 +2139,7 @@ mod tests {
                 wallet: &wallet,
                 asset: SOL_MINT,
                 amount: 20,
+                outputs: 1,
             },
             &keypair,
         )
@@ -2153,6 +2161,7 @@ mod tests {
                     wallet: &wallet,
                     asset: SOL_MINT,
                     amount: 50,
+                    outputs: 1,
                 },
                 &keypair
             ),
@@ -2251,6 +2260,7 @@ mod tests {
                 wallet: &wallet,
                 asset: SOL_MINT,
                 amount: 15,
+                outputs: 1,
             },
             &keypair,
         )
@@ -2278,6 +2288,7 @@ mod tests {
                     wallet: &wallet,
                     asset: SOL_MINT,
                     amount,
+                    outputs: 1,
                 },
                 &keypair,
             )
@@ -2317,6 +2328,7 @@ mod tests {
                     wallet: &wallet,
                     asset: SOL_MINT,
                     amount: u64::try_from(MAX_INPUT_TREES).unwrap() * 10 + 1,
+                    outputs: 1,
                 }, &keypair),
             Err(ClientError::Transaction(TransactionError::TooManyInputTrees { got, max }))
                 if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
@@ -2341,6 +2353,7 @@ mod tests {
                 wallet: &wallet,
                 asset: SOL_MINT,
                 amount: 20,
+                outputs: 1,
             },
             &keypair,
         )
@@ -2353,6 +2366,7 @@ mod tests {
                     wallet: &wallet,
                     asset: SOL_MINT,
                     amount: 60,
+                    outputs: 1,
                 },
                 &keypair
             ),
@@ -2379,6 +2393,7 @@ mod tests {
                 wallet: &wallet,
                 asset: SOL_MINT,
                 amount: 15,
+                outputs: 1,
             },
             &keypair,
         )
@@ -2401,6 +2416,7 @@ mod tests {
                 wallet: &wallet,
                 asset: SOL_MINT,
                 amount: 100,
+                outputs: 1,
             },
             &keypair,
         )
@@ -2420,6 +2436,7 @@ mod tests {
                     wallet: &wallet,
                     asset: SOL_MINT,
                     amount: 0,
+                    outputs: 1,
                 },
                 &keypair
             ),
@@ -2442,6 +2459,7 @@ mod tests {
                 wallet: &wallet,
                 asset: SOL_MINT,
                 amount: 5 * u64::from(count),
+                outputs: 1,
             },
             &keypair,
         );

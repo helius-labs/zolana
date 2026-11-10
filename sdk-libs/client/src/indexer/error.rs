@@ -2,6 +2,8 @@ use crate::error::ClientError;
 
 const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
 const JSON_RPC_INTERNAL_ERROR: i64 = -32603;
+/// jsonrpsee's "response too big": Photon caps a response at 10 MiB.
+const JSON_RPC_RESPONSE_TOO_LARGE: i64 = -32008;
 
 /// Split indexer failures into the ones worth polling through and the ones that
 /// will never succeed. Photon reports both a transient database failure and a
@@ -47,6 +49,10 @@ pub fn indexer_error(error: spr_api::ApiError) -> ClientError {
             code: Some(JSON_RPC_INTERNAL_ERROR),
             ..
         } => ClientError::IndexerUnavailable(message),
+        spr_api::ApiError::JsonRpc {
+            code: Some(JSON_RPC_RESPONSE_TOO_LARGE),
+            ..
+        } => ClientError::IndexerResponseTooLarge(message),
         _ => ClientError::Indexer(message),
     }
 }
@@ -85,6 +91,21 @@ mod tests {
         let error = indexer_error(spr_api::ApiError::ResponseLost("reset".into()));
         assert!(
             matches!(&error, ClientError::IndexerUnavailable(message) if message.contains("reset")),
+            "{error:?}"
+        );
+    }
+
+    /// Photon's answer to a page above its response cap is not retried as
+    /// it is: only a smaller page can succeed.
+    #[test]
+    fn a_response_too_large_is_its_own_error() {
+        let error = indexer_error(spr_api::ApiError::JsonRpc {
+            method: "getShieldedTransactionsByTags",
+            code: Some(-32008),
+            message: Some("Response is too big".into()),
+        });
+        assert!(
+            matches!(&error, ClientError::IndexerResponseTooLarge(message) if message.contains("getShieldedTransactionsByTags")),
             "{error:?}"
         );
     }
