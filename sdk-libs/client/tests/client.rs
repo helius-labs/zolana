@@ -87,13 +87,16 @@ fn from_urls_requires_https_off_loopback() {
 
 #[test]
 fn loopback_http_is_allowed_but_lookalikes_are_not() {
-    // `127.` prefix matching has to mean the loopback block, not any host
-    // whose name merely starts with it.
+    // The host is the parsed one: a `127.` name prefix or loopback userinfo
+    // in front of a remote host does not make it loopback.
     for url in [
         "http://127.0.0.1:8784",
         "http://127.1.2.3:8784",
         "http://localhost:8784",
+        "http://localhost.:8784",
         "http://svc.localhost:8784",
+        "http://[::1]:8784",
+        "http://[::1]/",
     ] {
         assert!(
             SprClient::<(), SprIndexer>::from_urls((), url, url, None).is_ok(),
@@ -102,8 +105,12 @@ fn loopback_http_is_allowed_but_lookalikes_are_not() {
     }
     for url in [
         "http://127.0.0.1.evil.com:8784",
+        "http://127.0.0.1:1@evil.com/",
+        "http://localhost:8784@evil.com/",
         "http://localhost.evil.com:8784",
         "http://notlocalhost:8784",
+        "http://example.com",
+        "http://0.0.0.0:8784",
     ] {
         assert!(
             SprClient::<(), SprIndexer>::from_urls((), url, url, None).is_err(),

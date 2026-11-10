@@ -29,15 +29,7 @@ impl ProverEndpoint {
     /// Whether the prover runs on this machine, where its requests never leave
     /// the host.
     pub(crate) fn is_loopback(&self) -> bool {
-        self.base.as_ref().is_some_and(|url| match url.host() {
-            Some(Host::Domain(host)) => {
-                let host = host.trim_end_matches('.');
-                host == "localhost" || host.ends_with(".localhost")
-            }
-            Some(Host::Ipv4(ip)) => ip.is_loopback(),
-            Some(Host::Ipv6(ip)) => ip.is_loopback(),
-            None => false,
-        })
+        self.base.as_ref().is_some_and(is_loopback)
     }
 
     /// `path` is slash-separated segments, such as `/prove/merge_24_1`.
@@ -88,6 +80,23 @@ impl ProverEndpoint {
 
     pub(crate) fn redacted(&self) -> String {
         redact_api_key(self.base.as_ref().map_or("", Url::as_str))
+    }
+}
+
+/// Whether `url`'s host is this machine: `localhost` or a name under it, with
+/// or without a trailing dot, `127.0.0.0/8`, or `[::1]`. The host comes from
+/// the parsed URL, so userinfo (`http://127.0.0.1@example.com`) does not pass
+/// for it. `0.0.0.0` and IPv4-mapped IPv6 such as `[::ffff:127.0.0.1]` are not
+/// loopback.
+pub(crate) fn is_loopback(url: &Url) -> bool {
+    match url.host() {
+        Some(Host::Domain(host)) => {
+            let host = host.trim_end_matches('.');
+            host == "localhost" || host.ends_with(".localhost")
+        }
+        Some(Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
     }
 }
 
@@ -158,9 +167,11 @@ mod tests {
     fn plaintext_proving_is_local_only() {
         for url in [
             "http://localhost:3001",
+            "http://localhost.:3001",
             "https://node.localhost:3001",
             "http://127.0.0.2:3001",
             "http://[::1]:3001",
+            "http://user@127.0.0.1:3001",
         ] {
             assert!(ProverEndpoint::parse(url).is_loopback(), "{url}");
         }
@@ -168,6 +179,10 @@ mod tests {
             "https://prover.example",
             "https://localhost.example",
             "http://10.0.0.1:3001",
+            "http://127.0.0.1:1@prover.example",
+            "http://127.0.0.1.prover.example",
+            "http://0.0.0.0:3001",
+            "http://[::ffff:127.0.0.1]:3001",
             "not a url",
         ] {
             assert!(!ProverEndpoint::parse(url).is_loopback(), "{url}");
