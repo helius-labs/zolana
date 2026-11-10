@@ -146,6 +146,30 @@ required-features = ["test-support", "setup"]
 name = "scenarios"
 required-features = ["test-support", "setup", "compression"]
 
+[[test]]
+name = "hashed_state"
+required-features = ["client", "setup"]
+
+[[test]]
+name = "program_hashers"
+required-features = ["compression"]
+
+[[test]]
+name = "compression"
+required-features = ["compression"]
+
+[[test]]
+name = "compression_account"
+required-features = ["compression"]
+
+[[test]]
+name = "compression_cpi"
+required-features = ["compression"]
+
+[[test]]
+name = "compression_read"
+required-features = ["compression"]
+
 [lints.clippy]
 disallowed_types = "allow"
 

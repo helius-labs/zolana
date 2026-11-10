@@ -1,4 +1,3 @@
-#![cfg(all(feature = "client", feature = "setup"))]
 use solana_address::Address;
 use spr_keypair::{ShieldedAddress, ShieldedKeypair, SigningKey};
 use spr_program::{

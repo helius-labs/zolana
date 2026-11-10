@@ -1,5 +1,3 @@
-#![cfg(feature = "compression")]
-
 use pinocchio::{AccountView, Address};
 use spr_account_checks::account_info::test_account_info::get_account_view;
 use spr_hasher::primitives::right_align;

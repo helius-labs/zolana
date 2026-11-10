@@ -1,4 +1,3 @@
-use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use spr_client::Rpc;
@@ -37,7 +36,7 @@ pub fn system_create_account_ix(
 pub fn next_tree_id<R: Rpc>(rpc: &R) -> Result<u16, ProgramTestError> {
     let config = pda::protocol_config();
     let data = rpc
-        .get_account(Address::new_from_array(config.to_bytes()))
+        .get_account(config)
         .map_err(ProgramTestError::from)?
         .ok_or_else(|| ProgramTestError::Rpc(format!("protocol config not found: {config}")))?
         .data;
@@ -72,9 +71,8 @@ pub fn create_tree_instructions<R: Rpc>(
 }
 
 pub fn rpc_state_root<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<[u8; 32], ProgramTestError> {
-    let address = Address::new_from_array(tree.to_bytes());
     let data = rpc
-        .get_account(address)
+        .get_account(*tree)
         .map_err(ProgramTestError::from)?
         .ok_or_else(|| ProgramTestError::Rpc(format!("account not found: {tree}")))?
         .data;

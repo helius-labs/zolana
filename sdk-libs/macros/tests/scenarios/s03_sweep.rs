@@ -4,7 +4,7 @@ use spr_program::{
         CheckedTransaction, Circuit, ConfidentialTransaction, PublicInputs, TokenUtxos, UtxoTrait,
     },
     conversion::ProofInput,
-    CircuitError, Groth16Prover, TxContext, ZkProgramCircuit,
+    CircuitError, Groth16Prover, TxContext, ZkCircuit, ZkProgramCircuit,
 };
 use spr_transaction::{Mint, WalletUtxo};
 
@@ -89,4 +89,29 @@ fn sweep_prove_and_verify() {
     prover
         .verify(&result)
         .expect("the compressed proof verifies");
+}
+
+#[test]
+fn sweep_cannot_prove_an_output_above_u64_max() {
+    let sender = keypair(5);
+    let sweep = Sweep {
+        private: SweepPrivateInputs {
+            tx_context: TxContext::new(),
+            token_utxos_asset_a: [
+                token_input(&sender, Mint::SOL, u64::MAX, 0),
+                token_input(&sender, Mint::SOL, 1, 1),
+            ],
+        },
+        public: SweepPublicInputs {
+            recipient: keypair(6).shielded_address().expect("recipient address"),
+        },
+    };
+    let error = sweep
+        .check_constraints()
+        .expect_err("an output must fit in u64");
+    assert_eq!(error.name(), "CircuitError.RuleBroken");
+    assert_eq!(
+        error.broken_rule(),
+        Some("the balance does not fit in 64 bits")
+    );
 }

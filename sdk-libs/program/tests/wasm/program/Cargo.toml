@@ -9,7 +9,7 @@ name = "wasm_test_program"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-wasm = ["spr-program/wasm"]
+wasm = ["spr-program/wasm", "dep:timelock-escrow-program", "timelock-escrow-program/wasm"]
 fixtures = [
     "wasm",
     "spr-program/setup",
@@ -19,10 +19,8 @@ snarkjs = ["fixtures"]
 
 [dependencies]
 borsh = { workspace = true }
-solana-address = { workspace = true }
 spr-program = { workspace = true, features = ["client"] }
-spr-keypair = { workspace = true }
-spr-transaction = { workspace = true }
+timelock-escrow-program = { path = "../../../../../sdk-tests/timelock-escrow/program", optional = true }
 
 [dev-dependencies]
 hex = { workspace = true }
@@ -32,6 +30,8 @@ sha2 = { workspace = true }
 solana-signature = { workspace = true }
 spr-hasher = { workspace = true }
 spr-interface = { workspace = true }
+spr-keypair = { workspace = true }
+spr-transaction = { workspace = true }
 
 [[test]]
 name = "fixtures"

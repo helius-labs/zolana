@@ -52,7 +52,7 @@ pub mod fixture;
 #[cfg(feature = "localnet")]
 pub mod localnet;
 mod paths;
-pub use paths::workspace_path;
+pub use paths::{workspace_path, WORKSPACE_DIR_ENV};
 mod rejection;
 use paths::default_program_path;
 mod proofless;
@@ -130,8 +130,8 @@ pub struct SprProgramTest {
 
 impl SprProgramTest {
     /// Boot a litesvm instance, fund a payer, and load the shielded-pool
-    /// program from the default workspace `target/deploy/` location (or the
-    /// `SHIELDED_POOL_PROGRAM_PATH` env override).
+    /// program from `SHIELDED_POOL_PROGRAM_PATH`, else from
+    /// `target/deploy/shielded_pool_program.so` under [`workspace_path`].
     pub fn new() -> Result<Self, ProgramTestError> {
         let program_path = default_program_path();
         Self::with_program_path(&program_path)
@@ -177,9 +177,8 @@ impl SprProgramTest {
         self.transaction_traces.last()
     }
 
-    pub fn warp_to_slot(&mut self, slot: u64) -> Result<(), ProgramTestError> {
+    pub fn warp_to_slot(&mut self, slot: u64) {
         self.svm.warp_to_slot(slot);
-        Ok(())
     }
 
     pub fn airdrop(&mut self, pubkey: &Pubkey, lamports: u64) -> Result<(), ProgramTestError> {
