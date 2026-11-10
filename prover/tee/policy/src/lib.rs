@@ -9,3 +9,4 @@ pub mod kms;
 pub mod manifest;
 pub mod pins;
 pub mod release;
+pub mod release_check;
