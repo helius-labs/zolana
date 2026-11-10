@@ -1,6 +1,6 @@
 [package]
 name = "spr-instruction"
-version = "0.8.0"
+version = "0.9.0"
 description = "SPP instructions for Solana programs and clients: shielded-pool instruction builders, the transact CPI, and the derivations a program recomputes on-chain, buildable for the SBF target."
 edition.workspace = true
 license.workspace = true

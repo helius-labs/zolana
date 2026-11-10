@@ -70,7 +70,8 @@ num-bigint = { workspace = true }
 
 sqlx = { workspace = true }
 thiserror = { workspace = true }
-reqwest = { workspace = true, features = ["stream"] }
+# gzip: a mainnet block is about 3 MB of JSON, 0.7 MB compressed.
+reqwest = { workspace = true, features = ["stream", "gzip"] }
 tokio = { workspace = true, features = ["fs", "time", "net", "signal"] }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -89,7 +90,7 @@ spr-event = { workspace = true }
 spr-event-parser = { workspace = true }
 spr-indexer-api = { workspace = true, features = ["openapi"] }
 spr-rpc-http = { workspace = true }
-spr-interface = { path = "../../program-libs/interface", version = "0.8.0", default-features = false, features = ["borsh", "tree"] }
+spr-interface = { path = "../../program-libs/interface", version = "0.9.0", default-features = false, features = ["borsh", "tree"] }
 spr-tree = { workspace = true }
 spr-user-registry-interface = { workspace = true, features = ["pda"] }
 
@@ -97,7 +98,7 @@ spr-user-registry-interface = { workspace = true, features = ["pda"] }
 criterion = { workspace = true }
 serde_norway = { workspace = true }
 wincode = { workspace = true }
-spr-interface = { path = "../../program-libs/interface", version = "0.8.0", default-features = false, features = ["borsh", "tree"] }
+spr-interface = { path = "../../program-libs/interface", version = "0.9.0", default-features = false, features = ["borsh", "tree"] }
 
 [[bench]]
 name = "rings_signature_lookup"
