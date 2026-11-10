@@ -1,8 +1,11 @@
-use std::time::Duration;
+use std::{fmt, marker::PhantomData, time::Duration};
 
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{value::MapAccessDeserializer, MapAccess, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
 
-use super::{Platform, PlatformPolicy, TeeError};
+use super::{Platform, PlatformPolicy, TeeError, MAX_INTEGER};
 
 const DEFAULT_MAX_AGE_SECS: u64 = 600;
 
@@ -54,11 +57,11 @@ impl TeePolicy {
         self.checked().map_err(TeeError::Policy)
     }
 
-    /// Whole seconds, the fraction is dropped.
-    #[must_use]
-    pub fn with_max_age(mut self, max_age: Duration) -> Self {
+    /// Whole seconds, the fraction is dropped. Refuses less than one second
+    /// or more than 2^53 - 1, as a TypeScript client does.
+    pub fn with_max_age(mut self, max_age: Duration) -> Result<Self, TeeError> {
         self.max_age_secs = max_age.as_secs();
-        self
+        self.checked().map_err(TeeError::Policy)
     }
 
     pub fn from_json(json: &str) -> Result<Self, TeeError> {
@@ -96,11 +99,18 @@ impl TeePolicy {
 }
 
 impl TeePolicy {
+    /// The rules every policy meets, bare or signed, read or built.
     fn checked(self) -> Result<Self, String> {
         if self.gpu == GpuRequirement::Required && !self.platform().hosts_gpu() {
             return Err(format!(
                 "{} attests no GPU, the policy cannot require one",
                 self.platform()
+            ));
+        }
+        if !(1..=MAX_INTEGER).contains(&self.max_age_secs) {
+            return Err(format!(
+                "max_age_secs {} is not between 1 and 2^53 - 1",
+                self.max_age_secs
             ));
         }
         Ok(self)
@@ -120,6 +130,43 @@ impl TryFrom<UncheckedPolicy> for TeePolicy {
     }
 }
 
+/// Whether `value` is hex in the one spelling the TypeScript SDK reads.
+pub(super) fn lowercase_hex(value: &str) -> bool {
+    value
+        .bytes()
+        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// A policy's byte pins, in lowercase hex.
+pub(super) mod lower_hex {
+    use std::fmt::Display;
+
+    use hex::FromHex;
+    use serde::{de::Error, Deserialize, Deserializer};
+
+    pub use hex::serde::serialize;
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: FromHex,
+        T::Error: Display,
+    {
+        decode(&String::deserialize(deserializer)?).map_err(D::Error::custom)
+    }
+
+    pub(super) fn decode<T>(value: &str) -> Result<T, String>
+    where
+        T: FromHex,
+        T::Error: Display,
+    {
+        if !super::lowercase_hex(value) {
+            return Err("a pin is not lowercase hex".into());
+        }
+        T::from_hex(value).map_err(|e| e.to_string())
+    }
+}
+
 pub(super) mod hex_list {
     use serde::{de::Error, Deserialize, Deserializer, Serializer};
 
@@ -132,13 +179,13 @@ pub(super) mod hex_list {
     ) -> Result<Vec<[u8; 32]>, D::Error> {
         Vec::<String>::deserialize(deserializer)?
             .iter()
-            .map(|value| hex::FromHex::from_hex(value).map_err(D::Error::custom))
+            .map(|value| super::lower_hex::decode(value).map_err(D::Error::custom))
             .collect()
     }
 }
 
 pub(super) mod hex_pin {
-    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+    use serde::{Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(
         value: &Option<[u8; 32]>,
@@ -153,15 +200,48 @@ pub(super) mod hex_pin {
     pub fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Option<[u8; 32]>, D::Error> {
-        let value = String::deserialize(deserializer)?;
-        if !value
-            .bytes()
-            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        {
-            return Err(D::Error::custom("the key pin is not lowercase hex"));
-        }
-        hex::FromHex::from_hex(value)
-            .map(Some)
-            .map_err(D::Error::custom)
+        super::lower_hex::deserialize(deserializer).map(Some)
     }
 }
+
+/// `T` from a JSON object only. A derived `Deserialize` also reads a struct
+/// from a positional array, which the TypeScript SDK refuses.
+pub(super) struct Object<T>(pub T);
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Object<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Fields<T>(PhantomData<T>);
+
+        impl<'de, T: Deserialize<'de>> Visitor<'de> for Fields<T> {
+            type Value = T;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("an object")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
+                T::deserialize(MapAccessDeserializer::new(map))
+            }
+        }
+
+        deserializer.deserialize_map(Fields(PhantomData)).map(Self)
+    }
+}
+
+/// [`Object`] for a field.
+pub(super) fn object<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<T, D::Error> {
+    Object::deserialize(deserializer).map(|Object(value)| value)
+}
+
+/// A list of [`Object`]s for a field.
+pub(super) fn objects<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Vec<T>, D::Error> {
+    Vec::<Object<T>>::deserialize(deserializer)
+        .map(|objects| objects.into_iter().map(|Object(value)| value).collect())
+}
+
+#[cfg(test)]
+mod tests;

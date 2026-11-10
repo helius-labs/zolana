@@ -124,6 +124,12 @@ fn issued(issued_at: u64) -> impl FnOnce(&mut Value) {
     }
 }
 
+/// `object`'s `fields` as a positional array, which a derived `Deserialize` reads as the struct.
+fn positional(object: &mut Value, fields: &[&str]) {
+    let values: Value = fields.iter().map(|field| object[field].take()).collect();
+    *object = values;
+}
+
 fn accepted(name: &str, file: Value, expires_at: u64) -> Value {
     json!({ "name": name, "file": file, "version": 2, "expires_at": expires_at })
 }
@@ -336,6 +342,51 @@ fn cases() -> Vec<Value> {
             "malformed",
         ),
         refused_case(
+            "a max age beyond a safe integer",
+            with_release(|release| {
+                release["policy"]["max_age_secs"] = (MAX_INTEGER + 1).into();
+            }),
+            "malformed",
+        ),
+        refused_case(
+            "an uppercase measurement in the release policy",
+            with_release(|release| {
+                let pin = &mut release["policy"]["measurements"][0]["pcr0"];
+                *pin = pin.as_str().unwrap().to_uppercase().into();
+            }),
+            "malformed",
+        ),
+        refused_case(
+            "a release policy measurement as a positional array",
+            with_release(|release| {
+                positional(
+                    &mut release["policy"]["measurements"][0],
+                    &["pcr0", "pcr1", "pcr2"],
+                );
+            }),
+            "malformed",
+        ),
+        refused_case(
+            "a release payload as a positional array",
+            with_release(|release| {
+                positional(
+                    release,
+                    &["network", "version", "expires_at", "freshness", "policy"],
+                );
+            }),
+            "malformed",
+        ),
+        refused_case(
+            "freshness signers as a positional array",
+            with_signers(
+                |signers| {
+                    positional(signers, &["public_keys", "threshold", "max_lifetime_secs"]);
+                },
+                &[5],
+            ),
+            "malformed",
+        ),
+        refused_case(
             "uppercase release payload hex",
             edit(&|file| {
                 let upper = file["release"]["payload"].as_str().unwrap().to_uppercase();
@@ -357,6 +408,26 @@ fn cases() -> Vec<Value> {
         refused_case(
             "an unknown file field",
             edit(&|file| file["comment"] = "x".into()),
+            "malformed",
+        ),
+        refused_case(
+            "the file as a positional array",
+            edit(&|file| positional(file, &["release", "freshness"])),
+            "malformed",
+        ),
+        refused_case(
+            "a part as a positional array",
+            edit(&|file| positional(&mut file["freshness"], &["payload", "signatures"])),
+            "malformed",
+        ),
+        refused_case(
+            "a signature as a positional array",
+            edit(&|file| {
+                positional(
+                    &mut file["release"]["signatures"][0],
+                    &["public_key", "signature"],
+                );
+            }),
             "malformed",
         ),
         refused_case(
@@ -440,6 +511,22 @@ fn cases() -> Vec<Value> {
         refused_case(
             "an unknown freshness field",
             with_freshness(|freshness| freshness["comment"] = "x".into()),
+            "malformed",
+        ),
+        refused_case(
+            "a freshness payload as a positional array",
+            with_freshness(|freshness| {
+                positional(
+                    freshness,
+                    &[
+                        "network",
+                        "release_version",
+                        "release_sha256",
+                        "issued_at",
+                        "expires_at",
+                    ],
+                );
+            }),
             "malformed",
         ),
         refused_case(

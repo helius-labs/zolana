@@ -1,0 +1,569 @@
+{
+  "note": "Whether a client accepts each bare policy, alone or as a pin file's deployment. Regenerate with UPDATE_VECTORS=1 cargo test -p spr-prover-tee policy_vectors.",
+  "cases": [
+    {
+      "name": "a dstack-tdx policy",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "c136c4c5254f510afbbecb9b4a5c894f62838fef",
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33",
+        "key_provider_id": "3059301306072a8648ce3d020106082a8648ce3d030107034200048844eb42ccdf8c52fd4f174f362fcb9bbd19c45fd48f1edec2d8f1ca23536ec1a74021b4cee610c074f8294d431b2b7fee2c39e5333fdaf0a4522d43fb159d9f",
+        "os_image_hashes": [
+          "806a352e16175d90568de97dff563f31f680239e6b90e9b5b2e9141d0955b0d9"
+        ],
+        "measurements": [
+          {
+            "mrtd": "b24d3b24e9e3c16012376b52362ca09856c4adecb709d5fac33addf1c47e193da075b125b6c364115771390a5461e217",
+            "rtmr0": "6ffe4a2c12f07eccb857f70f370a5af848a7062905cd95adc43abb1f62c39e330aa3c8aeb8f162656c025f3f527600f1",
+            "rtmr1": "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+            "rtmr2": "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a"
+          }
+        ],
+        "compose_hashes": [
+          "92169773dce4a3a6cd74b2a1e9d7d8b1c8bddde0ae8296784e4eaba2aed5c99a"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "an aws-nitro policy",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 600
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "an aws-nitro policy that pins its key",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 600,
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33"
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "a max age of one second",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 1
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "a max age of 2^53 - 1 seconds",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 9007199254740991
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "a max age of zero",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 0
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "a max age of 2^53 seconds",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 9007199254740992
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "a max age of 2^64 - 1 seconds",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 18446744073709551615
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "a negative max age",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": -1
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "a fractional max age",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 1.5
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "a pin with one uppercase digit",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "E452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an aws-nitro measurement as a positional array",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          [
+            "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          ]
+        ],
+        "gpu": "optional",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "a dstack-tdx measurement as a positional array",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "c136c4c5254f510afbbecb9b4a5c894f62838fef",
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33",
+        "key_provider_id": "3059301306072a8648ce3d020106082a8648ce3d030107034200048844eb42ccdf8c52fd4f174f362fcb9bbd19c45fd48f1edec2d8f1ca23536ec1a74021b4cee610c074f8294d431b2b7fee2c39e5333fdaf0a4522d43fb159d9f",
+        "os_image_hashes": [
+          "806a352e16175d90568de97dff563f31f680239e6b90e9b5b2e9141d0955b0d9"
+        ],
+        "measurements": [
+          [
+            "b24d3b24e9e3c16012376b52362ca09856c4adecb709d5fac33addf1c47e193da075b125b6c364115771390a5461e217",
+            "6ffe4a2c12f07eccb857f70f370a5af848a7062905cd95adc43abb1f62c39e330aa3c8aeb8f162656c025f3f527600f1",
+            "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+            "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a"
+          ]
+        ],
+        "compose_hashes": [
+          "92169773dce4a3a6cd74b2a1e9d7d8b1c8bddde0ae8296784e4eaba2aed5c99a"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase dstack-tdx pin at /app_id",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "C136C4C5254F510AFBBECB9B4A5C894F62838FEF",
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33",
+        "key_provider_id": "3059301306072a8648ce3d020106082a8648ce3d030107034200048844eb42ccdf8c52fd4f174f362fcb9bbd19c45fd48f1edec2d8f1ca23536ec1a74021b4cee610c074f8294d431b2b7fee2c39e5333fdaf0a4522d43fb159d9f",
+        "os_image_hashes": [
+          "806a352e16175d90568de97dff563f31f680239e6b90e9b5b2e9141d0955b0d9"
+        ],
+        "measurements": [
+          {
+            "mrtd": "b24d3b24e9e3c16012376b52362ca09856c4adecb709d5fac33addf1c47e193da075b125b6c364115771390a5461e217",
+            "rtmr0": "6ffe4a2c12f07eccb857f70f370a5af848a7062905cd95adc43abb1f62c39e330aa3c8aeb8f162656c025f3f527600f1",
+            "rtmr1": "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+            "rtmr2": "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a"
+          }
+        ],
+        "compose_hashes": [
+          "92169773dce4a3a6cd74b2a1e9d7d8b1c8bddde0ae8296784e4eaba2aed5c99a"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase dstack-tdx pin at /hpke_public_key",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "c136c4c5254f510afbbecb9b4a5c894f62838fef",
+        "hpke_public_key": "6316A7BC6187CD6F3E7FD7D95809E3EE23C610E8F4472B474F719DCB6365CE33",
+        "key_provider_id": "3059301306072a8648ce3d020106082a8648ce3d030107034200048844eb42ccdf8c52fd4f174f362fcb9bbd19c45fd48f1edec2d8f1ca23536ec1a74021b4cee610c074f8294d431b2b7fee2c39e5333fdaf0a4522d43fb159d9f",
+        "os_image_hashes": [
+          "806a352e16175d90568de97dff563f31f680239e6b90e9b5b2e9141d0955b0d9"
+        ],
+        "measurements": [
+          {
+            "mrtd": "b24d3b24e9e3c16012376b52362ca09856c4adecb709d5fac33addf1c47e193da075b125b6c364115771390a5461e217",
+            "rtmr0": "6ffe4a2c12f07eccb857f70f370a5af848a7062905cd95adc43abb1f62c39e330aa3c8aeb8f162656c025f3f527600f1",
+            "rtmr1": "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+            "rtmr2": "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a"
+          }
+        ],
+        "compose_hashes": [
+          "92169773dce4a3a6cd74b2a1e9d7d8b1c8bddde0ae8296784e4eaba2aed5c99a"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase dstack-tdx pin at /key_provider_id",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "c136c4c5254f510afbbecb9b4a5c894f62838fef",
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33",
+        "key_provider_id": "3059301306072A8648CE3D020106082A8648CE3D030107034200048844EB42CCDF8C52FD4F174F362FCB9BBD19C45FD48F1EDEC2D8F1CA23536EC1A74021B4CEE610C074F8294D431B2B7FEE2C39E5333FDAF0A4522D43FB159D9F",
+        "os_image_hashes": [
+          "806a352e16175d90568de97dff563f31f680239e6b90e9b5b2e9141d0955b0d9"
+        ],
+        "measurements": [
+          {
+            "mrtd": "b24d3b24e9e3c16012376b52362ca09856c4adecb709d5fac33addf1c47e193da075b125b6c364115771390a5461e217",
+            "rtmr0": "6ffe4a2c12f07eccb857f70f370a5af848a7062905cd95adc43abb1f62c39e330aa3c8aeb8f162656c025f3f527600f1",
+            "rtmr1": "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+            "rtmr2": "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a"
+          }
+        ],
+        "compose_hashes": [
+          "92169773dce4a3a6cd74b2a1e9d7d8b1c8bddde0ae8296784e4eaba2aed5c99a"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase dstack-tdx pin at /os_image_hashes/0",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "c136c4c5254f510afbbecb9b4a5c894f62838fef",
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33",
+        "key_provider_id": "3059301306072a8648ce3d020106082a8648ce3d030107034200048844eb42ccdf8c52fd4f174f362fcb9bbd19c45fd48f1edec2d8f1ca23536ec1a74021b4cee610c074f8294d431b2b7fee2c39e5333fdaf0a4522d43fb159d9f",
+        "os_image_hashes": [
+          "806A352E16175D90568DE97DFF563F31F680239E6B90E9B5B2E9141D0955B0D9"
+        ],
+        "measurements": [
+          {
+            "mrtd": "b24d3b24e9e3c16012376b52362ca09856c4adecb709d5fac33addf1c47e193da075b125b6c364115771390a5461e217",
+            "rtmr0": "6ffe4a2c12f07eccb857f70f370a5af848a7062905cd95adc43abb1f62c39e330aa3c8aeb8f162656c025f3f527600f1",
+            "rtmr1": "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+            "rtmr2": "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a"
+          }
+        ],
+        "compose_hashes": [
+          "92169773dce4a3a6cd74b2a1e9d7d8b1c8bddde0ae8296784e4eaba2aed5c99a"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase dstack-tdx pin at /measurements/0/mrtd",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "c136c4c5254f510afbbecb9b4a5c894f62838fef",
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33",
+        "key_provider_id": "3059301306072a8648ce3d020106082a8648ce3d030107034200048844eb42ccdf8c52fd4f174f362fcb9bbd19c45fd48f1edec2d8f1ca23536ec1a74021b4cee610c074f8294d431b2b7fee2c39e5333fdaf0a4522d43fb159d9f",
+        "os_image_hashes": [
+          "806a352e16175d90568de97dff563f31f680239e6b90e9b5b2e9141d0955b0d9"
+        ],
+        "measurements": [
+          {
+            "mrtd": "B24D3B24E9E3C16012376B52362CA09856C4ADECB709D5FAC33ADDF1C47E193DA075B125B6C364115771390A5461E217",
+            "rtmr0": "6ffe4a2c12f07eccb857f70f370a5af848a7062905cd95adc43abb1f62c39e330aa3c8aeb8f162656c025f3f527600f1",
+            "rtmr1": "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+            "rtmr2": "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a"
+          }
+        ],
+        "compose_hashes": [
+          "92169773dce4a3a6cd74b2a1e9d7d8b1c8bddde0ae8296784e4eaba2aed5c99a"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase dstack-tdx pin at /measurements/0/rtmr0",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "c136c4c5254f510afbbecb9b4a5c894f62838fef",
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33",
+        "key_provider_id": "3059301306072a8648ce3d020106082a8648ce3d030107034200048844eb42ccdf8c52fd4f174f362fcb9bbd19c45fd48f1edec2d8f1ca23536ec1a74021b4cee610c074f8294d431b2b7fee2c39e5333fdaf0a4522d43fb159d9f",
+        "os_image_hashes": [
+          "806a352e16175d90568de97dff563f31f680239e6b90e9b5b2e9141d0955b0d9"
+        ],
+        "measurements": [
+          {
+            "mrtd": "b24d3b24e9e3c16012376b52362ca09856c4adecb709d5fac33addf1c47e193da075b125b6c364115771390a5461e217",
+            "rtmr0": "6FFE4A2C12F07ECCB857F70F370A5AF848A7062905CD95ADC43ABB1F62C39E330AA3C8AEB8F162656C025F3F527600F1",
+            "rtmr1": "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+            "rtmr2": "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a"
+          }
+        ],
+        "compose_hashes": [
+          "92169773dce4a3a6cd74b2a1e9d7d8b1c8bddde0ae8296784e4eaba2aed5c99a"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase dstack-tdx pin at /measurements/0/rtmr1",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "c136c4c5254f510afbbecb9b4a5c894f62838fef",
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33",
+        "key_provider_id": "3059301306072a8648ce3d020106082a8648ce3d030107034200048844eb42ccdf8c52fd4f174f362fcb9bbd19c45fd48f1edec2d8f1ca23536ec1a74021b4cee610c074f8294d431b2b7fee2c39e5333fdaf0a4522d43fb159d9f",
+        "os_image_hashes": [
+          "806a352e16175d90568de97dff563f31f680239e6b90e9b5b2e9141d0955b0d9"
+        ],
+        "measurements": [
+          {
+            "mrtd": "b24d3b24e9e3c16012376b52362ca09856c4adecb709d5fac33addf1c47e193da075b125b6c364115771390a5461e217",
+            "rtmr0": "6ffe4a2c12f07eccb857f70f370a5af848a7062905cd95adc43abb1f62c39e330aa3c8aeb8f162656c025f3f527600f1",
+            "rtmr1": "07E6F51AA763ABFE75C3DDFBF4F425FE3F0CEFF66D807A75E049303DCE9ADDF68E7218729BD419638AF63A370F65878C",
+            "rtmr2": "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a"
+          }
+        ],
+        "compose_hashes": [
+          "92169773dce4a3a6cd74b2a1e9d7d8b1c8bddde0ae8296784e4eaba2aed5c99a"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase dstack-tdx pin at /measurements/0/rtmr2",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "c136c4c5254f510afbbecb9b4a5c894f62838fef",
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33",
+        "key_provider_id": "3059301306072a8648ce3d020106082a8648ce3d030107034200048844eb42ccdf8c52fd4f174f362fcb9bbd19c45fd48f1edec2d8f1ca23536ec1a74021b4cee610c074f8294d431b2b7fee2c39e5333fdaf0a4522d43fb159d9f",
+        "os_image_hashes": [
+          "806a352e16175d90568de97dff563f31f680239e6b90e9b5b2e9141d0955b0d9"
+        ],
+        "measurements": [
+          {
+            "mrtd": "b24d3b24e9e3c16012376b52362ca09856c4adecb709d5fac33addf1c47e193da075b125b6c364115771390a5461e217",
+            "rtmr0": "6ffe4a2c12f07eccb857f70f370a5af848a7062905cd95adc43abb1f62c39e330aa3c8aeb8f162656c025f3f527600f1",
+            "rtmr1": "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+            "rtmr2": "F1C82667A354194467CD8419EFD14A714560DD9B85B4C13B25C11E44BF4E126248C2255FAD58C303FB0CA2921765D53A"
+          }
+        ],
+        "compose_hashes": [
+          "92169773dce4a3a6cd74b2a1e9d7d8b1c8bddde0ae8296784e4eaba2aed5c99a"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase dstack-tdx pin at /compose_hashes/0",
+      "policy": {
+        "platform": "dstack-tdx",
+        "app_id": "c136c4c5254f510afbbecb9b4a5c894f62838fef",
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33",
+        "key_provider_id": "3059301306072a8648ce3d020106082a8648ce3d030107034200048844eb42ccdf8c52fd4f174f362fcb9bbd19c45fd48f1edec2d8f1ca23536ec1a74021b4cee610c074f8294d431b2b7fee2c39e5333fdaf0a4522d43fb159d9f",
+        "os_image_hashes": [
+          "806a352e16175d90568de97dff563f31f680239e6b90e9b5b2e9141d0955b0d9"
+        ],
+        "measurements": [
+          {
+            "mrtd": "b24d3b24e9e3c16012376b52362ca09856c4adecb709d5fac33addf1c47e193da075b125b6c364115771390a5461e217",
+            "rtmr0": "6ffe4a2c12f07eccb857f70f370a5af848a7062905cd95adc43abb1f62c39e330aa3c8aeb8f162656c025f3f527600f1",
+            "rtmr1": "07e6f51aa763abfe75c3ddfbf4f425fe3f0ceff66d807a75e049303dce9addf68e7218729bd419638af63a370f65878c",
+            "rtmr2": "f1c82667a354194467cd8419efd14a714560dd9b85b4c13b25c11e44bf4e126248c2255fad58c303fb0ca2921765d53a"
+          }
+        ],
+        "compose_hashes": [
+          "92169773DCE4A3A6CD74B2A1E9D7D8B1C8BDDDE0AE8296784E4EABA2AED5C99A"
+        ],
+        "tcb_statuses": [
+          "UpToDate"
+        ],
+        "gpu": "required",
+        "max_age_secs": 600
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase aws-nitro pin at /measurements/0/pcr0",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "E452A98072521751E8FA434D796FBD782D3DCF5F2D90DB110B57B6C8FFE27B424AD3A65DD555FD7EAAF2B66802DCC43B",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 600,
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase aws-nitro pin at /measurements/0/pcr1",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4B4D5B3661B3EFC12920900C80E126E4CE783C522DE6C02A2A5BF7AF3A2B9327B86776F188E4BE1C1C404A129DBDA493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 600,
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase aws-nitro pin at /measurements/0/pcr2",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "EF81B17ADA922B489C73604F2CAA6F883486BDA34C4F621401F096DF591C6737B234798663D19B40178C725E231DE386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 600,
+        "hpke_public_key": "6316a7bc6187cd6f3e7fd7d95809e3ee23c610e8f4472b474f719dcb6365ce33"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "an uppercase aws-nitro pin at /hpke_public_key",
+      "policy": {
+        "platform": "aws-nitro",
+        "measurements": [
+          {
+            "pcr0": "e452a98072521751e8fa434d796fbd782d3dcf5f2d90db110b57b6c8ffe27b424ad3a65dd555fd7eaaf2b66802dcc43b",
+            "pcr1": "4b4d5b3661b3efc12920900c80e126e4ce783c522de6c02a2a5bf7af3a2b9327b86776f188e4be1c1c404a129dbda493",
+            "pcr2": "ef81b17ada922b489c73604f2caa6f883486bda34c4f621401f096df591c6737b234798663d19b40178c725e231de386"
+          }
+        ],
+        "gpu": "optional",
+        "max_age_secs": 600,
+        "hpke_public_key": "6316A7BC6187CD6F3E7FD7D95809E3EE23C610E8F4472B474F719DCB6365CE33"
+      },
+      "expect": "reject"
+    }
+  ]
+}
