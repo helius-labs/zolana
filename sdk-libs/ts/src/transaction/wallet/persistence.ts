@@ -22,9 +22,9 @@ import {
   type ViewingKeyEntry,
   type WalletUtxo,
 } from "./state.js";
+import { U64_MAX } from "../../interface/internal.js";
 
 const encodeBase64 = getBase64Decoder();
-const U64_MAX = 0xffff_ffff_ffff_ffffn;
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
 

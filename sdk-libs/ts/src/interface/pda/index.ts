@@ -8,7 +8,15 @@ import {
   type ProgramDerivedAddressBump,
 } from "@solana/kit";
 
-import { copyBytes, encodeBase58, fail, sha256, unsigned, unsignedBigint } from "../internal.js";
+import {
+  U64_MAX,
+  copyBytes,
+  encodeBase58,
+  fail,
+  sha256,
+  unsigned,
+  unsignedBigint,
+} from "../internal.js";
 import {
   SHIELDED_POOL_CPI_AUTHORITY,
   SHIELDED_POOL_PROGRAM_ID,
@@ -76,7 +84,7 @@ export async function cachePda(
   nonce: bigint,
 ): Promise<ProgramDerivedAddress> {
   const seed = new Uint8Array(8);
-  new DataView(seed.buffer).setBigUint64(0, unsignedBigint(nonce, (1n << 64n) - 1n, "nonce"), true);
+  new DataView(seed.buffer).setBigUint64(0, unsignedBigint(nonce, U64_MAX, "nonce"), true);
   return getProgramDerivedAddress({
     programAddress: SHIELDED_POOL_PROGRAM_ID,
     seeds: [encoder.encode("cache"), addressEncoder.encode(rentSponsor), seed],

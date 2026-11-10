@@ -1,4 +1,5 @@
 import { address } from "@solana/kit";
+import { BN254_SCALAR_ORDER } from "../../hasher/index.js";
 
 import { concatBytes, equalBytes } from "../../interface/bytes.js";
 import { NO_CACHE_WRITES, bindCacheWrite } from "../../interface/cache.js";
@@ -28,7 +29,7 @@ import {
   type Signature,
   type TransactOutput,
 } from "../../interface/types.js";
-import { randomBlinding, randomSalt, randomBytes } from "../../keypair/bytes.js";
+import { bigIntToBytes, randomBlinding, randomSalt, randomBytes } from "../../keypair/bytes.js";
 import { X25519PublicKey } from "../../keypair/x25519.js";
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 import { ViewingKey } from "../../keypair/viewing-key.js";
@@ -37,7 +38,6 @@ import { Data } from "../data.js";
 import { TransactionError } from "../error.js";
 import {
   ZERO_32,
-  bigIntBytes,
   checkU64,
   checked,
   copy,
@@ -62,6 +62,7 @@ import {
 import { DEFAULT_TREE_ID, MAX_INPUT_TREES } from "../../interface/tree-slot.js";
 import { Mint, SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
 import { sha256Bytes } from "../../keypair/hash.js";
+import { U64_MAX } from "../../interface/internal.js";
 
 export type { Shape };
 export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
@@ -72,11 +73,9 @@ export const SPP_SUPPORTED_SHAPES = INTERFACE_SUPPORTED_SHAPES;
  */
 export const SENDER_SLOT_COUNT = 2;
 
-/** The BN254 scalar modulus, as the decimal literal Rust pins. */
-export const BN254_MODULUS_DEC =
-  "21888242871839275222246405745257275088548364400416034343698204186575808495617";
+/** The BN254 scalar modulus as a decimal string, `BN254_SCALAR_ORDER`. */
+export const BN254_MODULUS_DEC = BN254_SCALAR_ORDER.toString();
 
-const BN254_MODULUS = BigInt(BN254_MODULUS_DEC);
 const I64_MIN = -(2n ** 63n);
 const I64_MAX = 2n ** 63n - 1n;
 
@@ -94,7 +93,7 @@ export function signedToField(value: bigint): Bytes32 {
       actual: String(value),
     });
   }
-  return bigIntBytes(value < 0n ? BN254_MODULUS + value : value) as Bytes32;
+  return bigIntToBytes(value < 0n ? BN254_SCALAR_ORDER + value : value) as Bytes32;
 }
 
 /** The field element an asset mint contributes to a proof's public inputs. */
@@ -246,7 +245,7 @@ export interface ExternalDataInit {
 }
 
 /** Rust's default expiry: `u64::MAX`, meaning no expiry. */
-const NO_EXPIRY = 0xffff_ffff_ffff_ffffn;
+const NO_EXPIRY = U64_MAX;
 function externalDataHash(data: ExternalDataFields): Bytes32 {
   if (data.outputs.length !== data.resolvedOwnerTags.length) {
     throw new TransactionError("TRANSACTION_OUTPUT_TAG_MISMATCH");
@@ -1609,7 +1608,7 @@ function finalizeTransfer(
   }
   const externalData = createExternalData({
     instructionDiscriminator: encrypted.instructionDiscriminator ?? InstructionTag.transact,
-    expiryUnixTs: 0xffff_ffff_ffff_ffffn,
+    expiryUnixTs: NO_EXPIRY,
     interfaceTransfers: prepared.interfaceTransfers,
     txViewingPublicKey: encrypted.txViewingPublicKey,
     salt: encrypted.salt,

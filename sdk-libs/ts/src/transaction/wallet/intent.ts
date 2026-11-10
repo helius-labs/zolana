@@ -14,6 +14,7 @@ import { ShieldedAddress } from "../../keypair/shielded.js";
 import type { PreparedTransfer, WithdrawalTarget } from "../instructions/transact.js";
 import { SOL_MINT } from "../asset.js";
 import { TransactionError } from "../error.js";
+import { U64_MAX } from "../../interface/internal.js";
 
 /** What the user approves, every field is bound into `intentHash`. */
 export type TransactionIntent =
@@ -462,8 +463,6 @@ function checkRingEntry(
   }
   if (entered !== intent.amount) throw mismatch("amount");
 }
-
-const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 /** @internal Structural intents arrive from callers, no field is trusted before it is checked. */
 export function checkTransactionIntent(

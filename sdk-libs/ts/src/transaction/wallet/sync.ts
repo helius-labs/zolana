@@ -53,8 +53,7 @@ import {
   type WalletUtxo,
   Wallet,
 } from "./state.js";
-
-const U64_MAX = 0xffff_ffff_ffff_ffffn;
+import { U64_MAX } from "../../interface/internal.js";
 
 /**
  * The tree id synced UTXOs are hashed under. A UTXO that lives in another tree

@@ -1,6 +1,7 @@
 import { getBase58Decoder, getBase58Encoder } from "@solana/kit";
 
 import type { PaginationToken } from "./types.js";
+import { U64_MAX } from "./internal.js";
 
 const encoder = getBase58Encoder();
 const decoder = getBase58Decoder();
@@ -18,11 +19,7 @@ export function paginationTokenPosition(value: unknown): {
     throw new Error("invalid pagination token");
   const slot = BigInt(slotText);
   const signature = Uint8Array.from(encoder.encode(signatureText));
-  if (
-    slot > 0xffff_ffff_ffff_ffffn ||
-    signature.length !== 64 ||
-    decoder.decode(signature) !== signatureText
-  ) {
+  if (slot > U64_MAX || signature.length !== 64 || decoder.decode(signature) !== signatureText) {
     throw new Error("invalid pagination token");
   }
   return { slot, signature };

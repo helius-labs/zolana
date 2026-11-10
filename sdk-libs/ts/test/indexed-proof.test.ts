@@ -11,7 +11,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { wireDecoder } from "../src/interface/decode.js";
 import { inputTreeSlots } from "../src/interface/tree-slot.js";
-import { BN254_MODULUS, bigintToBytes, checkedBytes } from "../src/client/internal.js";
+import { bigintToBytes, checkedBytes } from "../src/client/internal.js";
+import { BN254_SCALAR_ORDER } from "../src/hasher/index.js";
 import { asField, resolvedPublicInputHash } from "../src/client/prover/assembly.js";
 import { bytesToBigInt } from "../src/interface/bytes.js";
 
@@ -281,7 +282,7 @@ it("refuses a key holder's merge root at the field modulus as unparsable", async
       owner,
     );
     const prepared = Merge.fromKeypair(owner, [input]).prepare();
-    const modulus = checkedBytes(bigintToBytes(BN254_MODULUS, "root"), 32, "root");
+    const modulus = checkedBytes(bigintToBytes(BN254_SCALAR_ORDER, "root"), 32, "root");
     const keys = {
       prove: vi.fn(),
       proveMerge: vi.fn(),

@@ -1,30 +1,22 @@
-import { MAX_POSEIDON_INPUTS, poseidon as hash } from "../hasher/index.js";
+import { MAX_POSEIDON_INPUTS, poseidonOr } from "../hasher/index.js";
 
 import { InterfaceError } from "./errors.js";
 import { copyBytes } from "./internal.js";
 import type { Bytes32 } from "./types.js";
-import { bytesToBigInt, rightAlign } from "./bytes.js";
+import { rightAlign } from "./bytes.js";
 
-const BN254_MODULUS =
-  21_888_242_871_839_275_222_246_405_745_257_275_088_548_364_400_416_034_343_698_204_186_575_808_495_617n;
-
-// The bounds are checked here rather than left to the module so a rejection
-// still arrives as the `INTERFACE_HASH` its callers catch, with the detail that
-// says which input was wrong.
+/** The hasher's `poseidon`, rejecting an input as the `INTERFACE_HASH` its callers catch. */
 export function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
-  if (inputs.length < 1 || inputs.length > MAX_POSEIDON_INPUTS) {
-    throw new InterfaceError("INTERFACE_HASH", {
-      inputCount: inputs.length,
-      minimum: 1,
-      maximum: MAX_POSEIDON_INPUTS,
-    });
-  }
-  inputs.forEach((input, index) => {
-    if (input.length > 32 || bytesToBigInt(input) >= BN254_MODULUS) {
-      throw new InterfaceError("INTERFACE_HASH", { index, length: input.length });
-    }
-  });
-  return hash(inputs) as Bytes32;
+  return poseidonOr(inputs, (failure) => {
+    if (failure.code === "NotInitialized") return failure;
+    const { inputCount, index, length } = failure.details;
+    return new InterfaceError(
+      "INTERFACE_HASH",
+      inputCount === undefined
+        ? { index, length }
+        : { inputCount, minimum: 1, maximum: MAX_POSEIDON_INPUTS },
+    );
+  }) as Bytes32;
 }
 
 function checkedCompressedKey(compressed: Uint8Array): Uint8Array {
