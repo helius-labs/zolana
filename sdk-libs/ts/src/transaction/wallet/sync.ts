@@ -17,14 +17,12 @@ import {
   confidentialUtxo,
   decodePlaintextTransfer,
   decodeProofless,
-  decodeSplitBundle,
   decodeConfidential,
   decryptConfidentialAsSender,
   prooflessUtxo,
   plaintextTransferUtxos,
   readOutputData,
   readOutputFrame,
-  splitBundleUtxos,
   splitEmbeddedKey,
   type ProoflessOutput,
 } from "../serialization/codecs.js";
@@ -101,13 +99,11 @@ interface Site {
 }
 
 /**
- * Where each view tag the fetched slots carry can be opened, split the way a
- * wallet reads them: a sender bundle covers the whole transaction, every other
- * scheme is one recipient slot. A transaction no slot of which names a known
- * scheme is unparsed, which is the one count that does not depend on a key.
+ * Where each view tag the fetched slots carry can be opened, one site per slot.
+ * A transaction no slot of which names a known scheme is unparsed, which is the
+ * one count that does not depend on a key.
  */
 interface TagIndex {
-  readonly senderSites: ReadonlyMap<string, readonly number[]>;
   readonly recipientSites: ReadonlyMap<string, readonly Site[]>;
   readonly mergeSites: readonly Site[];
   readonly unparsedTransactions: number;
@@ -120,7 +116,6 @@ function pushInto<T>(into: Map<string, T[]>, tag: string, value: T): void {
 }
 
 function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): TagIndex {
-  const senderSites = new Map<string, number[]>();
   const recipientSites = new Map<string, Site[]>();
   const mergeSites: Site[] = [];
   let unparsedTransactions = 0;
@@ -135,23 +130,17 @@ function buildTagIndex(transactions: readonly IndexedShieldedTransaction[]): Tag
       continue;
     }
     for (const [index, slot] of tx.outputSlots.entries()) {
-      let scheme: EncryptedScheme;
       try {
-        scheme = readOutputData(slot.payload).scheme;
+        readOutputData(slot.payload);
       } catch {
         continue;
       }
-      const tag = bytesKey(slot.viewTag);
-      if (scheme === EncryptedScheme.split) {
-        pushInto(senderSites, tag, transaction);
-      } else {
-        pushInto(recipientSites, tag, { transaction, slot: index });
-      }
+      pushInto(recipientSites, bytesKey(slot.viewTag), { transaction, slot: index });
       classified = true;
     }
     if (!classified) unparsedTransactions++;
   }
-  return { senderSites, recipientSites, mergeSites, unparsedTransactions };
+  return { recipientSites, mergeSites, unparsedTransactions };
 }
 
 /** Every other scheme byte, known or not, belongs to a custom ring. */
@@ -159,7 +148,6 @@ const WALLET_SCHEMES: ReadonlySet<number> = new Set([
   EncryptedScheme.proofless,
   EncryptedScheme.confidential,
   EncryptedScheme.ringConfidential,
-  EncryptedScheme.split,
   EncryptedScheme.merge,
   EncryptedScheme.plaintextTransfer,
 ]);
@@ -207,6 +195,23 @@ function covered(spent: ReadonlyMap<Address, bigint>, kept: readonly Utxo[]): bo
   if (spent.size === 0) return false;
   const byAsset = amountsByAsset(kept);
   return [...spent].every(([asset, amount]) => (byAsset.get(asset) ?? 0n) >= amount);
+}
+
+/** At least two plain default-ring UTXOs of one asset and amount that return exactly the spend. */
+function equalParts(spent: ReadonlyMap<Address, bigint>, kept: readonly Utxo[]): boolean {
+  const [first] = kept;
+  return (
+    first !== undefined &&
+    kept.length >= 2 &&
+    kept.every(
+      (utxo) =>
+        utxo.asset === first.asset &&
+        utxo.amount === first.amount &&
+        utxo.ringProgramId === undefined &&
+        utxo.data.isEmpty(),
+    ) &&
+    sameAmounts(spent, kept)
+  );
 }
 
 function sameAmounts(spent: ReadonlyMap<Address, bigint>, kept: readonly Utxo[]): boolean {
@@ -657,8 +662,13 @@ class SyncPass {
 
     const spent = this.#spentAmounts(tx.nullifiers);
     // Paying yourself keeps every output, so nothing distinguishes it from
-    // change except that the change covers the whole spend.
-    if (recipients.length === 0 && covered(spent, change)) {
+    // change except that the change covers the whole spend. A split pays the
+    // spend back to the wallet in equal parts.
+    if (
+      (recipients.length === 0 && covered(spent, change)) ||
+      (recipients.every(({ key }) => this.#isSelf(key)) &&
+        equalParts(spent, [...change, ...recipients.map(({ utxo }) => utxo)]))
+    ) {
       this.#recordSplit(tx, spent);
       return;
     }
@@ -705,8 +715,8 @@ class SyncPass {
   /**
    * Decode one candidate slot, dispatching on its encoding and scheme byte.
    * Recipient and confidential slots are 1:1 and verified against the slot's
-   * committed leaf; the split sender bundle, passed as slot 0, stores its
-   * change against the whole transaction.
+   * committed leaf; a plaintext transfer stores each UTXO against the slot
+   * whose leaf it reproduces.
    */
   decodeSlot(viewingPublicKey: X25519PublicKey, site: Site): void {
     const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
@@ -797,26 +807,6 @@ class SyncPass {
         if (!this.#authored(tx, viewingPublicKey)) {
           this.#recordReceived(tx, site.slot, utxo);
         }
-      }
-      return;
-    }
-
-    if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.split) {
-      let utxos: readonly Utxo[];
-      const decrypted = this.#decryptSlot(viewingPublicKey, tx, body, site.slot, siteKey);
-      if (decrypted === undefined) return;
-      try {
-        utxos = splitBundleUtxos(decodeSplitBundle(decrypted), this.#assets, firstNullifierOf(tx));
-      } catch (error) {
-        this.#recordUndecryptable(error, siteKey);
-        return;
-      }
-      this.#resolveAssetCandidate(siteKey);
-      for (const utxo of utxos) this.#storeInTx(utxo, tx);
-      this.#processedSlots.add(siteKey);
-      if (!this.#processedOutbound.has(site.transaction)) {
-        this.#processedOutbound.add(site.transaction);
-        this.#recordSplit(tx, this.#spentAmounts(tx.nullifiers));
       }
       return;
     }
@@ -986,9 +976,6 @@ class SyncPass {
         this.decodeSlot(viewingPublicKey, site);
       }
       for (const site of recipientSites(identityTag)) this.decodeSlot(viewingPublicKey, site);
-      for (const transaction of index.senderSites.get(identityTag) ?? []) {
-        this.decodeSlot(viewingPublicKey, { transaction, slot: 0 });
-      }
       this.#transactions.forEach((tx, position) => {
         this.recordConfidentialSend(tx, position, viewingPublicKey);
       });

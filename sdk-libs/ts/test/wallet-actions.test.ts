@@ -6,6 +6,7 @@ import {
   signTransactionWithSigners,
   type Address,
   type Blockhash,
+  type Signature,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
@@ -41,9 +42,11 @@ import {
   Utxo,
   Wallet,
   decryptToBalances,
+  decryptTransactions,
   serializeWallet,
   type ShieldedKeys,
 } from "../src/transaction/index.js";
+import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
 import {
   createMultiTransfer,
@@ -811,6 +814,66 @@ describe("unsigned public transaction builders", () => {
     expect(assemble).toHaveBeenCalledTimes(1);
     expect(wallet.balance(SOL_MINT).amount).toBe(100n);
     expect(wallet.utxos()[0]?.spent).toBe(false);
+  });
+
+  it("writes every split part as a confidential output the owner syncs back", async () => {
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [90n]);
+    const { client, assemble } = capturePrivateBuild();
+
+    await buildSplitTransaction({
+      client,
+      wallet,
+      keys: localKeys(keypair),
+      feePayer: keypair.shieldedAddress().solanaAddress(),
+      parts: 3,
+    });
+
+    const authorized = (assemble.mock.calls[0]![0] as { authorized: AuthorizedPrivateTransaction })
+      .authorized;
+    const material = authorizedPrivateTransactionMaterial(authorized);
+    if (material === undefined) throw new Error("authorization was not minted");
+    const { proofInputs } = material;
+    const external = proofInputs.externalData;
+    const parts = proofInputs.outputs.filter((output) => !output.isDummy());
+    expect(parts.map((output) => output.amount)).toEqual([30n, 30n, 30n]);
+    // Confidential is the one scheme a Rust wallet reads a self-owned output from.
+    for (const index of parts.keys()) {
+      expect(readOutputData(external.outputs[index]!.data!)).toMatchObject({
+        scheme: EncryptedScheme.confidential,
+        encoding: "encrypted",
+      });
+    }
+
+    await decryptTransactions({
+      wallet,
+      keys: LocalShieldedKeys.fromKeypair(keypair),
+      transactions: [
+        {
+          slot: 1n,
+          txSignature: "1".repeat(64) as Signature,
+          txViewingPublicKey: external.txViewingPublicKey,
+          salt: external.salt,
+          outputSlots: external.outputs.map((output, index) => ({
+            viewTag: external.resolvedOwnerTags[index]!,
+            outputContext: { hash: output.utxoHash, tree: TREE, leafIndex: BigInt(index + 1) },
+            payload: output.data ?? new Uint8Array(),
+          })),
+          messages: [],
+          nullifiers: proofInputs.inputContexts().map((input) => input.nullifier),
+          proofless: false,
+        },
+      ],
+    });
+    expect(
+      wallet
+        .utxos()
+        .filter((entry) => !entry.spent)
+        .map((entry) => entry.utxo.amount),
+    ).toEqual([30n, 30n, 30n]);
+    expect(wallet.privateTransactions()).toMatchObject([
+      { kind: "split", direction: "selfTransfer", asset: SOL_MINT, amount: 90n },
+    ]);
   });
 
   it("applies split defaults without mutating the wallet", async () => {

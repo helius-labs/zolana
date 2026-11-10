@@ -1,6 +1,6 @@
 import { equalBytes } from "../../interface/bytes.js";
-import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.js";
-import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
+import type { Address, Bytes16, Bytes32 } from "../../interface/types.js";
+import { randomSalt } from "../../keypair/bytes.js";
 import {
   mergeDummyNullifier,
   mergeOutputBlinding,
@@ -8,36 +8,25 @@ import {
   mergePrivateTxBlinding,
 } from "../../keypair/merge/index.js";
 import type { ShieldedPublicKey } from "../../keypair/public-key.js";
-import { X25519PublicKey } from "../../keypair/x25519.js";
 import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 
-import { Data } from "../data.js";
 import {
   MAX_MERGE_INPUTS,
   MERGE_SUPPORTED_INPUT_COUNTS,
   mergePaddedInputCount,
 } from "../../interface/constants.js";
 import { TransactionError } from "../error.js";
-import { checked, decodeAddress } from "../internal.js";
+import { checked } from "../internal.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
-import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import { encryptMergeOutput, type MergeOutputCiphertext } from "../serialization/merge.js";
 import {
   ProofInputUtxo,
   checkedTreeId,
   createProofOutput,
-  outputBlindingSeed,
-  transactOutputBlinding,
   type ProofOutputUtxo,
   type TreeId,
 } from "../utxo.js";
-import { type AssetRegistry } from "../asset.js";
-import {
-  SppProofInputs,
-  createExternalData,
-  singleInputTreeId,
-  type InputUtxoContext,
-} from "./transact.js";
+import { singleInputTreeId, type InputUtxoContext } from "./transact.js";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
@@ -445,280 +434,5 @@ export class Merge {
       outputTreeId: checkedTreeId(outputTreeId),
     });
     return this;
-  }
-}
-
-export class ConfidentialSplit {
-  readonly #owner: ShieldedAddress;
-  readonly #input: ProofInputUtxo;
-  readonly #asset: Address;
-  readonly #numOutputs: number;
-  readonly #perOutputAmount: bigint;
-  readonly #payer: Address;
-  readonly #blindingSeed = randomBlinding();
-  #outputTreeId: TreeId = DEFAULT_TREE_ID;
-
-  constructor(
-    input: Readonly<{
-      owner: ShieldedAddress;
-      input: ProofInputUtxo;
-      asset: Address;
-      numOutputs: number;
-      perOutputAmount: bigint;
-      payer: Address;
-    }>,
-  ) {
-    if (!Number.isInteger(input.numOutputs) || input.numOutputs < 2 || input.numOutputs > 8) {
-      throw new TransactionError("TRANSACTION_SPLIT_INVALID_PART_COUNT", {
-        numOutputs: input.numOutputs,
-      });
-    }
-    // Ownership is proven from the nullifier secret behind `ownerHash`, so an
-    // input the splitter cannot open is unprovable. A zero-owner slot has no
-    // openable owner hash at all.
-    if (input.input.isDummy()) {
-      throw new TransactionError("TRANSACTION_SPLIT_INPUT_IS_DUMMY");
-    }
-    if (!equalBytes(input.input.utxo.owner.toBytes(), input.owner.signingPublicKey.toBytes())) {
-      throw new TransactionError("TRANSACTION_SPLIT_INPUT_OWNER_MISMATCH");
-    }
-    if (!equalBytes(input.input.nullifierPublicKey, input.owner.nullifierPublicKey)) {
-      throw new TransactionError("TRANSACTION_SPLIT_INPUT_NULLIFIER_KEY_MISMATCH");
-    }
-    if (input.input.utxo.asset !== input.asset) {
-      throw new TransactionError("TRANSACTION_SPLIT_INPUT_ASSET_MISMATCH");
-    }
-    if (input.input.utxo.ringProgramId !== undefined) {
-      throw new TransactionError("TRANSACTION_SPLIT_INPUT_RING_MISMATCH");
-    }
-    if (
-      input.input.dataHash !== undefined ||
-      input.input.ringDataHash !== undefined ||
-      !input.input.utxo.data.isEmpty()
-    ) {
-      throw new TransactionError("TRANSACTION_SPLIT_INPUT_HAS_DATA");
-    }
-    const perOutputAmount = checkedU64(input.perOutputAmount, "perOutputAmount");
-    if (perOutputAmount * BigInt(input.numOutputs) !== input.input.utxo.amount) {
-      throw new TransactionError("TRANSACTION_SPLIT_AMOUNT_MISMATCH", {
-        input: input.input.utxo.amount.toString(),
-        numOutputs: input.numOutputs,
-        perOutput: perOutputAmount.toString(),
-      });
-    }
-    this.#owner = input.owner;
-    this.#input = input.input;
-    this.#asset = input.asset;
-    this.#numOutputs = input.numOutputs;
-    this.#perOutputAmount = perOutputAmount;
-    this.#payer = input.payer;
-  }
-
-  /** Mirrors Rust `with_output_tree_id`; `DEFAULT_TREE_ID` unless set. */
-  withOutputTreeId(outputTreeId: TreeId): this {
-    this.#outputTreeId = checkedTreeId(outputTreeId);
-    return this;
-  }
-
-  prepare(): PreparedSplit {
-    // All eight slots are self-owned real outputs, the unused ones at amount
-    // zero; every blinding derives from the first nullifier and the slot index.
-    const firstNullifier = this.#input.nullifier();
-    const outputSeed = outputBlindingSeed(firstNullifier, this.#blindingSeed);
-    const outputs = Array.from({ length: SPLIT_OUTPUT_SLOTS }, (_, index) =>
-      createProofOutput({
-        ownerAddress: this.#owner,
-        asset: this.#asset,
-        amount: index < this.#numOutputs ? this.#perOutputAmount : 0n,
-        blinding: transactOutputBlinding(firstNullifier, outputSeed, index),
-      }),
-    );
-    return new PreparedSplit({
-      owner: this.#owner,
-      input: this.#input,
-      outputs,
-      numOutputs: this.#numOutputs,
-      perOutputAmount: this.#perOutputAmount,
-      blindingSeed: this.#blindingSeed,
-      outputTreeId: this.#outputTreeId,
-      payer: this.#payer,
-    });
-  }
-
-  /**
-   * Keypair shortcut: seal the bundle at slot 0 under the owner's own viewing
-   * key in one step. The keys rail is `prepare`, `encryptSplit` over the key
-   * `ShieldedKeys.transactionKeys` returns, then `PreparedSplit.finalize`.
-   */
-  sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
-    const prepared = this.prepare();
-    const viewingKey = keypair.viewingKey();
-    const tx = viewingKey.transactionViewingKey(prepared.firstNullifier);
-    try {
-      const salt = randomSalt();
-      return prepared.finalize({
-        txViewingPublicKey: tx.publicKey(),
-        salt,
-        payload: {
-          viewTag: prepared.ownerViewTag(),
-          data: encryptSplit(
-            tx,
-            prepared.owner.viewingPublicKey,
-            encodeSplitBundle(prepared.bundlePlaintext(assets)),
-            salt,
-            0,
-          ),
-        },
-      });
-    } finally {
-      tx.destroy();
-      viewingKey.destroy();
-    }
-  }
-}
-
-/** Output slots of the split circuit shape (1 in, 8 out). Mirrors Rust `SPLIT_OUTPUT_SLOTS`. */
-export const SPLIT_OUTPUT_SLOTS = 8;
-
-export class PreparedSplit {
-  readonly owner: ShieldedAddress;
-  readonly input: ProofInputUtxo;
-  readonly asset: Address;
-  readonly outputs: readonly ProofOutputUtxo[];
-  readonly firstNullifier: Bytes32;
-  readonly numOutputs: number;
-  readonly perOutputAmount: bigint;
-  /** The private root seed; only the prover request may carry it. */
-  readonly blindingSeed: Bytes32;
-  /** The tree the input is spent from. */
-  readonly inputTreeId: TreeId;
-  /** The tree the eight outputs are appended to. */
-  readonly outputTreeId: TreeId;
-  readonly payer: Address;
-
-  constructor(
-    input: Readonly<{
-      owner: ShieldedAddress;
-      input: ProofInputUtxo;
-      outputs: readonly ProofOutputUtxo[];
-      numOutputs: number;
-      perOutputAmount: bigint;
-      blindingSeed: Bytes32;
-      outputTreeId: TreeId;
-      payer: Address;
-    }>,
-  ) {
-    if (
-      !Number.isInteger(input.numOutputs) ||
-      input.numOutputs < 2 ||
-      input.numOutputs > SPLIT_OUTPUT_SLOTS
-    ) {
-      throw new TransactionError("TRANSACTION_SPLIT_INVALID_PART_COUNT", {
-        numOutputs: input.numOutputs,
-      });
-    }
-    if (input.outputs.length !== SPLIT_OUTPUT_SLOTS) {
-      throw new TransactionError("TRANSACTION_INVALID_OUTPUT_COUNT", {
-        expected: SPLIT_OUTPUT_SLOTS,
-        actual: input.outputs.length,
-      });
-    }
-    const perOutputAmount = checkedU64(input.perOutputAmount, "perOutputAmount");
-    const blindingSeed = checked<Bytes32>(input.blindingSeed, 32, "blinding seed");
-    const firstNullifier = input.input.nullifier();
-    const outputSeed = outputBlindingSeed(firstNullifier, blindingSeed);
-    input.outputs.forEach((output, index) => {
-      const expectedAmount = index < input.numOutputs ? perOutputAmount : 0n;
-      if (
-        !equalBytes(output.ownerHash(), input.owner.ownerHash()) ||
-        output.asset !== input.input.utxo.asset ||
-        output.amount !== expectedAmount ||
-        !equalBytes(output.blinding, transactOutputBlinding(firstNullifier, outputSeed, index)) ||
-        output.ringProgramId !== undefined ||
-        output.ringDataHash !== undefined ||
-        output.dataHash !== undefined ||
-        !output.data.isEmpty()
-      ) {
-        throw new TransactionError("TRANSACTION_OUTPUT_DATA_MISMATCH", { index });
-      }
-    });
-    this.owner = input.owner;
-    this.input = input.input;
-    this.asset = input.input.utxo.asset;
-    this.outputs = Object.freeze([...input.outputs]);
-    this.firstNullifier = firstNullifier;
-    this.numOutputs = input.numOutputs;
-    this.perOutputAmount = perOutputAmount;
-    this.blindingSeed = blindingSeed;
-    this.inputTreeId = input.input.treeId;
-    this.outputTreeId = checkedTreeId(input.outputTreeId);
-    this.payer = input.payer;
-  }
-
-  /** The derived seed the bundle discloses; the root `blindingSeed` never leaves the prover path. */
-  outputBlindingSeed(): Bytes32 {
-    return outputBlindingSeed(this.firstNullifier, this.blindingSeed);
-  }
-
-  /**
-   * The bundle carries the derived output seed, never the root: all eight
-   * outputs are self-owned, and a reader recovers every blinding from the seed
-   * and the first nullifier.
-   */
-  bundlePlaintext(
-    assets: AssetRegistry,
-  ): import("../serialization/codecs.js").SplitBundlePlaintext {
-    return {
-      ownerPublicKey: this.owner.signingPublicKey,
-      numOutputs: this.numOutputs,
-      assetId: assets.assetId(this.input.utxo.asset),
-      assetAmount: this.perOutputAmount,
-      blindingSeed: this.outputBlindingSeed(),
-      data: new Data(),
-    };
-  }
-
-  /**
-   * The owner's confidential view tag. It tags the bundle at slot 0 and every
-   * covered real output, and equals the bundle view tag because the split is
-   * self-owned.
-   */
-  ownerViewTag(): Bytes32 {
-    return this.owner.confidentialViewTag();
-  }
-
-  finalize(
-    input: Readonly<{
-      txViewingPublicKey: X25519PublicKey;
-      salt: Bytes16;
-      payload: Readonly<{ viewTag: Bytes32; data: Uint8Array }>;
-    }>,
-  ): SppProofInputs {
-    const tag = this.ownerViewTag();
-    // A split is self-owned throughout. When the owner is the fee payer the tag
-    // is already account index 0 and costs 2 bytes instead of 33; a sponsored
-    // split carries the inline tag.
-    const ownerTag: OwnerTag = equalBytes(tag, decodeAddress(this.payer))
-      ? { kind: "account", index: 0 }
-      : { kind: "inline", value: tag };
-    const outputs = this.outputs.map((output, index) => ({
-      utxoHash: output.hash(this.outputTreeId),
-      ownerTag,
-      ...(index === 0 ? { data: new Uint8Array(input.payload.data) } : {}),
-    }));
-    return new SppProofInputs({
-      payer: this.payer,
-      inputUtxos: [this.input],
-      outputs: this.outputs,
-      externalData: createExternalData({
-        txViewingPublicKey: input.txViewingPublicKey,
-        salt: input.salt,
-        outputs,
-        resolvedOwnerTags: this.outputs.map(() => tag),
-        messages: [],
-      }),
-      blindingSeed: this.blindingSeed,
-      outputTreeId: this.outputTreeId,
-    });
   }
 }

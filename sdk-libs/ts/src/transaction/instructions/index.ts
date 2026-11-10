@@ -1,4 +1,4 @@
-export { ConfidentialSplit, Merge, PreparedMerge, PreparedSplit } from "./builders.js";
+export { Merge, PreparedMerge } from "./builders.js";
 export {
   BN254_MODULUS_DEC,
   ConfidentialTransfer,

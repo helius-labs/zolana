@@ -306,6 +306,10 @@ export function checkPreparedTransfer(
     case "withdrawal":
       checkSettlement(prepared, intent, mismatch);
       return;
+    case "split":
+      if (prepared.interfaceTransfers.length > 0) throw mismatch("settlements");
+      checkSplitOutputs(prepared, prepared.owner, intent, mismatch);
+      return;
     case "ringTransfer": {
       if (prepared.interfaceTransfers.length > 0) throw mismatch("settlements");
       const outputRing = intent.boundary === "exit" ? undefined : intent.ringProgramId;
@@ -655,32 +659,39 @@ export function checkAuthorizedBinding(
       checkChangeOutputs(view, authorized.owner, intent.asset, mismatch);
       checkWithdrawalAccounts(authorized.withdrawal, intent, mismatch);
       return;
-    case "split": {
+    case "split":
       if (authorized.withdrawal !== undefined) throw mismatch("withdrawal");
       if (view.interfaceTransfers.length > 0) throw mismatch("settlements");
-      const ownerBytes = authorized.owner.toBytes();
-      let funded = 0;
-      for (const output of view.outputs) {
-        if (output.isDummy()) continue;
-        if (
-          output.ownerAddress === undefined ||
-          !equalBytes(output.ownerAddress.toBytes(), ownerBytes)
-        ) {
-          throw mismatch("recipient");
-        }
-        if (output.asset !== intent.asset) throw mismatch("asset");
-        if (output.ringProgramId !== undefined) throw mismatch("ringProgramId");
-        // Zero-amount slots are the split's padding, only funded parts count.
-        if (output.amount === 0n) continue;
-        funded++;
-        if (output.amount !== intent.perOutputAmount) throw mismatch("amount");
-      }
-      if (funded !== intent.numOutputs) throw mismatch("numOutputs");
+      checkSplitOutputs(view, authorized.owner, intent, mismatch);
       return;
-    }
     default:
       throw mismatch("kind");
   }
+}
+
+/** Every real output is one part: owned by the splitter, in the asset, at the part amount. */
+function checkSplitOutputs(
+  view: OutputsView,
+  owner: ShieldedAddress,
+  intent: Extract<TransactionIntent, { kind: "split" }>,
+  mismatch: (field: string) => Error,
+): void {
+  const ownerBytes = owner.toBytes();
+  let parts = 0;
+  for (const output of view.outputs) {
+    if (output.isDummy()) continue;
+    if (
+      output.ownerAddress === undefined ||
+      !equalBytes(output.ownerAddress.toBytes(), ownerBytes)
+    ) {
+      throw mismatch("recipient");
+    }
+    if (output.asset !== intent.asset) throw mismatch("asset");
+    if (output.ringProgramId !== undefined) throw mismatch("ringProgramId");
+    if (output.amount !== intent.perOutputAmount) throw mismatch("amount");
+    parts++;
+  }
+  if (parts !== intent.numOutputs) throw mismatch("numOutputs");
 }
 
 function checkChangeOutputs(

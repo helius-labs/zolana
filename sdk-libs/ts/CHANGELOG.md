@@ -27,6 +27,7 @@ Breaking
 - `TreeFeeSchedule.feePerNullifier` becomes `feePerTree`, a flat fee a transact or merge payer pays once to every tree the transaction writes, and `defaultTreeFees()` takes no argument and returns 5,000 lamports per tree with forester reimbursements at cost → rename the field, drop the ZKP batch size argument, and fund payers for the per-tree fee.
 - `buildKeyUpdateTransaction` sends only the new viewing key, and the user-registry program refuses the earlier layout that also carried the nullifier key → upgrade the SDK together with the user-registry program.
 - `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` are removed → use `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS`, `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS` and `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+- `buildSplitTransaction` writes every part as a confidential output that Rust and mobile wallets and `syncWallet` read, and `ConfidentialSplit`, `PreparedSplit`, `encryptSplit`, `EncryptedSplit`, `SplitBundlePlaintext`, `SplitEncryptedUtxos`, `splitBundleFromUtxos`, `decodeSplitBundle`, `decodeSplitEncrypted`, `SPLIT`, `EncryptedScheme.split` and the error codes only they threw are removed → split with `buildSplitTransaction`, or with a `ConfidentialTransfer` that sends each part to the owner.
 
 Added
 

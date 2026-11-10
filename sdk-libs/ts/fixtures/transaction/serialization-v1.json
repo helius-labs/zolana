@@ -44,17 +44,6 @@
         "borshBytes": "19d91dab50559df9c77bac08827388cf0afb1afd1142b0a42e7c97f878774d140c4a4b1da9c0c2ed562538ed4131a5262745dd31bb44aed79f5b65397b67d55e00000000000000000000000000000000000000000000000000000000000000002100000000000000000000000000",
         "envelopeBorshBytes": "006f0000000019d91dab50559df9c77bac08827388cf0afb1afd1142b0a42e7c97f878774d140c4a4b1da9c0c2ed562538ed4131a5262745dd31bb44aed79f5b65397b67d55e00000000000000000000000000000000000000000000000000000000000000002100000000000000000000000000",
         "roundTripVerified": true
-      },
-      "split": {
-        "encryptedBodyBytes": "5eb7a9f5e6f482493e954611b780e01b8c1a51d2055a8eb4e9c3155acbdbef3b83d5a1a222380a2960015563f90a9b85ca9b4e920906df9a5e05b702a0ce46538d00ea3b969d177e70ce199f77d3feb55119b73befce99015b70759a",
-        "envelopeBorshBytes": "015d000000055eb7a9f5e6f482493e954611b780e01b8c1a51d2055a8eb4e9c3155acbdbef3b83d5a1a222380a2960015563f90a9b85ca9b4e920906df9a5e05b702a0ce46538d00ea3b969d177e70ce199f77d3feb55119b73befce99015b70759a",
-        "roundTripVerified": true,
-        "wincodeBytes": "013ee2a8a7283cb2fd728943daa127ef09e483071a8b4bc699ba4522f09b14cfde000301000000000000000c00000000000000101ca8d5efbde9db3fc57836786355e0282bc3acb2b3bc12e2fc66173cde2fd801030500636f646563"
-      },
-      "splitEncrypted": {
-        "ciphertextLengthPrefixBytes": "0500",
-        "roundTripVerified": true,
-        "wincodeBytes": "020463713eb7bb8611e991e69fc37fe0c499c2a867ebbf4a46c37461cfe392f7ad2d0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a05000102030405"
       }
     },
     "schemes": [
@@ -82,11 +71,6 @@
         "byte": "4",
         "name": "RingConfidential",
         "roundTripByte": "4"
-      },
-      {
-        "byte": "5",
-        "name": "Split",
-        "roundTripByte": "5"
       },
       {
         "byte": "6",

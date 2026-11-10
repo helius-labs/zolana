@@ -9,11 +9,8 @@ export {
 } from "./keys.js";
 export {
   encryptConfidentialTransfer,
-  encryptSplit,
   type EncryptedEnvelope,
-  type EncryptedSplit,
   type EncryptedTransfer,
-  type SplitBundlePlaintext,
 } from "./encrypt-rails.js";
 export {
   approveIntent,
