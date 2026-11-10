@@ -2,6 +2,7 @@ import { address } from "@solana/kit";
 
 import { concatBytes, equalBytes } from "../../interface/bytes.js";
 import { NO_CACHE_WRITES, bindCacheWrite } from "../../interface/cache.js";
+import { MAX_INTERFACE_TRANSFERS } from "../../interface/constants.js";
 import {
   externalDataHash as interfaceExternalDataHash,
   type SettlementAccounts,
@@ -276,10 +277,10 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
     }
   };
   checkedInteger(data.expiryUnixTs, 8);
-  if (data.interfaceTransfers.length > 0xff) {
+  if (data.interfaceTransfers.length > MAX_INTERFACE_TRANSFERS) {
     throw new TransactionError("TRANSACTION_TOO_MANY_INTERFACE_TRANSFERS", {
       got: data.interfaceTransfers.length,
-      max: 0xff,
+      max: MAX_INTERFACE_TRANSFERS,
     });
   }
   for (const transfer of data.interfaceTransfers) {

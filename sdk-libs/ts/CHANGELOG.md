@@ -43,8 +43,8 @@ Changed
 Fixed
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
-- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows.
-- `syncWallet` failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note, and now stores the note.
+- `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits and failed with `TRANSACTION_KEYS_UNRESOLVED` when a reserved or unknown output scheme accompanied a confidential note; it now omits those history rows and stores the note.
+- `ExternalData.hash()` and `encodeTransactInstructionData` accepted up to 255 interface transfers, which the program rejects above 32; they now refuse more than `MAX_INTERFACE_TRANSFERS` (32, exported from `@heliuslabs/spr/interface`) with `TRANSACTION_TOO_MANY_INTERFACE_TRANSFERS` and `INTERFACE_INVALID_LENGTH`.
 - `ProverClient` requests with a trailing slash remain decryptable when the gateway trims it; update the prover with the SDK.
 
 ## 0.8.0-alpha — 2026-11-03

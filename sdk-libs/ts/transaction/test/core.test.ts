@@ -1,6 +1,7 @@
 import {
   DEFAULT_TREE_ID,
   DUMMY_DOMAIN,
+  MAX_INTERFACE_TRANSFERS,
   UTXO_DOMAIN,
   treeIdField,
   type Address,
@@ -28,6 +29,7 @@ import {
   Utxo,
   Wallet,
   canonicalShape,
+  createExternalData,
   createProofOutput,
   depositBlinding,
   outputBlindingSeed,
@@ -630,6 +632,31 @@ describe("transaction core", () => {
           blinding: new Uint8Array(32) as Bytes32,
         }),
     ).toThrow(TransactionError);
+  });
+
+  it("caps interface transfers at the protocol maximum", () => {
+    const transfer = {
+      kind: "sol",
+      isDeposit: true,
+      amount: 1n,
+      userSolAccount: RING,
+    } as const;
+    const atLimit = createExternalData({
+      txViewingPublicKey: keyMaterial().keypair.viewingPublicKey(),
+      salt: new Uint8Array(16) as Bytes16,
+      interfaceTransfers: Array.from({ length: MAX_INTERFACE_TRANSFERS }, () => transfer),
+      outputs: [],
+      resolvedOwnerTags: [],
+      messages: [],
+    });
+    expect(MAX_INTERFACE_TRANSFERS).toBe(32);
+    expect(atLimit.hash()).toHaveLength(32);
+    expect(() => atLimit.withInterfaceTransfer(transfer).hash()).toThrow(
+      expect.objectContaining({
+        code: "TRANSACTION_TOO_MANY_INTERFACE_TRANSFERS",
+        details: { got: MAX_INTERFACE_TRANSFERS + 1, max: MAX_INTERFACE_TRANSFERS },
+      }),
+    );
   });
 
   it("keeps transaction diagnostics closed and redacted", () => {
