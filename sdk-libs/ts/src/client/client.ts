@@ -14,7 +14,8 @@ import {
 
 import { SprApi } from "../api/index.js";
 import { resolveClientEndpoints } from "../endpoint.js";
-import { equalBytes } from "../interface/bytes.js";
+import { bytesToBigInt, equalBytes } from "../interface/bytes.js";
+import type { ExpectedProvingKey } from "../interface/proving-keys.js";
 import {
   mergeTransactInstruction,
   transactInstruction,
@@ -85,6 +86,8 @@ import {
 } from "./prover/assembly.js";
 import {
   ProverClient,
+  mergeProvingKey,
+  transferProvingKey,
   type AsyncPollConfig,
   type ProverHealth,
   type ProvingKeyReport,
@@ -94,7 +97,13 @@ import { assembleMerge } from "./prover/merge.js";
 import type { ProverTee } from "./prover/tee/session.js";
 import type { AttestedProver } from "./prover/tee/verify.js";
 import { compressProof } from "./prover/proof.js";
-import type { TransactOwnerSigner, TransferCircuit, TransferInputs } from "./prover/types.js";
+import type {
+  Proof,
+  TransactOwnerSigner,
+  TransferCircuit,
+  TransferInputs,
+} from "./prover/types.js";
+import { verifyProofStatement } from "./prover/verify.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -230,6 +239,7 @@ export class SprClient
   readonly #priorityFee: bigint | undefined;
   readonly #indexerConfig: IndexerRpcConfig;
   readonly #proofDataSource: ProofDataSource;
+  readonly #provingKeys: ProvingKeySet | undefined;
 
   constructor(input: SprClientConfig) {
     const candidate: unknown = input;
@@ -330,6 +340,7 @@ export class SprClient
     this.commitment = commitment;
     this.#indexer = indexer;
     this.#prover = prover;
+    this.#provingKeys = provingKeys;
     this.proofService = prover;
     this.#priorityFee = input.priorityFeeLamports;
     const indexerConfig = input.indexerConfig ?? DEFAULT_INDEXER_RPC_CONFIG;
@@ -939,11 +950,25 @@ export class SprClient
     );
   }
 
+  /** Proves `inputs` and checks the proof against `inputs.publicInputHash` before returning it. */
   proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof> {
     return this.#proving(async () => {
-      const proof = await this.#prover.prove(checkedProverInputs(inputs), context);
+      const request = checkedProverInputs(inputs);
+      const proof = await this.#prover.prove(request, context);
+      this.#verify(proof, request.payload.publicInputHash, transferProvingKey(request));
       return compressProof(proof).toTransactProof();
     });
+  }
+
+  /**
+   * A proof from the prover or a proof authority is checked against the
+   * statement this client built before any transaction carries it, so a
+   * faulty or hostile prover cannot get a doomed transaction signed and paid
+   * for. Under `provingKeys` it is the set's verifying key, else the one the
+   * program verifies with.
+   */
+  #verify(proof: Proof, publicInputHash: bigint, key: ExpectedProvingKey): void {
+    verifyProofStatement(proof, publicInputHash, key, this.#provingKeys);
   }
 
   #proveTransfer(
@@ -978,6 +1003,11 @@ export class SprClient
           context,
         );
         const complete = prepared.finish(trees);
+        this.#verify(
+          proof,
+          bytesToBigInt(complete.publicInputHash),
+          transferProvingKey(prepared.inputs),
+        );
         return Object.freeze({
           data: complete.withProof(compressProof(proof)),
           roots: complete.roots,
@@ -986,6 +1016,11 @@ export class SprClient
       const { proofs, dummyProofs } = await this.#inputProofs(proofInputs, config, context);
       const assembled = assemble(proofInputs, proofs, dummyProofs, circuit);
       const proof = await keys.prove(assembled.proverInputs, context);
+      this.#verify(
+        proof,
+        bytesToBigInt(assembled.publicInputHash),
+        transferProvingKey(assembled.proverInputs),
+      );
       return Object.freeze({
         data: assembled.withProof(compressProof(proof)),
         roots: assembled.roots,
@@ -1020,6 +1055,11 @@ export class SprClient
         const [tree] = trees;
         if (tree === undefined) throw new ClientError("CLIENT_NO_INPUTS");
         const complete = prepared.finish(tree);
+        this.#verify(
+          proof,
+          bytesToBigInt(complete.publicInputHash),
+          mergeProvingKey(prepared.inputs.payload),
+        );
         const compressed = compressProof(proof);
         return Object.freeze({
           data: complete.instructionData({ a: compressed.a, b: compressed.b, c: compressed.c }),
@@ -1027,9 +1067,13 @@ export class SprClient
         });
       }
       const assembled = await assembleMerge(input.prepared, this, this.tree, context, input.cache);
-      const compressed = compressProof(
-        await input.keys.proveMerge(assembled.proverInputs, context),
+      const proof = await input.keys.proveMerge(assembled.proverInputs, context);
+      this.#verify(
+        proof,
+        bytesToBigInt(assembled.publicInputHash),
+        mergeProvingKey(assembled.proverInputs),
       );
+      const compressed = compressProof(proof);
       return Object.freeze({
         data: assembled.instructionData({
           a: compressed.a,

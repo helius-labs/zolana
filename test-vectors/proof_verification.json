@@ -1,0 +1,95 @@
+{
+  "proofs": [
+    {
+      "key": "transfer_confidential_eddsa_2_8.key",
+      "publicInputHash": "0x100fa8f976fcb62125b6d4623f91d90f21ad25a4b5e2bd7c83c19ae7e28d7715",
+      "proof": {
+        "ar": [
+          "0x04e46c9909a329e630c48d46dd1fd5f14391b266f1bc9b0f1653b0960e1b97e8",
+          "0x29d7d163580c4a5a947c4e15d5427a297db9cb714e19dd08a8a381eaacb3e1e9"
+        ],
+        "bs": [
+          [
+            "0x1f415dac9990349c7f51ec84a3233c7c6ed79d7adb6c3b714c9745478a80af5e",
+            "0x2e1dcb28502822b17e44ef910d668f160bf064577bc787af3975581fb947b3de"
+          ],
+          [
+            "0x23f198f63680c27ed50c3525b5b24517fd8b4a107f0509f6748274479a548c2b",
+            "0x2e895d14af8ed77ebe583b58e742b65ba1fa57eba173c120a0a007cf87595e5a"
+          ]
+        ],
+        "krs": [
+          "0x1851da98f22a086da5ee959a96129119fc2fa5920f84c0a152f24fc6d96031da",
+          "0x1ec05de58ba79ccc1f3f98d95df3c3a6a41a0fff729bc005f5327b94a7511076"
+        ],
+        "proofCommitment": [
+          "0x297cef26f85021a70a5a2b6fda47eef2b126cf3a15beb3dc005522bd338f89af",
+          "0x011acf69f9df7ecd55f974c4a7fc993b55f42c70c6e8f72c276d3fa115440c07"
+        ],
+        "proofCommitmentPok": [
+          "0x20a9781b20423f7152e2db057cfd5b57a1b6de0d26949dedfd584297a4a11bd2",
+          "0x04a0d8a5462503ecb2bbd931c9db38369374c5f90fec847bc01502d7320c85f9"
+        ],
+        "provingKeySha256": "67e37b413b0eeb97de0170519a9fe269d39792e8ed3d91c0c9336ac12f06684a"
+      }
+    },
+    {
+      "key": "transfer_eddsa_ring_2_2.key",
+      "publicInputHash": "0x1b63c2e7e1c96f36131f427a1ebd53daa72350f8d80231f0fe4d9af7f08f0d6b",
+      "proof": {
+        "ar": [
+          "0x25e930183182fb3c3db3785300148283779204cfe33ea71cfdf1e3bb041c18fb",
+          "0x141aa65917732b7192a33f3a599c94f532fa55b859f8b844f869fab0a3e89152"
+        ],
+        "bs": [
+          [
+            "0x22e38a8eac4579edbc2d8f921a646a39f76b0d54e9914a0553d40ece0bb3f71c",
+            "0x1f976c981d6a5e5018a5dfade42f8958d58ecce313f42dfee9832b2781c8dbe6"
+          ],
+          [
+            "0x05c218c6db141270a4476a1eda805debc1845ab5ccc803eec61c2f3974535b66",
+            "0x12509a0c9af4afc6c212ba7280810bad16b0d0e62430829c18c227827fa3cf0a"
+          ]
+        ],
+        "krs": [
+          "0x116c203e0f8c71aa66d7ce4ea17be8886c4608421848dbe8288b8eda43da6902",
+          "0x02ae4415ebc42d126f994e70f7ed74db62c03041cb9630efce5b68d3705a0ddf"
+        ],
+        "proofCommitment": [
+          "0x179d98ac001a75637fcd7f3316c0f4ef65b1bccea18db24e0d991dace2e5a0ea",
+          "0x223190567800140e81ecae2e0627a59caee6228d2d361c846bb795f65fc8d83a"
+        ],
+        "proofCommitmentPok": [
+          "0x01fa69e27fd6ea21351cca8cebaebb7c2803ee97f33b22b93400df46b963a7c0",
+          "0x13730840cfdcfeb0bc45f5618562e4364856df5309298e7bb6f98e802ca236a5"
+        ],
+        "provingKeySha256": "e8fcba9c9b940ab64d79fe78a79c356967eb54f5f556f79cdbb7ac3edf608a66"
+      }
+    },
+    {
+      "key": "merge_8_1.key",
+      "publicInputHash": "0x1788e073c6191520543a6215cb5f06ea3fd738135ee173c543ed0a7c6852ddaa",
+      "proof": {
+        "ar": [
+          "0x0b3d1ce8efd7f068d0326429d8f16813cab0788d58553b00b1b9cd3e154af227",
+          "0x2c3b4674d5eb81450309661269d10089e1c72b35831a97e54228dc0c86c513f6"
+        ],
+        "bs": [
+          [
+            "0x0695a56b6ac54e4ef7d6b460f59d413e794e43da58c7988763c049acdaa659c0",
+            "0x21103e1ea0cb05faf09e2d8c252c837a006c7b5bb5971437e6d3dc098ad478ea"
+          ],
+          [
+            "0x1993978b7dae34e3b41f9e6b9f09fc9ff4d4143d19840efcfaa75d387bb6041b",
+            "0x1487f0d5e940055347a381b8e0a5604823b68c5d3af9044ddb08f5e88db06385"
+          ]
+        ],
+        "krs": [
+          "0x04f6bdeeb5accf9e0d12027d55440619746c68aea9a383ae630810823f863f8d",
+          "0x26288c3d9862436b956b9d08913f031a2dedd3e91fc8e6b0d1dd1c20f522a95f"
+        ],
+        "provingKeySha256": "cb59ca915a79b1abf49b9f9fa997835e7da185c8b6293f5a4a977cf603a4d380"
+      }
+    }
+  ]
+}

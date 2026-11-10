@@ -27,6 +27,7 @@ export const CANONICAL_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_FIELD_TOO_LONG",
   "CLIENT_PROVER_SERVER",
   "CLIENT_PROOF_PARSE",
+  "CLIENT_PROOF_VERIFICATION",
   "CLIENT_PROVING_KEY_MISMATCH",
   "CLIENT_PROVING_KEY_MISSING",
   "CLIENT_PROVER_PROVING_KEYS_MISMATCH",
@@ -77,6 +78,14 @@ export interface ClientErrorDetailsMap {
     reason?: string;
   }>;
   readonly CLIENT_PROOF_PARSE: Readonly<{ path?: string; reason?: string }>;
+  /**
+   * A returned proof does not prove the statement the client built, checked
+   * before anything is signed. `check` is `commitment` (the proof and the
+   * verifying key disagree on a BSB22 commitment), `encoding` (a point off
+   * the curve or its subgroup, or a value outside the field) or `pairing`
+   * (the Groth16 or commitment equation fails).
+   */
+  readonly CLIENT_PROOF_VERIFICATION: Readonly<{ check: string }>;
   /** The prover proved with another proving key than the verifying key pins. */
   readonly CLIENT_PROVING_KEY_MISMATCH: Readonly<{
     keyName: string;
@@ -396,6 +405,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_FIELD_TOO_LONG: { field: "string", actual: "number", maximum: "number" },
   CLIENT_PROVER_SERVER: { method: "string", status: "number", reason: "string" },
   CLIENT_PROOF_PARSE: { path: "string", reason: "string" },
+  CLIENT_PROOF_VERIFICATION: { check: "string" },
   CLIENT_PROVING_KEY_MISMATCH: {
     keyName: "string",
     expectedSha256: "string",
@@ -470,6 +480,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
 const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly string[]>>> = {
   CLIENT_PROVER_SERVER: [],
   CLIENT_PROOF_PARSE: [],
+  CLIENT_PROOF_VERIFICATION: ["check"],
   CLIENT_RPC: [],
   CLIENT_FIELD_TOO_LONG: [],
   CLIENT_INDEXER_TIMEOUT: [],
