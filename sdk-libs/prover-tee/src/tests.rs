@@ -315,17 +315,17 @@ fn a_policy_file_is_a_pin_file_or_a_bare_policy() {
 }
 
 #[test]
-fn the_published_deployment_pins_load() {
+fn the_current_deployment_pins_load_with_their_hpke_keys() {
     for pin in [
-        include_str!("../../../prover/tee/deployments/nitro-c7a.json"),
-        include_str!("../../../prover/tee/deployments/devnet-d-v0.5.0-alpha.json"),
-        include_str!("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha.json"),
-        include_str!("../../../prover/tee/deployments/mainnet-v0.6.0-alpha.json"),
+        include_str!("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha-tee-2.json"),
+        include_str!("../../../prover/tee/deployments/devnet-e-v0.6.0-alpha-tee-3.json"),
+        include_str!("../../../prover/tee/deployments/mainnet-v0.6.0-alpha-tee-3.json"),
+        include_str!("../../../prover/tee/deployments/mainnet-v0.6.0-alpha-tee-4.json"),
     ] {
-        assert_eq!(
-            TeePolicy::from_file_json(pin).unwrap().platform(),
-            Platform::AwsNitro
-        );
+        let PlatformPolicy::AwsNitro(pins) = TeePolicy::from_file_json(pin).unwrap().pins else {
+            panic!("the current deployments run on Nitro")
+        };
+        assert!(pins.hpke_public_key.is_some());
     }
 }
 
