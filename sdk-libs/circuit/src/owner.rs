@@ -3,7 +3,7 @@ use crate::{CircuitError, Field, hash_bytes, poseidon, require_eq};
 use alloc::string::ToString;
 use borsh::io;
 
-pub const SOLANA_OWNER_TAG: u8 = 0x53;
+pub use spr_instruction::SOLANA_OWNER_TAG;
 
 #[cfg(not(xark))]
 fn validate_owner_tag(tag: u8) -> Result<(), CircuitError> {

@@ -9,31 +9,44 @@ type Matrix = Vec<Vec<Fr>>;
 
 fn inverse(matrix: &Matrix) -> Matrix {
     let n = matrix.len();
-    let mut rows = vec![vec![Fr::ZERO; 2 * n]; n];
-    for i in 0..n {
-        rows[i][..n].copy_from_slice(&matrix[i]);
-        rows[i][n + i] = Fr::ONE;
-    }
+    // Each row is the matrix row followed by the matching identity row.
+    let mut rows: Matrix = matrix
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            let identity = (0..n).map(|j| if i == j { Fr::ONE } else { Fr::ZERO });
+            row.iter().copied().chain(identity).collect()
+        })
+        .collect();
     for column in 0..n {
-        let pivot = (column..n)
-            .find(|&row| rows[row][column] != Fr::ZERO)
-            .expect("invertible Poseidon matrix");
+        let entry = |row: &Vec<Fr>| *row.get(column).expect("square Poseidon matrix");
+        let pivot = column
+            + rows
+                .iter()
+                .skip(column)
+                .position(|row| entry(row) != Fr::ZERO)
+                .expect("invertible Poseidon matrix");
         rows.swap(column, pivot);
-        let scale = rows[column][column].inverse().unwrap();
-        for value in &mut rows[column] {
-            *value *= scale;
-        }
-        let pivot_row = rows[column].clone();
+        let pivot_row = {
+            let row = rows.get_mut(column).expect("pivot row");
+            let scale = entry(row).inverse().expect("nonzero pivot");
+            for value in row.iter_mut() {
+                *value *= scale;
+            }
+            row.clone()
+        };
         for (i, row) in rows.iter_mut().enumerate() {
             if i != column {
-                let scale = row[column];
+                let scale = entry(row);
                 for (value, pivot) in row.iter_mut().zip(&pivot_row) {
                     *value -= scale * pivot;
                 }
             }
         }
     }
-    rows.into_iter().map(|row| row[n..].to_vec()).collect()
+    rows.into_iter()
+        .map(|row| row.into_iter().skip(n).collect())
+        .collect()
 }
 
 fn vector_matrix(vector: &[Fr], matrix: &Matrix) -> Vec<Fr> {
@@ -41,8 +54,8 @@ fn vector_matrix(vector: &[Fr], matrix: &Matrix) -> Vec<Fr> {
         .map(|j| {
             vector
                 .iter()
-                .enumerate()
-                .map(|(i, value)| *value * matrix[i][j])
+                .zip(matrix)
+                .map(|(value, row)| *value * row.get(j).expect("square Poseidon matrix"))
                 .sum()
         })
         .collect()
@@ -58,24 +71,29 @@ fn compress_constants(ark: &[Fr], matrix: &Matrix, full: usize, partial: usize) 
     let t = matrix.len();
     let half = full / 2;
     let inv = inverse(matrix);
-    let mut constants = ark[..t].to_vec();
+    let rounds: Vec<&[Fr]> = ark.chunks(t).collect();
+    let round_constants = |round: usize| *rounds.get(round).expect("a constant row per round");
+    let mut constants = round_constants(0).to_vec();
     for round in 1..half {
-        constants.extend(vector_matrix(&ark[round * t..(round + 1) * t], &inv));
+        constants.extend(vector_matrix(round_constants(round), &inv));
     }
-    let mut accumulated = ark[(half + partial) * t..(half + partial + 1) * t].to_vec();
+    let mut accumulated = round_constants(half + partial).to_vec();
     let mut partial_constants = Vec::with_capacity(partial);
     for round in (half..half + partial).rev() {
         let mut moved = vector_matrix(&accumulated, &inv);
-        partial_constants.push(moved[0]);
-        moved[0] = Fr::ZERO;
-        for i in 0..t {
-            accumulated[i] = moved[i] + ark[round * t + i];
-        }
+        let first = moved.first_mut().expect("a nonempty Poseidon state");
+        partial_constants.push(*first);
+        *first = Fr::ZERO;
+        accumulated = moved
+            .iter()
+            .zip(round_constants(round))
+            .map(|(moved, constant)| *moved + constant)
+            .collect();
     }
     constants.extend(vector_matrix(&accumulated, &inv));
     constants.extend(partial_constants.into_iter().rev());
     for round in half + partial + 1..full + partial {
-        constants.extend(vector_matrix(&ark[round * t..(round + 1) * t], &inv));
+        constants.extend(vector_matrix(round_constants(round), &inv));
     }
     assert_eq!(constants.len(), full * t + partial);
     constants
@@ -84,21 +102,38 @@ fn compress_constants(ark: &[Fr], matrix: &Matrix, full: usize, partial: usize) 
 // Factor m = block * sparse, where block leaves lane zero alone and sparse
 // has an identity lower-right block. Block commutes with the partial S-box.
 fn factor_sparse(matrix: &Matrix) -> (Matrix, Vec<Fr>) {
-    let t = matrix.len();
-    let lower: Matrix = matrix[1..].iter().map(|row| row[1..].to_vec()).collect();
+    let (first_row, lower_rows) = matrix.split_first().expect("a nonempty Poseidon matrix");
+    let (corner, top) = first_row.split_first().expect("a nonempty Poseidon row");
+    let lower: Matrix = lower_rows
+        .iter()
+        .map(|row| row.iter().skip(1).copied().collect())
+        .collect();
     let inv = inverse(&lower);
-    let column: Vec<_> = matrix[1..].iter().map(|row| row[0]).collect();
-    let mut sparse = vec![matrix[0][0]];
+    let column: Vec<_> = lower_rows
+        .iter()
+        .map(|row| *row.first().expect("a nonempty Poseidon row"))
+        .collect();
+    let mut sparse = vec![*corner];
     sparse.extend(
         inv.iter()
             .map(|row| row.iter().zip(&column).map(|(a, b)| *a * b).sum::<Fr>()),
     );
-    sparse.extend_from_slice(&matrix[0][1..]);
-    let mut block = vec![vec![Fr::ZERO; t]; t];
-    block[0][0] = Fr::ONE;
-    for i in 1..t {
-        block[i][1..].copy_from_slice(&matrix[i][1..]);
-    }
+    sparse.extend_from_slice(top);
+    // The matrix with its first row and column replaced by the identity's.
+    let block = matrix
+        .iter()
+        .enumerate()
+        .map(|(i, row)| {
+            row.iter()
+                .enumerate()
+                .map(|(j, value)| match (i, j) {
+                    (0, 0) => Fr::ONE,
+                    (0, _) | (_, 0) => Fr::ZERO,
+                    _ => *value,
+                })
+                .collect()
+        })
+        .collect();
     (block, sparse)
 }
 
@@ -131,7 +166,12 @@ fn main() {
         // Light uses matrix * column; the optimized circomlib schedule uses
         // row * matrix. Transpose before transforming constants and matrices.
         let matrix: Matrix = (0..p.width)
-            .map(|i| (0..p.width).map(|j| p.mds[j][i]).collect())
+            .map(|i| {
+                p.mds
+                    .iter()
+                    .map(|row| *row.get(i).expect("square Poseidon matrix"))
+                    .collect()
+            })
             .collect();
         let constants = compress_constants(&p.ark, &matrix, p.full_rounds, p.partial_rounds);
         let (pre_sparse, sparse) = sparse_matrices(&matrix, p.partial_rounds);

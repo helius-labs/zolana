@@ -45,6 +45,17 @@ pub use external_data::{
 };
 pub use private_tx::PrivateTxHash;
 pub use public_transfer::{transaction_hash, PublicTransfer};
+/// The owner tag of a Solana signer, shared by the native hashers and the
+/// circuit.
+pub use spr_hasher::primitives::SOLANA_OWNER_TAG;
+
+/// Domain of a data UTXO's `data_hash`: ASCII `"DATA"`. The native hashers and
+/// the circuit both wrap a state hash under these three domains.
+pub const DATA_HASH_DOMAIN: u32 = u32::from_be_bytes(*b"DATA");
+/// Domain of an address-bound data UTXO's `data_hash`: ASCII `"UNIQ"`.
+pub const UNIQUE_DATA_HASH_DOMAIN: u32 = u32::from_be_bytes(*b"UNIQ");
+/// Domain of a closed address's tombstone `data_hash`: ASCII `"CLSD"`.
+pub const CLOSED_DATA_HASH_DOMAIN: u32 = u32::from_be_bytes(*b"CLSD");
 
 /// Default tree id an address is derived under: the tree a new address is
 /// created in when the caller does not pick one.

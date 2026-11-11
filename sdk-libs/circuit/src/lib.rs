@@ -70,7 +70,7 @@ pub fn from_bytes(bytes: &[u8; 32]) -> Result<Field, CircuitError> {
 }
 
 pub mod hasher {
-    pub const DATA_HASH_DOMAIN: u32 = u32::from_be_bytes(*b"DATA");
-    pub const UNIQUE_DATA_HASH_DOMAIN: u32 = u32::from_be_bytes(*b"UNIQ");
-    pub const CLOSED_DATA_HASH_DOMAIN: u32 = u32::from_be_bytes(*b"CLSD");
+    pub use spr_instruction::{
+        CLOSED_DATA_HASH_DOMAIN, DATA_HASH_DOMAIN, UNIQUE_DATA_HASH_DOMAIN,
+    };
 }

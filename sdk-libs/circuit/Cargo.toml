@@ -1,8 +1,11 @@
 [package]
 name = "spr-circuit"
 version = "0.8.0"
+description = "SPP protocol circuit types and operations over Xark: owners, UTXOs, balances, transactions and Poseidon."
 edition = "2024"
-publish = false
+license.workspace = true
+repository.workspace = true
+publish = ["crates-io"]
 build = "build.rs"
 
 [features]

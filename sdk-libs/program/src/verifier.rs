@@ -97,7 +97,8 @@ pub fn verify_groth16_inputs<const N: usize>(
 
 pub fn integer(value: u128) -> [u8; 32] {
     let mut bytes = [0u8; 32];
-    bytes[16..].copy_from_slice(&value.to_be_bytes());
+    let (_, low) = bytes.split_at_mut(16);
+    low.copy_from_slice(&value.to_be_bytes());
     bytes
 }
 

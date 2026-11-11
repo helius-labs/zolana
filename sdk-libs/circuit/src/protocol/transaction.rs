@@ -121,7 +121,7 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
                 match data() {
                     Ok(bytes) => output.data = bytes,
                     Err(error) => {
-                        self.error = Some(error);
+                        self.error.get_or_insert(error);
                         return;
                     }
                 }
@@ -130,7 +130,9 @@ impl<'a, P: PublicInputs> ConfidentialTransaction<'a, P> {
                 self.outputs.push(output);
             }
             Ok(None) => {}
-            Err(error) => self.error = Some(error),
+            Err(error) => {
+                self.error.get_or_insert(error);
+            }
         }
     }
     pub fn check(self) -> Result<CheckedTransaction, CircuitError> {
@@ -241,7 +243,9 @@ impl TransactionItem for TokenUtxos {
         match self.change() {
             Ok(Some(output)) => tx.outputs.push(output),
             Ok(None) => {}
-            Err(error) => tx.error = Some(error),
+            Err(error) => {
+                tx.error.get_or_insert(error);
+            }
         }
     }
 }

@@ -45,6 +45,18 @@ pub fn fail(error: impl core::fmt::Display) -> ClientError {
     ClientError::InvalidInput(error.to_string())
 }
 
+fn capacity_error(error: spr_circuit::CircuitError) -> ClientError {
+    match error.kind() {
+        spr_circuit::CircuitErrorKind::TooManyItems { capacity, found } => {
+            ClientError::TooManyInputs {
+                capacity: *capacity,
+                found: *found,
+            }
+        }
+        _ => fail(error),
+    }
+}
+
 /// Client-selected output tree and optional reproducible transaction blinding.
 #[derive(Default)]
 #[cfg_attr(
@@ -179,19 +191,13 @@ impl InputRecords {
             .iter()
             .map(|wallet| self.utxo(wallet))
             .collect::<Result<Vec<_>, _>>()?;
-        ArrayVec::new(values).map_err(fail)
+        ArrayVec::new(values).map_err(capacity_error)
     }
 
-    pub fn bounded<T: spr_circuit::PaddedInput + Default, const N: usize>(
+    pub fn bounded<T: spr_circuit::PaddedInput, const N: usize>(
         values: Vec<T>,
     ) -> Result<ArrayVec<T, N>, ClientError> {
-        if values.len() > N {
-            return Err(ClientError::TooManyInputs {
-                capacity: N,
-                found: values.len(),
-            });
-        }
-        ArrayVec::new(values).map_err(fail)
+        ArrayVec::new(values).map_err(capacity_error)
     }
 
     pub fn context(seed: &[u8; 32], output_tree: Option<u16>) -> Result<TxContext, ClientError> {
