@@ -35,16 +35,32 @@ fn optional_data_extension_preserves_the_original_record_layout() {
             record
         );
         assert_eq!(UserRecord::additional_data(&extended).unwrap(), bytes);
+        extended.extend([7, 8, 9]);
+        assert_eq!(
+            UserRecord::try_from_account_data(&extended).unwrap(),
+            record
+        );
+        assert_eq!(UserRecord::additional_data(&extended).unwrap(), bytes);
     }
-    for extension in [
-        vec![1],
-        vec![1, 0, 0],
-        vec![1, 0, 0, 0],
-        vec![0, 0, 0, 0, 7],
-        vec![255; 4],
-    ] {
+    for extension in [vec![1], vec![1, 0, 0], vec![1, 0, 0, 0], vec![255; 4]] {
         let mut extended = account.clone();
         extended.extend(extension);
-        assert!(UserRecord::try_from_account_data(&extended).is_err());
+        assert_eq!(
+            UserRecord::try_from_account_data(&extended).unwrap(),
+            record
+        );
+        assert!(UserRecord::additional_data(&extended).is_err());
     }
+    for length in 0..UserRecord::SIZE {
+        assert!(UserRecord::try_from_account_data(account.get(..length).unwrap()).is_err());
+    }
+    // Known-field validation still applies when future fields follow it.
+    let mut invalid = account.clone();
+    *invalid.last_mut().unwrap() = 255;
+    invalid.extend([7, 8, 9]);
+    assert!(UserRecord::try_from_account_data(&invalid).is_err());
+    let mut wrong_discriminator = account.clone();
+    *wrong_discriminator.first_mut().unwrap() = 255;
+    wrong_discriminator.extend([7, 8, 9]);
+    assert!(UserRecord::try_from_account_data(&wrong_discriminator).is_err());
 }

@@ -214,6 +214,7 @@ fn set_data_rejects_invalid_authorization_and_accounts_atomically() {
         "wrong_program",
         "discriminator",
         "extension",
+        "trailing_extension",
         "missing_accounts",
         "payload",
         "trailing_payload",
@@ -250,11 +251,12 @@ fn set_data_rejects_invalid_authorization_and_accounts_atomically() {
                 rig.svm.set_account(address, record).unwrap();
                 InstructionError::Custom(UserRegistryError::InvalidRecordPda as u32)
             }
-            "wrong_program" | "discriminator" | "extension" => {
+            "wrong_program" | "discriminator" | "extension" | "trailing_extension" => {
                 let mut record = rig.svm.get_account(&address).unwrap();
                 match case {
                     "wrong_program" => record.owner = solana_pubkey::Pubkey::default(),
                     "discriminator" => *record.data.first_mut().unwrap() = 255,
+                    "trailing_extension" => record.data.extend([0, 0, 0, 0, 7]),
                     _ => record.data.extend([1, 0, 0, 0]),
                 }
                 rig.svm.set_account(address, record).unwrap();

@@ -176,18 +176,6 @@ class Reader {
 
 function decodeRecordBody(data: Uint8Array): DecodedUserRecord {
   if (data.length < USER_RECORD_SIZE) throw new WalletError("WALLET_INVALID_USER_RECORD");
-  if (data.length > USER_RECORD_SIZE) {
-    if (data.length < USER_RECORD_SIZE + 4) {
-      throw new WalletError("WALLET_INVALID_USER_RECORD");
-    }
-    const length = new DataView(data.buffer, data.byteOffset + USER_RECORD_SIZE, 4).getUint32(
-      0,
-      true,
-    );
-    if (length !== data.length - USER_RECORD_SIZE - 4) {
-      throw new WalletError("WALLET_INVALID_USER_RECORD");
-    }
-  }
   const reader = new Reader(data);
   if (reader.u8() !== 1) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const owner = addressDecoder.decode(reader.bytes(32));

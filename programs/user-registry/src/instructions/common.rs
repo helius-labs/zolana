@@ -56,6 +56,17 @@ pub fn read_record(record: &AccountView, program_id: &Address) -> Result<UserRec
         return Err(fail(UserRegistryError::InvalidRecordAccount));
     }
     let data = record.try_borrow()?;
+    // Mutations validate the complete current layout; header-only consumers
+    // can ignore extensions they do not interpret.
+    let additional_data = UserRecord::additional_data(&data)
+        .map_err(|_| fail(UserRegistryError::InvalidRecordAccount))?;
+    let expected_size = UserRecord::SIZE
+        .checked_add(UserRecord::DATA_LEN_SIZE)
+        .and_then(|size| size.checked_add(additional_data.len()))
+        .ok_or_else(|| fail(UserRegistryError::InvalidRecordAccount))?;
+    if data.len() != UserRecord::SIZE && data.len() != expected_size {
+        return Err(fail(UserRegistryError::InvalidRecordAccount));
+    }
     UserRecord::try_from_account_data(&data)
         .map_err(|_| fail(UserRegistryError::InvalidRecordAccount))
 }

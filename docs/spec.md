@@ -3001,6 +3001,8 @@ Invariants:
 
 The record account is a 100-byte header followed by `data` as an optional Borsh byte vector; an absent vector reads as empty. `register` creates the header only. `set_data` resizes the account to the header plus the encoded vector, or back to the header alone when `data` is empty.
 
+Readers validate the fields they consume and ignore trailing fields. Header readers require at least 100 bytes and validate the discriminator and merge scheme. Data readers require the declared vector bytes to be present but ignore anything after them. Registry mutations validate the complete current layout before writing.
+
 The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects directly from the record.
 
 ### Operations

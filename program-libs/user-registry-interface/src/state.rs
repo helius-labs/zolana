@@ -44,13 +44,17 @@ impl MergeEncryptionScheme {
 impl UserRecord {
     pub const DISCRIMINATOR: u8 = 1;
     pub const DISCRIMINATOR_LEN: usize = 1;
+    /// Length of the known account header, excluding trailing fields.
     pub const SIZE: usize =
         Self::DISCRIMINATOR_LEN + 32 + 1 + NULLIFIER_PUBKEY_LEN + VIEWING_PUBKEY_LEN + 1;
     pub const DATA_LEN_SIZE: usize = 4;
 
+    /// Decode the known header, ignoring fields appended by newer versions.
     pub fn try_from_account_data(data: &[u8]) -> borsh::io::Result<Self> {
-        Self::additional_data(data)?;
-        match data.split_first() {
+        let header = data
+            .get(..Self::SIZE)
+            .ok_or_else(|| invalid_user_record("invalid user record size"))?;
+        match header.split_first() {
             Some((&Self::DISCRIMINATOR, body)) => Self::deserialize(&mut &*body),
             _ => Err(invalid_user_record("missing user record discriminator")),
         }
@@ -58,6 +62,7 @@ impl UserRecord {
 
     /// The optional extension is a Borsh `Vec<u8>` after the unchanged header.
     /// Records created by `register` have no extension and contain empty data.
+    /// Fields after the declared byte vector are ignored.
     pub fn additional_data(data: &[u8]) -> borsh::io::Result<&[u8]> {
         let extension = data
             .get(Self::SIZE..)
@@ -72,10 +77,9 @@ impl UserRecord {
         let bytes = extension
             .get(Self::DATA_LEN_SIZE..)
             .ok_or_else(|| invalid_user_record("missing additional data"))?;
-        if u32::from_le_bytes(length_bytes) as usize != bytes.len() {
-            return Err(invalid_user_record("invalid additional data length"));
-        }
-        Ok(bytes)
+        bytes
+            .get(..u32::from_le_bytes(length_bytes) as usize)
+            .ok_or_else(|| invalid_user_record("invalid additional data length"))
     }
 }
 

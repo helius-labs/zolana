@@ -215,17 +215,41 @@ describe("decodeUserRecordAccount", () => {
   });
 
   it.each([[1], [1, 0, 0], [2, 0, 0, 0, 7], [0, 0, 0, 0, 7], [255, 255, 255, 255]])(
-    "refuses a malformed data extension %j",
+    "ignores unknown trailing fields %j",
     (...extension) => {
       const account = recordWith(0);
-      expect(() =>
+      expect(
         decodeUserRecordAccount({
           ...account,
           data: Uint8Array.of(...account.data, ...extension),
         }),
-      ).toThrow(expect.objectContaining({ code: "WALLET_INVALID_USER_RECORD" }));
+      ).toEqual(decodeUserRecordAccount(account));
     },
   );
+
+  it("rejects every truncated header", () => {
+    const account = recordWith(0);
+    for (let length = 0; length < account.data.length; length++) {
+      expect(() =>
+        decodeUserRecordAccount({ ...account, data: account.data.subarray(0, length) }),
+      ).toThrow(expect.objectContaining({ code: "WALLET_INVALID_USER_RECORD" }));
+    }
+  });
+
+  it("still validates the known header when unknown fields follow it", () => {
+    const account = recordWith(255);
+    expect(() =>
+      decodeUserRecordAccount({ ...account, data: Uint8Array.of(...account.data, 7, 8, 9) }),
+    ).toThrow(expect.objectContaining({ code: "WALLET_INVALID_USER_RECORD" }));
+    const wrongDiscriminator = recordWith(0);
+    wrongDiscriminator.data.set([255]);
+    expect(() =>
+      decodeUserRecordAccount({
+        ...wrongDiscriminator,
+        data: Uint8Array.of(...wrongDiscriminator.data, 7, 8, 9),
+      }),
+    ).toThrow(expect.objectContaining({ code: "WALLET_INVALID_USER_RECORD" }));
+  });
 });
 
 describe("buildRegistrationTransaction", () => {
