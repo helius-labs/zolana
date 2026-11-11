@@ -46,7 +46,7 @@ impl RingHarness {
     /// enable the authority-transact rail, tracking the keypair as
     /// `self.ring_authority` for the later update/rotate operations. The fixture
     /// runs with `ring_activation_is_permissionless`, so creation already lands
-    /// activated; only the rail needs governance.
+    /// activated and enabled.
     pub fn create_enabled_ring_config(&mut self) -> Result<Signature> {
         let authority = Keypair::new();
         let signature =

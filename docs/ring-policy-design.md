@@ -399,9 +399,10 @@ readers, re-points sources and writes the authority-written lists. A member
 writes its own entries on the member-written lists. The namespace PDA owns
 every entry and signs for it only inside a CPI the program builds. The
 auditor holds the P256 key fixed at `create_config` and decrypts transfers.
-The auditor key cannot authorize an ownership transfer or withdrawal. SPP
-governance activates the ring and enables the authority rail through
-`set_ring_activation`, nothing in the ring program can. Two more
+The auditor key cannot authorize an ownership transfer or withdrawal. On a
+permissioned pool SPP governance activates the ring and enables the authority
+rail through `set_ring_activation`, and a permissionless pool sets both at
+creation. Nothing in the ring program can. Two more
 actors follow. A co-signer adds nothing on its own, its
 signature is a precondition the program checks on the operations its scope
 names. A delegate moves notes between members on the authority rail and

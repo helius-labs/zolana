@@ -358,8 +358,9 @@ export interface RingConfigAccount {
   readonly authority: Address;
   readonly programId: Address;
   /**
-   * Governance-owned. Only `setRingActivation` writes it, because the rail it
-   * opens moves utxos without owner signatures.
+   * Governance-owned. Creation sets it on a permissionless pool, after that only
+   * `setRingActivation` writes it, because the rail it opens moves utxos
+   * without owner signatures.
    */
   readonly ringAuthorityTransactIsEnabled: boolean;
   /** Ring-owned. Every operational ring instruction is refused while this is set. */

@@ -9,8 +9,8 @@ use spr_interface::{
 
 /// Permissionless: `payer` only funds rent and is checked against no authority.
 /// The config is created inert unless the protocol config sets
-/// `ring_activation_is_permissionless`; governance admits it with
-/// `SetRingActivation`.
+/// `ring_activation_is_permissionless`, which also enables the authority rail;
+/// governance admits it with `SetRingActivation`.
 pub struct CreateRingConfig {
     pub payer: Pubkey,
     pub program_id: Address,

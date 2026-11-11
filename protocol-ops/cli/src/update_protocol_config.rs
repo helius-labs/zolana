@@ -342,7 +342,7 @@ fn print_help() {
         "  --tree-creation-permissionless <true|false>      set tree_creation_is_permissionless"
     );
     println!(
-        "  --ring-activation-permissionless <true|false>      set ring_activation_is_permissionless"
+        "  --ring-activation-permissionless <true|false>      set ring_activation_is_permissionless, true also enables the authority rail of each new ring"
     );
     println!("  --spl-interface-creation-permissionless <true|false>");
     println!("                                                   set spl_interface_creation_is_permissionless");
