@@ -2979,6 +2979,7 @@ struct Record {
     /// public inputs, so the proof verifies only for the owner's registered
     /// keys.
     merge_encryption: MergeEncryptionScheme,
+    data: Vec<u8>,
 }
 
 /// One byte. Each value other than `Disabled` equals the tag of the matching
@@ -2994,8 +2995,11 @@ enum MergeEncryptionScheme {
 
 Invariants:
 
-- `nullifier_pk` is wallet-wide and does not rotate. There is no operation to replace it; rotation requires creating a new Record.
+- `nullifier_pk` is wallet-wide. Only the owner may replace the published key through `rotate_nullifier_key`; `update_keys` changes only the viewing key.
+- Only the owner may append to `data`. Existing bytes are preserved by every registry operation.
 - Once created, a record account is permanent: there is no close or delete operation. Rent remains locked for the lifetime of the account.
+
+The Solana account retains its existing 100-byte header. `data` is an optional trailing Borsh byte vector; an absent vector reads as empty. Registration keeps the original account size and instruction encoding. The first nonempty append adds the vector length and bytes, and later appends grow it without changing header offsets.
 
 The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects directly from the record.
 
@@ -3039,6 +3043,30 @@ Authorized signer: `owner`.
 ```rust
 struct SetMergeEncryptionRequest {
     scheme: MergeEncryptionScheme,
+}
+```
+
+#### `append_data`
+
+Appends arbitrary bytes to the record's `data` (instruction tag 3), resizing the account to fit. An empty append leaves the account unchanged. Only the record owner may authorize the append. A separate `rent_payer` account signs and pays the missing rent for account growth; excess lamports already in the record count toward rent.
+
+Accounts: writable record, owner signer, writable rent payer signer, system program.
+
+```rust
+struct AppendDataRequest {
+    data: Vec<u8>,
+}
+```
+
+#### `rotate_nullifier_key`
+
+Replaces the record's `nullifier_pk` (instruction tag 4). Only the record owner may authorize rotation. The viewing key, merge scheme, appended data, account size, and record address stay unchanged. Rotation changes the published key; it does not rewrite existing notes or retained wallet keys.
+
+Accounts: writable record, owner signer.
+
+```rust
+struct RotateNullifierKeyRequest {
+    nullifier_pk: [u8; 32],
 }
 ```
 

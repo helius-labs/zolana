@@ -204,6 +204,28 @@ describe("decodeUserRecordAccount", () => {
       expect.objectContaining({ code: "WALLET_INVALID_USER_RECORD" }),
     );
   });
+
+  it("reads existing fields from records with appended data", () => {
+    const account = recordWith(1);
+    const extended = {
+      ...account,
+      data: Uint8Array.of(...account.data, 3, 0, 0, 0, 7, 8, 9),
+    };
+    expect(decodeUserRecordAccount(extended)).toEqual(decodeUserRecordAccount(account));
+  });
+
+  it.each([[1], [1, 0, 0], [2, 0, 0, 0, 7], [0, 0, 0, 0, 7], [255, 255, 255, 255]])(
+    "refuses a malformed data extension %j",
+    (...extension) => {
+      const account = recordWith(0);
+      expect(() =>
+        decodeUserRecordAccount({
+          ...account,
+          data: Uint8Array.of(...account.data, ...extension),
+        }),
+      ).toThrow(expect.objectContaining({ code: "WALLET_INVALID_USER_RECORD" }));
+    },
+  );
 });
 
 describe("buildRegistrationTransaction", () => {

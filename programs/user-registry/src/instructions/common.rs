@@ -64,10 +64,9 @@ pub fn write_record(record: &mut AccountView, state: &UserRecord) -> ProgramResu
     let body = borsh::to_vec(state).map_err(|_| ProgramError::InvalidAccountData)?;
     let needed = UserRecord::DISCRIMINATOR_LEN + body.len();
     let mut data = record.try_borrow_mut()?;
-    if data.len() != UserRecord::SIZE || needed > data.len() {
+    if needed != UserRecord::SIZE || data.len() < needed {
         return Err(fail(UserRegistryError::InvalidRecordAccount));
     }
-    data.fill(0);
     data[0] = UserRecord::DISCRIMINATOR;
     data[1..needed].copy_from_slice(&body);
     Ok(())

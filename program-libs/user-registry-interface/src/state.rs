@@ -46,15 +46,36 @@ impl UserRecord {
     pub const DISCRIMINATOR_LEN: usize = 1;
     pub const SIZE: usize =
         Self::DISCRIMINATOR_LEN + 32 + 1 + NULLIFIER_PUBKEY_LEN + VIEWING_PUBKEY_LEN + 1;
+    pub const DATA_LEN_SIZE: usize = 4;
 
     pub fn try_from_account_data(data: &[u8]) -> borsh::io::Result<Self> {
-        if data.len() != Self::SIZE {
-            return Err(invalid_user_record("invalid user record size"));
-        }
+        Self::additional_data(data)?;
         match data.split_first() {
             Some((&Self::DISCRIMINATOR, body)) => Self::deserialize(&mut &*body),
             _ => Err(invalid_user_record("missing user record discriminator")),
         }
+    }
+
+    /// The optional extension is a Borsh `Vec<u8>` after the unchanged header.
+    /// Records created by `register` have no extension and contain empty data.
+    pub fn additional_data(data: &[u8]) -> borsh::io::Result<&[u8]> {
+        let extension = data
+            .get(Self::SIZE..)
+            .ok_or_else(|| invalid_user_record("invalid user record size"))?;
+        if extension.is_empty() {
+            return Ok(extension);
+        }
+        let length_bytes = extension
+            .get(..Self::DATA_LEN_SIZE)
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| invalid_user_record("missing additional data length"))?;
+        let bytes = extension
+            .get(Self::DATA_LEN_SIZE..)
+            .ok_or_else(|| invalid_user_record("missing additional data"))?;
+        if u32::from_le_bytes(length_bytes) as usize != bytes.len() {
+            return Err(invalid_user_record("invalid additional data length"));
+        }
+        Ok(bytes)
     }
 }
 

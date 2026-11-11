@@ -6,6 +6,20 @@ use spr_user_registry_interface::{
 };
 use user_registry_tests::build_register_ix;
 
+#[test]
+fn instruction_discriminators_are_stable() {
+    assert_eq!(
+        [
+            discriminator::REGISTER,
+            discriminator::SET_MERGE_ENCRYPTION,
+            discriminator::UPDATE_KEYS,
+            discriminator::APPEND_DATA,
+            discriminator::ROTATE_NULLIFIER_KEY,
+        ],
+        [0, 1, 2, 3, 4]
+    );
+}
+
 /// Active error codes retain their wire values after retired variants are removed.
 #[test]
 fn error_codes_are_stable() {

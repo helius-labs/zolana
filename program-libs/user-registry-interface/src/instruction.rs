@@ -6,6 +6,8 @@ pub mod discriminator {
     pub const REGISTER: u8 = 0;
     pub const SET_MERGE_ENCRYPTION: u8 = 1;
     pub const UPDATE_KEYS: u8 = 2;
+    pub const APPEND_DATA: u8 = 3;
+    pub const ROTATE_NULLIFIER_KEY: u8 = 4;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -14,8 +16,7 @@ pub struct RegisterData {
     pub viewing_pubkey: [u8; VIEWING_PUBKEY_LEN],
 }
 
-/// Carries only the viewing pubkey: the nullifier pubkey is fixed at
-/// registration and has no update path.
+/// Carries only the viewing pubkey; nullifier rotation is a separate instruction.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct UpdateKeysData {
     pub viewing_pubkey: [u8; VIEWING_PUBKEY_LEN],
@@ -24,6 +25,16 @@ pub struct UpdateKeysData {
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct SetMergeEncryptionData {
     pub scheme: MergeEncryptionScheme,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct AppendData {
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct RotateNullifierKeyData {
+    pub nullifier_pubkey: [u8; NULLIFIER_PUBKEY_LEN],
 }
 
 #[cfg(feature = "solana")]
@@ -36,7 +47,8 @@ mod builders {
     use solana_pubkey::Pubkey;
 
     use super::{
-        discriminator, MergeEncryptionScheme, RegisterData, SetMergeEncryptionData, UpdateKeysData,
+        discriminator, AppendData, MergeEncryptionScheme, RegisterData, RotateNullifierKeyData,
+        SetMergeEncryptionData, UpdateKeysData,
     };
     use crate::user_registry_program_id;
 
@@ -103,6 +115,43 @@ mod builders {
             program_id: user_registry_program_id(),
             accounts,
             data: encode_instruction(discriminator::UPDATE_KEYS, &data),
+        }
+    }
+
+    /// Accounts: `[user_record (writable), owner (signer), rent_payer (writable
+    /// signer), system_program]`. The owner authorizes the append; `rent_payer`
+    /// covers only the missing rent for the resized account.
+    pub fn append_data(
+        user_record: Pubkey,
+        owner: Pubkey,
+        rent_payer: Pubkey,
+        data: AppendData,
+    ) -> Instruction {
+        Instruction {
+            program_id: user_registry_program_id(),
+            accounts: vec![
+                AccountMeta::new(user_record, false),
+                AccountMeta::new_readonly(owner, true),
+                AccountMeta::new(rent_payer, true),
+                AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+            ],
+            data: encode_instruction(discriminator::APPEND_DATA, &data),
+        }
+    }
+
+    /// Accounts: `[user_record (writable), owner (signer)]`.
+    pub fn rotate_nullifier_key(
+        user_record: Pubkey,
+        owner: Pubkey,
+        data: RotateNullifierKeyData,
+    ) -> Instruction {
+        Instruction {
+            program_id: user_registry_program_id(),
+            accounts: vec![
+                AccountMeta::new(user_record, false),
+                AccountMeta::new_readonly(owner, true),
+            ],
+            data: encode_instruction(discriminator::ROTATE_NULLIFIER_KEY, &data),
         }
     }
 }
