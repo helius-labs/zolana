@@ -328,6 +328,27 @@ await syncWallet({ client, wallet, keys, config: { requireSlot: slot } });
 
 Pass `asset: mint` for an SPL or Token-2022 balance.
 
+### Payment memos
+
+Use transaction `messages` for payment memos and invoice IDs. UTXO `data` is
+for application state. `ProofOutputUtxo.withMemo` adds a record to that data,
+so the resulting UTXO is non-empty and default wallet transfer, withdrawal,
+split and merge builders exclude it. Its amount still counts toward the
+wallet balance.
+
+The low-level `PreparedTransfer.finalize` accepts a `messages` array alongside
+the encrypted output slots. Each message carries a `viewTag` and `data` bytes,
+is bound by the transaction's external data hash, and takes no output position.
+Leave the payment UTXO's data empty. Message bytes are published as supplied;
+the application must encrypt private content and decode it when reading the
+transaction. The high-level `buildTransferTransaction` and
+`buildMultiTransferTransaction` helpers do not expose a messages parameter.
+See the [payment memo unit test](transaction/test/payment-memo.test.ts) for a
+complete encryption and recipient decryption example using the low-level API.
+The [live payment memo test](test/e2e/payment-memo.live.test.ts) also proves and
+sends the transfer, fetches it from Photon, and decrypts the fetched memo and
+payment output. It uses the localnet harness provided by `just test-ts-e2e`.
+
 ### Several recipients in one transfer
 
 `buildMultiTransferTransaction` pays up to fifteen recipients of one asset in

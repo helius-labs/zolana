@@ -242,6 +242,7 @@ export interface ExternalDataInit {
   readonly salt: Bytes16;
   readonly outputs: readonly TransactOutput[];
   readonly resolvedOwnerTags: readonly Bytes32[];
+  /** Transaction metadata, including payment memos, kept separate from UTXO data. */
   readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
 }
 
@@ -966,12 +967,17 @@ export interface PreparedTransfer {
   proofOutputs(): readonly ProofOutputUtxo[];
   /** Mirrors Rust `RecordSlots::append`: places the velocity record after the real inputs and at `recordSlot` among the outputs. */
   withAppendedSlot(extension: RecordSlotExtension): PreparedTransfer;
-  /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
+  /**
+   * Finalize encrypted output slots and optional transaction messages. Ring
+   * transacts bind the auditor message and the `RING_TRANSACT` tag into the
+   * external data hash.
+   */
   finalize(
     input: Readonly<{
       txViewingPublicKey: X25519PublicKey;
       salt: Bytes16;
       payload: readonly (Readonly<{ viewTag: Bytes32; data: Uint8Array }> | undefined)[];
+      /** Payment memos belong here; encrypt private content before finalizing. */
       messages?: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
       instructionDiscriminator?: number;
     }>,
