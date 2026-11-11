@@ -10815,6 +10815,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sha3",
+ "solana-define-syscall 5.2.0",
  "solana-program-error",
  "solana-pubkey 4.2.1",
  "thiserror 2.0.20",

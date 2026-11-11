@@ -3,6 +3,9 @@
 //! which is licensed under Apache License 2.0.
 
 #[cfg(target_feature = "static-syscalls")]
+use solana_define_syscall::sys_hash;
+
+#[cfg(target_feature = "static-syscalls")]
 macro_rules! define_syscall {
     (fn $name:ident($($arg:ident: $typ:ty),*) -> $ret:ty) => {
 		#[inline]

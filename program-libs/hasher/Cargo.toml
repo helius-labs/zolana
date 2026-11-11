@@ -21,6 +21,9 @@ num-bigint = { workspace = true }
 
 solana-program-error = { workspace = true }
 
+[target.'cfg(target_os = "solana")'.dependencies]
+solana-define-syscall = "5.2"
+
 [target.'cfg(not(target_os = "solana"))'.dependencies]
 light-poseidon = { workspace = true }
 ark-bn254 = { workspace = true }
