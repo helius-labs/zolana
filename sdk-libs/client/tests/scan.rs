@@ -15,7 +15,7 @@ use spr_client::{
     rpc::GetShieldedTransactionsByNullifiersResponse, ClientError, Context, EncryptedUtxoMatch,
     GetEncryptedUtxosByTagsResponse, GetShieldedTransactionsByTagsResponse, HistoryFilters,
     IndexerRpcConfig, OutputContext, OutputSlot, PaginationToken, ProgramAccountsFilter, Rpc,
-    ShieldedTransaction, UtxoScan,
+    ShieldedTransaction, UtxoScan, UtxoScanResult,
 };
 use spr_event::{encode_merge_output_data, MergeOutputDataRef};
 use spr_interface::{pda, state::SplAssetRegistry, PROGRAM_ID_PUBKEY};
@@ -57,11 +57,21 @@ struct Indexer {
     page_size: usize,
     /// Answers every page with the token it was given.
     stuck_token: bool,
+    /// The slot every page reports the indexer has persisted.
+    tip: u64,
+    /// Each request's history filters.
+    filters: RefCell<Vec<HistoryFilters>>,
 }
 
 impl Indexer {
-    fn read(&self, method: &'static str, config: Option<IndexerRpcConfig>) {
+    fn read(
+        &self,
+        method: &'static str,
+        config: Option<IndexerRpcConfig>,
+        filters: HistoryFilters,
+    ) {
         self.reads.borrow_mut().push(method);
+        self.filters.borrow_mut().push(filters);
         self.required_slots
             .borrow_mut()
             .push(config.and_then(|config| config.require_slot));
@@ -120,10 +130,19 @@ struct Page<T> {
     next: Option<PaginationToken>,
 }
 
-const CONTEXT: Context = Context {
-    block_time: 0,
-    slot: 0,
-};
+impl Indexer {
+    fn context(&self) -> Context {
+        Context {
+            block_time: 0,
+            slot: self.tip,
+        }
+    }
+}
+
+/// Whether a row at `slot` passes the request's slot filter.
+fn after(filters: &HistoryFilters, slot: u64) -> bool {
+    filters.slot.gt.is_none_or(|gt| slot > gt)
+}
 
 impl Rpc for Indexer {
     fn get_program_accounts_filtered(
@@ -164,18 +183,20 @@ impl Rpc for Indexer {
         tags: Vec<[u8; 32]>,
         token: Option<PaginationToken>,
         _limit: Option<u32>,
-        _filters: HistoryFilters,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
-        self.read("get_shielded_transactions_by_tags", config);
+        self.read("get_shielded_transactions_by_tags", config, filters);
         self.queried_tags.borrow_mut().push(tags.clone());
         let matching = self
             .tagged
             .iter()
             .filter(|tx| {
-                tx.output_slots
-                    .iter()
-                    .any(|slot| tags.contains(&slot.view_tag))
+                after(&filters, tx.slot)
+                    && tx
+                        .output_slots
+                        .iter()
+                        .any(|slot| tags.contains(&slot.view_tag))
             })
             .cloned()
             .collect();
@@ -186,7 +207,7 @@ impl Rpc for Indexer {
             PaginationToken::new(item.slot, item.tx_signature)
         });
         Ok(GetShieldedTransactionsByTagsResponse {
-            context: CONTEXT,
+            context: self.context(),
             output_tree_id: Some(TREE),
             data: spr_client::rpc::TransactionEvents::group(transactions, |event| {
                 (event.slot, event.tx_signature)
@@ -200,14 +221,16 @@ impl Rpc for Indexer {
         tags: Vec<[u8; 32]>,
         token: Option<PaginationToken>,
         _limit: Option<u32>,
-        _filters: HistoryFilters,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
-        self.read("get_encrypted_utxos_by_tags", config);
+        self.read("get_encrypted_utxos_by_tags", config, filters);
         let matching = self
             .deposits
             .iter()
-            .filter(|deposit| tags.contains(&deposit.output_slot.view_tag))
+            .filter(|deposit| {
+                after(&filters, deposit.slot) && tags.contains(&deposit.output_slot.view_tag)
+            })
             .cloned()
             .collect();
         let Page {
@@ -217,7 +240,7 @@ impl Rpc for Indexer {
             PaginationToken::new(item.slot, item.tx_signature)
         });
         Ok(GetEncryptedUtxosByTagsResponse {
-            context: CONTEXT,
+            context: self.context(),
             output_tree_id: Some(TREE),
             data: spr_client::rpc::TransactionOutputs::group(matches, |event| {
                 (event.slot, event.tx_signature)
@@ -231,10 +254,10 @@ impl Rpc for Indexer {
         nullifiers: Vec<[u8; 32]>,
         token: Option<PaginationToken>,
         _limit: Option<u32>,
-        _filters: HistoryFilters,
+        filters: HistoryFilters,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
-        self.read("get_shielded_transactions_by_nullifiers", config);
+        self.read("get_shielded_transactions_by_nullifiers", config, filters);
         if token.is_none() {
             self.queried_nullifiers
                 .borrow_mut()
@@ -243,7 +266,9 @@ impl Rpc for Indexer {
         let matching = self
             .spends
             .iter()
-            .filter(|tx| tx.nullifiers.iter().any(|n| nullifiers.contains(n)))
+            .filter(|tx| {
+                after(&filters, tx.slot) && tx.nullifiers.iter().any(|n| nullifiers.contains(n))
+            })
             .cloned()
             .collect();
         let Page {
@@ -253,7 +278,7 @@ impl Rpc for Indexer {
             PaginationToken::new(item.slot, item.tx_signature)
         });
         Ok(GetShieldedTransactionsByNullifiersResponse {
-            context: CONTEXT,
+            context: self.context(),
             output_tree_id: Some(TREE),
             data: spr_client::rpc::TransactionEvents::group(transactions, |event| {
                 (event.slot, event.tx_signature)
@@ -1230,4 +1255,123 @@ fn a_pool_registry_account_that_does_not_parse_or_names_another_mint_is_invalid(
         OTHER_PROGRAM,
         5
     )));
+}
+
+/// What a scan found: unspent and owned UTXO hashes, transaction signatures
+/// and the SOL balance.
+type Found = (Vec<[u8; 32]>, Vec<[u8; 32]>, Vec<Signature>, u64);
+
+fn found(scan: &UtxoScanResult) -> Found {
+    let unspent = scan.spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
+    let mut owned: Vec<_> = scan
+        .history
+        .utxos
+        .iter()
+        .map(|utxo| utxo.utxo_hash)
+        .collect();
+    owned.sort();
+    let mut signatures: Vec<_> = scan
+        .history
+        .transactions
+        .iter()
+        .map(|tx| tx.tx_signature)
+        .collect();
+    signatures.sort();
+    let balance = scan
+        .spendable
+        .balances
+        .get_balance(Mint::SOL.asset)
+        .map_or(0, |balance| balance.amount);
+    (unspent, owned, signatures, balance)
+}
+
+#[test]
+fn a_resumed_scan_reads_after_its_checkpoint_and_finds_what_a_full_scan_finds() {
+    let owner = keypair(40);
+    let (first_deposit, first) = deposit(&owner, 30, 1);
+    let mut indexer = Indexer {
+        deposits: vec![first_deposit],
+        tip: 3,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let before = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
+    assert_eq!(found(&before).3, 30);
+
+    // After the checkpoint: a second deposit, and the first one spent.
+    let (second_deposit, second) = deposit(&owner, 12, 5);
+    indexer.deposits.push(second_deposit);
+    indexer.spends.push(spend(&owner, &first, 6));
+    indexer.tip = 9;
+    indexer.filters.borrow_mut().clear();
+
+    let resumed = UtxoScan::new(&owner, &before.asset_registry)
+        .resume(&before)
+        .fetch(&indexer)
+        .unwrap();
+    let resumed_filters = indexer.filters.take();
+    let full = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
+
+    assert_eq!(found(&resumed), found(&full));
+    assert_eq!(found(&resumed).0, vec![second.hash]);
+    assert_eq!(found(&resumed).3, 12);
+    // Every read of the resumed scan asked only for what followed slot 3.
+    assert!(!resumed_filters.is_empty());
+    assert!(resumed_filters
+        .iter()
+        .all(|filters| *filters == HistoryFilters::after_slot(3)));
+}
+
+#[test]
+fn a_resumed_scan_finds_a_spend_made_since_by_another_client() {
+    let owner = keypair(41);
+    let (first_deposit, first) = deposit(&owner, 30, 1);
+    let mut indexer = Indexer {
+        deposits: vec![first_deposit],
+        tip: 3,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let before = UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap();
+    // The spend carries none of the wallet's tags: only its nullifier finds it.
+    indexer.spends.push(spend(&owner, &first, 7));
+    indexer.tip = 9;
+
+    let resumed = UtxoScan::new(&owner, &assets)
+        .resume(&before)
+        .fetch(&indexer)
+        .unwrap();
+
+    assert!(found(&resumed).0.is_empty());
+    assert_eq!(found(&resumed).3, 0);
+    assert_eq!(
+        found(&resumed),
+        found(&UtxoScan::new(&owner, &assets).fetch(&indexer).unwrap())
+    );
+}
+
+#[test]
+fn resuming_another_wallets_result_is_a_full_scan() {
+    let (owner, other) = (keypair(42), keypair(43));
+    let (deposit_match, _) = deposit(&owner, 30, 1);
+    let indexer = Indexer {
+        deposits: vec![deposit_match],
+        tip: 3,
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let others = UtxoScan::new(&other, &assets).fetch(&indexer).unwrap();
+    indexer.filters.borrow_mut().clear();
+
+    let scan = UtxoScan::new(&owner, &assets)
+        .resume(&others)
+        .fetch(&indexer)
+        .unwrap();
+
+    assert_eq!(found(&scan).3, 30);
+    assert!(indexer
+        .filters
+        .borrow()
+        .iter()
+        .all(|filters| *filters == HistoryFilters::default()));
 }
