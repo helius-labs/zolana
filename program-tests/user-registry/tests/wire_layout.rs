@@ -13,10 +13,9 @@ fn instruction_discriminators_are_stable() {
             discriminator::REGISTER,
             discriminator::SET_MERGE_ENCRYPTION,
             discriminator::UPDATE_KEYS,
-            discriminator::APPEND_DATA,
-            discriminator::ROTATE_NULLIFIER_KEY,
+            discriminator::SET_DATA,
         ],
-        [0, 1, 2, 3, 4]
+        [0, 1, 2, 3]
     );
 }
 

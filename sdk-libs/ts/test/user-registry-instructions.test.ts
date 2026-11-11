@@ -205,7 +205,7 @@ describe("decodeUserRecordAccount", () => {
     );
   });
 
-  it("reads existing fields from records with appended data", () => {
+  it("reads the header of a record that carries data", () => {
     const account = recordWith(1);
     const extended = {
       ...account,

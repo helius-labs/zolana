@@ -365,8 +365,8 @@ export async function resolveRegisteredAddress(
 
 /**
  * Rejects when the on-chain record under `owner` publishes keys other than
- * `keypair`'s. A difference is an identity conflict that requires the caller
- * to choose whether to rotate keys explicitly.
+ * `keypair`'s. The nullifier key is fixed at registration, so a difference
+ * is an identity conflict rather than stale data.
  */
 export async function validateRegisteredKeypair(
   input: Readonly<{ rpc: AccountReader; owner: Address; keypair: ShieldedKeypair }>,

@@ -3,18 +3,21 @@ use pinocchio::{
     sysvars::{rent::Rent, Sysvar},
     AccountView, Address, ProgramResult, Resize,
 };
-use spr_user_registry_interface::{instruction::AppendData, UserRecord};
+use spr_user_registry_interface::{instruction::SetData, UserRecord};
 
 use super::common::{
     check_record_pda_with_bump, check_system_program, read_record, system_transfer,
 };
 use crate::error::{fail, UserRegistryError};
 
+/// Replaces the record's data and resizes the account to fit it. Previous data
+/// is not kept on chain; indexers recover it from the earlier `set_data`
+/// instruction. Lamports freed by shrinking stay in the record.
 #[inline(never)]
-pub fn process_append_data_ix(
+pub fn process_set_data_ix(
     program_id: &Address,
     accounts: &mut [AccountView],
-    ix: AppendData,
+    ix: SetData,
 ) -> ProgramResult {
     let [record_account, owner_account, rent_payer_account, system_program_account, ..] = accounts
     else {
@@ -34,38 +37,30 @@ pub fn process_append_data_ix(
     if record.owner.as_array() != owner_account.address().as_array() {
         return Err(fail(UserRegistryError::OwnerMismatch));
     }
-    if ix.data.is_empty() {
-        return Ok(());
-    }
-    let old_length = {
-        let bytes = record_account.try_borrow()?;
-        UserRecord::additional_data(&bytes)
-            .map_err(|_| fail(UserRegistryError::InvalidRecordAccount))?
-            .len()
+
+    // Empty data drops the length prefix, restoring the header-only layout.
+    let new_size = if ix.data.is_empty() {
+        UserRecord::SIZE
+    } else {
+        UserRecord::SIZE + UserRecord::DATA_LEN_SIZE + ix.data.len()
     };
-    let new_length = old_length
-        .checked_add(ix.data.len())
-        .and_then(|length| u32::try_from(length).ok())
-        .ok_or(ProgramError::InvalidRealloc)?;
-    let new_size = UserRecord::SIZE
-        .checked_add(UserRecord::DATA_LEN_SIZE)
-        .and_then(|size| size.checked_add(new_length as usize))
-        .ok_or(ProgramError::InvalidRealloc)?;
     let required = Rent::get()?.try_minimum_balance(new_size)?;
     let top_up = required.saturating_sub(record_account.lamports());
     if top_up > 0 {
         system_transfer(rent_payer_account, record_account, top_up)?;
     }
     record_account.resize(new_size)?;
+    if ix.data.is_empty() {
+        return Ok(());
+    }
+    let data_len = u32::try_from(ix.data.len())
+        .map_err(|_| fail(UserRegistryError::InvalidInstructionData))?;
     let mut bytes = record_account.try_borrow_mut()?;
-    let extension = bytes
+    let (length_bytes, data_bytes) = bytes
         .get_mut(UserRecord::SIZE..)
-        .ok_or(ProgramError::InvalidAccountData)?;
-    let (length_bytes, data_bytes) = extension.split_at_mut(UserRecord::DATA_LEN_SIZE);
-    length_bytes.copy_from_slice(&new_length.to_le_bytes());
-    data_bytes
-        .get_mut(old_length..)
-        .ok_or(ProgramError::InvalidAccountData)?
-        .copy_from_slice(&ix.data);
+        .and_then(|extension| extension.split_at_mut_checked(UserRecord::DATA_LEN_SIZE))
+        .ok_or_else(|| fail(UserRegistryError::InvalidRecordAccount))?;
+    length_bytes.copy_from_slice(&data_len.to_le_bytes());
+    data_bytes.copy_from_slice(&ix.data);
     Ok(())
 }

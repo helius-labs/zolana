@@ -2995,11 +2995,11 @@ enum MergeEncryptionScheme {
 
 Invariants:
 
-- `nullifier_pk` is wallet-wide. Only the owner may replace the published key through `rotate_nullifier_key`; `update_keys` changes only the viewing key.
-- Only the owner may append to `data`. Existing bytes are preserved by every registry operation.
+- `nullifier_pk` is wallet-wide and fixed at registration. Changing it requires creating a new record; `update_keys` changes only the viewing key.
+- Only the owner may replace `data`, through `set_data`. Every other registry operation preserves it.
 - Once created, a record account is permanent: there is no close or delete operation. Rent remains locked for the lifetime of the account.
 
-The Solana account retains its existing 100-byte header. `data` is an optional trailing Borsh byte vector; an absent vector reads as empty. Registration keeps the original account size and instruction encoding. The first nonempty append adds the vector length and bytes, and later appends grow it without changing header offsets.
+The record account is a 100-byte header followed by `data` as an optional Borsh byte vector; an absent vector reads as empty. `register` creates the header only. `set_data` resizes the account to the header plus the encoded vector, or back to the header alone when `data` is empty.
 
 The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects directly from the record.
 
@@ -3046,27 +3046,15 @@ struct SetMergeEncryptionRequest {
 }
 ```
 
-#### `append_data`
+#### `set_data`
 
-Appends arbitrary bytes to the record's `data` (instruction tag 3), resizing the account to fit. An empty append leaves the account unchanged. Only the record owner may authorize the append. A separate `rent_payer` account signs and pays the missing rent for account growth; excess lamports already in the record count toward rent.
+Replaces the record's `data` (instruction tag 3) and resizes the account to fit. Only the record owner may authorize it. The `rent_payer` signs and pays the rent the larger account is missing; lamports already in the record count toward it, and lamports freed by shrinking stay in the record. The previous `data` is not kept on chain: the instruction that set it holds it. One write is bounded by the transaction size, so the account stays small.
 
 Accounts: writable record, owner signer, writable rent payer signer, system program.
 
 ```rust
-struct AppendDataRequest {
+struct SetDataRequest {
     data: Vec<u8>,
-}
-```
-
-#### `rotate_nullifier_key`
-
-Replaces the record's `nullifier_pk` (instruction tag 4). Only the record owner may authorize rotation. The viewing key, merge scheme, appended data, account size, and record address stay unchanged. Rotation changes the published key; it does not rewrite existing notes or retained wallet keys.
-
-Accounts: writable record, owner signer.
-
-```rust
-struct RotateNullifierKeyRequest {
-    nullifier_pk: [u8; 32],
 }
 ```
 

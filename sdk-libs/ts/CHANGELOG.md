@@ -38,11 +38,10 @@ Added
 Changed
 
 - The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
+- `decodeUserRecordAccount` reads user records that carry data set by the owner, and rejects a record whose data length does not match its bytes.
 - `SprIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 
 Fixed
-
-- `decodeUserRecordAccount` reads registry records with appended data and rejects malformed data extensions.
 
 - `syncWallet` failed on an indexer page of dense private transactions; it now halves `pageLimit` for the rest of the sync until the page fits, keeping the `requireSlot` check.
 - `syncWallet` misclassified authored spends containing unknown output schemes as withdrawals or splits, and now omits their history rows.

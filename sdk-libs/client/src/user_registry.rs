@@ -39,8 +39,8 @@ fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientErro
     })
 }
 
-/// Viewing-key publication cannot implicitly rotate the wallet-wide nullifier
-/// pubkey. A different nullifier key requires explicit registry rotation.
+/// The wallet-wide nullifier pubkey is fixed at registration. Publishing a
+/// different nullifier key requires a new owner address.
 fn check_nullifier_unchanged(
     owner: Pubkey,
     record: &UserRecord,
