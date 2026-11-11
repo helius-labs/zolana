@@ -57,8 +57,13 @@ describe("registry viewing key index", () => {
       account: { owner: USER_REGISTRY_PROGRAM_ID, data: new Uint8Array(100), lamports: 1n },
     };
 
+    const firstRecord = record(FIRST, first);
+    const extendedRecord = {
+      ...firstRecord,
+      account: { ...firstRecord.account, data: Uint8Array.of(...firstRecord.account.data, 255) },
+    };
     const owners = await fetchViewingKeyOwners({
-      rpc: listing([record(FIRST, first), record(SECOND, second), unreadable]),
+      rpc: listing([extendedRecord, record(SECOND, second), unreadable]),
     });
 
     // The record the discriminator rejects names no owner, the rest do.
@@ -66,10 +71,17 @@ describe("registry viewing key index", () => {
     expect(owners.get(viewingKeyIndex(first))).toBe(FIRST);
     expect(owners.get(viewingKeyIndex(second))).toBe(SECOND);
   });
-  it("rejects a record of any other size", () => {
+  it("accepts trailing fields and rejects incomplete headers", () => {
     const account = record(FIRST, new Uint8Array(33).fill(7)).account;
     expect(decodeUserRecordAccount(account).owner).toBe(FIRST);
-    for (const length of [99, 101, 134]) {
+    for (const length of [101, 134]) {
+      const data = new Uint8Array(length);
+      data.set(account.data);
+      expect(decodeUserRecordAccount({ ...account, data })).toEqual(
+        decodeUserRecordAccount(account),
+      );
+    }
+    for (const length of [0, 1, 99]) {
       const data = new Uint8Array(length);
       data.set(account.data.subarray(0, Math.min(length, account.data.length)));
       expect(() => decodeUserRecordAccount({ ...account, data })).toThrow(

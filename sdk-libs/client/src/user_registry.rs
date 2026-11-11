@@ -39,10 +39,8 @@ fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientErro
     })
 }
 
-/// The nullifier pubkey is wallet-wide and never rotates: `update_keys` replaces
-/// only the viewing pubkey, so an update cannot publish a different one. A
-/// wallet whose nullifier key differs from the published record needs a new
-/// owner address, not an update.
+/// The wallet-wide nullifier pubkey is fixed at registration. Publishing a
+/// different nullifier key requires a new owner address.
 fn check_nullifier_unchanged(
     owner: Pubkey,
     record: &UserRecord,
@@ -103,10 +101,9 @@ pub fn ensure_registered<R: Rpc>(
 
 /// Outcome of a strict registration attempt ([`register_if_absent`]).
 ///
-/// Unlike [`ensure_registered`], the strict path never rotates keys: a shielded
-/// identity's nullifier key is fixed for its lifetime, so a record whose
-/// published keys differ from the wallet is an identity conflict to surface, not
-/// something to silently overwrite.
+/// Unlike [`ensure_registered`], the strict path never rotates keys. A record
+/// whose published keys differ from the wallet is an identity conflict to
+/// surface rather than silently overwrite.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StrictRegistration {
     /// No record existed; this call wrote a fresh one.
@@ -121,9 +118,9 @@ pub enum StrictRegistration {
 /// Register `keypair`'s shielded keys under `funding`'s pubkey with strict
 /// semantics: write the record only when absent, treat an exactly matching
 /// record as a no-op, and report a differing record as
-/// [`StrictRegistration::Mismatch`] without ever calling `update_keys`. The
-/// nullifier key never rotates, so overwriting a differing record would silently
-/// replace an existing on-chain identity.
+/// [`StrictRegistration::Mismatch`] without ever calling `update_keys`.
+/// Overwriting a differing record would silently replace an existing on-chain
+/// identity.
 ///
 /// `funding` must sign: the program keys the record under, and requires the
 /// signature of, its owner pubkey.

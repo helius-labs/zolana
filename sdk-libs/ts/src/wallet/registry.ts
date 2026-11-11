@@ -175,7 +175,7 @@ class Reader {
 }
 
 function decodeRecordBody(data: Uint8Array): DecodedUserRecord {
-  if (data.length !== USER_RECORD_SIZE) throw new WalletError("WALLET_INVALID_USER_RECORD");
+  if (data.length < USER_RECORD_SIZE) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const reader = new Reader(data);
   if (reader.u8() !== 1) throw new WalletError("WALLET_INVALID_USER_RECORD");
   const owner = addressDecoder.decode(reader.bytes(32));
@@ -353,8 +353,8 @@ export async function resolveRegisteredAddress(
 
 /**
  * Rejects when the on-chain record under `owner` publishes keys other than
- * `keypair`'s. A shielded identity's nullifier key never rotates, so a
- * difference is an identity conflict rather than stale data.
+ * `keypair`'s. The nullifier key is fixed at registration, so a difference
+ * is an identity conflict rather than stale data.
  */
 export async function validateRegisteredKeypair(
   input: Readonly<{ rpc: AccountReader; owner: Address; keypair: ShieldedKeypair }>,
@@ -437,8 +437,8 @@ export async function buildRegistrationTransaction(
 /**
  * Replaces the viewing key in `owner`'s record with `address`'s. Payments to
  * `owner` then go to the new key, and notes the old key holds stay spendable
- * only with the old keys. The nullifier key never rotates, so an `address`
- * with another one rejects with `WALLET_USER_RECORD_NULLIFIER_KEY_MISMATCH`.
+ * only with the old keys. This operation preserves the nullifier key, so an
+ * `address` with another one rejects with `WALLET_USER_RECORD_NULLIFIER_KEY_MISMATCH`.
  * Returns `undefined` when the record already holds `address`, and rejects
  * with `WALLET_USER_REGISTRY_RECORD_NOT_FOUND` when there is no record.
  * `payer` pays only the transaction fee, since the record already exists.

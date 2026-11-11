@@ -6,6 +6,19 @@ use spr_user_registry_interface::{
 };
 use user_registry_tests::build_register_ix;
 
+#[test]
+fn instruction_discriminators_are_stable() {
+    assert_eq!(
+        [
+            discriminator::REGISTER,
+            discriminator::SET_MERGE_ENCRYPTION,
+            discriminator::UPDATE_KEYS,
+            discriminator::SET_DATA,
+        ],
+        [0, 1, 2, 3]
+    );
+}
+
 /// Active error codes retain their wire values after retired variants are removed.
 #[test]
 fn error_codes_are_stable() {
@@ -105,12 +118,15 @@ fn from_account_data_rejects_wrong_discriminator() {
 }
 
 #[test]
-fn from_account_data_rejects_legacy_record_size() {
+fn from_account_data_ignores_fields_after_the_known_header() {
     let record = sample(MergeEncryptionScheme::Disabled);
     let mut account_data = vec![UserRecord::DISCRIMINATOR];
     account_data.extend_from_slice(&to_vec(&record).unwrap());
     account_data.resize(UserRecord::SIZE + 37, 0);
-    assert!(UserRecord::try_from_account_data(&account_data).is_err());
+    assert_eq!(
+        UserRecord::try_from_account_data(&account_data).unwrap(),
+        record
+    );
 }
 
 #[test]

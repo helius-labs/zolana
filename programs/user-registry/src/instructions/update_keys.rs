@@ -4,8 +4,7 @@ use spr_user_registry_interface::instruction::UpdateKeysData;
 use super::common::{check_record_pda_with_bump, read_record, write_record};
 use crate::error::{fail, UserRegistryError};
 
-/// Updates the viewing pubkey stored in an existing user record. The nullifier
-/// pubkey is set once by `register` and has no update path.
+/// Updates only the viewing pubkey stored in an existing user record.
 pub fn process_update_keys(
     program_id: &Address,
     accounts: &mut [AccountView],

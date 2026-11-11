@@ -2979,6 +2979,7 @@ struct Record {
     /// public inputs, so the proof verifies only for the owner's registered
     /// keys.
     merge_encryption: MergeEncryptionScheme,
+    data: Vec<u8>,
 }
 
 /// One byte. Each value other than `Disabled` equals the tag of the matching
@@ -2994,8 +2995,13 @@ enum MergeEncryptionScheme {
 
 Invariants:
 
-- `nullifier_pk` is wallet-wide and does not rotate. There is no operation to replace it; rotation requires creating a new Record.
+- `nullifier_pk` is wallet-wide and fixed at registration. Changing it requires creating a new record; `update_keys` changes only the viewing key.
+- Only the owner may replace `data`, through `set_data`. Every other registry operation preserves it.
 - Once created, a record account is permanent: there is no close or delete operation. Rent remains locked for the lifetime of the account.
+
+The record account is a 100-byte header followed by `data` as an optional Borsh byte vector; an absent vector reads as empty. `register` creates the header only. `set_data` resizes the account to the header plus the encoded vector, or back to the header alone when `data` is empty.
+
+Readers validate the fields they consume and ignore trailing fields. Header readers require at least 100 bytes and validate the discriminator and merge scheme. Data readers require the declared vector bytes to be present but ignore anything after them. Registry mutations validate the complete current layout before writing.
 
 The sender-facing `ShieldedAddress = (owner_hash, viewing_pk)` projects directly from the record.
 
@@ -3039,6 +3045,18 @@ Authorized signer: `owner`.
 ```rust
 struct SetMergeEncryptionRequest {
     scheme: MergeEncryptionScheme,
+}
+```
+
+#### `set_data`
+
+Replaces the record's `data` (instruction tag 3) and resizes the account to fit. Only the record owner may authorize it. The `rent_payer` signs and pays the rent the larger account is missing; lamports already in the record count toward it, and lamports freed by shrinking stay in the record. The previous `data` is not kept on chain: the instruction that set it holds it. One write is bounded by the transaction size, so the account stays small.
+
+Accounts: writable record, owner signer, writable rent payer signer, system program.
+
+```rust
+struct SetDataRequest {
+    data: Vec<u8>,
 }
 ```
 

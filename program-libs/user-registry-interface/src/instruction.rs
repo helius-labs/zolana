@@ -6,6 +6,7 @@ pub mod discriminator {
     pub const REGISTER: u8 = 0;
     pub const SET_MERGE_ENCRYPTION: u8 = 1;
     pub const UPDATE_KEYS: u8 = 2;
+    pub const SET_DATA: u8 = 3;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
@@ -14,8 +15,7 @@ pub struct RegisterData {
     pub viewing_pubkey: [u8; VIEWING_PUBKEY_LEN],
 }
 
-/// Carries only the viewing pubkey: the nullifier pubkey is fixed at
-/// registration and has no update path.
+/// Carries only the viewing pubkey; the nullifier pubkey is fixed at registration.
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct UpdateKeysData {
     pub viewing_pubkey: [u8; VIEWING_PUBKEY_LEN],
@@ -24,6 +24,11 @@ pub struct UpdateKeysData {
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct SetMergeEncryptionData {
     pub scheme: MergeEncryptionScheme,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct SetData {
+    pub data: Vec<u8>,
 }
 
 #[cfg(feature = "solana")]
@@ -36,7 +41,8 @@ mod builders {
     use solana_pubkey::Pubkey;
 
     use super::{
-        discriminator, MergeEncryptionScheme, RegisterData, SetMergeEncryptionData, UpdateKeysData,
+        discriminator, MergeEncryptionScheme, RegisterData, SetData, SetMergeEncryptionData,
+        UpdateKeysData,
     };
     use crate::user_registry_program_id;
 
@@ -103,6 +109,27 @@ mod builders {
             program_id: user_registry_program_id(),
             accounts,
             data: encode_instruction(discriminator::UPDATE_KEYS, &data),
+        }
+    }
+
+    /// Accounts: `[user_record (writable), owner (signer), rent_payer (writable
+    /// signer), system_program]`. The owner authorizes replacing the record data;
+    /// `rent_payer` covers only the missing rent when the account grows.
+    pub fn set_data(
+        user_record: Pubkey,
+        owner: Pubkey,
+        rent_payer: Pubkey,
+        data: SetData,
+    ) -> Instruction {
+        Instruction {
+            program_id: user_registry_program_id(),
+            accounts: vec![
+                AccountMeta::new(user_record, false),
+                AccountMeta::new_readonly(owner, true),
+                AccountMeta::new(rent_payer, true),
+                AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+            ],
+            data: encode_instruction(discriminator::SET_DATA, &data),
         }
     }
 }

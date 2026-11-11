@@ -38,6 +38,7 @@ Added
 Changed
 
 - The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
+- `decodeUserRecordAccount` validates the known registry header and ignores trailing fields, so larger records remain readable after additive program upgrades.
 - `SprIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 
 Fixed

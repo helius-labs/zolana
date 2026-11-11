@@ -56,6 +56,17 @@ pub fn read_record(record: &AccountView, program_id: &Address) -> Result<UserRec
         return Err(fail(UserRegistryError::InvalidRecordAccount));
     }
     let data = record.try_borrow()?;
+    // Mutations validate the complete current layout; header-only consumers
+    // can ignore extensions they do not interpret.
+    let additional_data = UserRecord::additional_data(&data)
+        .map_err(|_| fail(UserRegistryError::InvalidRecordAccount))?;
+    let expected_size = UserRecord::SIZE
+        .checked_add(UserRecord::DATA_LEN_SIZE)
+        .and_then(|size| size.checked_add(additional_data.len()))
+        .ok_or_else(|| fail(UserRegistryError::InvalidRecordAccount))?;
+    if data.len() != UserRecord::SIZE && data.len() != expected_size {
+        return Err(fail(UserRegistryError::InvalidRecordAccount));
+    }
     UserRecord::try_from_account_data(&data)
         .map_err(|_| fail(UserRegistryError::InvalidRecordAccount))
 }
@@ -64,10 +75,9 @@ pub fn write_record(record: &mut AccountView, state: &UserRecord) -> ProgramResu
     let body = borsh::to_vec(state).map_err(|_| ProgramError::InvalidAccountData)?;
     let needed = UserRecord::DISCRIMINATOR_LEN + body.len();
     let mut data = record.try_borrow_mut()?;
-    if data.len() != UserRecord::SIZE || needed > data.len() {
+    if needed != UserRecord::SIZE || data.len() < needed {
         return Err(fail(UserRegistryError::InvalidRecordAccount));
     }
-    data.fill(0);
     data[0] = UserRecord::DISCRIMINATOR;
     data[1..needed].copy_from_slice(&body);
     Ok(())
