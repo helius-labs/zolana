@@ -771,35 +771,48 @@ fn phase_spl_deposit_and_transfers(
         &cli_env,
     )?;
 
-    // An unregistered Solana pubkey has no user-registry record, so `transfer`
-    // silently falls back to a public withdrawal (spec Single Player,
-    // lookup-negative): the CLI reports mode=withdraw and the lamports land in
-    // the recipient's public account.
+    // An unregistered recipient requires an explicit public-withdrawal opt-in.
     let fallback_recipient = Keypair::new().pubkey();
     let fallback_amount = 2_000_000u64;
     let fallback_before = rpc
         .get_account(Address::new_from_array(fallback_recipient.to_bytes()))?
         .map_or(0, |account| account.lamports);
-    let fallback_out = run_cli_with_env(
-        &[
-            "transfer",
-            "--keypair",
-            &env.bob_keypair.display().to_string(),
-            "--to",
-            &fallback_recipient.to_string(),
-            "--amount",
-            &fallback_amount.to_string(),
-            "--mint",
-            "SOL",
-            "--rpc-url",
-            &env.rpc_url,
-            "--indexer-url",
-            &env.indexer_url,
-            "--prover-url",
-            &env.prover_url,
-        ],
-        &cli_env,
-    )?;
+    let fallback_keypair = env.bob_keypair.display().to_string();
+    let fallback_address = fallback_recipient.to_string();
+    let fallback_amount_arg = fallback_amount.to_string();
+    let mut fallback_args = vec![
+        "transfer",
+        "--keypair",
+        &fallback_keypair,
+        "--to",
+        &fallback_address,
+        "--amount",
+        &fallback_amount_arg,
+        "--mint",
+        "SOL",
+        "--rpc-url",
+        &env.rpc_url,
+        "--indexer-url",
+        &env.indexer_url,
+        "--prover-url",
+        &env.prover_url,
+    ];
+    let refused = run_cli_expect_failure(&fallback_args, &cli_env)?;
+    assert!(
+        refused.contains(&format!(
+            "recipient {fallback_recipient} is not registered; pass --allow-public"
+        )),
+        "expected a public-withdrawal opt-in error: {refused}"
+    );
+    assert_eq!(
+        rpc.get_account(fallback_recipient)?
+            .map_or(0, |account| account.lamports),
+        fallback_before,
+        "a refused transfer must not credit the recipient"
+    );
+
+    fallback_args.push("--allow-public");
+    let fallback_out = run_cli_with_env(&fallback_args, &cli_env)?;
     assert_eq!(
         TransferOutput::parse(&fallback_out)?.mode,
         TransferMode::Withdraw
@@ -810,7 +823,7 @@ fn phase_spl_deposit_and_transfers(
     assert_eq!(
         fallback_after,
         fallback_before + fallback_amount,
-        "silent public fallback should credit the recipient's SOL balance"
+        "explicit public fallback should credit the recipient's SOL balance"
     );
 
     // Pay alice by her plain Solana pubkey: she was registered up front, so the
