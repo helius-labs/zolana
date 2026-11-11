@@ -70,7 +70,5 @@ pub fn from_bytes(bytes: &[u8; 32]) -> Result<Field, CircuitError> {
 }
 
 pub mod hasher {
-    pub use spr_instruction::{
-        CLOSED_DATA_HASH_DOMAIN, DATA_HASH_DOMAIN, UNIQUE_DATA_HASH_DOMAIN,
-    };
+    pub use spr_instruction::{CLOSED_DATA_HASH_DOMAIN, DATA_HASH_DOMAIN, UNIQUE_DATA_HASH_DOMAIN};
 }
