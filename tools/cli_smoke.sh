@@ -263,9 +263,9 @@ step "utxos SOL alice"                utxos   utxos   --keypair "$ALICE" --mint 
 # registered recipient (ed25519) -> shielded
 transfer_step "transfer SOL alice -> bob (shielded)"   shielded \
   transfer --keypair "$ALICE" --to "$BOB_FUND"   --amount "$TRANSFER" --mint SOL
-# unregistered recipient -> automatic public withdrawal fallback (CLI: mode=withdraw)
+# unregistered recipient -> explicit public withdrawal fallback (CLI: mode=withdraw)
 transfer_step "transfer SOL alice -> FUNDER (withdrawal fallback)" withdraw \
-  transfer --keypair "$ALICE" --to "$FUNDER_PUBKEY" --amount "$WITHDRAW" --mint SOL
+  transfer --keypair "$ALICE" --to "$FUNDER_PUBKEY" --amount "$WITHDRAW" --mint SOL --allow-public
 
 step "withdraw SOL alice -> FUNDER"   withdraw \
   withdraw --keypair "$ALICE" --to "$FUNDER_PUBKEY" --amount "$WITHDRAW" --mint SOL
