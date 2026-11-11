@@ -909,7 +909,9 @@ class SyncPass {
     }
     const secrets: Bytes32[] = [];
     try {
+      // Every seed asks in the same round, the key round budget has no pass per seed.
       const candidates: { key: Bytes32; outputBlinding: Bytes32 }[] = [];
+      let pending = false;
       for (const zeroKeySeed of seeds) {
         const seeded = zeroKeySeed === undefined ? {} : { zeroKeySeed };
         const key = this.#keys.derive({ kind: "mergeOutputKey", firstNullifier, ...seeded });
@@ -920,9 +922,10 @@ class SyncPass {
         });
         if (key !== undefined) secrets.push(key);
         if (outputBlinding !== undefined) secrets.push(outputBlinding);
-        if (key === undefined || outputBlinding === undefined) return;
-        candidates.push({ key, outputBlinding });
+        if (key === undefined || outputBlinding === undefined) pending = true;
+        else candidates.push({ key, outputBlinding });
       }
+      if (pending) return;
       // A wrong seed decrypts to noise.
       let failure: unknown;
       for (const { key, outputBlinding } of candidates) {

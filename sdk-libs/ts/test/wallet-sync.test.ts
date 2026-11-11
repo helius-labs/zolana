@@ -1089,15 +1089,16 @@ describe("wallet sync", () => {
   it.each([
     { kind: "current", seedIndex: 0, ring: true },
     { kind: "retired", seedIndex: 1, ring: true },
+    { kind: "oldest retired", seedIndex: 3, ring: true },
     { kind: "default-ring", seedIndex: 0, ring: false },
   ])(
     "rebuilds a zero-key ring merge from its $kind viewing key seed",
     async ({ seedIndex, ring }) => {
       const signing = SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(31) as Bytes32);
-      const viewingKeys = [
-        ViewingKey.fromBytes(new Uint8Array(32).fill(41) as Bytes32),
-        ViewingKey.fromBytes(new Uint8Array(32).fill(42) as Bytes32),
-      ];
+      // Four held keys exceed the key rounds a seed per round would need.
+      const viewingKeys = [41, 42, 43, 44].map((fill) =>
+        ViewingKey.fromBytes(new Uint8Array(32).fill(fill) as Bytes32),
+      );
       const zeroKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
       const identity = ShieldedAddress.fromPublicKeys(
         signing.publicKey(),
