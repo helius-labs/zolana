@@ -374,8 +374,8 @@ fn ring_config_creation_initializes_complete_state() {
         read_ring_config(&rpc, &ring_config),
         RingConfigState {
             authority: authority.pubkey(),
-            // Governance-owned and off at creation.
-            enabled: false,
+            // Enabled at creation on a permissionless pool.
+            enabled: true,
             paused: false,
             // Born activated: this pool sets `ring_activation_is_permissionless`.
             activated: true,

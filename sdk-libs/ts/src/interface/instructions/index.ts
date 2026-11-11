@@ -614,8 +614,8 @@ export async function pauseTreeInstruction(
 
 /**
  * Mirrors Rust `SetRingActivation::instruction`. Governance admits a ring, or
- * contains one it no longer trusts, and owns the authority-transact rail for
- * the ring's whole life. The authority must be the config's ring creation
+ * contains one it no longer trusts, and owns the authority-transact rail
+ * after creation. The authority must be the config's ring creation
  * authority. This never touches the ring's own `paused` flag.
  *
  * Ring creation is permissionless and lands inert on a permissioned pool, so

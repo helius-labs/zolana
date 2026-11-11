@@ -29,8 +29,8 @@ impl RingConfigInitParams {
             discriminator: RING_CONFIG,
             authority: self.authority,
             program_id: self.program_id,
-            // Governance-owned; only `set_ring_activation` ever turns it on.
-            ring_authority_transact_is_enabled: 0,
+            // A permissionless pool opens the ownerless rail at creation.
+            ring_authority_transact_is_enabled: u8::from(self.activated),
             paused: 0,
             activated: u8::from(self.activated),
             bump: self.bump,

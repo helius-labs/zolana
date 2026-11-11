@@ -1346,7 +1346,7 @@ fn print_help() {
     println!("  --allow-extra-member <PUBKEY>          preserve this additional member when");
     println!("                                        reusing settings; repeat for each key");
     println!("  --tree-creation-permissionless <true|false>       default: false");
-    println!("  --ring-activation-permissionless <true|false>     default: false");
+    println!("  --ring-activation-permissionless <true|false>     default: false, true also enables the authority rail of each new ring");
     println!("  --spl-interface-creation-permissionless <true|false>");
     println!("                                        default: true");
     println!("  --yes                                 confirm irreversible mainnet sends");

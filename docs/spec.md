@@ -1588,8 +1588,9 @@ struct ProtocolConfig {
     ring_creation_authority: Address,
     /// Permitted to call `set_tree_fees` and `claim_tree_lamports`.
     fee_authority: Address,
-    /// When set, a new `ring_config` is born activated; otherwise it is inert
-    /// until `set_ring_activation`.
+    /// When set, a new `ring_config` is born activated with
+    /// `ring_authority_transact` enabled; otherwise it is inert until
+    /// `set_ring_activation`.
     ring_activation_is_permissionless: bool,
     /// When set, any signer may call `create_spl_interface`; otherwise it is
     /// gated by `protocol_authority`.
@@ -1605,7 +1606,8 @@ corresponding creation instruction; otherwise the transaction signer must equal
 the matching creation authority.
 
 Ring creation is permissionless; `ring_activation_is_permissionless`
-sets the config's initial activation state. See [Ring Accounts](#ring-accounts).
+sets the config's initial activation state and its initial
+`ring_authority_transact_is_enabled`. See [Ring Accounts](#ring-accounts).
 
 ### Authority Governance
 
@@ -1642,8 +1644,9 @@ A ring program hosts exactly one ring, tied to SPP by a single account.
 **`ring_config`** — the ring's `ring_auth` PDA: an SPP-owned account at `[b"ring_auth"]` derived under the ring program, so the ring program (and only it) can sign for it via `invoke_signed(["ring_auth", bump])`. SPP authorizes a ring instruction (`ring_transact`, `ring_authority_transact`, `merge_ring`, `ring_deposit`) by requiring `ring_config` to sign, loading it by owner + discriminator, and requiring it to be activated and unpaused; it does not re-derive the address or take a bump from instruction data. The `program_id` field is the ring program, read as the UTXO `ring_program_id`.
 
 Creation requires the ring's `ring_auth` PDA and a rent payer to sign. The config
-starts activated only when `ring_activation_is_permissionless` is set; otherwise
-governance activates it through `set_ring_activation`.
+starts activated, with `ring_authority_transact` enabled, only when
+`ring_activation_is_permissionless` is set. Otherwise governance sets both
+through `set_ring_activation`.
 
 Governance must submit activation separately from ring creation and call SPP
 without invoking the ring program, keeping its signature away from unaudited
@@ -1658,6 +1661,7 @@ struct RingConfig {
     authority: Address,
     /// The ring program; read as the UTXO `ring_program_id`.
     program_id: Address,
+    /// Set at creation on a permissionless pool.
     /// Governance-owned. When false, SPP rejects `ring_authority_transact` for
     /// this ring.
     ring_authority_transact_is_enabled: bool,
@@ -1676,7 +1680,7 @@ Usage by instruction:
 | --- | --- |
 | `ring_transact`, `merge_ring`, `ring_deposit` | `ring_config` must sign, be activated, and be unpaused. `ring_authority_transact_is_enabled` is not read. |
 | `ring_authority_transact` | `ring_config` must sign, be activated, be unpaused, and have `ring_authority_transact_is_enabled == true`. An inactive ring reports `RingNotActivated` ahead of any pause or enabled failure. |
-| `create_ring_config` | Permissionless. Checks the canonical `ring_auth` PDA derivation and stores its bump. Initializes `authority` and `program_id` from instruction data, `activated` from `protocol_config.ring_activation_is_permissionless`, and both `ring_authority_transact_is_enabled` and `paused` to false. |
+| `create_ring_config` | Permissionless. Checks the canonical `ring_auth` PDA derivation and stores its bump. Initializes `authority` and `program_id` from instruction data, `activated` and `ring_authority_transact_is_enabled` from `protocol_config.ring_activation_is_permissionless`, and `paused` to false. |
 | `set_ring_activation` | Signer must equal `protocol_config.ring_creation_authority`. Writes `activated` and `ring_authority_transact_is_enabled`, in either direction, and never touches `paused`. Available on a paused ring. |
 | `update_ring_config`, `update_ring_config_owner` | Signer must equal `ring_config.authority`. Both remain available while paused or inactive, so the ring can be unpaused or its authority rotated. `update_ring_config` writes only `paused`. |
 

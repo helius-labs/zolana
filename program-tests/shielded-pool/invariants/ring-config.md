@@ -69,9 +69,9 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
 ### Success Postconditions
 
 - [x] **INV-CREATE-ZC-07: every config field is initialized exactly**
-  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `ring_config_creation_initializes_the_exact_account_state`
+  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `ring_config_creation_initializes_the_exact_account_state`, `program-tests/shielded-pool/tests/admin/functional.rs` `ring_config_creation_initializes_complete_state`
   - Kind: postcondition
-  - Statement: after a successful `create_ring_config`, the account has discriminator exactly 4, `authority` exactly `data.authority`, `program_id` exactly `data.program_id`, `ring_authority_transact_is_enabled` exactly 0, `paused` exactly 0, `activated` exactly 1 when `protocol_config.ring_activation_is_permissionless` is nonzero and exactly 0 otherwise, and `bump` exactly the canonical `ring_auth` bump; the account's `data_len` is exactly `RingConfig::SIZE` (69) and its owner is the shielded-pool program.
+  - Statement: after a successful `create_ring_config`, the account has discriminator exactly 4, `authority` exactly `data.authority`, `program_id` exactly `data.program_id`, `paused` exactly 0, `activated` and `ring_authority_transact_is_enabled` each exactly 1 when `protocol_config.ring_activation_is_permissionless` is nonzero and exactly 0 otherwise, and `bump` exactly the canonical `ring_auth` bump; the account's `data_len` is exactly `RingConfig::SIZE` (69) and its owner is the shielded-pool program.
   - Location: `programs/shielded-pool/src/instructions/ring_config/create.rs` (`fn process_create_ring_config`), `ring_config/init.rs` (`fn RingConfigInitParams::init`)
   - Severity: High
   - Suggested test: positive (full struct compare); harness: mollusk unit
