@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "noEmit": true,
+    "resolveJsonModule": true,
     "strict": true,
     "skipLibCheck": false,
     "module": "nodenext",

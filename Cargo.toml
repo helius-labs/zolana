@@ -12,6 +12,7 @@ members = [
     "program-tests/spp-test-validator",
     "program-tests/test-utils",
     "program-tests/user-registry",
+    "program-tests/idl-fixtures",
     "programs/shielded-pool",
     "programs/user-registry",
     "program-tests/ring-test-program",

@@ -10821,6 +10821,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "spr-idl-fixtures"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "bytemuck",
+ "serde_json",
+ "solana-address 2.6.1",
+ "spr-event",
+ "spr-interface",
+ "spr-tree",
+ "spr-user-registry-interface",
+ "wincode",
+]
+
+[[package]]
 name = "spr-indexer-api"
 version = "0.9.0"
 dependencies = [

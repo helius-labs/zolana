@@ -1,0 +1,396 @@
+{
+  "kind": "rootNode",
+  "standard": "codama",
+  "version": "1.8.0",
+  "program": {
+    "kind": "programNode",
+    "name": "userRegistry",
+    "publicKey": "regy3WAeRXMYuMYxr5iK3Bf9Arr3PcxGxyzAddbiqDQ",
+    "version": "0.1.0",
+    "accounts": [
+      {
+        "kind": "accountNode",
+        "name": "userRecord",
+        "size": 100,
+        "docs": ["Fixed 100-byte Borsh account; nullifierPubkey is immutable after registration."],
+        "data": {
+          "kind": "structTypeNode",
+          "fields": [
+            {
+              "kind": "structFieldTypeNode",
+              "name": "discriminator",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "owner",
+              "type": {
+                "kind": "publicKeyTypeNode"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "bump",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "nullifierPubkey",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 32,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "viewingPubkey",
+              "type": {
+                "kind": "fixedSizeTypeNode",
+                "size": 33,
+                "type": {
+                  "kind": "bytesTypeNode"
+                }
+              }
+            },
+            {
+              "kind": "structFieldTypeNode",
+              "name": "mergeEncryption",
+              "type": {
+                "kind": "enumTypeNode",
+                "variants": [
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "disabled",
+                    "struct": {
+                      "kind": "structTypeNode"
+                    }
+                  },
+                  {
+                    "kind": "enumStructVariantTypeNode",
+                    "name": "poseidonCtrV1",
+                    "struct": {
+                      "kind": "structTypeNode"
+                    }
+                  }
+                ],
+                "size": {
+                  "kind": "numberTypeNode",
+                  "format": "u8",
+                  "endian": "le"
+                }
+              }
+            }
+          ]
+        },
+        "discriminators": [
+          {
+            "kind": "constantDiscriminatorNode",
+            "offset": 0,
+            "constant": {
+              "kind": "constantValueNode",
+              "type": {
+                "kind": "numberTypeNode",
+                "format": "u8",
+                "endian": "le"
+              },
+              "value": {
+                "kind": "numberValueNode",
+                "number": 1
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "instructions": [
+      {
+        "kind": "instructionNode",
+        "name": "register",
+        "docs": [
+          "The owner authorizes registration; a separate payer funds rent and may be the owner."
+        ],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "userRecord",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "owner",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "payer",
+            "isWritable": true,
+            "isSigner": true,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "systemProgram",
+            "isWritable": false,
+            "isSigner": false,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 0
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "nullifierPubkey",
+                  "type": {
+                    "kind": "fixedSizeTypeNode",
+                    "size": 32,
+                    "type": {
+                      "kind": "bytesTypeNode"
+                    }
+                  }
+                },
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "viewingPubkey",
+                  "type": {
+                    "kind": "fixedSizeTypeNode",
+                    "size": 33,
+                    "type": {
+                      "kind": "bytesTypeNode"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "setMergeEncryption",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "userRecord",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "owner",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 1
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "scheme",
+                  "type": {
+                    "kind": "enumTypeNode",
+                    "variants": [
+                      {
+                        "kind": "enumStructVariantTypeNode",
+                        "name": "disabled",
+                        "struct": {
+                          "kind": "structTypeNode"
+                        }
+                      },
+                      {
+                        "kind": "enumStructVariantTypeNode",
+                        "name": "poseidonCtrV1",
+                        "struct": {
+                          "kind": "structTypeNode"
+                        }
+                      }
+                    ],
+                    "size": {
+                      "kind": "numberTypeNode",
+                      "format": "u8",
+                      "endian": "le"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      },
+      {
+        "kind": "instructionNode",
+        "name": "updateKeys",
+        "docs": [""],
+        "optionalAccountStrategy": "programId",
+        "accounts": [
+          {
+            "kind": "instructionAccountNode",
+            "name": "userRecord",
+            "isWritable": true,
+            "isSigner": false,
+            "isOptional": false
+          },
+          {
+            "kind": "instructionAccountNode",
+            "name": "owner",
+            "isWritable": false,
+            "isSigner": true,
+            "isOptional": false
+          }
+        ],
+        "arguments": [
+          {
+            "kind": "instructionArgumentNode",
+            "name": "discriminator",
+            "defaultValueStrategy": "omitted",
+            "type": {
+              "kind": "numberTypeNode",
+              "format": "u8",
+              "endian": "le"
+            },
+            "defaultValue": {
+              "kind": "numberValueNode",
+              "number": 2
+            }
+          },
+          {
+            "kind": "instructionArgumentNode",
+            "name": "data",
+            "type": {
+              "kind": "structTypeNode",
+              "fields": [
+                {
+                  "kind": "structFieldTypeNode",
+                  "name": "viewingPubkey",
+                  "type": {
+                    "kind": "fixedSizeTypeNode",
+                    "size": 33,
+                    "type": {
+                      "kind": "bytesTypeNode"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "discriminators": [
+          {
+            "kind": "fieldDiscriminatorNode",
+            "name": "discriminator",
+            "offset": 0
+          }
+        ]
+      }
+    ],
+    "errors": [
+      {
+        "kind": "errorNode",
+        "name": "invalidInstructionData",
+        "code": 0,
+        "message": "invalid instruction data"
+      },
+      {
+        "kind": "errorNode",
+        "name": "unauthorizedSigner",
+        "code": 1,
+        "message": "signer is not the record owner"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidRecordPda",
+        "code": 2,
+        "message": "user record account does not match the expected PDA"
+      },
+      {
+        "kind": "errorNode",
+        "name": "ownerMismatch",
+        "code": 3,
+        "message": "record owner does not match the owner account"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidRecordAccount",
+        "code": 4,
+        "message": "user record account is invalid"
+      },
+      {
+        "kind": "errorNode",
+        "name": "invalidSystemProgram",
+        "code": 5,
+        "message": "system program account mismatch"
+      }
+    ]
+  }
+}
