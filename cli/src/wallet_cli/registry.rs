@@ -18,7 +18,7 @@ use crate::{
 
 /// Publish the wallet's shielded keys under its Solana pubkey. Registration is
 /// what makes the pubkey payable: senders resolve it through the registry, and
-/// without a record a `transfer` to it degrades to a public withdrawal.
+/// without a record a `transfer` requires `--allow-public` for a public withdrawal.
 ///
 /// Strict by design: a shielded identity's nullifier key never rotates, so this
 /// writes a record only when none exists, no-ops when the on-chain record

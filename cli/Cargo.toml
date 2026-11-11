@@ -35,3 +35,7 @@ spr-program = { workspace = true, features = ["client", "setup", "parallel", "bu
 spr-user-registry-interface = { workspace = true, features = ["solana"] }
 spr-keypair = { workspace = true }
 spr-transaction = { workspace = true }
+
+[dev-dependencies]
+borsh = { workspace = true }
+solana-account = { workspace = true }

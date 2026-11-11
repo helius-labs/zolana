@@ -3,8 +3,11 @@ use std::collections::HashSet;
 use anyhow::{bail, Result};
 use solana_signer::Signer;
 use spr_client::{
-    check_service_url, indexer::SprIndexer, prover::ProverClient,
-    user_registry::try_resolve_registered_address, MergeSubmission, Rpc, SolanaRpc, SprClient,
+    check_service_url,
+    indexer::SprIndexer,
+    prover::ProverClient,
+    user_registry::{try_resolve_registered_address, ResolvedAddress},
+    MergeSubmission, Rpc, SolanaRpc, SprClient,
 };
 use spr_interface::shape::Shape;
 use spr_transaction::{
@@ -27,6 +30,10 @@ use super::{
 };
 use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
 
+#[cfg(test)]
+#[path = "transaction_test.rs"]
+mod tests;
+
 pub(super) fn client(
     rpc: SolanaRpc,
     network: &ResolvedNetworkOptions,
@@ -44,7 +51,7 @@ pub(super) fn client(
 }
 
 /// Send privately to `--to`'s registered shielded address. An account without
-/// one is paid by a public withdrawal instead.
+/// one requires `--allow-public` to be paid by a public withdrawal instead.
 pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
     let asset = parse_address(&opts.mint)?;
@@ -54,10 +61,11 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = client(rpc, &network)?;
     let recipient = parse_pubkey(&opts.to)?;
+    let registered = resolve_transfer_recipient(&client, recipient, opts.allow_public)?;
 
     let inputs = select_spend(ctx.spendable.utxos(), asset, opts.amount)?;
     let mut transaction = ConfidentialTransaction::new(inputs, payer(&ctx))?;
-    let (mode, settlement_transfers) = match try_resolve_registered_address(&client, recipient)? {
+    let (mode, settlement_transfers) = match registered {
         Some(registered) => {
             if asset == SOL_MINT {
                 transaction.transfer_sol(&registered.address, opts.amount)?;
@@ -83,6 +91,20 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
         signature
     );
     Ok(())
+}
+
+fn resolve_transfer_recipient<R: Rpc>(
+    rpc: &R,
+    recipient: Address,
+    allow_public: bool,
+) -> Result<Option<ResolvedAddress>> {
+    let registered = try_resolve_registered_address(rpc, recipient)?;
+    if registered.is_none() && !allow_public {
+        bail!(
+            "recipient {recipient} is not registered; pass --allow-public to allow a public withdrawal (reveals recipient, amount, and asset)"
+        );
+    }
+    Ok(registered)
 }
 
 /// List the wallet's spendable utxos for one asset. The printed hashes are the

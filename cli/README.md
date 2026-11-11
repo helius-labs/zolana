@@ -54,9 +54,12 @@ user-registry program. `deposit` shields public SOL into the local wallet by
 default and requires that wallet to be registered; `deposit --to <PUBKEY>`
 resolves the recipient from the on-chain user registry and never reads the
 recipient's wallet secrets. `transfer --to <PUBKEY>` resolves registered
-recipients from the on-chain user registry; if the registry record is absent,
-the transfer is built as a public SOL withdrawal to that pubkey. `withdraw --to
-<PUBKEY>` always uses a regular public Solana destination.
+recipients from the on-chain user registry. If the registry record is absent,
+the command fails unless `--allow-public` is provided, allowing a public
+withdrawal that reveals the recipient, amount, and asset. SOL goes to that
+pubkey; SPL tokens go to its associated token account, which must already
+exist. Registered recipients still receive a shielded transfer with the flag.
+`withdraw --to <PUBKEY>` always uses a regular public Solana destination.
 
 CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The

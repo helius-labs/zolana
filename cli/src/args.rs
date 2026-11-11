@@ -1028,7 +1028,7 @@ pub(crate) struct TransferOptions {
 
     #[arg(
         long = "to",
-        help = "Recipient Solana pubkey; registered recipients receive a shielded transfer, unregistered recipients receive a public SOL withdrawal",
+        help = "Recipient Solana pubkey; unregistered recipients require --allow-public for a public withdrawal",
         value_name = "PUBKEY"
     )]
     pub(crate) to: String,
@@ -1038,6 +1038,12 @@ pub(crate) struct TransferOptions {
 
     #[arg(long, help = "Amount to transfer")]
     pub(crate) amount: u64,
+
+    #[arg(
+        long,
+        help = "Allow a public withdrawal if the recipient is not registered (reveals recipient, amount, and asset)"
+    )]
+    pub(crate) allow_public: bool,
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
@@ -2060,6 +2066,7 @@ mod tests {
             to: "Recipient1111111111111111111111111111111111".to_string(),
             mint: "SOL".to_string(),
             amount: 400_000_000,
+            allow_public: false,
         };
         assert_eq!(transfer, expected);
 
