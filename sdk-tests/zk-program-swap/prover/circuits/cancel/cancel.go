@@ -5,7 +5,7 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/gnarksdk"
+	gnarksdk "github.com/helius-labs/zolana/sdk-libs/gnark-sdk"
 )
 
 type Circuit struct {

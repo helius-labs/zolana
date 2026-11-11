@@ -6,6 +6,17 @@ Changes under `programs/` run every validation workflow.
 
 Most validation jobs skip draft PRs. TypeScript and deployment-script checks also run on drafts.
 
+Cargo resolves Xark from crates.io (0.3.0), except `xark-cli`, which comes from
+the Xark fork commit pinned in the workspace dependencies: the Zolana CLI embeds
+its build, setup and client-generation APIs, which only the fork exposes. Shared Rust
+setup uses Cargo caching; no source checkout preparation or patch application is
+required.
+
+Browser program fixtures compile deterministic Xark test keys before comparing
+native transactions and artifact checksums. The standalone Node suite checks its
+native fixture, compiles the circuit/client, builds the stock Xark WASM runtime,
+and verifies real proofs and rejected witness/public-input mutations.
+
 1. [Protocol operations](workflows/protocol-ops.yml)
 
     **Triggered by:** PR/main changes to:
@@ -89,38 +100,50 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     21. `spr-client`: `cargo nextest run`, `cargo test --doc`.
     22. `spr-test-utils`: `cargo nextest run`.
     23. `spr-rpc-http`: `cargo nextest run`.
-    24. `spr-gnark-ffi-prover`: `cargo nextest run`.
-    25. `swap-prover`: `cargo nextest run`.
-    26. `dynamic-swap-program` and `dynamic-swap-sdk`: `cargo test --release`.
-    27. `sdk-libs/gnark-sdk`: `go test`.
-    28. `spr-zk-standalone-fixture`: `cargo test`.
-    29. `spr-macros`: `cargo test`.
-    30. `timelock-escrow-program`: `cargo test`.
-    31. `zk-tests`: `cargo nextest run`.
-    32. Wasm compilation: `just check-wasm`.
-    33. Photon binary: `cargo build`.
-    34. SBF test programs: `just build-test-programs`, explicitly enabling `confidential-eddsa`.
-    35. Localnet tools: `just build-localnet-tools`.
-    36. Localnet test archives: `just build-localnet-archives`.
-    37. Localnet e2e: `just test-localnet-e2e-photon`.
-    38. SPP lifecycle/decode: `just test-spp-validator-lifecycle-decode`.
-    39. SPP merge: `just test-spp-validator-merge`.
-    40. SPP randomized: `just test-spp-validator-randomized`.
-    41. SPP proof CU: `just test-spp-validator-proof-cu`.
-    42. Ring lifecycle: `just test-ring-validator`.
-    43. Maximum transaction shapes: `just test-max-shapes-validator`.
-    44. Swap and escrow: `just test-swap-and-escrow-validator`.
-    45. Dynamic swap: `just test-dynamic-swap`.
-    46. Compression: `just test-compression-validator`.
-    47. RFQ settlement: `just test-rfq-validator`.
-    48. Coverage: `just coverage`.
+    24. `spr-circuit`: `cargo nextest run`.
+    25. `spr-circuit-xark-fixture`: `cargo test`, building its circuit with the pinned `xark` CLI.
+    26. `spr-gnark-ffi-prover`: `cargo nextest run`.
+    27. `swap-prover`: `cargo nextest run`.
+    28. `dynamic-swap-program` and `dynamic-swap-sdk`: `cargo test --release`.
+    29. `sdk-libs/gnark-sdk`: `go test`.
+    30. `spr-zk-standalone-fixture`: `just test-zk-standalone` compiles the circuit and
+        test keys, fails on a verifier module that differs from the committed one,
+        then runs `cargo test`.
+    31. `spr-macros`: `cargo test`.
+    32. `timelock-escrow-program`: `cargo test`.
+    33. `zk-tests`: `cargo nextest run`.
+    34. Wasm compilation: `just check-wasm`.
+    35. Photon binary: `cargo build`.
+    36. SBF test programs: `just build-test-programs`, explicitly enabling `confidential-eddsa`.
+        The job also uploads the escrow circuits and test keys it compiled
+        (`target/zk/timelock-escrow-program`), which the escrow suite proves with.
+    37. Localnet tools: `just build-localnet-tools`.
+    38. Localnet test archives: `just build-localnet-archives`.
+    39. Localnet e2e: `just test-localnet-e2e-photon`.
+    40. SPP lifecycle/decode: `just test-spp-validator-lifecycle-decode`.
+    41. SPP merge: `just test-spp-validator-merge`.
+    42. SPP randomized: `just test-spp-validator-randomized`.
+    43. SPP proof CU: `just test-spp-validator-proof-cu`.
+    44. Ring lifecycle: `just test-ring-validator`.
+    45. Maximum transaction shapes: `just test-max-shapes-validator`.
+    46. Swap and escrow: `just test-swap-and-escrow-validator`.
+    47. Dynamic swap: `just test-dynamic-swap`.
+    48. Compression: `just test-compression-validator`.
+    49. RFQ settlement: `just test-rfq-validator`.
+    50. Coverage: `just coverage`.
+
+    The `tests / sdk-libs` job runs `just test-sdk-libs`, which includes
+    `just test-spr-circuit` (items 24 and 25). The `tests / zk program` job
+    runs `just test-spr-program-unit` (the `spr-program` client tests with
+    `client,compression,serde`) and `just test-spr-program-release`.
 
     `just test-spr-program-release` generates native escrow and dynamic-swap
     proving keys, checks the committed verifier modules, and runs their Rust
     circuit tests. It also runs the dynamic-swap SDK's checked-key loading smoke
-    test. The localnet tools job uploads dynamic-swap `.pk` files and checksum
-    sidecars as `dynamic-swap-zk-keys-${{ github.sha }}`; lifecycle jobs download
-    them to `target/zk/dynamic-swap-program`.
+    test. The localnet tools job uploads each dynamic-swap circuit's
+    `<circuit>/circuit.xbc` and `<circuit>/pk.bin` as
+    `dynamic-swap-zk-keys-${{ github.sha }}`; lifecycle jobs download them to
+    `target/zk/dynamic-swap-program`.
 
     `just test-feature-gate` checks the feature-gate crate and shielded-pool
     admission with `confidential-eddsa` disabled and explicitly enabled, plus
@@ -143,7 +166,9 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     6. `spr-program-wasm-test-program`: `cargo test`.
     7. `sdk-libs/program/tests/wasm`: `npm test`.
     8. `spr-zk-standalone-fixture`: `cargo test`.
-    9. Standalone Wasm: `node --test`.
+    9. Standalone Wasm: `just test-zk-wasm` builds Xark's runtime with
+       `wasm-pack` on the toolchain `rust-toolchain.toml` pins, then runs
+       `node --test`.
 
     The SDK e2e job requires repository variables `ZOLANA_TEE_PROVER_URL`
     (the live prover endpoint) and `ZOLANA_TEE_PROVER_POLICY` (the reviewed

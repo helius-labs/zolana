@@ -21,14 +21,13 @@ cpi = ["no-entrypoint"]
 test-sbf = []
 profile-program = ["light-program-profiler/profile-program"]
 circuits = [
-    "dep:spr-transaction",
+    "dep:xark",
     "spr-program/client",
-    "spr-program/setup",
-    "spr-program/parallel",
 ]
-r1cs-export = ["spr-program/r1cs-export"]
+build-circuits = ["spr-program/build"]
 
 [dependencies]
+xark = { workspace = true, optional = true }
 borsh = { workspace = true }
 light-program-profiler = { workspace = true }
 pinocchio = { workspace = true, features = ["cpi"] }
@@ -40,7 +39,6 @@ spr-account-checks = { workspace = true }
 spr-hasher = { workspace = true }
 spr-interface = { workspace = true }
 spr-program = { workspace = true, features = ["cpi", "verifier"] }
-spr-transaction = { workspace = true, optional = true }
 # `min_const_generics`: without it bytemuck only implements Pod/Zeroable for
 # arrays up to 32 elements, and `Pair` holds the 33-byte tagged X25519 maker
 # encryption key. The feature is purely additive.
@@ -49,9 +47,15 @@ bytemuck = { workspace = true, features = ["min_const_generics"] }
 [dev-dependencies]
 spr-account-checks = { workspace = true, features = ["test-only"] }
 
+# Used only by macro expansions: #[input] expands to Xark code.
+[package.metadata.cargo-machete]
+ignored = ["xark"]
+
 [lints.rust.unexpected_cfgs]
 level = "allow"
 check-cfg = [
+    'cfg(xark)',
+    'cfg(xark_client)',
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("frozen-abi", "no-entrypoint"))',
 ]

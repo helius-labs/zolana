@@ -9,23 +9,22 @@ name = "wasm_test_program"
 crate-type = ["cdylib", "rlib"]
 
 [features]
+circuits = []
+build-circuits = ["spr-program/build"]
 wasm = ["spr-program/wasm"]
-fixtures = [
-    "wasm",
-    "spr-program/setup",
-    "spr-program/parallel",
-]
-snarkjs = ["fixtures"]
+wasm-prover = ["wasm", "spr-program/wasm-prover"]
+wasm-verify = ["wasm", "spr-program/wasm-verify"]
+fixtures = ["wasm"]
 
 [dependencies]
+xark = { workspace = true }
 borsh = { workspace = true }
 solana-address = { workspace = true }
 spr-program = { workspace = true, features = ["client"] }
-spr-keypair = { workspace = true }
-spr-transaction = { workspace = true }
 
 [dev-dependencies]
-hex = { workspace = true }
+spr-keypair = { workspace = true, features = ["serde"] }
+spr-transaction = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -37,8 +36,15 @@ spr-interface = { workspace = true }
 name = "fixtures"
 required-features = ["fixtures"]
 
+# Used only by macro expansions: #[input] expands to Xark code.
+[package.metadata.cargo-machete]
+ignored = ["xark"]
+
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O4", "--enable-simd", "--enable-threads", "--enable-bulk-memory", "--enable-mutable-globals"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(xark)', 'cfg(xark_client)'] }
 
 [lints.clippy]
 disallowed_types = "allow"

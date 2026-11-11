@@ -1,0 +1,13 @@
+error: program inputs and states use named fields
+ --> tests/client_inputs/fail/not_named_fields.rs:2:1
+  |
+2 | struct Tuple(u64);
+  | ^^^^^^^^^^^^^^^^^^
+
+error: expected a struct
+ --> tests/client_inputs/fail/not_named_fields.rs:5:1
+  |
+5 | / enum Choice {
+6 | |     A,
+7 | | }
+  | |_^

@@ -1,11 +1,11 @@
-module zolana/gnarksdk
+module github.com/helius-labs/zolana/sdk-libs/gnark-sdk
 
 go 1.27.3
 
 require (
 	github.com/consensys/gnark v0.16.4
 	github.com/consensys/gnark-crypto v0.22.0
-	github.com/helius-labs/zolana/prover/server v0.0.0
+	github.com/helius-labs/zolana/prover/server v0.0.0-20261110023558-357dd92c99e9
 	github.com/reilabs/gnark-lean-extractor/v3 v3.0.0
 )
 

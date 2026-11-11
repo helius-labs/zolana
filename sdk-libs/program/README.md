@@ -1,5 +1,11 @@
 # spr-program
 
+> **Not for production.** This crate is not audited. Keys from
+> `zolana zk compile --test`, or from any other single-party setup, are insecure:
+> whoever knows the setup's randomness, such as the fixed public seed `--test`
+> uses, can forge proofs. A program that holds real funds needs keys from a
+> trusted setup ceremony, its own verifying keys and an audit.
+
 The SDK for Solana programs built on the shielded pool (SPP). It has three parts:
 
 - **Instructions.** The crate re-exports [`spr-instruction`](../instruction): the SPP
@@ -8,23 +14,27 @@ The SDK for Solana programs built on the shielded pool (SPP). It has three parts
 - **Compressed accounts.** `compression` keeps a pinocchio program's state as SPP UTXOs that
   one of its PDAs owns, and creates, updates and reads them through a `transact` CPI.
 - **ZK programs.** A program with its own Groth16 circuit, whose proof shares `private_tx_hash`
-  with the SPP transaction it CPIs. A `circuit` fn written in the DSL of `spr_program::circuit` runs
-  twice:
+  with the SPP transaction it CPIs. The circuit is ordinary Rust compiled by
+  [Xark](https://github.com/blueshift-gg/xark/tree/v0.3.0)
+  0.3, the release the root `Cargo.toml` pins. The same `execute` method runs twice:
   - natively on the client, where it builds the SPP transaction's inputs and outputs;
-  - as R1CS in the prover, where it checks the constraints and the public hash.
+  - compiled by Xark to R1CS over BN254, where the proof checks it against the public hash.
 
-  The circuits are arkworks 0.6 R1CS over BN254. The DSL, the prover and the core derives
-  come from [`spr-zk-dsl`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/dsl), the gadgets from
-  [`spr-zk-gadgets`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/gadgets), and the UTXO derives from
-  [`spr-macros`](../macros). This crate re-exports all of them at the paths below.
+[`docs.md`](docs.md) is the API reference. This file is the overview and the end-to-end guide.
+The protocol rules live in [`spr-circuit`](../circuit), whose
+[`tests/rules`](../circuit/tests/rules) run each rule natively and assert the requirement that
+refuses a broken input. [`sdk-tests/timelock-escrow`](../../sdk-tests/timelock-escrow) is the
+complete example every snippet below comes from.
 
-The ZK program part implements [`docs.md`](docs.md); [`tests/invariants/`](tests/invariants) states what
-each protocol type guarantees and which tests cover it. The builtins' invariants live with the
-DSL in [`zk-dsl/dsl/tests/invariants`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/dsl/tests/invariants) and
-[`zk-dsl/gadgets/invariants`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/gadgets/invariants).
+## Crates
 
-A developer writes plain Rust input types, and the client, the tests and the prover all take
-them. `CircuitVar` appears only in the `circuit` impls.
+| Crate | Holds |
+| --- | --- |
+| `spr-program` (this crate) | The client (`InputRecords`, `ProgramTransaction`, `DataUtxo`, `ProgramOwner`), proof conversion, the on-chain verifier, the build metadata, the WASM bindings and compressed accounts. It re-exports the other crates at the paths below. |
+| [`spr-circuit`](../circuit) | The protocol types and operations a program's `execute` uses: `Utxo`, `TokenUtxos`, `DataUtxo`, `UniqueDataUtxo`, `NewAddress`, `ConfidentialTransaction`, `require`, `ArrayVec`, `CircuitError`, Poseidon. Re-exported as `spr_program::circuit`. |
+| [`spr-macros`](../macros) | The derives `ZkProgram`, `ClientInputs`, `PublicInputs` and `UtxoState`. |
+| `xark` | The circuit language: `#[input]`, `Field`, the prover. Re-exported as `spr_program::xark`, with `spr_program::input` and `spr_program::Field`. |
+| `spr-cli` (`zolana`) | `zolana build-zk-program` and `zolana zk compile \| setup \| export-verifier`. |
 
 ## Features
 
@@ -32,324 +42,485 @@ No feature is on by default.
 
 | Feature | Contents |
 | --- | --- |
-| none | `no_std`: the `spr-instruction` re-export and `CompressedProof`. |
+| none | `no_std`: the `spr-instruction` re-export, `CompressedProof`, `hasher` and `MAX_POSEIDON_INPUTS`. |
 | `cpi` | The SPP `transact` instruction as a signed CPI from a pinocchio program. |
 | `compression` | Compressed accounts for pinocchio programs (implies `cpi`). |
-| `shielded-pda` | Experimental: `ShieldedPda`, a shielded identity owned by a program-derived address. Needs `std`; `circuit` includes it. |
-| `circuit` | The DSL, `conversion`, `hasher`, the input and UTXO types, `ConfidentialTransaction` and R1CS synthesis. Needs `std`. |
-| `client` | The native run, the SPP transaction, loading proving keys, proving, verifying and transaction encryption. |
-| `setup` | Includes `client`; adds test setup, writing proving keys and exporting the verifying key. |
-| `r1cs-export` | `client` and `setup`, for exporting a circuit's `.r1cs` and its verifier module. |
-| `verifier` | `no_std`: `VerifyError`, `public_hash` and `verify_groth16`, which the generated verifier modules call with a `CompressedProof`. `client` includes it. |
-| `parallel` | Proving on a rayon thread pool. |
+| `shielded-pda` | Experimental: `ShieldedPda`, a shielded identity owned by a program-derived address. Needs `std`; `client` includes it. |
+| `circuit` | `spr_program::circuit`, the root re-exports of `spr-circuit` and Xark, and the derives. Needs `std`. |
+| `client` | `circuit` and `verifier`, plus `InputRecords`, `ProgramTransaction`, `DataUtxo`, `ProgramOwner` and `spr_program::proof`. |
+| `build` | `spr_program::build`: the program metadata the derives export for the Zolana CLI. |
+| `verifier` | `no_std`: `spr_program::verifier`, which the generated verifier modules call with a `CompressedProof`. |
 | `serde`, `tsify` | Serde and TypeScript types for the client types. |
-| `wasm`, `wasm-prover`, `wasm-threads`, `wasm-verify` | The wasm bindings, the wasm prover, its thread pool and a wasm verifier. |
-| `test-support` | Circuit diagnostics and internal inspection for SDK tests. |
-| `external-tools` | Test only: the unit suite's cross-checks that spawn circom and snarkjs. |
+| `wasm` | `spr_program::wasm`: the JavaScript transaction, state-decoding and proof-conversion bindings. |
+| `wasm-prover` | Links Xark's proving runtime into the application's WASM module. |
+| `wasm-verify` | `proofToSnarkjs` and `verifyingKeyToSnarkjs`, for independent verification with snarkjs. |
 
 A Solana program depends on the crate with `compression` or `cpi`, and with `verifier` when it
-verifies ZK program proofs. Its client enables `client`, and a key setup needs `setup` as well.
+verifies ZK program proofs. Its circuits and its client enable `client`.
 
-## Building a ZK program
+The ZK program code is compiled three ways, told apart by `cfg`:
 
-1. Declare each instruction's inputs as a struct with exactly the fields `private` and
-   `public` and `#[derive(ZkProgramCircuit)]`, its private inputs with `#[derive(ProofInput)]`, a
-   program state with `#[derive(UtxoState)]`, and the public inputs with
-   `#[derive(PublicInputs)]`. `#[derive(CircuitType)]` declares a plain circuit type that is
-   not stored in a UTXO.
-2. Implement `Circuit` on the derived circuit type.
-3. `zolana build-zk-program -p <crate>` writes each circuit's `.r1cs` and test keys to
-   `<target>/zk/<crate>`, the verifier modules to `src/verifier/`, builds the wasm module and
-   runs `cargo build-sbf`. `zolana zk compile | setup | import | export-verifier` run the steps
-   one at a time.
-4. `src/verifier/` is committed. It holds `mod.rs` and, per program, `<program>.rs` with its
-   `PublicInputs`, their `hash`, and a `Verifier` with a `verify` method, and `<program>.vk.rs` with the verifying key. The
-   export build enables the crate's `r1cs-export` feature, declared as
-   `r1cs-export = ["spr-program/r1cs-export"]`, and the crate gates `pub mod verifier;` and
-   the code that uses it with `#[cfg(not(feature = "r1cs-export"))]`, so the export compiles
-   without the generated files. A program in the same crate calls
-   `crate::verifier::<program>::Verifier { ... }.verify()`, another crate
-   `<circuits crate>::verifier::<program>::Verifier { ... }.verify()`.
-   `--check` regenerates the modules without writing them and fails when the committed files
-   differ, for CI.
-5. On the client, `create_program_transaction` builds the SPP transaction and the proof
-   inputs, and `Groth16Prover::prove` proves them.
+- the native host build (no extra cfg), which has the client;
+- the Xark circuit build, with `--cfg xark` for `wasm32-unknown-unknown`;
+- Xark's client module build, with `--cfg xark_client`.
 
-## Layout
+`spr-program`'s client, WASM and build modules exist only in the native build. Code in a
+program crate that uses them is gated with `#[cfg(all(not(xark), not(xark_client)))]`, as the
+escrow's `circuits/mod.rs` does for `escrow_authority`.
 
-The ZK program part spans several crates. The generic pieces live in `helius-labs/zk-tools` under `zk-dsl/` and know
-nothing of the protocol; this crate holds the protocol and re-exports everything:
+## Writing a ZK program
 
-| Crate | Holds |
-| --- | --- |
-| [`spr-zk-dsl`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/dsl) | The builtins (`CircuitVar`, `Bool`, `Uint`, `Bytes`, `Assert`, `Select`), the `Circuit` and `CircuitType` traits, `ProofInput`, `FromCircuit`, `Allocator`, `Records`, the errors, `ZkCircuit`, `CompressedProof`, and the prover: `Groth16Prover`, the Groth16 types, zkeys and the R1CS synthesis. |
-| [`spr-zk-gadgets`](https://github.com/helius-labs/zk-tools/tree/f4807e0be04e92d7111f198a49ad994e367bd70b/zk-dsl/gadgets) | `poseidon`, `nonzero_hash_chain`, `is_in`/`assert_in`, `one_hot`/`select_index`, `HashBytes`. |
-| `spr-keypair` (feature `circuit`) | The owner circuit types and how a `ShieldedAddress` enters a circuit. |
-| `spr-transaction` (feature `circuit`) | The asset and UTXO circuit types and how a `Mint` and a `WalletUtxo` enter a circuit. |
+### 1. Crate setup
 
-In this crate, modules are grouped by the phase that uses them:
+The circuits sit in the Solana program's crate. The escrow's `Cargo.toml`, shortened:
 
-| Module | Phase |
-| --- | --- |
-| `circuit/` | The DSL a `circuit` fn is written in, re-exported, plus `protocol/`: the UTXOs built on the circuit types and the transaction. |
-| `conversion/` | Between client and circuit values: the re-exported conversion traits and the `TxContext` conversion. |
-| `client/` | The plain Rust side: `TxContext`, `ProgramOwner`, `DataUtxo`, and with feature `client`, `ZkProgramCircuit` and `ProgramTransaction`. |
-| `hasher/` | The data hashes and discriminators that Solana programs and circuits share. |
-| `program/` | Compressed accounts for pinocchio programs. |
-| `wasm/` | The wasm bindings. |
+```toml
+[lib]
+crate-type = ["cdylib", "lib"]
 
-The public paths follow the same split. The crate root holds what the client and the prover
-use, `spr_program::circuit` the DSL, and `spr_program::conversion` what lies between.
+[features]
+default = ["insecure-test-setup"]
+insecure-test-setup = []
+circuits = ["dep:borsh", "dep:xark", "spr-program/client"]
+wasm = ["dep:borsh", "dep:xark", "spr-program/wasm"]
+build-circuits = ["spr-program/build"]
 
-## Abstractions
+[dependencies]
+xark = { workspace = true, optional = true }
+spr-program = { workspace = true, features = ["cpi", "compression", "verifier"] }
+```
 
-### `spr_program`: client and prover
+- `circuits` is the feature the CLI builds the circuits with (`--r1cs-features`, default
+  `circuits`), and `wasm` the one it builds the WASM module with (`--wasm-features`, default
+  `wasm`). The generated client and WASM code takes serde, tsify and wasm-bindgen from
+  `spr-program`, so the crate does not depend on them.
+- `build-circuits` is enabled only while the CLI discovers the programs. The crate gates
+  `pub mod verifier;` and the code that uses it with `#[cfg(not(feature = "build-circuits"))]`,
+  so discovery compiles before the generated verifier files exist.
+- `insecure-test-setup` lets the crate compile verifying keys that did not come from a
+  production ceremony (see [Keys for a deployment](#keys-for-a-deployment)).
 
-| Name | What it is good for |
-| --- | --- |
-| `TxContext` | The transaction settings: the blinding seed, from the OS RNG in `new`, and the output tree, `None` by default, which follows the first spent input's `latest_tree_id` and is an error when that input has none, or `Some(tree)`. The first nullifier comes from the first spent input and the sender from the keys. |
-| `UtxoOwner` | An owner preimage: the tag (`S`, for Ed25519 and PDA keys), the key bytes and the nullifier key. From a `ShieldedAddress`, or a signing key and nullifier key. |
-| `Bytes<N>` | A byte string the circuit sees byte by byte. |
-| `ProgramOwner` | A program PDA as a UTXO owner: its public key, owner hash and `ShieldedAddress` under the fixed zero nullifier key. `input` turns an output the program's transaction created into a spendable `WalletUtxo`. `decrypt_data_utxos::<T>` decrypts the PDA's outputs in indexer transactions with a viewing key and keeps the data UTXOs whose hash commits a `T`, minus those the same transactions spend. |
-| `DataUtxo<T>` | A decrypted UTXO and the program state its data holds. `TryFrom<WalletUtxo>` accepts ordinary `DATA` state or `UNIQ` state prefixed by its reserved address, checks the matching UTXO hash, and returns that address when present. |
-| `ZkProgramCircuit` | Feature `client`. Implemented for every `ZkCircuit` input whose circuit has `Output = CheckedTransaction` and whose type is `'static`. `create_program_transaction` runs `circuit` natively, resolves the slots against the records and returns a `ProgramTransaction`. `create_finalized_transaction` returns only the SPP transaction. `create_proof_inputs_and_encrypt_with_keys` encrypts it with the sender's `ShieldedKeys` into `SppProofInputs`, after checking their `padding_independent_private_tx_hash` against the circuit's. `check_constraints`, `proof_inputs` and the exports come from `ZkCircuit`. |
-| `ProgramTransaction` | Feature `client`. What `create_program_transaction` returns: the SPP `FinalizedTransaction`, the program's `ProofInputs` and the public hash, so one call feeds both proofs. |
-| `ZkCircuit` | Feature `client`. Implemented for every input that implements `ProofInput` with a `Circuit` and `Placeholder`, whatever the circuit's `Output`. `check_constraints` runs the circuit natively and in R1CS without proving, and also synthesizes the placeholder the keys come from: it names a value read of a variable, a shape that differs from the placeholder's and the first constraint that does, and an unsatisfied row by its rule and line. `proof_inputs` returns the full variable assignment and `export_assignment` writes it as a snarkjs `.wtns` file. `export_r1cs` and `export_picus_r1cs` (feature `setup`) write the circuit's constraints in the iden3 `.r1cs` format for a snarkjs ceremony and in the Picus format. The public inputs follow the circuit's `Output`: none for `()`, the public hash for `CheckedTransaction`. `Groth16Prover` takes only a `ZkProgramCircuit`; snarkjs proves a `()` circuit from the exported files. |
-| `Groth16Prover<P>` | Feature `client`. The Groth16 keys of program `P`. `new_with_test_setup` (feature `setup`) sets them up from `P`'s placeholder with a fixed seed, and `new` takes loaded keys and refuses keys of another circuit. Setup and proving both use the snarkjs QAP reduction, so keys from the local setup and from a zkey have the same shape. `prove` borrows the inputs and returns a `ProofResult`; `verify` checks one in its compressed form, as a program does. |
-| `ProofResult` | Feature `client`. A proof and the public hash it is valid for. |
-| `SolanaProof` | Feature `client`. A proof in the groth16-solana layout, from an arkworks `Proof`. |
-| `CompressedProof` | No feature, so Solana programs and `compression` use it. The 128-byte form an instruction contains, with a wincode layout. Feature `client` adds `CompressedProof::try_from(&proof)` from a `SolanaProof` and `CompressedProof::verify`, which decompresses and verifies it. |
-| `CircuitError` | What circuit code returns: a broken rule, a value out of range, a wrong length, a bounded `Vec` with too many or too few items (`TooManyItems`, `TooFewItems`, naming the field) or a bad owner or UTXO. `broken_rule()` names the rule and `location()` the `file:line:column` of the program's line that broke it. |
-| `ClientError` | What building a transaction returns: a circuit error, a slot that does not resolve or a transaction the SPP builder refuses. |
-| `ProverError` | What `check_constraints`, the keys and `Groth16Prover` return. The error of a failing constraint includes its row, the rule of the check that made it and the circuit's `file:line`, which `location()` returns. |
-| `SourceLocation`, `SlotKind` | The `file:line:column` of an error, and the kind of slot a slot error names. |
-| `ProvingKey`, `VerifyingKey`, `Proof` | Features `client` or `setup`. The arkworks Groth16 types over BN254, without the curve parameter. |
-
-**Setup** (feature `setup`)
-
-| Name | What it is good for |
-| --- | --- |
-| `Groth16Keys` | A proving key and its verifying key, from an arkworks `ProvingKey` or `Groth16Prover::keys`. `to_bytes` writes canonical arkworks key bytes; `load_checked` reads them against a trusted SHA-256 and validates the points. `load_zkey::<P>` (feature `client`) reads a snarkjs Groth16 zkey. It checks every point, refuses an identity in the verifying key and a zkey without a phase-2 contribution, and checks that the shape and the A and B rows match `P`'s circuit. `export_verifying_key` writes the program constant. |
-| `VerifyingKeyExport` | Where `export_verifying_key` writes the `VERIFYINGKEY` constant: the output directory, filename and setup kind. The digest is computed from the key object. The file comes from groth16-solana's generator. Keys from the local setup are `InsecureTest`. Only a validated ceremony zkey import can be exported as `Production`; the digest pins its serialized key. |
-| `SolanaVerifyingKey` | The verifying key in the groth16-solana layout, from an arkworks `VerifyingKey`. It converts into the `Groth16Verifyingkey` that `verify_groth16` takes. |
-
-### `spr_program::circuit`: the DSL
-
-**Values and hashing**
-
-| Name | What it is good for |
-| --- | --- |
-| `Field` | A native element of the BN254 scalar field that UTXO hashes and the public hash live in. It is a newtype over arkworks' `Fr`, with `From` for `u8` to `u128`, `bool` and `Fr`, `Fr::from(field)` back, and `+`, `-`, `*` and negation on native values. `is_zero`, `inverse`, `sqrt`, `pow` and `u64::try_from` / `u128::try_from` are available when preparing input values. |
-| `CircuitVar` | The value type inside `circuit`: a `Field` value, a constant in the native run and a variable in R1CS. `+`, `-`, `*`, unary `-`, `+=`, `-=` and `*=` are field arithmetic that wraps around the modulus: a sum and a product by a constant are free, and a product of two variables costs one constraint. `inverse`, `div` and `pow` (by a constant exponent) are methods in the field; `inverse` and `div` refuse a zero divisor. `/`, `%`, `==` and `<` do not compile: the `/` and `%` errors point to `Uint::div_rem` and `CircuitVar::div`, and the `==` and `<` errors name the rules `UseAssertEqual` and `UseUintComparison`, for `assert_equal` or `is_equal` and the `Uint` comparisons. `CircuitVar::from` takes a `Bool` or a `Uint<BITS>`, and `Bool::try_from(&var)` and `Uint::try_from(&var)` check one back. `assert_product(other, product, rule)` constrains `self * other = product` in one row. |
-| `CircuitSystem`, `ConstraintSystem` | The constraint system R1CS instantiation allocates into. `ConstraintSystem::new_ref()` makes one. |
-| `constant`, `zero`, `value` | Build a constant `CircuitVar`, or read a constant's value. Native execution represents proof inputs as constants, so `value` can read them. In R1CS, proof inputs are variables: reading one fails with `ReadsVariableValue` at the read's source location during setup or proving. A successful native run alone does not establish that a circuit can be proved; use `check_constraints`. |
-| `Assert` | Equality with a named rule on `CircuitVar`, `Uint<BITS>`, `Bool`, `Bytes<N>`, `SolanaAddress`, `SigningPubkey`, `UtxoOwner` and arrays: `assert_equal`, `assert_not_equal`, `assert_equal_if(condition)`, and `is_equal`, which returns a `Bool`. A zero check on a `CircuitVar` compares it with `zero()`: `is_equal(&zero())`, `assert_equal(&zero(), rule)` or `assert_not_equal(&zero(), rule)`. |
-| `Uint<BITS>` | A value below `2^BITS`, 1 to 253 bits, with the aliases `U8`, `U16`, `U32`, `U64` and `U128`. `add`, `mul` and `sum` return a wider type at no cost. `From` widens between the aliases and turns a `Bool` into a `Uint`; `TryFrom` narrows between the aliases and range-checks a `CircuitVar` into a `Uint`. `checked_add`, `checked_mul`, `checked_sub`, the `assert_less_*` comparisons, `assert_in_range(low, high)` (inclusive), `assert_equal`, `assert_not_zero` and `div_rem` check a named rule; the `is_less_*` comparisons return a `Bool`, and `min` and `max` select by one. Range checks and comparisons decompose through arkworks' `to_bits_le_with_top_bits_zero`; ordering works on at most 252 bits, so a difference cannot wrap around the field. Widths are checked when the circuit is built: a sum or product that could wrap does not compile. |
-| `CircuitVar` bit checks | `check_bits(bits)`, `check_is_bool`, and `to_bits_le::<N>()`, which returns the bits as `Bool`s. `from_bits_le` recomposes them. |
-| `Bool` | A 0 or 1 value, from a `bool` input, `Bool::try_from(&var)`, `is_equal` or a comparison: `select(if_true, if_false)` for any `Select` type, `not`, `and`, `or`, `xor`, `nand`, `implies`, `Bool::all`, `Bool::any`, `assert_true`, `assert_false` and `assert_true_if(condition)`. `Uint::from(flag)` and `CircuitVar::from(flag)` turn one into a value, for arithmetic or hashing. A circuit needs no arkworks import to branch on one. |
-| `Select` | Selection by a `Bool`, for `CircuitVar`, `Uint<BITS>`, `Bool`, `Bytes<N>`, `SolanaAddress`, `SigningPubkey`, `UtxoOwner` and arrays. `one_hot::<N>(index)` and `select_index(&items, index)` index an array by a variable and refuse an index outside it. |
-| `is_in`, `assert_in` | Membership of a value in a set of `CircuitVar`s. |
-| `poseidon` | The circom Poseidon that zolana hashes with natively, built from light-poseidon's parameters. |
-| `nonzero_hash_chain` | The hash chain `private_tx_hash` computes over the input and output hashes. It skips zeros, so dummies do not enter it. |
-| `Bytes<N>::hash_bytes()` | A fixed-width commitment over checked bytes: 31-byte big-endian chunks folded with Poseidon. Use one `N` per protocol hash domain; leading zeroes are valid. |
-| `Bytes<N>` | `N` byte variables, each range-checked to 8 bits when allocated. `Bytes::<N>::try_from(&var)` splits a variable into big-endian bytes and `CircuitVar::try_from(&bytes)` packs them back, for `N` up to 31. |
-
-**UTXOs**
-
-| Name | What it is good for |
-| --- | --- |
-| `SolanaAddress` | A Solana address as 32 checked bytes, used for mints and public-transfer accounts. `hash_bytes()` uses SPP’s address encoding and shares its cached result across clones. `SolanaAddress::constant(&SOL_MINT)` creates the SOL asset address. |
-| `SigningPubkey` | The tag and key bytes. `identity()` is `hash_bytes(tag \|\| key)`, the value the program sees as `owner_identity`. |
-| `UtxoOwner` | An `SigningPubkey` and the nullifier key. `hash()` is the owner hash. Owners compare by their packed preimage. |
-| `ShieldedAddressCircuit` | A distinct circuit value whose `hash()` includes both the owner hash and the viewing key. UTXO ownership uses its `UtxoOwner` projection. |
-| `Utxo` | The circuit form of a spent UTXO, with its `UtxoOwner` and `SolanaAddress`. Its amount is crate-private: the SPP proof range-checks it, and a circuit reads it through `UtxoTrait`. `Utxo::dummy()` pads a `TokenUtxos`. A dummy's owner is unconstrained and never read: it adds no hash and no amount. |
-| `UtxoMeta` | The spent UTXO's nullifier and latest tree, not part of the commitment; the SPP proof constrains them, and this circuit includes them. |
-| `DataHash` | The hash of a state: Poseidon over its fields, each contributing its own `hash`. |
-| `UtxoData` | Names a state's client form. The borsh bytes of that form are the data a new data UTXO contains. |
-| `DataUtxo<S>` | The `LightAccount` counterpart: a UTXO with state `S`, from `new_init(owner)` or `new_mut`; `close()` suppresses its output; `with_asset` selects a non-SOL asset. It moves value through `UtxoTrait` like a token UTXO; what is left is its output, a real UTXO even at a zero balance because it contains state, or must be zero once closed. |
-| `UniqueDataUtxo<S>` | A `DataUtxo` with an address the circuit derives from its owner, so one address holds the state. `new_init` reserves the address, `new_mut` spends and replaces the state, `close()` leaves an address tombstone and `burn()` leaves nothing. The last of these builders selects the final output mode. The client includes the address input and places the address before the Borsh state in the output data. |
-| `TokenUtxos` | Plain UTXOs of one owner and asset: none from `new_init(owner, asset)`, or `N` slots from `new_mut`, with any slot allowed to be a dummy. It moves value through `UtxoTrait`, and its lifecycle decides whether what is left becomes an output. An output whose balance is zero at proof time, and that only empty outputs follow, is an empty UTXO: it keeps its slot and derived blinding, enters `private_tx_hash` as 0, and leaves no zero-amount UTXO. Dummies must come after every real output, so add change that may reach zero last. The circuit decides this from the balances, so a prover cannot choose it. `close()` asserts that nothing is left and takes no slot. `with_optional(owner, asset)` allows zero real inputs and checks real inputs against the supplied owner and asset. Configure it before balance operations. Without it, registration requires a real input. |
-| `UtxoTrait` | The value operations the UTXO types share: `owner`, `asset`, `amount`, `transfer` and `transfer_all` into a destination UTXO of any type, `deposit`, `withdraw` and `withdraw_all`. Amounts are `Uint<64>`. A transfer refuses a closed destination and constrains the destination to hold the source's asset, at no cost when the destination was built from the source's `asset()`. `transfer` and `withdraw` check that what remains fits in 64 bits: a named error natively, a range check in R1CS. A public transfer of zero is refused by a constraint. `amount` is a `Uint<64>`, range-checked only when the balance could exceed 64 bits, as for a token with several inputs. They are default methods over a crate-private `Balance`. |
-
-**Transaction and circuit**
-
-| Name | What it is good for |
-| --- | --- |
-| `TxContext` | The transaction settings in circuit form, the output tree as a `Uint<16>`. `check` derives the output blindings and `private_tx_blinding` from them and the first spent input's nullifier, and selects the output tree. |
-| `PublicInputs` | Hashes a circuit's public fields, then the transfer-aware `transaction_hash`, into the public hash. The generated verifier derives it from the SPP private hash and the actual public transfers. |
-| `ConfidentialTransaction<P>` | The transaction's inputs and outputs registered with `with(item)`, with no SPP shape. `TransactionItem` registers token UTXOs, typed or raw-hash state UTXOs, unique state UTXOs, and `NewAddress` reservations. Inputs are stably ordered with real inputs before dummies; outputs retain registration order. Padding is compact by default; `with_dummy_padding()` preserves dummy input slots and publishes dummy padding. `check` refuses value that a transfer moved into or out of a UTXO the transaction does not contain, blinds and hashes the outputs, a trailing `TokenUtxos` output of zero as an empty UTXO, and computes `private_tx_hash` and the public hash. The client places each empty output in its slot with `spr_transaction`'s `add_empty_output_utxo`. |
-| `CheckedTransaction` | What `check` returns: the public hash, `private_tx_hash` and the slots. |
-| `Circuit` | Defines `type Output: CircuitOutput` and `fn circuit(&self) -> Result<Self::Output, CircuitError>`. Used for both standalone constraints and transaction programs. |
-| `CircuitOutput` | Sealed output contract. `()` adds no public inputs; a `PublicHashOutput`, such as `CheckedTransaction`, binds its public hash to one public input. The SDK owns the allocation and equality constraints for these outputs. |
-
-**Diagnostics**
-
-| Name | What it is good for |
-| --- | --- |
-| `CircuitLabel`, `LabelKind`, `VariableRole` | What a synthesis records: the rows of each check and scope and the private variables of each allocation, with the rule and the circuit's `file:line`. |
-| `FailedConstraint` | The first failing row and its innermost label. |
-| `CircuitSize` | Constraints and public and private variables, for comparing a proof's synthesis with the placeholder's. |
-
-### `spr_program::testing` (feature `test-support`)
-
-| Name | What it is good for |
-| --- | --- |
-| `constraint_labels` | The labels of a proof input's synthesis. |
-| `check_tampered`, `Tamper` | Changes the public hash or one private variable and reports the labelled row that refuses it. A circuit returning `()` has no public hash, so `Tamper::PublicHash` on that circuit is `WrongPublicInputCount`. |
-| `check_private_variables`, `PrivateVariableReport`, `FreeVariable` | Perturbs each private variable in turn and lists the ones no constraint refuses. A free variable is an under-constrained circuit, except equality hints (`Multiplier`) and the unused inputs' nullifier and latest tree, which the SPP proof constrains (`Carried`). The scenario suites run it on every proof. |
-
-### Writing a gadget
-
-A gadget is an ordinary function over declared `CircuitVar` inputs or typed
-builtins such as `U32` and `U64`. Use `#[track_caller]` for caller locations.
-Arithmetic and assertions generate constraints directly. Linear combinations and
-`assert_product` can express any R1CS row.
-
-The caller computes any additional values, declares them in its `ProofInput`,
-and passes their circuit variables to the gadget. For example, a field square
-root is supplied as an input and constrained by its square:
+The escrow's `lib.rs`:
 
 ```rust
-use spr_program::{circuit::CircuitVar, CircuitError};
+#[cfg(any(feature = "circuits", feature = "wasm"))]
+pub mod circuits;
+#[cfg(not(feature = "build-circuits"))]
+pub mod instructions;
+#[cfg(not(feature = "build-circuits"))]
+pub mod verifier;
+```
 
-#[track_caller]
-fn assert_square_root(
-    value: &CircuitVar,
-    root: &CircuitVar,
-) -> Result<(), CircuitError> {
-    root.assert_product(root, value, "root squared equals value")
+By default the CLI looks for each program at `crate::circuits::<Name>`.
+`#[zk_program(path = "...")]` names another path from the crate root.
+
+### 2. State
+
+A state is a struct a data UTXO commits to. `UtxoState` derives its hash (Poseidon over an
+8-byte type tag and each field's hash), a Borsh-backed `EncryptionCodec`, and with `wasm` a
+`<state>DataUtxo` decoding binding. `#[input]` makes it a Xark input.
+
+```rust
+#[input]
+#[derive(Default, PartialEq, Eq, BorshSerialize, BorshDeserialize, UtxoState, spr_program::ClientInputs)]
+pub struct EscrowTerms {
+    pub creator: UtxoOwner,
+    pub unlock: u64,
 }
 ```
 
-Existing operations allocate their own intermediate values.
-External gadgets build on those operations and add the required equations,
-range checks and bounds over their inputs. Native computation by the caller
-is not a constraint on the supplied values.
+A state has at most 11 fields. A field is `u8` to `u128`, `bool`, `Field`, `UtxoOwner`,
+`ShieldedAddress`, `[u8; N]` or another `UtxoState` type. `ClientInputs` is needed when the
+state is also a private input, as `EscrowTerms` is for the withdrawal.
 
-Test gadgets as standalone `ZkCircuit`s with `check_constraints` and
-`check_private_variables`. Test incorrect supplied values directly in R1CS too:
-instantiate with `Allocator::R1cs`, generate the gadget's constraints and check
-`ConstraintSystem::is_satisfied`. This avoids mistaking native rejection for
-constraint rejection. [`tests/external_gadget`](tests/external_gadget)
-contains integer and field square roots, arbitrary linear combinations, and a
-program that proves and verifies with Groth16 using a declared root input.
+### 3. Inputs
 
-### Implementing a derived circuit
+Each instruction is a struct with exactly the fields `private` and `public`, derived with
+`ZkProgram`:
 
-`#[derive(ProofInput)]` generates the circuit form of a client type, and
-`#[derive(ZkProgramCircuit)]` does the same for a program's inputs and adds its wasm bindings and r1cs
-export hook. Implement `Circuit` on the associated type with ordinary Rust:
+```rust
+#[input]
+#[derive(ZkProgram)]
+pub struct Escrow {
+    pub private: EscrowPrivateInputs,
+    pub public: EscrowPublicInputs,
+}
 
-```rust,ignore
-impl Circuit for <Transfer as ProofInput>::Circuit {
-    type Output = CheckedTransaction;
+#[input]
+#[derive(spr_program::ClientInputs)]
+pub struct EscrowPrivateInputs {
+    pub tx_context: TxContext,
+    pub token_utxos_asset_a: ArrayVec<Utxo, ESCROW_TOKEN_INPUTS>,
+    pub unlock: u64,
+    pub amount: u64,
+}
 
-    fn circuit(&self) -> Result<Self::Output, CircuitError> {
-        // Build and check the transaction using self's circuit fields.
+#[input]
+#[derive(PublicInputs)]
+pub struct EscrowPublicInputs {
+    pub escrow_owner: ShieldedAddress,
+    pub creator_identity: Field,
+}
+```
+
+- The private inputs derive `ClientInputs`, the public inputs `PublicInputs`, which includes
+  `ClientInputs`. Each generates a `<Name>Client` type the client fills with wallet values: a
+  `WalletUtxo` for a `Utxo`, a `Vec<WalletUtxo>` for an `ArrayVec<Utxo, N>`,
+  `TransactionOptions` for `TxContext`, a native shielded address for `ShieldedAddress` and a
+  `Mint` for an `Asset`, which records the mint (see [docs.md](docs.md#client-inputs)). Other
+  fields, `Field` included, take their own type; in JavaScript a `Field` is a decimal string.
+- `ArrayVec<T, N>` always holds `N` slots: the given items, then `PaddedInput::padding()`
+  (`Utxo::dummy()` for a UTXO). A circuit has a fixed shape, so this is how a client spends
+  fewer UTXOs than the circuit allows.
+- The public inputs fold into one public input, the public hash:
+  `Poseidon(field hashes..., transaction_hash)`. A program has at most 11 public fields, each
+  `u8` to `u128`, `bool`, `Field`, `UtxoOwner` or `ShieldedAddress`. A `UtxoOwner` enters as
+  its owner hash and a `ShieldedAddress` as its address hash, which the on-chain verifier
+  takes as `[u8; 32]`.
+
+### 4. The circuit logic
+
+The program implements an inherent `execute` method:
+
+```rust
+impl Escrow {
+    pub fn execute(&self) -> Result<CheckedTransaction, CircuitError> {
+        let private = &self.private;
+        require(private.amount != 0);
+        let mut tokens = TokenUtxos::new_mut(&private.token_utxos_asset_a)?;
+        require_eq(
+            tokens.owner().key().identity()?,
+            self.public.creator_identity,
+        );
+        let mut escrow = DataUtxo::<EscrowTerms>::new_init(&self.public.escrow_owner)
+            .with_asset(&tokens.asset())?;
+        tokens.transfer(&mut escrow, &private.amount)?;
+        escrow.creator = tokens.owner();
+        escrow.unlock = private.unlock;
+
+        ConfidentialTransaction::new(&private.tx_context, &self.public)
+            .with(tokens)
+            .with(escrow)
+            .check()
     }
 }
 ```
 
-`ZkProgramCircuit` requires `ProofInput<Circuit: Circuit> + Placeholder`, so its associated
-type must implement `Circuit`. Input fields and state types only need `CircuitType`.
-Use the generated name for inherent impls (`impl TransferCircuit`) and for generic
-impls such as `impl<const N: usize> Circuit for TransferCircuit<N>`.
+- `TokenUtxos`, `DataUtxo` and `UniqueDataUtxo` move value between UTXOs. A
+  `ConfidentialTransaction` registers them, and `check` derives the output blindings, hashes the
+  outputs and computes `private_tx_hash`, the transaction hash and the public hash.
+- `require(cond)` and `require_eq(a, b)` are the program's own rules. In the circuit build
+  they are constraints. Natively, a failed requirement is recorded and returned as
+  `CircuitErrorKind::RequirementFailed { file, line, column }` by `spr_program::checked`, which
+  the client wraps around `execute`; outside it the requirement panics (see [Native and circuit execution](#native-and-circuit-execution)).
+- The CLI generates one Xark circuit per program:
 
-A circuit spends a fixed number of UTXOs, but a client rarely holds exactly that many. A
-`Vec` field takes the UTXOs the client has, up to a bound the input type sets:
+  ```rust
+  #[circuit]
+  pub fn escrow(program: Private<program::circuits::Escrow>, public_hash: Public<Field>) {
+      let checked = program.execute().expect("valid program transaction");
+      require_eq(*checked.public_hash(), public_hash);
+  }
+  ```
 
-```rust,ignore
-#[derive(Clone, ProofInput)]
-pub struct Transfer {
-    pub tx_context: TxContext,
-    #[max_len(MAX_INPUTS)]
-    pub token_utxos: Vec<WalletUtxo>,
-    pub amount: u64,
+  The whole program is a private input. The public hash is the only public input.
+
+`execute` is restricted to the Rust subset Xark compiles: loop bounds and array sizes known
+when the circuit is built, branches on private values evaluated on both arms. Xark's
+[`docs/subset.md`](https://github.com/blueshift-gg/xark/blob/v0.3.0/docs/subset.md)
+is the reference.
+
+### 5. Build
+
+```bash
+zolana build-zk-program -p <crate> [--test]
+```
+
+1. Discovers the programs: runs the crate's generated `__zk_export` tests with
+   `<r1cs-features>,build-circuits`, validates each program's metadata and writes
+   `<target>/zk/<crate>/programs.json`.
+2. Writes a Xark entry crate per program to `<target>/zk/<crate>/.entries/<program>` and
+   compiles it into `<target>/zk/<crate>/<program>/` (`circuit.xbc`, `schema.json`,
+   `sources.json`, `digest`).
+3. Generates `pk.bin`, `vk.bin` and `metadata.json` in the same directory, or reuses them while
+   the circuit digest and setup kind are unchanged. `--test` uses a fixed public seed.
+4. When the crate has a `src/verifier` directory, writes `<program>.rs` and `<program>.vk.rs`
+   there. `src/verifier/mod.rs` is the crate's own and declares `pub mod <program>;`.
+5. Builds the WASM package into `<target>/zk/<crate>/wasm` (or `--wasm-out`).
+6. Runs `cargo build-sbf` (`--sbf-features`, `--sbf-out-dir`, `--skip-sbf`).
+
+`zolana zk compile` runs steps 1 to 5, `zolana zk setup` step 3 on compiled circuits, and
+`zolana zk export-verifier` step 4 from keys a trusted manifest pins. `--check` compiles the
+circuits, requires matching cached keys and fails when a committed verifier module is stale,
+missing or orphaned, without writing files or building WASM or SBF. [docs.md](docs.md#cli)
+lists every flag.
+
+A crate without a `ZkProgram` is compiled as one plain Xark `#[circuit]`: its artifacts go
+directly into `<target>/zk/<crate>`, only `<circuit>.vk.rs` is generated, and its verifier is
+hand-written. [`sdk-tests/zk-standalone`](../../sdk-tests/zk-standalone) is that case.
+
+### 6. On-chain verifier
+
+The generated `src/verifier/escrow.rs` holds the public inputs in their on-chain form and a
+`Verifier`:
+
+```rust
+pub struct PublicInputs {
+    pub escrow_owner: [u8; 32],
+    pub creator_identity: [u8; 32],
+}
+
+pub struct Verifier<'a> {
+    pub proof: &'a CompressedProof,
+    pub public_inputs: PublicInputs,
+    pub private_tx_hash: &'a [u8; 32],
+    pub transfers: &'a [PublicTransfer],
 }
 ```
 
-- `#[max_len(N)]` is required on every `Vec` field and `#[min_len(M)]` is optional, with a
-  default of 1, since a `TokenUtxos` normally requires a real input. `#[min_len(0)]` allows an
-  empty `Vec`; use `TokenUtxos::new_mut(...).with_optional(owner, asset)` to allow all its converted slots to be dummies. `M <= N` is checked when the program
-  compiles.
-- The circuit field is `[T::Circuit; N]`, so `TokenUtxos::new_mut(&self.token_utxos)` is
-  unchanged. Instantiating fills the unused slots with `Dummy::dummy(first)`: dummies in the
-  first UTXO's tree, or in tree 0 when the `Vec` is empty. A dummy's tree enters only its
-  own hash, which a `TokenUtxos` replaces with zero. The placeholder fills all `N` slots, so
-  the circuit and its keys are those of a `[WalletUtxo; N]` field.
-- More than `N` or fewer than `M` items is a `TooManyItems` or `TooFewItems` error that
-  names the field.
-- The item type implements `Dummy`; today that is `WalletUtxo`. A padded `u64` has no
-  empty marker, so `Vec<u64>` does not compile.
-- `UtxoState`, `CircuitType` and `PublicInputs` refuse bounded fields: a state and a public
-  input have a fixed layout.
+`verify` computes the transaction hash from `private_tx_hash` and the public transfers,
+hashes the public inputs into the public hash and verifies the Groth16 proof under the
+committed key. The escrow instruction recomputes every public input from its accounts and
+instruction data, so the client cannot choose them:
 
-Set `#![deny(unused_must_use, unused_variables, unused_assignments)]`,
-`#![forbid(unsafe_code)]`, and `#![deny(clippy::let_underscore_must_use)]` on circuit
-crates or modules. Use `#[deny(clippy::disallowed_types)]` on circuit impls and
-gadgets to apply the collection restrictions in [`clippy.toml`](clippy.toml).
+```rust
+escrow::Verifier {
+    proof: &proof,
+    public_inputs: escrow::PublicInputs {
+        escrow_owner: spr_program::verifier::address_hash(
+            &escrow_authority.owner_hash()?,
+            &viewing_pubkey,
+        )
+        .map_err(TimelockEscrowError::from)?,
+        creator_identity,
+    },
+    private_tx_hash,
+    transfers: &[],
+}
+.verify()
+.map_err(TimelockEscrowError::from)?;
+```
 
-### `spr_program::conversion`: between the two
+`private_tx_hash` comes from the SPP instruction data the program forwards
+(`TransactIxDataRef::from_bytes(transact)?.private_tx_hash`), and `transfers` must be the
+public deposits and withdrawals that SPP transaction settles, in order. The program then
+invokes SPP, signed by the PDA that owns the program's UTXOs.
 
-Everything the derives generate goes through these, and each can be written by hand.
+### 7. Client in Rust
 
-| Name | What it is good for |
+`ZkProgram` generates `<Name>Client` with
+`prepare(self, sender: &ShieldedAddress, payer: Address) -> Result<ProgramTransaction, ClientError>`.
+It converts the client values, runs `execute` natively, finalizes the SPP transaction and
+returns it with the program's proof inputs and public hash. From the escrow's localnet test:
+
+```rust
+let transaction = EscrowClient {
+    private: EscrowPrivateInputsClient {
+        tx_context: TransactionOptions {
+            blinding_seed: Some(random_blinding()),
+            output_tree_id: Some(localnet.tree_id),
+        },
+        token_utxos_asset_a: balance.utxos.clone(),
+        unlock: UNLOCK_TIMESTAMP,
+        amount: LOCK_AMOUNT,
+    },
+    public: EscrowPublicInputsClient {
+        escrow_owner: authority.address(address.viewing_pubkey)?,
+        creator_identity: creator_owner.key().identity()?,
+    },
+}
+.prepare(&address, payer)?;
+
+let result = xark::prover::circuit_at(workspace_path("target/zk/timelock-escrow-program/escrow"))
+    .prove(transaction.proof_inputs)?;
+let proof = spr_program::proof::compressed_proof(&result.proof).map_err(anyhow::Error::msg)?;
+let spp_proof_inputs = transaction.finalized.encrypt_with_keys(&creator)?;
+let transact = localnet.client.prove_transact(spp_proof_inputs, None, &creator)?;
+```
+
+The program's proof and the SPP proof come from the same `ProgramTransaction`: the Xark
+prover takes `proof_inputs`, and the SPP prover takes the encrypted `finalized` transaction.
+`ProgramOwner::decrypt_data_utxos::<EscrowTerms>` later finds the escrow UTXO the program's
+PDA owns, and `DataUtxo<T>` holds it with its decoded state.
+
+### 8. Client in TypeScript
+
+The WASM package exports `escrowTransaction(inputs, sender, payer)`. The TypeScript SDK's
+`bindProgramTransaction` binds it to an asset registry and checks every result: the output
+commitments, the mints, the sender, the payer and that `proofInputs.public_hash` equals
+`publicHash`. From `sdk-tests/timelock-escrow/typescript`:
+
+```ts
+const buildEscrow = bindProgramTransaction(wasm.escrowTransaction, { assets });
+const escrowTransaction = await buildEscrow(
+  {
+    private: {
+      txContext: { blindingSeed: randomBlinding(), outputTreeId: client.treeId },
+      tokenUtxosAssetA: [...deposited],
+      unlock: UNLOCK_TIMESTAMP,
+      amount: LOCK_AMOUNT,
+    },
+    public: {
+      escrowOwner: authority.address(address.viewingPublicKey).toBytes(),
+      creatorIdentity,
+    },
+  },
+  address.toBytes(),
+  signer.address,
+);
+```
+
+Proving goes through Xark's runtime in the same module. The escrow's `ProgramProver` keeps a
+`ProvingSession` and checks each proof against the verifying key before converting it:
+
+```ts
+const session = new wasm.ProvingSession(circuitXbc, provingKey, sourcesJson);
+const verifier = new wasm.VerifyingKey(verifyingKey);
+const bundle = session.prove(escrowTransaction.proofInputs);
+if (!verifier.verify(bundle.proof, bundle.publicInputs)) throw new Error("invalid proof");
+const proof = wasm.programProof(bundle.proof, bundle.publicInputs, escrowTransaction.publicHash);
+bundle.free();
+
+const transact = await client.proveTransact(
+  escrowTransaction.transaction.encryptWithKeys(creator),
+  [creator],
+);
+```
+
+`proof.compressedProof` goes into the instruction. A failed `require` arrives as an error named
+`CircuitError.RequirementFailed` with code `PROGRAM_REQUIREMENT_FAILED`, wrapped by
+`bindProgramTransaction` in a `TRANSACTION_PROGRAM_BUILD` error.
+
+## Flow
+
+```mermaid
+flowchart TD
+    accTitle: How one set of inputs feeds both proofs
+    accDescr: The client converts its values, runs execute natively and finalizes the SPP transaction. The Xark prover proves the program from the proof inputs, the SPP prover proves the encrypted transaction, and the program verifies the program proof before invoking SPP.
+
+    Client["Client values: EscrowClient"] -->|ClientInputs::from_client| Program["Program inputs, InputRecords filled"]
+    Program -->|execute, inside checked| Checked["CheckedTransaction"]
+    Checked -->|a failed require| Refused["ClientError::Circuit"]
+    Checked -->|InputRecords::finalize| Tx["ProgramTransaction"]
+    Tx -->|proof_inputs| Xark["Xark prover, pk.bin"]
+    Tx -->|finalized, encrypted| Spp["SPP prover"]
+    Xark -->|compressed_proof| Ix["Program instruction"]
+    Spp -->|transact data| Ix
+    Ix -->|generated Verifier::verify, then SPP CPI| Done["Applied on chain"]
+```
+
+*Figure 1: One set of inputs feeds both proofs.*
+
+`InputRecords::finalize` refuses a transaction whose SPP form differs from what the circuit
+committed: its `padding_independent_private_tx_hash`, its transaction hash with the public
+transfers, and each committed output hash must match the `CheckedTransaction`.
+
+## Native and circuit execution
+
+Xark's own `require` panics natively, which traps a browser WASM module.
+`spr_program::require` and `require_eq` are constraints in the circuit build, and natively
+they record the first failure instead:
+
+- The generated `prepare` and the WASM bindings run `execute` inside
+  `spr_program::checked`, which returns that failure as
+  `CircuitErrorKind::RequirementFailed { file, line, column }` ahead of whatever `execute`
+  returned. Execution continues after the failure only to reach `checked`, which discards the
+  result.
+- Outside `checked`, a failed requirement panics, naming its source location but not the
+  compared values, which can be private inputs. A test that calls `execute()` directly with
+  failing inputs, then passes the result to `InputRecords::create_program_transaction`,
+  panics.
+
+A `CircuitError` that `execute` returns with `?` reaches the client as `ClientError::Circuit`.
+In the circuit build the generated entry calls `execute().expect(..)`, so such an error is a
+panic, and Xark treats a branch that can only panic as one the inputs must not take. Write
+conditions on input values with `require` and `require_eq`; [Xark's
+`LIMITATIONS.md`](https://github.com/ananas-block/xark/blob/13c3f0c28eb202bc34f075ee5414a01c3cac51b8/LIMITATIONS.md)
+explains why its own requirements are not recoverable.
+
+## Client and WASM integration
+
+### Records and finalization
+
+`InputRecords` keeps the native values the circuit values were converted from: the wallet
+UTXOs, the shielded addresses and the mints. `finalize` resolves the `CheckedTransaction`
+against them:
+
+- Every spent UTXO must have been converted through the records, which checks that its
+  commitment matches its preimage.
+- Every output owner must be a `ShieldedAddress` the inputs contain, or the sender. An owner
+  that is neither has no viewing key to encrypt to, and `finalize` refuses it.
+- Every non-SOL output asset must be the asset of a converted input UTXO.
+- A transaction that starts with an address reservation has no spent UTXO to take its output
+  tree from, so its `TxContext` needs an explicit output tree.
+
+### WASM package
+
+`zolana zk compile` builds the program crate with wasm-pack. The package directory
+(`<target>/zk/<crate>/wasm/` by default) holds:
+
+| Path | Contents |
 | --- | --- |
-| `ProofInput` | Turns a client value into its circuit type. Plain Rust types implement it: `u128`, `u64`, `u32` and `u16` become range-checked `Uint` values; `bool`, `[u8; 32]`, `Bytes<N>`, `UtxoOwner`, `ShieldedAddress`, `Mint`, `WalletUtxo`, and arrays. `Field` is an unchecked private value. A derived struct's bounded `Vec` field becomes an array of its `#[max_len]`. |
-| `FromCircuit` | The way back in the native run, with the same range checks: `u64`, `u32`, `u16`, `bool`, `[u8; 32]`, `Bytes<N>`, `UtxoOwner`, arrays, and a state's client form. |
-| `Placeholder` | A value of the type that instantiates, so setup synthesizes the circuit from the type alone. The SDK types above implement it; a program implements it field by field. |
-| `Dummy` | An item that fills an unused slot of a bounded `Vec`, built from the first item, or from nothing when the `Vec` is empty. `WalletUtxo` implements it with `WalletUtxo::dummy_with_blinding`: a zero blinding in the first UTXO's tree, or tree 0, so the proof inputs depend only on the real items. The padding never reaches the SPP proof, which pads with its own random dummies. |
-| `instantiate_padded`, `placeholders` | What the derive calls for a bounded `Vec` field, for a hand-written `ProofInput`: `instantiate_padded::<T, MIN, MAX>(items, field, allocator)` checks the length, pads with dummies and instantiates `[T::Circuit; MAX]`, and `placeholders::<T, MAX>()` builds the field's placeholder. |
-| `Allocator` | Chooses the run. `Native` keeps constants and fills `Records`, and `R1cs` allocates variables, each labelled with what it is. Allocation stays inside the SDK: a hand-written `ProofInput` builds on the SDK's implementations. |
-| `Records` | What a `CircuitVar` cannot hold, keyed by hash: addresses, `Mint`s and spent UTXOs. |
-| `field`, `field_bytes`, `to_bytes` | SDK bytes to circuit values and back. |
+| `<lib name>.js`, `.wasm`, `.d.ts` | The application module: the generated `<program>Transaction` and `<state>DataUtxo` functions, the `spr_program::wasm` exports and, with the prover, Xark's runtime (`ProvingSession`, `VerifyingKey`, `preloadStreaming`, `proveStreamingPreloaded`, `verify`). |
+| `<program>/<program>.ts` | Xark's typed TypeScript client, with its schema included, importing `@blueshift-gg/xark/client`. |
+| `proving-keys.json` | Per program, the proving key's SHA-256 and whether it is an insecure test setup. Absent with `--no-prover`. |
+| `xark/` | Xark's pool scripts (`pool.mjs`, `pool-worker.mjs`, `client.mjs` and their declarations). Absent with `--no-prover`. |
+| `runtime-options.json` | `{ "threads": bool }`: false with `--single-threaded` or `--no-prover`. |
+| `.zolana-zk-package` | Marks a directory the CLI may replace. |
 
-### `spr_program::hasher` (feature `circuit`)
+The package is built in a staging directory and replaces the previous one only once it is
+complete. `--wasm-out` refuses a non-empty directory without the marker and a directory that
+contains the crate or the circuit artifacts. `--wasm-target nodejs` builds for Node.js and adds a
+CommonJS `package.json`.
 
-| Name | What it is good for |
-| --- | --- |
-| `DataHasher` | The hash of a state that its data UTXO commits to. `#[derive(UtxoState)]` implements it to match the circuit's `DataHash`. |
-| `Discriminator`, `state_discriminator` | An 8-byte state type tag: the first bytes of `sha256("account:" \|\| type_name)`. |
-| `data_hash`, `unique_data_hash` | A data UTXO's data hash under the `DATA` and `UNIQ` domains: a state or an addressed state. |
-| `ToByteArray` | A value as the 32 bytes a hash takes. |
+Before loading a proving key, check its exact bytes with
+`checkProvingKey(provingKey, expectedSha256)` against the digest in `proving-keys.json` shipped
+with the application module, not a digest served next to the key. Proving with a pool runs in a
+Web Worker and needs cross-origin isolation: pass the application module's glue URL to
+`createPool({ threads, wasm })` from `xark/pool.mjs`, so each pool worker loads its own
+instance of the application module instead of Xark's stock one.
 
-`spr_program::EncryptionCodec` (feature `circuit`) defines a state's encryption plaintext
-and reconstructs the state after decryption. `UtxoState` generates a complete Borsh-backed
-codec by default. Use `#[utxo_state(custom_codec)]` and implement the trait to encode a
-smaller payload without changing ordinary Borsh serialization. The SDK checks that the
-payload reconstructs the original commitment before accepting an output, and verifies
-the UTXO commitment after decoding. Reconstruction uses only the payload; custom
-decoders must reject malformed and trailing bytes. See the [encryption payload example](docs.md#utxo).
+Xark 0.3.0's runtime draws each proof's blinding randomness from WebCrypto and does not check
+it. Never pass its `seed` option: anyone who knows a proof's randomness can recover the
+private inputs from the proof. Prove only where `crypto.getRandomValues` is the platform's
+own; the runtime does not detect one that returns zeros. Its proving functions also take their
+inputs and options untyped.
 
-### `spr_program::program` (feature `compression`)
+`#[zk_program(raw_client)]` replaces the generated client with
+`<program>Transaction(inputs, records, sender, payer)`, which takes the program in Xark's input
+JSON form and the wallet records separately. `proofInputUtxo`, `proofInputAddress` and
+`proofInputContext` convert wallet values into that form. The SDK's
+[browser test program](tests/wasm/program) uses it.
+
+[docs.md](docs.md#wasm-exports) lists every export and error name.
+
+## Compressed accounts (`spr_program::program`, feature `compression`)
 
 A compressed account is a UTXO a program PDA owns whose data hash commits to the program's
 plaintext state. The PDA's nullifier key is zero, so the program recomputes the UTXO hash
 and the nullifier from the state instead of trusting instruction data.
 
-| Name | What it is good for |
+| Name | What it is for |
 | --- | --- |
-| `PdaOwner` | A program PDA as the owner of its accounts: its identity and owner hash under `ZERO_NULLIFIER_PUBKEY`. |
-| `AddressSeed`, `NewAddress` | The address an account is created at, derived from the owner and a seed in an address tree. Only create derives it; update and read use its metadata. |
+| `PdaOwner` | A program PDA as the owner of its accounts: its identity and owner hash under the zero nullifier key. |
+| `AddressSeed`, `NewAddress` | The address an account is created at, derived from the owner and a seed in the address tree. Only create derives it; update and read use its metadata. |
 | `hasher::DataHasher` | The native state hash, including a type tag. State also implements Borsh serialization; address and blinding stay outside application state. |
 | `UtxoMeta` | What a client sends about an account's current UTXO besides its state: the address, the blinding and the root indexes it is proven against. Wrong values give a UTXO hash or nullifier no proof matches. |
-| `UniqueDataUtxo<S>` | A PDA-owned state UTXO with an immutable address and mutable application state. `new_init(owner, seed, tree_context)` derives and reserves the address; `new_mut` spends the current UTXO while preserving its address. `data_hash()` is `Poseidon(UNIQ, address, state.hash())`, matching the circuit type. |
+| `UniqueDataUtxo<S>` | A PDA-owned state UTXO with an immutable address and mutable application state. `new_init(owner, seed, tree_context)` derives and reserves the address; `new_mut(owner, meta, state, tree_id)` spends the current UTXO and keeps its address. `data_hash()` is `Poseidon(UNIQ, address, state.hash())`, matching the circuit type. |
 | `SppTransactCpi` | Puts the accounts an instruction writes into one SPP transaction and invokes it, signed by the owning PDAs. It derives everything but the proof in the Solana program: the blindings, the output UTXO hashes, the external data hash and the private transaction hash. |
 | `ReadRoots`, `load_tree_id` | Read an account without spending it: the program verifies its own proof of state-tree inclusion and nullifier-tree non-inclusion under the roots `ReadRoots::load` reads from the tree account, and `assert_unspent` checks that the nullifier PDA does not exist. |
-| `UtxoKey` | A state UTXO's hash and zero-secret nullifier, reconstructed by `ReadRoots::key(owner, meta, state)`. The UTXO hashing helper is private. |
+| `UtxoKey` | A state UTXO's hash and nullifier, from `ReadRoots::key(owner, meta, state)`. |
 | `CompressedAccountError` | The errors, with their program error codes. |
 
 `SppTransactCpi::with_unique_data_utxo` publishes `address || Borsh(state)` inside the
 plaintext output envelope. Readers derive the UTXO blinding from the creating
 transaction's first nullifier, `ACCOUNT_BLINDING_SEED`, and output position.
-The blinding is UTXO metadata and is excluded from the application state hash.
-Native state hashes and the default Borsh codec must match the circuit/client state.
 
-The state's `DataHasher::hash` implementation selects Poseidon or SHA-256; both are
-available without extra features. For SHA-256, `hasher::Sha256BE` clears the digest's
-first byte so it fits the BN254 field. Include a type tag and all state fields in
-either hash. States using different algorithms can share one transaction. The
-`UtxoState` derive continues to generate Poseidon hashes for circuit states.
+The state's `DataHasher::hash` selects Poseidon or SHA-256; both are available without extra
+features. For SHA-256, `hasher::Sha256BE` clears the digest's first byte so it fits the BN254
+field. Include a type tag and all state fields in either hash. States using different
+algorithms can share one transaction. `UtxoState` generates Poseidon hashes, and a state a
+circuit also reads must use them.
 
 Rules a program keeps:
 
@@ -360,196 +531,61 @@ Rules a program keeps:
   never signs transact data a client built.
 - The state hash commits to its type tag; the SDK wraps it with `UNIQ` and the address.
 
-### `spr_program::wasm` (feature `wasm`)
+## Keys for a deployment
 
-The bindings a ZK program's wasm module exports to JavaScript, which `zolana zk compile`
-builds with wasm-pack: `ProgramTransaction`, `FinalizedTransaction` and `DataUtxo` as
-TypeScript types and a `<name>Transaction` function per program. The rest is the zk DSL's
-wasm runtime (`spr_zk_dsl::wasm`), shared with standalone circuits: a `<Name>Prover` per
-program from a proving key or a zkey (feature `wasm-prover`) whose `prove` returns a `Proof`
-with `publicInputs` (a program has one, its public hash), `verifyProof` (feature
-`wasm-verify`), and `initProverThreads`, which starts a thread pool sized to the core count
-(feature `wasm-threads`). The TypeScript SDK's `decodeProgramTransaction` turns the
-transaction the module returns into SDK inputs and outputs.
+The CLI's own setup is a single-party setup. With `--test` it uses the fixed public seed 0,
+without it fresh randomness; in both cases the setup metadata says `single-party`, and the
+generated `<program>.vk.rs` is an insecure test setup that contains a `compile_error!` unless
+the crate enables its `insecure-test-setup` feature. A deployment needs keys from Xark's phase-2
+setup or multi-party ceremony
+([`docs/trusted-setup.md`](https://github.com/blueshift-gg/xark/blob/v0.3.0/docs/trusted-setup.md)),
+whose metadata the CLI accepts as production.
 
-## Flow
+- The CLI never replaces production keys. `--test` against production keys fails, and an
+  incomplete production directory or one for another circuit digest fails without changing its
+  files. Use a separate `--r1cs-out` directory for a new setup.
+- Keep the whole artifact directory per program: `circuit.xbc`, `schema.json`, `sources.json`,
+  `digest`, `pk.bin`, `vk.bin` and `metadata.json`.
+- Export the verifiers from a trusted sha256sum manifest that pins each program's `vk.bin`,
+  `pk.bin` and `metadata.json`, with paths relative to the manifest:
 
-```mermaid
-stateDiagram-v2
-    accTitle: How an instruction goes from its inputs to the program verifier
-    accDescr: The client runs the circuit natively to build the SPP transaction. The prover runs the same circuit in R1CS against the public hash. The program verifies the compressed proof.
+  ```bash
+  zolana zk export-verifier -p <crate> --checksums trusted-keys.sha256
+  ```
 
-    state "Plain Rust inputs of one instruction" as Inputs
-    state "Circuit type over constants, Records filled" as Native
-    state "CheckedTransaction" as Checked
-    state "ProgramTransaction" as Program
-    state "Proven by the SPP prover" as SppProver
-    state "Groth16Prover of the program, with its keys" as Prover
-    state "Circuit type over variables" as R1cs
-    state "ProofResult" as Proof
-    state "Accepted by the generated verify" as Accepted
-    state "Refused with a named CircuitError or ClientError" as Refused
-    state "Refused, a constraint fails" as Unsatisfied
-
-    [*] --> Inputs
-    Inputs --> Native : create_program_transaction instantiates natively
-    Native --> Checked : circuit, then check
-    Checked --> Refused : a rule breaks or a slot does not resolve
-    Checked --> Program : resolve slots, finalize with spr_transaction
-    Program --> SppProver : the finalized transaction, encrypted
-    [*] --> Prover : new_with_test_setup from the placeholder, or new with loaded keys
-    Program --> R1cs : the proof inputs
-    Prover --> R1cs : the keys
-    R1cs --> Unsatisfied : a constraint fails
-    R1cs --> Proof : Groth16, checked against the keys
-    Proof --> Accepted : compress, then verify on the public hash
-    SppProver --> [*]
-    Accepted --> [*]
-    Refused --> [*]
-    Unsatisfied --> [*]
-```
-
-*Figure 1: One set of inputs feeds both proofs.*
-
-`create_program_transaction` instantiates the inputs natively, which runs the range checks and
-fills the records. It then runs `circuit`, resolves each slot of the `CheckedTransaction`
-against the records and converts the amounts. `spr_transaction` finalizes the SPP
-transaction, which pads to the smallest SPP shape that fits and is encrypted before the SPP
-proof, and its `padding_independent_private_tx_hash` must equal the circuit's. A broken rule
-or a slot without a record stops it with a named `CircuitError` or `ClientError`.
-
-The proof inputs go to a `Groth16Prover` of the program. Its keys come from
-`new_with_test_setup`, which synthesizes the circuit from the program's `Placeholder`, or from
-`new` with loaded keys. Serialized keys include a digest of their circuit matrices, which `new`
-checks against the current circuit before proving. `prove` proves and checks the proof against the keys. `verify` and the
-program's generated `zk::<program>::verify` accept the compressed proof for that public hash.
-
-```mermaid
-stateDiagram-v2
-    accTitle: The DataUtxo and TokenUtxos lifecycles
-    accDescr: Both UTXO types start as Init or Mut; close selects no output. Init adds an output, Mut inputs and an output, Close only existing inputs. A closed UTXO transfers its value into other UTXOs and has no output.
-
-    state "Init - no input, one output" as Init
-    state "Mut - inputs in, the new state or change out" as Mut
-    state "Close - inputs in, no output of its own" as Close
-    state "Slots in the ConfidentialTransaction" as Slots
-
-    [*] --> Init : new_init
-    [*] --> Mut : new_mut
-    Init --> Close : close
-    Mut --> Close : close
-    Init --> Slots : output
-    Mut --> Slots : inputs and output
-    Close --> Slots : inputs, its value transferred into other UTXOs
-    Slots --> [*]
-```
-
-*Figure 2: The lifecycles shared by `DataUtxo` and `TokenUtxos`, the counterparts of `LightAccount`.*
-
-A UTXO starts in `Init` or `Mut`; `close()` selects `Close`. `Init` adds only an output: the new state for a
-`DataUtxo`, the value transferred into it for a `TokenUtxos`. `Mut` adds its inputs and that
-output, the change for a `TokenUtxos`. A `TokenUtxos` output that ends at zero is an empty
-UTXO in its slot. `Close` adds only its inputs, and its transfers must move out its whole
-value. Every UTXO but a closed one can receive a transfer: an `Init` UTXO holds the asset it
-was built with, the others their inputs' asset.
+  Every program is checked before any file is written, and each proving key must belong to its
+  verifying key. The setup kind comes from the pinned metadata.
+- Each generated `.vk.rs` embeds a setup marker with the proving key's SHA-256, plus
+  `ZOLANA_VK_SHA256` and `ZOLANA_CIRCUIT_DIGEST`. `zolana vks check --so <program.so>` or
+  `--program-id <id>` reads the markers from a build or a deployment, fails on an insecure test
+  setup, and with `--expect trusted-keys.sha256` also fails when a pinned `pk.bin` is not
+  embedded.
+- A checksum pins bytes. It does not attest to the ceremony that produced them.
 
 ## Tests
 
 ```bash
-just test-spr-program-unit       # the unit suite
-just test-spr-program-release    # the scenario suites and the macro tests, in release
-just test-spr-program-external   # the unit suite with the circom, snarkjs and Picus checks
-just check-wasm                     # the wasm32 builds
-just test-zk-program-wasm           # the wasm module in Chromium
+just test-spr-circuit            # the protocol rules and the Xark fixture circuit
+just test-spr-program-unit       # the client tests
+just test-spr-program-release    # the macro tests and the escrow circuits, in release
+just test-zk-standalone          # the plain-circuit fixture and `zk compile --check`
+just check-wasm                  # the wasm32 builds
+just test-zk-program-wasm        # the WASM module in Chromium
+just test-escrow-validator       # the escrow lifecycle on a local validator
 ```
 
-- `tests/unit` covers each builtin natively and in R1CS: Poseidon and `nonzero_hash_chain`
-  parity, the integer and boolean rules, the plain input types, the records and
-  `FromCircuit`, the lifecycles and the slot order, the transfer rules and the conservation
-  check, `ZkProgramCircuit` resolution, dropped dummies, empty output padding, owner tags and errors,
-  and the circuit verifier interface. Key checksum checks and export are covered by the CLI and browser regression tests.
-- `tests/scenarios` proves and verifies whole programs, and runs `check_private_variables` on
-  every proof.
-- `tests/external_gadget` proves a program with a hand-written gadget.
-- `tests/compression*` cover the compressed account CPI and the read.
+- `spr-circuit`'s `tests/rules` runs every protocol rule natively and asserts the
+  requirement that refuses each broken input; its other tests pin Poseidon, the byte and chain
+  hashes and the transaction hashes. `tests/xark-fixture` compiles and proves a circuit over
+  `spr-circuit` with the pinned Xark CLI.
+- `tests/finalize` builds SPP transactions from checked program transactions: address
+  reservations, dummy padding trees and output owner resolution.
+- `tests/client_inputs` covers the generated client conversions, `tests/client_data_decode`
+  data UTXOs and their custom codecs, `tests/proving_key_checksum` `check_proving_key`.
+- `tests/verifier_public_hash` holds the on-chain public hash to the circuit's.
+- `tests/compression*` and `tests/program_hashers` cover the compressed account CPI and the read.
 - `tests/wasm` holds a test program and its Playwright suite, which prove in the browser and
   compare against the native fixtures and snarkjs (`just bench-zk-program-wasm` measures it).
-
-## Keys for a deployment
-
-`new_with_test_setup` and the keys `zolana build-zk-program` writes come from a single-party
-setup with a fixed seed, for tests only. A deployment needs a ceremony and its exported
-verifying key in the program. The ceremony runs on snarkjs over a published,
-phase-2-prepared ptau:
-
-```bash
-zolana zk compile -p <crate> --skip-keys --skip-wasm --r1cs-out keys
-snarkjs groth16 setup keys/<circuit>.r1cs powersOfTau28_hez_final_14.ptau keys/<circuit>_0000.zkey
-snarkjs zkey contribute keys/<circuit>_0000.zkey keys/<circuit>_0001.zkey --name="contributor 1"
-snarkjs zkey beacon keys/<circuit>_0001.zkey keys/<circuit>_final.zkey <beacon hex> 10 -n="final beacon"
-snarkjs zkey verify keys/<circuit>.r1cs powersOfTau28_hez_final_14.ptau keys/<circuit>_final.zkey
-```
-
-`zolana zk import keys/<circuit>_final.zkey --r1cs keys/<circuit>.r1cs -p <crate>` then checks
-the zkey against the r1cs and writes `target/zk/<crate>/<circuit>.pk`, and
-the following exports the checked key into `src/verifier/<circuit>.vk.rs`:
-
-```bash
-zolana zk export-verifier --setup production -p <crate> \
-  --checksums target/zk/<crate>/<circuit>.pk.sha256 target/zk/<crate>/<circuit>.pk
-```
-
-This is the verifying key the program includes. `build-zk-program` keeps a production key instead of replacing it with a
-test key. The circuit is frozen from the `groth16 setup` on.
-
-Key generation and import also write `<circuit>.pk.sha256`, a sha256sum-style
-manifest. Export checks each selected `.pk` against `--checksums` before loading it;
-manifest paths are relative to the manifest directory. For several circuits,
-combine their manifests in that directory and select the keys to export.
-
-WASM `<Name>Prover.fromKey(provingKey, expectedSha256)` requires the expected SHA-256 as
-32 bytes. Pin that digest in trusted application metadata (for example, the
-release's key manifest). A missing, malformed, or mismatched digest rejects the
-load. Fetching a digest from the same untrusted source as the key does not
-establish authenticity. The local examples use manifests produced during their
-trusted test-key build.
-
-Keys use arkworks canonical uncompressed serialization: a ceremony-import flag
-followed by the proving key. Loading validates curve and subgroup membership.
-A trusted checksum covers the provenance flag along with the key; it does not
-prove that a ceremony's participants behaved honestly.
-
-`UniqueDataUtxo::new_init(owner, seed)` reserves an address. Include the program id
-and account identifier in the seed to separate applications and accounts. The
-Rust client prepends address slots to the transaction and fetches only their nullifier
-non-inclusion proofs. Use `create_proof_inputs_and_encrypt_with_keys` when a new
-address supplies the first nullifier; it has no cached transaction viewing key. Address-first transactions also need an
-explicit output tree in `TxContext`.
-
-`ProofInputs::public_hash()` works only when synthesis established a single public
-input. A `.wtns` file does not record that layout, so imported assignments expose
-the public hash through the prover's verified `ProofResult`.
-
-UTXO nullifier and tree-selection metadata are internal. ZK programs verify the
-shared `private_tx_hash`; the SPP proof binds the transaction's nullifiers and
-other SPP fields. Application authorization uses the program's constrained state
-and public inputs, not the carried metadata. Tests that inspect SDK internals
-must explicitly enable `test-support`.
-
-### Circuit outputs and client traits
-
-A standalone circuit implements `Circuit` with `type Output = ()` and returns
-`Ok(())` after its assertions. A transaction circuit sets
-`type Output = CheckedTransaction` and returns `transaction.check()`.
-Both use `ZkCircuit` for checking and exports. Transaction circuits additionally
-implement `ZkProgramCircuit` automatically, providing transaction construction and
-encryption. Import `ZkCircuit` to call its methods on a concrete program input;
-a generic `P: ZkProgramCircuit` already inherits those methods.
-
-For a `PublicHashOutput` such as `CheckedTransaction`, the SDK allocates the
-public hash as the first public input, before the circuit instantiates any
-private input, and constrains it to the output's public hash after the circuit
-runs. Variable 1 is therefore always the public hash, and moving that allocation
-changes every proving key. `CircuitOutput` is sealed: an output is `()` or a
-`PublicHashOutput`, which only names its hash; it never allocates or constrains
-the public input itself.
+- The escrow's `tests/zk_functional.rs` proves both programs with the compiled circuits and
+  checks that the compiled escrow refuses a wrong signer, an excess amount and a changed public
+  hash.

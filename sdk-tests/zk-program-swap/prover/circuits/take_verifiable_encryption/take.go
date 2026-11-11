@@ -8,7 +8,7 @@ import (
 
 	"github.com/helius-labs/zolana/prover/server/circuits/crypto/aes"
 	ve "github.com/helius-labs/zolana/prover/server/circuits/encryption"
-	"zolana/gnarksdk"
+	gnarksdk "github.com/helius-labs/zolana/sdk-libs/gnark-sdk"
 )
 
 var mergeKdfInfo = []byte("TSPP/merge")

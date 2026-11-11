@@ -4,7 +4,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"github.com/helius-labs/zolana/prover/server/circuits/gadget"
-	"zolana/gnarksdk"
+	gnarksdk "github.com/helius-labs/zolana/sdk-libs/gnark-sdk"
 )
 
 // Circuit proves a compressed account UTXO is unspent: its hash is a leaf of

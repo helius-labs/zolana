@@ -1,0 +1,49 @@
+[package]
+name = "spr-circuit"
+version = "0.8.0"
+description = "SPP protocol circuit types and operations over Xark: owners, UTXOs, balances, transactions and Poseidon."
+edition = "2024"
+license.workspace = true
+repository.workspace = true
+publish = ["crates-io"]
+build = "build.rs"
+
+[features]
+default = []
+serde = ["dep:serde", "dep:serde_bytes"]
+tsify = ["serde", "dep:tsify", "dep:wasm-bindgen"]
+
+[dependencies]
+xark = { workspace = true }
+borsh = { version = "1.6", default-features = false, features = ["derive"] }
+spr-interface = { workspace = true }
+spr-instruction = { workspace = true }
+
+[target.'cfg(all(not(xark), not(xark_client)))'.dependencies]
+serde = { version = "1", optional = true, default-features = false, features = ["derive", "alloc"] }
+serde_bytes = { version = "0.11", default-features = false, features = ["alloc"], optional = true }
+tsify = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+
+[build-dependencies]
+ark-bn254 = "0.5"
+ark-ff = "0.5"
+light-poseidon = "0.4"
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }
+solana-address = { workspace = true }
+spr-hasher = { workspace = true }
+spr-keypair = { workspace = true }
+spr-transaction = { workspace = true }
+ark-bn254 = "0.5"
+ark-ff = "0.5"
+light-poseidon = "0.4"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(xark)', 'cfg(xark_client)'] }
+
+[[bench]]
+name = "poseidon"
+harness = false

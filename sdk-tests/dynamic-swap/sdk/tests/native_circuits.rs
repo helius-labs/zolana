@@ -4,14 +4,30 @@ use dynamic_swap_program::{
         PoolRebalancePrivateInputs, PoolRebalancePublicInputs, PoolWithdraw,
         PoolWithdrawPrivateInputs, PoolWithdrawPublicInputs, ProofInputUtxo,
     },
-    instructions::shared::u64_right_align,
+    verifier::{escrow_open, pool_rebalance, pool_withdraw},
 };
 use dynamic_swap_sdk::state::order_data_hash;
-use spr_program::ZkCircuit;
-use spr_transaction::instructions::transact::PrivateTxHash;
+use spr_program::{checked, verifier::verify_groth16, Field};
 
-fn value(n: u64) -> [u8; 32] {
-    u64_right_align(n)
+mod support;
+use support::{bytes, check, field, private_tx_hash, prove};
+
+fn value(n: u64) -> Field {
+    Field::from(n)
+}
+
+fn dummy() -> ProofInputUtxo {
+    ProofInputUtxo {
+        domain: value(u64::from(spr_interface::DUMMY_DOMAIN)),
+        tree_id: Field::zero(),
+        owner_hash: Field::zero(),
+        asset: Field::zero(),
+        amount: Field::zero(),
+        blinding: Field::zero(),
+        data_hash: Field::zero(),
+        ring_data_hash: Field::zero(),
+        ring_program_id: Field::zero(),
+    }
 }
 
 fn note(owner: u64, amount: u64, booked: u64) -> ProofInputUtxo {
@@ -23,30 +39,46 @@ fn note(owner: u64, amount: u64, booked: u64) -> ProofInputUtxo {
         amount: value(amount),
         blinding: value(5),
         data_hash: value(booked),
-        ..Default::default()
+        ..dummy()
     }
+}
+
+fn hash(note: &ProofInputUtxo) -> Field {
+    note.hash().unwrap()
 }
 
 fn refresh_open(circuit: &mut EscrowOpen) {
     let private = &mut circuit.private;
-    private.private_tx_hash = PrivateTxHash::new(
-        &[private.source_in.hash().unwrap()],
-        &[
-            private.order_out.hash().unwrap(),
-            private.taker_change.hash().unwrap(),
-        ],
+    private.private_tx_hash = private_tx_hash(
+        &[hash(&private.source_in)],
+        &[hash(&private.order_out), hash(&private.taker_change)],
         &private.private_tx_blinding,
-    )
-    .hash()
-    .unwrap();
+    );
+}
+
+fn open_public_hash(circuit: &EscrowOpen) -> [u8; 32] {
+    escrow_open_public_inputs(circuit)
+        .hash(&bytes(&circuit.private.private_tx_hash))
+        .unwrap()
+}
+
+fn escrow_open_public_inputs(circuit: &EscrowOpen) -> escrow_open::PublicInputs {
+    escrow_open::PublicInputs {
+        escrow_authority_owner_hash: bytes(&circuit.public.escrow_authority_owner_hash),
+        source_asset: bytes(&circuit.public.source_asset),
+        public_price_floor: circuit.public.public_price_floor,
+        price_tolerance: circuit.public.price_tolerance,
+        min_order_amount: circuit.public.min_order_amount,
+        max_order_size: circuit.public.max_order_size,
+    }
 }
 
 fn open() -> EscrowOpen {
     let mut order_out = note(2, 10, 0);
-    order_out.data_hash = order_data_hash(&value(1), 5).unwrap();
+    order_out.data_hash = field(&order_data_hash(&bytes(&value(1)), 5).unwrap());
     let mut circuit = EscrowOpen {
         private: EscrowOpenPrivateInputs {
-            private_tx_hash: [0; 32],
+            private_tx_hash: Field::zero(),
             order_amount: 10,
             min_price: 5,
             source_in: note(1, 15, 0),
@@ -70,9 +102,11 @@ fn open() -> EscrowOpen {
 #[test]
 fn escrow_open_checks_private_policy_and_conservation() {
     let good = open();
-    good.check_constraints().expect("valid escrow open");
+    let native = checked(|| good.execute()).expect("valid escrow open");
+    assert_eq!(bytes(native.public_hash()), open_public_hash(&good));
+    check("escrow_open", &good, open_public_hash(&good)).expect("valid escrow open");
     for attack in 0..13 {
-        let mut circuit = good.clone();
+        let mut circuit = good;
         match attack {
             0 => circuit.public.min_order_amount = 11,
             1 => circuit.public.max_order_size = 59,
@@ -90,7 +124,7 @@ fn escrow_open_checks_private_policy_and_conservation() {
         }
         refresh_open(&mut circuit);
         assert!(
-            circuit.check_constraints().is_err(),
+            check("escrow_open", &circuit, open_public_hash(&circuit)).is_err(),
             "accepted escrow open attack {attack}"
         );
     }
@@ -98,19 +132,31 @@ fn escrow_open_checks_private_policy_and_conservation() {
 
 fn refresh_withdraw(circuit: &mut PoolWithdraw) {
     let private = &mut circuit.private;
-    private.private_tx_hash = PrivateTxHash::new(
-        &[private.pool_in.hash().unwrap()],
-        &[private.pool_out.hash().unwrap()],
+    private.private_tx_hash = private_tx_hash(
+        &[hash(&private.pool_in)],
+        &[hash(&private.pool_out)],
         &private.private_tx_blinding,
-    )
-    .hash()
-    .unwrap();
+    );
+}
+
+fn pool_withdraw_public_inputs(circuit: &PoolWithdraw) -> pool_withdraw::PublicInputs {
+    pool_withdraw::PublicInputs {
+        pool_authority_owner_hash: bytes(&circuit.public.pool_authority_owner_hash),
+        destination_asset: bytes(&circuit.public.destination_asset),
+        amount: circuit.public.amount,
+    }
+}
+
+fn withdraw_public_hash(circuit: &PoolWithdraw) -> [u8; 32] {
+    pool_withdraw_public_inputs(circuit)
+        .hash(&bytes(&circuit.private.private_tx_hash))
+        .unwrap()
 }
 
 fn withdraw() -> PoolWithdraw {
     let mut circuit = PoolWithdraw {
         private: PoolWithdrawPrivateInputs {
-            private_tx_hash: [0; 32],
+            private_tx_hash: Field::zero(),
             pool_in: note(2, 100, 80),
             pool_out: note(2, 70, 50),
             private_tx_blinding: value(9),
@@ -128,9 +174,11 @@ fn withdraw() -> PoolWithdraw {
 #[test]
 fn withdraw_consumes_only_booked_liquidity_and_preserves_surplus() {
     let good = withdraw();
-    good.check_constraints().expect("valid withdrawal");
+    let native = checked(|| good.execute()).expect("valid withdrawal");
+    assert_eq!(bytes(native.public_hash()), withdraw_public_hash(&good));
+    check("pool_withdraw", &good, withdraw_public_hash(&good)).expect("valid withdrawal");
     for attack in 0..8 {
-        let mut circuit = good.clone();
+        let mut circuit = good;
         match attack {
             0 => circuit.private.pool_in.owner_hash = value(3),
             1 => circuit.private.pool_out.owner_hash = value(3),
@@ -143,7 +191,7 @@ fn withdraw_consumes_only_booked_liquidity_and_preserves_surplus() {
         }
         refresh_withdraw(&mut circuit);
         assert!(
-            circuit.check_constraints().is_err(),
+            check("pool_withdraw", &circuit, withdraw_public_hash(&circuit)).is_err(),
             "accepted withdrawal attack {attack}"
         );
     }
@@ -151,35 +199,41 @@ fn withdraw_consumes_only_booked_liquidity_and_preserves_surplus() {
 
 fn refresh_rebalance(circuit: &mut PoolRebalance) {
     let private = &mut circuit.private;
-    let hash = |note: &ProofInputUtxo| {
+    let slot_hash = |note: &ProofInputUtxo| {
         if note.domain == value(u64::from(spr_interface::DUMMY_DOMAIN)) {
-            [0; 32]
+            Field::zero()
         } else {
-            note.hash().unwrap()
+            hash(note)
         }
     };
-    let inputs: Vec<_> = private.inputs.iter().map(hash).collect();
-    let outputs: Vec<_> = private.outputs.iter().map(hash).collect();
-    private.private_tx_hash = PrivateTxHash::new(&inputs, &outputs, &private.private_tx_blinding)
-        .hash()
-        .unwrap();
+    let inputs: Vec<_> = private.inputs.iter().map(slot_hash).collect();
+    let outputs: Vec<_> = private.outputs.iter().map(slot_hash).collect();
+    private.private_tx_hash = private_tx_hash(&inputs, &outputs, &private.private_tx_blinding);
+}
+
+fn pool_rebalance_public_inputs(circuit: &PoolRebalance) -> pool_rebalance::PublicInputs {
+    pool_rebalance::PublicInputs {
+        pool_authority_owner_hash: bytes(&circuit.public.pool_authority_owner_hash),
+        destination_asset: bytes(&circuit.public.destination_asset),
+        credit: circuit.public.credit,
+    }
+}
+
+fn rebalance_public_hash(circuit: &PoolRebalance) -> [u8; 32] {
+    pool_rebalance_public_inputs(circuit)
+        .hash(&bytes(&circuit.private.private_tx_hash))
+        .unwrap()
 }
 
 fn rebalance() -> PoolRebalance {
-    let mut inputs = std::array::from_fn(|_| ProofInputUtxo {
-        domain: value(u64::from(spr_interface::DUMMY_DOMAIN)),
-        ..Default::default()
-    });
+    let mut inputs = [dummy(); 5];
     inputs[0] = note(2, 100, 60);
     inputs[1] = note(2, 50, 20);
-    let mut outputs = std::array::from_fn(|_| ProofInputUtxo {
-        domain: value(u64::from(spr_interface::DUMMY_DOMAIN)),
-        ..Default::default()
-    });
+    let mut outputs = [dummy(); 4];
     outputs[0] = note(2, 150, 100);
     let mut circuit = PoolRebalance {
         private: PoolRebalancePrivateInputs {
-            private_tx_hash: [0; 32],
+            private_tx_hash: Field::zero(),
             inputs,
             outputs,
             private_tx_blinding: value(9),
@@ -197,9 +251,11 @@ fn rebalance() -> PoolRebalance {
 #[test]
 fn rebalance_conserves_value_and_cannot_overcredit_or_hide_dummy_value() {
     let good = rebalance();
-    good.check_constraints().expect("valid padded rebalance");
+    let native = checked(|| good.execute()).expect("valid padded rebalance");
+    assert_eq!(bytes(native.public_hash()), rebalance_public_hash(&good));
+    check("pool_rebalance", &good, rebalance_public_hash(&good)).expect("valid padded rebalance");
     for attack in 0..10 {
-        let mut circuit = good.clone();
+        let mut circuit = good;
         match attack {
             0 => circuit.private.inputs[0].owner_hash = value(3),
             1 => circuit.private.outputs[0].owner_hash = value(3),
@@ -214,7 +270,7 @@ fn rebalance_conserves_value_and_cannot_overcredit_or_hide_dummy_value() {
         }
         refresh_rebalance(&mut circuit);
         assert!(
-            circuit.check_constraints().is_err(),
+            check("pool_rebalance", &circuit, rebalance_public_hash(&circuit)).is_err(),
             "accepted rebalance attack {attack}"
         );
     }
@@ -223,109 +279,81 @@ fn rebalance_conserves_value_and_cannot_overcredit_or_hide_dummy_value() {
 #[test]
 fn native_circuits_bind_the_private_transaction_hash() {
     let mut open = open();
+    let hash = open_public_hash(&open);
     open.private.private_tx_hash = value(1);
     assert!(
-        open.check_constraints().is_err(),
+        check("escrow_open", &open, hash).is_err(),
         "escrow open accepted another transaction"
     );
     let mut withdraw = withdraw();
+    let hash = withdraw_public_hash(&withdraw);
     withdraw.private.private_tx_hash = value(1);
     assert!(
-        withdraw.check_constraints().is_err(),
+        check("pool_withdraw", &withdraw, hash).is_err(),
         "withdrawal accepted another transaction"
     );
     let mut rebalance = rebalance();
+    let hash = rebalance_public_hash(&rebalance);
     rebalance.private.private_tx_hash = value(1);
     assert!(
-        rebalance.check_constraints().is_err(),
+        check("pool_rebalance", &rebalance, hash).is_err(),
         "rebalance accepted another transaction"
     );
 }
 
 #[test]
 fn native_open_withdraw_and_rebalance_proofs_verify_with_program_keys() {
-    use dynamic_swap_program::verifier::{escrow_open, pool_rebalance, pool_withdraw};
-    use spr_program::{verifier::verify_groth16, CompressedProof, Groth16Prover};
-    use std::sync::OnceLock;
-
     let open = open();
-    static OPEN_PROVER: OnceLock<Groth16Prover<EscrowOpen>> = OnceLock::new();
-    let prover = OPEN_PROVER.get_or_init(|| Groth16Prover::new_with_test_setup().unwrap());
-    let proof = prover.prove(&open).expect("prove escrow open");
-    let hash = escrow_open::PublicInputs {
-        escrow_authority_owner_hash: open.public.escrow_authority_owner_hash,
-        source_asset: open.public.source_asset,
-        public_price_floor: open.public.public_price_floor,
-        price_tolerance: open.public.price_tolerance,
-        min_order_amount: open.public.min_order_amount,
-        max_order_size: open.public.max_order_size,
-    }
-    .hash(&open.private.private_tx_hash)
-    .unwrap();
+    let hash = open_public_hash(&open);
     verify_groth16(
-        &CompressedProof::try_from(&proof.proof).unwrap(),
+        &prove("escrow_open", &open, hash),
         hash,
         &escrow_open::VERIFYINGKEY,
     )
     .expect("the program verifies the native escrow open proof");
 
     let withdraw = withdraw();
-    static WITHDRAW_PROVER: OnceLock<Groth16Prover<PoolWithdraw>> = OnceLock::new();
-    let prover = WITHDRAW_PROVER.get_or_init(|| Groth16Prover::new_with_test_setup().unwrap());
-    let proof = prover.prove(&withdraw).expect("prove withdrawal");
-    let hash = pool_withdraw::PublicInputs {
-        pool_authority_owner_hash: withdraw.public.pool_authority_owner_hash,
-        destination_asset: withdraw.public.destination_asset,
-        amount: withdraw.public.amount,
-    }
-    .hash(&withdraw.private.private_tx_hash)
-    .unwrap();
+    let hash = withdraw_public_hash(&withdraw);
     verify_groth16(
-        &CompressedProof::try_from(&proof.proof).unwrap(),
+        &prove("pool_withdraw", &withdraw, hash),
         hash,
         &pool_withdraw::VERIFYINGKEY,
     )
     .expect("the program verifies the native withdrawal proof");
 
     let rebalance = rebalance();
-    static REBALANCE_PROVER: OnceLock<Groth16Prover<PoolRebalance>> = OnceLock::new();
-    let prover = REBALANCE_PROVER.get_or_init(|| Groth16Prover::new_with_test_setup().unwrap());
-    let proof = prover.prove(&rebalance).expect("prove rebalance");
-    let hash = pool_rebalance::PublicInputs {
-        pool_authority_owner_hash: rebalance.public.pool_authority_owner_hash,
-        destination_asset: rebalance.public.destination_asset,
-        credit: rebalance.public.credit,
-    }
-    .hash(&rebalance.private.private_tx_hash)
-    .unwrap();
+    let hash = rebalance_public_hash(&rebalance);
     verify_groth16(
-        &CompressedProof::try_from(&proof.proof).unwrap(),
+        &prove("pool_rebalance", &rebalance, hash),
         hash,
         &pool_rebalance::VERIFYINGKEY,
     )
     .expect("the program verifies the native rebalance proof");
 }
 
-// The scalar-field representation of -1 satisfies the subtraction equality;
-// the explicit u64 range constraint must reject it.
+/// `p - 1` for the BN254 scalar field. It satisfies a subtraction that
+/// underflows by one, so only the explicit u64 range check rejects it.
 const FIELD_NEGATIVE_ONE: [u8; 32] = [
     0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
     0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x00,
 ];
 
+/// The compiled circuit names the failing check and the inputs it reads.
+fn assert_range_refusal(error: &str, input: &str) {
+    assert!(
+        error.contains("require_u64 → to_bits") && error.contains(input),
+        "expected the u64 range check on `{input}`: {error}"
+    );
+}
+
 #[test]
 fn escrow_open_rejects_field_wrapped_change_after_source_underflow() {
     let mut circuit = open();
     circuit.private.source_in.amount = value(9);
-    circuit.private.taker_change.amount = FIELD_NEGATIVE_ONE;
+    circuit.private.taker_change.amount = field(&FIELD_NEGATIVE_ONE);
     refresh_open(&mut circuit);
-    let error = circuit.check_constraints().unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("the order exceeds the source amount"),
-        "unexpected rejection of field-wrapped change: {error}"
-    );
+    let error = check("escrow_open", &circuit, open_public_hash(&circuit)).unwrap_err();
+    assert_range_refusal(&error.to_string(), "program.private.taker_change.amount");
 }
 
 #[test]
@@ -334,35 +362,29 @@ fn withdrawal_rejects_field_wrapped_balance_and_booked_underflow() {
         let mut circuit = withdraw();
         if booked_underflow {
             circuit.private.pool_in.data_hash = value(29);
-            circuit.private.pool_out.data_hash = FIELD_NEGATIVE_ONE;
+            circuit.private.pool_out.data_hash = field(&FIELD_NEGATIVE_ONE);
         } else {
             circuit.private.pool_in.amount = value(29);
-            circuit.private.pool_out.amount = FIELD_NEGATIVE_ONE;
+            circuit.private.pool_out.amount = field(&FIELD_NEGATIVE_ONE);
         }
         refresh_withdraw(&mut circuit);
-        let error = circuit.check_constraints().unwrap_err();
-        let expected = if booked_underflow {
-            "the withdrawal exceeds the booked liquidity"
+        let error = check("pool_withdraw", &circuit, withdraw_public_hash(&circuit)).unwrap_err();
+        let input = if booked_underflow {
+            "program.private.pool_out.data_hash"
         } else {
-            "the withdrawal exceeds the pool balance"
+            "program.private.pool_out.amount"
         };
-        assert!(
-            error.to_string().contains(expected),
-            "unexpected rejection: {error}"
-        );
+        assert_range_refusal(&error.to_string(), input);
     }
 }
 
 #[test]
 fn rebalance_rejects_conserved_values_wider_than_u64() {
-    let mut wide = [0; 32];
-    wide[23] = 1; // 2^64, a valid scalar outside the token amount range.
+    // 2^64: a valid scalar outside the token amount range.
+    let wide = Field::from(1u128 << 64);
     for wide_booked in [false, true] {
         let mut circuit = rebalance();
-        circuit.private.inputs[1] = ProofInputUtxo {
-            domain: value(u64::from(spr_interface::DUMMY_DOMAIN)),
-            ..Default::default()
-        };
+        circuit.private.inputs[1] = dummy();
         circuit.public.credit = 0;
         if wide_booked {
             circuit.private.inputs[0].data_hash = wide;
@@ -374,23 +396,19 @@ fn rebalance_rejects_conserved_values_wider_than_u64() {
             circuit.private.outputs[0].data_hash = value(60);
         }
         refresh_rebalance(&mut circuit);
-        let error = circuit.check_constraints().unwrap_err();
-        let expected = if wide_booked {
-            "a rebalance booked value overflows u64"
+        let error = check("pool_rebalance", &circuit, rebalance_public_hash(&circuit)).unwrap_err();
+        let input = if wide_booked {
+            "program.private.inputs[0].data_hash"
         } else {
-            "a rebalance amount overflows u64"
+            "program.private.inputs[0].amount"
         };
-        assert!(
-            error.to_string().contains(expected),
-            "unexpected rejection: {error}"
-        );
+        assert_range_refusal(&error.to_string(), input);
     }
 }
 
 #[test]
 #[ignore = "run `just ensure-dynamic-swap-keys` first to create checked native proving keys"]
 fn native_client_loads_checked_keys() {
-    use dynamic_swap_program::verifier::{escrow_open, pool_rebalance, pool_withdraw};
     use dynamic_swap_sdk::prover::DynamicSwapProverClient;
 
     let client = DynamicSwapProverClient::new();
@@ -400,15 +418,8 @@ fn native_client_loads_checked_keys() {
         .expect("prove using escrow open key file");
     escrow_open::Verifier {
         proof: &proof.to_compressed(),
-        public_inputs: escrow_open::PublicInputs {
-            escrow_authority_owner_hash: open.public.escrow_authority_owner_hash,
-            source_asset: open.public.source_asset,
-            public_price_floor: open.public.public_price_floor,
-            price_tolerance: open.public.price_tolerance,
-            min_order_amount: open.public.min_order_amount,
-            max_order_size: open.public.max_order_size,
-        },
-        private_tx_hash: &open.private.private_tx_hash,
+        public_inputs: escrow_open_public_inputs(&open),
+        private_tx_hash: &bytes(&open.private.private_tx_hash),
         transfers: &[],
     }
     .verify()
@@ -420,12 +431,8 @@ fn native_client_loads_checked_keys() {
         .expect("prove using withdrawal key file");
     pool_withdraw::Verifier {
         proof: &proof.to_compressed(),
-        public_inputs: pool_withdraw::PublicInputs {
-            pool_authority_owner_hash: withdraw.public.pool_authority_owner_hash,
-            destination_asset: withdraw.public.destination_asset,
-            amount: withdraw.public.amount,
-        },
-        private_tx_hash: &withdraw.private.private_tx_hash,
+        public_inputs: pool_withdraw_public_inputs(&withdraw),
+        private_tx_hash: &bytes(&withdraw.private.private_tx_hash),
         transfers: &[],
     }
     .verify()
@@ -437,12 +444,8 @@ fn native_client_loads_checked_keys() {
         .expect("prove using rebalance key file");
     pool_rebalance::Verifier {
         proof: &proof.to_compressed(),
-        public_inputs: pool_rebalance::PublicInputs {
-            pool_authority_owner_hash: rebalance.public.pool_authority_owner_hash,
-            destination_asset: rebalance.public.destination_asset,
-            credit: rebalance.public.credit,
-        },
-        private_tx_hash: &rebalance.private.private_tx_hash,
+        public_inputs: pool_rebalance_public_inputs(&rebalance),
+        private_tx_hash: &bytes(&rebalance.private.private_tx_hash),
         transfers: &[],
     }
     .verify()

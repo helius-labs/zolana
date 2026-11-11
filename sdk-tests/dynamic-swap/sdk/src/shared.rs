@@ -1,15 +1,49 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use dynamic_swap_program::circuits;
 use solana_address::Address;
 use spr_keypair::ShieldedAddress;
+use spr_program::{from_bytes, Field};
 use spr_transaction::{
     instructions::transact::{canonical_shape, SppProofInputs, SppProofOutputUtxo},
     utxo::{
         derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
-        Blinding,
+        Blinding, ProofInputUtxo,
     },
 };
 
 use crate::err;
+
+/// A 32-byte hash, identity or blinding as a proof input.
+pub(crate) fn field(bytes: &[u8; 32]) -> Result<Field> {
+    from_bytes(bytes).map_err(err)
+}
+
+/// A utxo opening as the dynamic-swap circuits take it.
+pub(crate) fn circuit_utxo(utxo: ProofInputUtxo) -> Result<circuits::ProofInputUtxo> {
+    Ok(circuits::ProofInputUtxo {
+        domain: field(&utxo.domain)?,
+        tree_id: field(&utxo.tree_id)?,
+        owner_hash: field(&utxo.owner_hash)?,
+        asset: field(&utxo.asset)?,
+        amount: field(&utxo.amount)?,
+        blinding: field(&utxo.blinding)?,
+        data_hash: field(&utxo.data_hash)?,
+        ring_data_hash: field(&utxo.ring_data_hash)?,
+        ring_program_id: field(&utxo.ring_program_id)?,
+    })
+}
+
+pub(crate) fn circuit_utxos<const N: usize>(
+    utxos: [ProofInputUtxo; N],
+) -> Result<[circuits::ProofInputUtxo; N]> {
+    let utxos = utxos
+        .into_iter()
+        .map(circuit_utxo)
+        .collect::<Result<Vec<_>>>()?;
+    utxos
+        .try_into()
+        .map_err(|_| anyhow!("{N} utxos map to {N} circuit utxos"))
+}
 
 /// The private transaction blinding and the first `n_outputs` output blindings
 /// SPP derives from `first_nullifier` and `blinding_seed`.

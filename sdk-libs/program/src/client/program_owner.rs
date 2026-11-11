@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use solana_address::Address;
-use solana_signature::Signature;
 use spr_keypair::{
     constants::BLINDING_LEN, hash::owner_hash, NullifierKey, PublicKey, ShieldedAddress,
     ViewingKey, X25519Pubkey,
@@ -11,8 +10,9 @@ use spr_transaction::{
     SppProofOutputUtxo, WalletUtxo,
 };
 
+use super::transaction::fail;
 use super::{DataUtxo, EncryptionCodec};
-use crate::{hasher::DataHasher, ClientError, ClientErrorKind};
+use crate::{hasher::DataHasher, ClientError};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProgramOwner {
@@ -41,9 +41,7 @@ impl ProgramOwner {
     }
 
     pub fn nullifier_pubkey() -> Result<[u8; 32], ClientError> {
-        Ok(Self::nullifier_key()
-            .pubkey()
-            .map_err(ClientErrorKind::InvalidOwner)?)
+        Self::nullifier_key().pubkey().map_err(fail)
     }
 
     pub fn confidential_view_tag(&self) -> [u8; 32] {
@@ -51,8 +49,7 @@ impl ProgramOwner {
     }
 
     pub fn owner_hash(&self) -> Result<[u8; 32], ClientError> {
-        Ok(owner_hash(&self.public_key(), &Self::nullifier_pubkey()?)
-            .map_err(ClientErrorKind::InvalidOwner)?)
+        owner_hash(&self.public_key(), &Self::nullifier_pubkey()?).map_err(fail)
     }
 
     pub fn address(&self, viewing_pubkey: X25519Pubkey) -> Result<ShieldedAddress, ClientError> {
@@ -74,12 +71,12 @@ impl ProgramOwner {
             vec![viewing_key.clone()],
             Self::nullifier_key(),
         )
-        .map_err(ClientErrorKind::Transaction)?;
+        .map_err(fail)?;
         let DecryptionResult {
             utxos,
             spent_nullifiers,
             ..
-        } = decrypt(&keys, transactions, assets).map_err(ClientErrorKind::Transaction)?;
+        } = decrypt(&keys, transactions, assets).map_err(fail)?;
         decode_data_utxos(
             utxos
                 .into_iter()
@@ -110,14 +107,12 @@ impl ProgramOwner {
                 &output.ring_data_hash.unwrap_or_default(),
                 tree_id,
             )
-            .map_err(ClientErrorKind::InvalidUtxo)?;
-        if utxo_hash != output.hash(tree_id).map_err(ClientErrorKind::InvalidUtxo)? {
-            return Err(ClientErrorKind::NotProgramOutput.into());
+            .map_err(fail)?;
+        if utxo_hash != output.hash(tree_id).map_err(fail)? {
+            return Err(fail("the output is not owned by the program"));
         }
         Ok(WalletUtxo {
-            nullifier: utxo
-                .nullifier(&utxo_hash, &key)
-                .map_err(ClientErrorKind::InvalidUtxo)?,
+            nullifier: utxo.nullifier(&utxo_hash, &key).map_err(fail)?,
             utxo,
             nullifier_pubkey,
             utxo_hash,
@@ -127,7 +122,7 @@ impl ProgramOwner {
             leaf_index,
             latest_tree_id: None,
             slot: 0,
-            tx_signature: Signature::default(),
+            tx_signature: Default::default(),
             slot_index: 0,
             tx_viewing_key: None,
         })
@@ -187,7 +182,14 @@ mod tests {
         let error = decode_data_utxos::<State>([utxo])
             .err()
             .expect("malformed state");
-        assert_eq!(error.name(), "ClientError.UtxoDataEncoding");
+        let decode_error = State::deserialize_after_decryption(&[1])
+            .err()
+            .expect("one byte is not a state")
+            .to_string();
+        assert!(
+            matches!(&error, ClientError::InvalidInput(message) if *message == decode_error),
+            "{error}"
+        );
     }
 
     #[test]

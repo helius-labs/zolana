@@ -19,6 +19,8 @@ members = [
     "bench/tree",
     "cli",
     "sdk-libs/program",
+    "sdk-libs/circuit",
+    "sdk-libs/circuit/tests/xark-fixture",
     "sdk-libs/program/tests/wasm/program",
     "sdk-libs/macros",
     "sdk-libs/client",
@@ -74,6 +76,13 @@ repository = "https://github.com/helius-labs/privacy-rings"
 tools-version = "v1.54"
 
 [workspace.dependencies]
+# Released Xark for the circuits, the SDK crates and the WASM runtime.
+xark = "0.3.0"
+xark-groth16 = "0.3.0"
+xark-wasm = "0.3.0"
+# The CLI embeds Xark's build, setup and TypeScript client generation, which
+# only this fork exposes as a library: Xark v0.3.0 plus that one commit.
+xark-cli = { git = "https://github.com/ananas-block/xark", rev = "13c3f0c28eb202bc34f075ee5414a01c3cac51b8" }
 form_urlencoded = "1.2.2"
 # Solana platform-tools Cargo 1.84 cannot build edition2024 crates pulled by
 # newer time-core releases.
@@ -91,11 +100,7 @@ spr-tree = { path = "program-libs/tree", version = "0.9.0" }
 spr-keypair = { path = "sdk-libs/keypair", version = "0.9.0" }
 spr-instruction = { path = "sdk-libs/instruction", version = "0.9.0" }
 spr-program = { path = "sdk-libs/program", version = "0.8.0" }
-# The ZK crates live in helius-labs/zk-tools (zk-dsl/).
-spr-zk-dsl = "0.8.0"
-spr-zk-gadgets = "0.8.0"
-spr-zk-macros = "0.8.0"
-spr-zk-macros-core = "0.8.0"
+spr-circuit = { path = "sdk-libs/circuit", version = "0.8.0" }
 spr-api = { path = "sdk-libs/spr-api", version = "0.9.0", default-features = false }
 spr-program-test = { path = "sdk-libs/program-test", version = "0.9.0" }
 spr-transaction = { path = "sdk-libs/transaction", version = "0.9.0" }
@@ -265,7 +270,7 @@ tar = "0.4"
 thiserror = { version = "2.0", default-features = false }
 toml = "0.8"
 toml_edit = "0.22"
-tinyvec = "1.10.0"
+tinyvec = { version = "1.10.0", default-features = false }
 tokio = { version = "1.48.0", features = ["rt", "macros", "rt-multi-thread"] }
 url = "2"
 tower = { version = "0.5.3", features = ["util"] }
@@ -368,9 +373,35 @@ opt-level = 3
 [profile.dev.package.light-poseidon]
 opt-level = 3
 
+# Xark's native prover and the bigint parsing its circuit loader does: tests
+# that prove in the dev profile, such as the localnet suites, would otherwise
+# prove about five times slower.
+[profile.dev.package.ark-ec]
+opt-level = 3
+
+[profile.dev.package.ark-poly]
+opt-level = 3
+
+[profile.dev.package.xark-ir]
+opt-level = 3
+
+[profile.dev.package.xark-backend]
+opt-level = 3
+
+[profile.dev.package.xark-groth16]
+opt-level = 3
+
+[profile.dev.package.xark-prover]
+opt-level = 3
+
+[profile.dev.package.num-bigint]
+opt-level = 3
+
+[profile.dev.package.num-integer]
+opt-level = 3
+
+[profile.dev.package.num-traits]
+opt-level = 3
+
 [profile.release]
 overflow-checks = true
-
-# Share the workspace hasher with the ZK crates.
-[patch.crates-io]
-spr-hasher = { path = "program-libs/hasher" }

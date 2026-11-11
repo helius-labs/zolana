@@ -1,5 +1,21 @@
 export { bindProgramTransaction } from "@heliuslabs/spr/program";
-export type { ProgramTransaction } from "@heliuslabs/spr/program";
+export type { ProgramProofInputs, ProgramTransaction } from "@heliuslabs/spr/program";
+import { AssetRegistry as ProgramAssets } from "@heliuslabs/spr/transaction";
+import {
+  bindProgramTransaction as bindStructuredTransaction,
+  type ProgramTransaction as StructuredTransaction,
+} from "@heliuslabs/spr/program";
+
+/** The packed API binds a typed request and returns validated Xark inputs. */
+export function structuredProgramBuilder(
+  build: (input: { amount: bigint }, sender: Uint8Array, payer: string) => unknown,
+): (
+  input: { amount: bigint },
+  sender: Uint8Array,
+  payer: string,
+) => Promise<StructuredTransaction> {
+  return bindStructuredTransaction(build, { assets: new ProgramAssets() });
+}
 export { ed25519DerivationMessage, X25519PublicKey, X25519Keypair } from "@heliuslabs/spr/keypair";
 export { ShieldedPda } from "@heliuslabs/spr/program";
 /** Named exports the changelog promises, resolved through the package exports map. */

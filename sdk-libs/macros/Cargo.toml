@@ -15,18 +15,14 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 spr-hasher = { workspace = true }
 syn = { workspace = true }
-spr-zk-macros-core = { workspace = true }
 
 [dev-dependencies]
 anchor-syn = "1.1"
-borsh = { workspace = true }
-solana-address = { workspace = true }
-solana-signature = { workspace = true }
+prettyplease = "0.2"
 trybuild = "1"
-spr-interface = { workspace = true }
-spr-keypair = { workspace = true }
-spr-program = { path = "../program", features = ["test-support", "setup", "parallel"] }
-spr-transaction = { workspace = true }
+spr-program = { path = "../program", features = ["client"] }
+# The trybuild fixtures declare #[input] structs, which expand to Xark code.
+xark = { workspace = true }
 
 [lints.clippy]
 disallowed_types = "allow"

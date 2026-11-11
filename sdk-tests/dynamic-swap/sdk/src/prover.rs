@@ -1,38 +1,54 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use dynamic_swap_program::{
-    circuits::{EscrowCancel, EscrowOpen, PoolDeposit, PoolRebalance, PoolSettle, PoolWithdraw},
+    circuits::{
+        Commitment, EscrowCancel, EscrowOpen, PoolDeposit, PoolRebalance, PoolSettle, PoolWithdraw,
+    },
     verifier::{
         escrow_cancel, escrow_open, pool_deposit, pool_rebalance, pool_settle, pool_withdraw,
     },
 };
 use once_cell::sync::OnceCell;
-use spr_program::{CompressedProof, Groth16Keys, Groth16Prover, ZkCircuit};
+use spr_program::{
+    checked,
+    proof::{check_proving_key, compressed_proof},
+    xark::{prover::Circuit, Input},
+    CircuitError, ProgramProofInputs,
+};
 
 use crate::{err, Groth16ProofBytes};
 
-type CachedProver<C> = OnceCell<Groth16Prover<C>>;
+type CachedCircuit = OnceCell<Circuit>;
 
-static ESCROW_OPEN: CachedProver<EscrowOpen> = OnceCell::new();
-static POOL_SETTLE: CachedProver<PoolSettle> = OnceCell::new();
-static ESCROW_CANCEL: CachedProver<EscrowCancel> = OnceCell::new();
-static POOL_DEPOSIT: CachedProver<PoolDeposit> = OnceCell::new();
-static POOL_WITHDRAW: CachedProver<PoolWithdraw> = OnceCell::new();
-static POOL_REBALANCE: CachedProver<PoolRebalance> = OnceCell::new();
+static ESCROW_OPEN: CachedCircuit = OnceCell::new();
+static POOL_SETTLE: CachedCircuit = OnceCell::new();
+static ESCROW_CANCEL: CachedCircuit = OnceCell::new();
+static POOL_DEPOSIT: CachedCircuit = OnceCell::new();
+static POOL_WITHDRAW: CachedCircuit = OnceCell::new();
+static POOL_REBALANCE: CachedCircuit = OnceCell::new();
 
-fn prove<C: ZkCircuit + 'static>(
-    inputs: &C,
-    cache: &CachedProver<C>,
+/// `build-zk-program` writes each circuit, with its proving key, to
+/// `target/zk/dynamic-swap-program/<circuit>`.
+fn artifacts(circuit: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../target/zk/dynamic-swap-program")
+        .join(circuit)
+}
+
+fn prove<P: Input>(
+    program: &P,
+    execute: impl FnOnce() -> Result<Commitment, CircuitError>,
+    cache: &CachedCircuit,
     circuit: &str,
     checksum: &[u8; 32],
 ) -> Result<Groth16ProofBytes> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../target/zk/dynamic-swap-program")
-        .join(format!("{circuit}.pk"));
-    let prover = load_prover(cache, &path, checksum)?;
-    let result = prover.prove(inputs).map_err(err)?;
-    let proof = CompressedProof::try_from(&result.proof).map_err(err)?;
+    let commitment = checked(execute).map_err(err)?;
+    let inputs = ProgramProofInputs::new(program, *commitment.public_hash());
+    let directory = artifacts(circuit);
+    let circuit = load_circuit(cache, &directory, checksum)?;
+    let result = circuit.prove(inputs).map_err(err)?;
+    let proof = compressed_proof(&result.proof).map_err(err)?;
     Ok(Groth16ProofBytes {
         proof_a: proof.a,
         proof_b: proof.b,
@@ -40,22 +56,29 @@ fn prove<C: ZkCircuit + 'static>(
     })
 }
 
-fn load_prover<'a, C: ZkCircuit + 'static>(
-    cache: &'a CachedProver<C>,
-    path: &Path,
+/// The circuit in `directory`, parsed once. Its proving key is checked on
+/// every call, because each proof reads the key from disk again.
+fn load_circuit<'a>(
+    cache: &'a CachedCircuit,
+    directory: &Path,
     checksum: &[u8; 32],
-) -> Result<&'a Groth16Prover<C>> {
-    cache
-        .get_or_try_init(|| {
-            let keys = Groth16Keys::load_checked(path, checksum).map_err(err)?;
-            Groth16Prover::<C>::new(keys).map_err(err)
+) -> Result<&'a Circuit> {
+    let loaded = (|| {
+        let key = std::fs::read(directory.join("pk.bin"))?;
+        check_proving_key(&key, checksum).map_err(err)?;
+        cache.get_or_try_init(|| {
+            if !directory.join("circuit.xbc").is_file() {
+                bail!("the circuit is not built");
+            }
+            Ok(spr_program::xark::prover::circuit_at(directory))
         })
-        .with_context(|| {
-            format!(
-                "loading {}: run `just ensure-dynamic-swap-keys` to build matching keys",
-                path.display()
-            )
-        })
+    })();
+    loaded.with_context(|| {
+        format!(
+            "loading {}: run `just ensure-dynamic-swap-keys` to build matching keys",
+            directory.display()
+        )
+    })
 }
 
 #[cfg(test)]
@@ -73,6 +96,7 @@ impl DynamicSwapProverClient {
     pub fn prove_escrow_open(&self, inputs: &EscrowOpen) -> Result<Groth16ProofBytes> {
         prove(
             inputs,
+            || inputs.execute(),
             &ESCROW_OPEN,
             "escrow_open",
             &escrow_open::VERIFYINGKEY_PROVING_KEY_SHA256,
@@ -82,6 +106,7 @@ impl DynamicSwapProverClient {
     pub fn prove_pool_settle(&self, inputs: &PoolSettle) -> Result<Groth16ProofBytes> {
         prove(
             inputs,
+            || inputs.execute(),
             &POOL_SETTLE,
             "pool_settle",
             &pool_settle::VERIFYINGKEY_PROVING_KEY_SHA256,
@@ -91,6 +116,7 @@ impl DynamicSwapProverClient {
     pub fn prove_escrow_cancel(&self, inputs: &EscrowCancel) -> Result<Groth16ProofBytes> {
         prove(
             inputs,
+            || inputs.execute(),
             &ESCROW_CANCEL,
             "escrow_cancel",
             &escrow_cancel::VERIFYINGKEY_PROVING_KEY_SHA256,
@@ -100,6 +126,7 @@ impl DynamicSwapProverClient {
     pub fn prove_pool_deposit(&self, inputs: &PoolDeposit) -> Result<Groth16ProofBytes> {
         prove(
             inputs,
+            || inputs.execute(),
             &POOL_DEPOSIT,
             "pool_deposit",
             &pool_deposit::VERIFYINGKEY_PROVING_KEY_SHA256,
@@ -109,6 +136,7 @@ impl DynamicSwapProverClient {
     pub fn prove_pool_withdraw(&self, inputs: &PoolWithdraw) -> Result<Groth16ProofBytes> {
         prove(
             inputs,
+            || inputs.execute(),
             &POOL_WITHDRAW,
             "pool_withdraw",
             &pool_withdraw::VERIFYINGKEY_PROVING_KEY_SHA256,
@@ -118,6 +146,7 @@ impl DynamicSwapProverClient {
     pub fn prove_pool_rebalance(&self, inputs: &PoolRebalance) -> Result<Groth16ProofBytes> {
         prove(
             inputs,
+            || inputs.execute(),
             &POOL_REBALANCE,
             "pool_rebalance",
             &pool_rebalance::VERIFYINGKEY_PROVING_KEY_SHA256,

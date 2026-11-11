@@ -6,7 +6,10 @@ use spr_keypair::ShieldedAddress;
 use spr_transaction::instructions::transact::{asset_field, PrivateTxHash};
 use spr_transaction::utxo::ProofInputUtxo;
 
-use crate::state::PoolUtxo;
+use crate::{
+    shared::{circuit_utxo, field},
+    state::PoolUtxo,
+};
 
 fn err(e: impl core::fmt::Debug) -> anyhow::Error {
     anyhow::anyhow!("{e:?}")
@@ -88,14 +91,14 @@ impl WithdrawProofInputParams {
 
         Ok(PoolWithdraw {
             private: PoolWithdrawPrivateInputs {
-                private_tx_hash,
-                pool_in: pool_in.into(),
-                pool_out: pool_out.into(),
-                private_tx_blinding: self.private_tx_blinding,
+                private_tx_hash: field(&private_tx_hash)?,
+                pool_in: circuit_utxo(pool_in)?,
+                pool_out: circuit_utxo(pool_out)?,
+                private_tx_blinding: field(&self.private_tx_blinding)?,
             },
             public: PoolWithdrawPublicInputs {
-                pool_authority_owner_hash,
-                destination_asset: self.destination_asset,
+                pool_authority_owner_hash: field(&pool_authority_owner_hash)?,
+                destination_asset: field(&self.destination_asset)?,
                 amount: self.amount,
             },
         })

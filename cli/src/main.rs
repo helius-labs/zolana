@@ -71,5 +71,6 @@ fn run_dev(command: DevCommand) -> Result<()> {
             DevPoolCommand::SetTreeFees(opts) => run_set_tree_fees(opts),
             DevPoolCommand::TestMint(opts) => run_test_mint(opts),
         },
+        DevCommand::Artifacts => release::print_localnet_environment(),
     }
 }

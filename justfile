@@ -205,6 +205,16 @@ test-sdk-libs:
     # unnoticed.
     cargo nextest run -p spr-test-utils --features parallel
     cargo nextest run -p spr-rpc-http
+    just test-spr-circuit
+
+# The protocol circuit crate natively, then its fixture circuit compiled,
+# checked and proved. The fixture's tests build the circuit with the Xark CLI
+# named by XARK, here the workspace's pinned one.
+test-spr-circuit:
+    cargo nextest run -p spr-circuit --features serde
+    cargo build --release -q -p xark-cli --bin xark
+    XARK="$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)/release/xark" \
+        cargo test -p spr-circuit-xark-fixture
 
 # The gnark SDK's Go tests and the example provers' tests. Needs Go.
 test-example-provers:
@@ -332,7 +342,7 @@ coverage *args="--summary-only":
     packages="$(python3 tools/coverage-packages.py)"
     cargo llvm-cov clean --workspace
     # Unquoted on purpose: the flags must word-split into separate arguments.
-    cargo llvm-cov --no-report $packages --features spr-client/client,spr-program/compression,spr-program/client,spr-program/setup,spr-program/parallel,spr-program/test-support
+    cargo llvm-cov --no-report $packages --features spr-client/client,spr-program/compression,spr-program/client
     just coverage-report {{args}}
 
 # Re-render the collected profile data. Split out so `just coverage` and the CI
@@ -513,7 +523,8 @@ ensure-dynamic-swap-keys:
     set -euo pipefail
     if [[ -n "${ZOLANA_PREBUILT:-}" ]]; then
         for circuit in escrow_open pool_settle escrow_cancel pool_deposit pool_withdraw pool_rebalance; do
-            test -s "target/zk/dynamic-swap-program/$circuit.pk"
+            test -s "target/zk/dynamic-swap-program/$circuit/circuit.xbc"
+            test -s "target/zk/dynamic-swap-program/$circuit/pk.bin"
         done
         exit 0
     fi
@@ -561,27 +572,25 @@ bench-rfq:
         -- --features bpf-entrypoint,profile-program
     cargo test -p rfq-test --test bench_cu -- --ignored --nocapture
 
-bench-spr-program:
-    ZOLANA_PROGRAM_BENCHMARK=1 cargo test --release -p spr-program --features test-support,setup,parallel,compression --test scenarios -- --test-threads=1
-
 test-spr-macros:
     cargo test --release -p spr-macros
 
-# The standalone fixture exercises the Zolana CLI against the pinned zk-tools
-# dependency. DSL, gadget and derive unit tests run in zk-tools CI.
+# The standalone fixture exercises the Zolana CLI on a plain Xark circuit
+# against the pinned Xark revision. It compiles the circuit and its
+# deterministic test keys first, and fails when the regenerated verifier module
+# differs from the committed one.
 test-zk-standalone:
+    cargo run -q -p spr-cli -- zk compile --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --skip-wasm
+    git diff --exit-code -- sdk-tests/zk-standalone/src/verifier
     cargo test -p spr-zk-standalone-fixture --features circuits
-    cargo run -q -p spr-cli -- zk compile --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --check --skip-wasm
 
-# Full SDK validation: crate checks, hermetic units, two external runs, release tests.
-# External tool requirements are listed on test-spr-program-external below.
+# Full SDK validation: crate checks, the client tests and the release tests.
 test-spr-program:
     cargo check --tests --all-features -p spr-program -p spr-macros
     just test-zk-standalone
     cargo check --tests -p timelock-escrow-program --features localnet,wasm,bpf-entrypoint,cpi,test-sbf,profile-program
-    cargo check --lib -p timelock-escrow-program -p dynamic-swap-program --features circuits,r1cs-export
+    cargo check --lib -p timelock-escrow-program -p dynamic-swap-program --features circuits,build-circuits
     just test-spr-program-unit
-    just test-spr-program-external
     just test-spr-program-release
 
 # The ZK program SDK scenarios, macro tests, and escrow and dynamic-swap
@@ -589,21 +598,16 @@ test-spr-program:
 # modules differ from the committed ones.
 test-spr-program-release: _escrow-zk-keys ensure-dynamic-swap-keys
     git diff --exit-code -- sdk-tests/timelock-escrow/program/src/verifier sdk-tests/dynamic-swap/program/src/verifier
-    cargo test --release -p spr-program -p spr-macros -p timelock-escrow-program -p dynamic-swap-program -p dynamic-swap-sdk --features timelock-escrow-program/circuits,dynamic-swap-program/circuits,spr-program/compression,spr-program/test-support -- --test-threads=4
+    cargo test --release -p spr-program -p spr-macros -p timelock-escrow-program -p dynamic-swap-program -p dynamic-swap-sdk --features timelock-escrow-program/circuits,dynamic-swap-program/circuits,spr-program/compression -- --test-threads=4
     cargo test --release -p dynamic-swap-sdk --test native_circuits native_client_loads_checked_keys -- --ignored
 
-# The ZK program SDK unit suite without the circom, snarkjs and Picus checks.
+# The ZK program SDK's client tests: program transactions, data decoding and
+# the on-chain public hash. The protocol rules run in test-spr-circuit.
 test-spr-program-unit filter="":
-    cargo test -p spr-program --features test-support,setup,parallel --test unit "{{filter}}"
+    cargo test -p spr-program --features client,compression,serde "{{filter}}"
+    cargo test -p spr-program --features wasm --test client_inputs_wasm "{{filter}}"
 
-# The ZK program SDK unit suite with the circom, snarkjs and Picus checks.
-# Needs circom, snarkjs, run-picus, Racket and cvc5 on PATH, plus ps/kill access.
-# CIRCOMLIB_DIR may name a clean checkout of the pinned circomlib revision.
-# An optional test filter also supports focused checks, such as harness::picus::timeout_cleanup.
-test-spr-program-external filter="":
-    cargo test --release -p spr-program --features test-support,setup,parallel,external-tools --test unit "{{filter}}" -- --test-threads=4
-
-# Checks that the ZK program SDK, the zk DSL's wasm runtime, the escrow
+# Checks that the ZK program SDK, the Xark wasm runtime, the escrow
 # circuits and the escrow wasm module build for wasm32-unknown-unknown. Kept out of check-all, which runs
 # without the wasm target; the zk-program CI job installs it.
 check-wasm:
@@ -666,16 +670,14 @@ test-escrow-ts: build-test-programs build-prover-server build-cli ensure-photon 
       TIMELOCK_ESCROW_PROGRAM_ID="{{escrow-program-id}}" \
       npm run test:ts:escrow
 
-# Writes the ZK program SDK wasm fixtures: the seeded proving keys and a
-# throwaway snarkjs zkey under target/zk-program-wasm-fixtures (not
-# committed), and the committed JSON fixtures the Playwright and TS SDK tests
-# compare against. Needs `snarkjs` on PATH.
-regen-zk-program-wasm-fixtures:
-    cargo test --release -p spr-program-wasm-test-program --features snarkjs --test fixtures -- --ignored --nocapture
+# Compiles deterministic Xark test keys, then refreshes the committed browser
+# transaction fixtures and their artifact checksums.
+regen-zk-program-wasm-fixtures: _zk-program-wasm-keys
+    cargo test --release -p spr-program-wasm-test-program --features fixtures --test fixtures -- --ignored --exact write_wasm_fixtures
 
 # Writes only the uncommitted keys the ZK program SDK wasm tests load.
 _zk-program-wasm-keys:
-    cargo test --release -p spr-program-wasm-test-program --features snarkjs --test fixtures -- --ignored --exact write_wasm_keys
+    cargo run --release -q -p spr-cli -- zk compile --test -p spr-program-wasm-test-program --skip-wasm
 
 # Runs the ZK program SDK wasm tests in Chromium against the test program in
 # sdk-libs/program/tests/wasm: checks that the committed
@@ -683,11 +685,15 @@ _zk-program-wasm-keys:
 # test-only verifier and the prover-free proof-inputs module, checks the
 # generated types, proves in the worker, and compares against the native
 # fixtures and snarkjs.
-# A standalone circuit (zk DSL only) built to a Node.js wasm package with
-# `zolana zk compile`, proved and verified in Node.
+# A standalone Xark circuit's artifacts and test keys, proved and verified in
+# Node using Xark's stock WebAssembly runtime (the test reads no typed client).
+# wasm-pack builds inside the Xark checkout, outside this repository, where
+# rust-toolchain.toml does not apply; RUSTUP_TOOLCHAIN keeps it on the pinned
+# toolchain, which has the wasm32 target.
 test-zk-wasm:
+    cargo run --release -q -p spr-cli -- zk compile --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --skip-wasm
     cargo test -p spr-zk-standalone-fixture --features circuits --test standalone the_committed_wasm_fixture_matches_the_native_path
-    cargo run --release -q -p spr-cli -- zk compile --test --manifest-path sdk-tests/zk-standalone/Cargo.toml --wasm-target nodejs --verifier --wasm-out target/zk/spr-zk-standalone-fixture/wasm-node
+    RUSTUP_TOOLCHAIN="$(rustup show active-toolchain | cut -d' ' -f1)" wasm-pack build "$(cargo metadata --format-version 1 --all-features | jq -r '.packages[] | select(.name == "xark-wasm") | .manifest_path | rtrimstr("/Cargo.toml")')" --release --target nodejs --out-dir {{justfile_directory()}}/target/zk/spr-zk-standalone-fixture/runtime
     node --test sdk-tests/zk-standalone/wasm/standalone.test.mjs
 
 test-zk-program-wasm: _zk-program-wasm-keys
@@ -1399,16 +1405,19 @@ ensure-photon:
     fi
     just build-photon
 
-# Build the localnet release artifacts and regenerate cli/release-artifacts.lock:
-# version-suffixed program .so files, an account-snapshot bundle (generated
-# in-process with LiteSVM -- no keypairs or running validator needed), and the
-# prover/photon binaries for the host platform plus linux-x64 (Go cross-compile
-# for the prover; Docker for the linux photon, so docker must be running).
-# Stages assets and rewrites the lockfile only, unless you forward flags to
-# `create-release`: add `--upload` to publish via `gh release create`
-# (re-published cleanly, tag re-pointed at HEAD) and `--prerelease` to mark a
-# GitHub pre-release. Example: `just release v0.1.0-alpha --upload --prerelease`.
-release tag *args: build-programs fetch-smart-account
+# Build the localnet release artifacts and regenerate cli/release-artifacts.lock.
+# The lock pins the shielded-pool and user-registry programs to their deployed
+# releases (shielded-pool-v1.0.0, user-registry-v1.0.0, checked against their
+# SHA256SUMS), and the release bundles the Squads smart-account program, an
+# account-snapshot bundle of the deployed shielded pool (generated in-process
+# with LiteSVM -- no keypairs or running validator needed), and the CLI,
+# prover and photon binaries for the host platform plus linux-x64 (Go
+# cross-compile for the prover; Docker for the linux Rust binaries, so docker
+# must be running). Stages assets and rewrites the lockfile only, unless you
+# forward flags to `create-release`: add `--upload` to publish via
+# `gh release create` and `--prerelease` to mark a GitHub pre-release.
+# Example: `just release cli-v0.10.0 --upload`.
+release tag *args: fetch-smart-account
     cargo run -p xtask -- create-release --tag {{tag}} {{args}}
 
 # === Formatting and linting ===

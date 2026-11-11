@@ -4,7 +4,7 @@ use std::{
     process::{Command, Output},
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use spr_program_test::fixture::write_protocol_snapshot;
@@ -126,21 +126,31 @@ pub struct ProgramSource {
     pub asset_stem: &'static str,
 }
 
-const PROGRAM_SOURCES: [ProgramSource; 3] = [
-    ProgramSource {
+/// Programs this release bundles, staged from `--deploy-dir`.
+const PROGRAM_SOURCES: [ProgramSource; 1] = [ProgramSource {
+    role: "smart_account",
+    file: "squads_smart_account_program.so",
+    asset_stem: "squads_smart_account_program",
+}];
+
+/// A deployed program the CLI downloads from that program's own release, so a
+/// localnet runs the bytes on chain rather than a local rebuild.
+struct ReleasedProgram {
+    role: &'static str,
+    release_tag: &'static str,
+    file: &'static str,
+}
+
+const RELEASED_PROGRAMS: [ReleasedProgram; 2] = [
+    ReleasedProgram {
         role: "shielded_pool",
+        release_tag: "shielded-pool-v1.0.0",
         file: "shielded_pool_program.so",
-        asset_stem: "shielded_pool_program",
     },
-    ProgramSource {
+    ReleasedProgram {
         role: "user_registry",
+        release_tag: "user-registry-v1.0.0",
         file: "spr_user_registry.so",
-        asset_stem: "spr_user_registry",
-    },
-    ProgramSource {
-        role: "smart_account",
-        file: "squads_smart_account_program.so",
-        asset_stem: "squads_smart_account_program",
     },
 ];
 
@@ -160,8 +170,10 @@ pub fn run(options: Options, set: &impl ReleaseSet) -> Result<()> {
 
     // Build the CLI binaries last so they embed the just-written lockfile.
     let cli_assets = build_cli_binaries(&options, set, staging, (os, arch))?;
-    let mut assets = staged_asset_paths(staging, &lock);
+    let mut assets = staged_asset_paths(staging, &lock, &options.tag);
     assets.extend(cli_assets);
+    let sums = write_sha256sums(staging, &assets)?;
+    assets.push(sums);
 
     if options.upload {
         ReleaseUpload {
@@ -192,20 +204,24 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
         .iter()
         .map(|source| {
             let path = options.deploy_dir.join(source.file);
-            require_file(
-                &path,
-                "run `just build-programs` (and `just fetch-smart-account`) first",
-            )?;
+            require_file(&path, "run `just fetch-smart-account` first")?;
             Ok((source, path))
         })
         .collect::<Result<Vec<_>>>()?;
+    let released = RELEASED_PROGRAMS
+        .iter()
+        .map(|program| Ok((program, fetch_released_program(program, staging)?)))
+        .collect::<Result<Vec<_>>>()?;
 
+    // The snapshot initializes the deployed shielded pool the CLI loads.
+    let shielded_pool = released
+        .iter()
+        .find(|(program, _)| program.role == "shielded_pool")
+        .map(|(_, path)| path)
+        .ok_or_else(|| anyhow!("no released shielded_pool program"))?;
     let accounts_dir = staging.join("accounts");
-    write_protocol_snapshot(
-        &options.deploy_dir.join("shielded_pool_program.so"),
-        &accounts_dir,
-    )
-    .map_err(|e| anyhow!("write the localnet account snapshot: {e}"))?;
+    write_protocol_snapshot(shielded_pool, &accounts_dir)
+        .map_err(|e| anyhow!("write the localnet account snapshot: {e}"))?;
 
     // Bundle the snapshot directory; the CLI extracts it into --account-dir.
     let accounts_asset = format!("accounts-{}.tar.gz", options.tag);
@@ -213,9 +229,20 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
     tar_gz(&accounts_dir, &accounts_archive)?;
 
     let mut programs_json = Vec::new();
+    for (program, path) in &released {
+        let staged = checksum_file(path)?;
+        programs_json.push(json!({
+            "role": program.role,
+            "release_tag": program.release_tag,
+            "asset": program.file,
+            "size": staged.size,
+            "sha256": staged.sha256,
+        }));
+    }
     for (source, path) in &program_paths {
         let mut entry = stage_program(source, path, &options.tag, staging)?;
         entry["role"] = json!(source.role);
+        entry["release_tag"] = json!(options.tag);
         programs_json.push(entry);
     }
 
@@ -250,6 +277,69 @@ pub fn pinned_sha256(prover_lock: &Value, file: &str) -> Result<String> {
         .as_str()
         .map(str::to_string)
         .ok_or_else(|| anyhow!("{PROVING_KEYS_LOCK} pins no {file}"))
+}
+
+/// Downloads a deployed program from its own release into
+/// `staging/released/<tag>/` and checks it against that release's `SHA256SUMS`.
+fn fetch_released_program(program: &ReleasedProgram, staging: &Path) -> Result<PathBuf> {
+    let dir = staging.join("released").join(program.release_tag);
+    let status = Command::new("gh")
+        .args(["release", "download", program.release_tag])
+        .args(["--pattern", program.file, "--pattern", "SHA256SUMS"])
+        .args(["--clobber", "--dir"])
+        .arg(&dir)
+        .status()
+        .with_context(|| format!("failed to run gh release download {}", program.release_tag))?;
+    ensure!(
+        status.success(),
+        "gh release download {} failed with status {status}",
+        program.release_tag
+    );
+    let sums_path = dir.join("SHA256SUMS");
+    let sums = fs::read_to_string(&sums_path)
+        .with_context(|| format!("failed to read {}", sums_path.display()))?;
+    let pinned = pinned_release_sha256(&sums, program.file).ok_or_else(|| {
+        anyhow!(
+            "{}'s SHA256SUMS pins no {}",
+            program.release_tag,
+            program.file
+        )
+    })?;
+    let path = dir.join(program.file);
+    let actual = checksum_file(&path)?.sha256;
+    ensure!(
+        actual == pinned,
+        "{} from {} has sha256 {actual}, but its SHA256SUMS pins {pinned}",
+        program.file,
+        program.release_tag
+    );
+    Ok(path)
+}
+
+/// Writes `staging/SHA256SUMS` over `assets` in `sha256sum` format, so a CLI
+/// or Photon binary downloaded by hand can be checked too.
+fn write_sha256sums(staging: &Path, assets: &[PathBuf]) -> Result<PathBuf> {
+    let sums = assets
+        .iter()
+        .map(|asset| {
+            let name = asset
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| anyhow!("asset {} has no file name", asset.display()))?;
+            Ok(format!("{}  {name}\n", checksum_file(asset)?.sha256))
+        })
+        .collect::<Result<String>>()?;
+    let path = staging.join("SHA256SUMS");
+    fs::write(&path, sums).with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(path)
+}
+
+/// The digest `sums`, in `sha256sum` format, records for `file`.
+fn pinned_release_sha256<'a>(sums: &'a str, file: &str) -> Option<&'a str> {
+    sums.lines().find_map(|line| {
+        let (digest, name) = line.split_once(char::is_whitespace)?;
+        (name.trim_start().trim_start_matches('*') == file).then_some(digest)
+    })
 }
 
 pub fn stage_program(
@@ -533,7 +623,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
+/// The assets `tag` uploads: every asset the lock names, except programs that
+/// another release (`release_tag`) already publishes.
+fn staged_asset_paths(staging: &Path, lock: &Value, tag: &str) -> Vec<PathBuf> {
     lock.as_object()
         .into_iter()
         .flat_map(|lock| lock.values())
@@ -541,6 +633,12 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
             value
                 .as_array()
                 .map_or(std::slice::from_ref(value), Vec::as_slice)
+        })
+        .filter(|value| {
+            value
+                .get("release_tag")
+                .and_then(Value::as_str)
+                .is_none_or(|release| release == tag)
         })
         .filter_map(asset_name)
         .map(|name| staging.join(name))
@@ -771,7 +869,9 @@ fn usage_and_exit(msg: &str) -> ! {
 fn print_help() {
     println!("xtask create-release --tag <tag> [options]");
     println!();
-    println!("Builds the localnet release: version-suffixed program .so files, an");
+    println!("Builds the localnet release. Pins the shielded-pool and user-registry");
+    println!("programs to their deployed releases (checked against their SHA256SUMS)");
+    println!("and bundles the version-suffixed Squads smart-account program, an");
     println!("account-snapshot bundle generated in-process with LiteSVM (no keypairs");
     println!("or running validator needed), and the prover, photon, and zolana CLI");
     println!("binaries for the host platform plus linux-x64 (Go cross-compile for the");
@@ -779,10 +879,12 @@ fn print_help() {
     println!("cli/release-artifacts.lock; the CLI binary is built last so it embeds the");
     println!("final lockfile (and is therefore uploaded but not a lockfile entry).");
     println!();
-    println!("Requires: go, cargo, and docker (for the linux-x64 photon build).");
+    println!("Requires: go, cargo, gh, and docker (for the linux-x64 Rust builds).");
     println!();
     println!("Options:");
-    println!("  --deploy-dir <dir>      Program .so directory (default target/deploy)");
+    println!(
+        "  --deploy-dir <dir>      Holds squads_smart_account_program.so (default target/deploy)"
+    );
     println!("  --staging-dir <dir>     Asset staging dir (default target/release-staging)");
     println!("  --lock-path <path>      Lockfile to regenerate (default by set)");
     println!("  --upload                Publish via `gh release create` (default: dry run)");
@@ -931,7 +1033,10 @@ mod tests {
             "release_tag": "t",
             "surfpool_tag": "s",
             "surfpool_version": "1",
-            "programs": [{"role": "shielded_pool", "asset": "a.so", "size": 1, "sha256": "x"}],
+            "programs": [{
+                "role": "shielded_pool", "release_tag": "shielded-pool-v1.0.0",
+                "asset": "a.so", "size": 1, "sha256": "x"
+            }],
             "accounts": {"asset": "accounts.tar.gz", "size": 1, "sha256": "x"},
             "binaries": [{
                 "role": "prover", "os": "linux", "arch": "x64",
@@ -939,7 +1044,7 @@ mod tests {
             }],
         });
         let program = &lock["programs"][0];
-        for key in ["role", "asset", "size", "sha256"] {
+        for key in ["role", "release_tag", "asset", "size", "sha256"] {
             assert!(program.get(key).is_some(), "program missing {key}");
         }
         for section in ["accounts"] {
@@ -954,22 +1059,33 @@ mod tests {
     }
 
     #[test]
-    fn staged_asset_paths_lists_every_asset() {
+    fn staged_asset_paths_lists_every_asset_this_release_publishes() {
         let lock = json!({
-            "programs": [{"asset": "a.so"}, {"asset": "b.so"}],
+            "programs": [
+                {"asset": "a.so", "release_tag": "t"},
+                {"asset": "b.so", "release_tag": "shielded-pool-v1.0.0"},
+            ],
             "accounts": {"asset": "accounts.tar.gz"},
             "binaries": [{"asset": "prover"}, {"asset": "photon"}],
         });
-        let paths = staged_asset_paths(Path::new("/stage"), &lock);
+        let paths = staged_asset_paths(Path::new("/stage"), &lock, "t");
         let mut names: Vec<_> = paths
             .iter()
             .map(|p| p.file_name().unwrap().to_str().unwrap())
             .collect();
         names.sort_unstable();
+        assert_eq!(names, ["a.so", "accounts.tar.gz", "photon", "prover"]);
+    }
+
+    #[test]
+    fn pinned_release_sha256_reads_sha256sum_lines() {
+        let sums = "dc68  shielded_pool_program.so\n2f17  manifest.json\nab12 *binary.so\n";
         assert_eq!(
-            names,
-            ["a.so", "accounts.tar.gz", "b.so", "photon", "prover"]
+            pinned_release_sha256(sums, "shielded_pool_program.so"),
+            Some("dc68")
         );
+        assert_eq!(pinned_release_sha256(sums, "binary.so"), Some("ab12"));
+        assert_eq!(pinned_release_sha256(sums, "shielded_pool.so"), None);
     }
 
     /// The surfpool pin lives in three places: the justfile recipe that
