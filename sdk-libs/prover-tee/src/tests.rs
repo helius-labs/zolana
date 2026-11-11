@@ -7,6 +7,7 @@ use serde::Deserialize;
 use super::{
     dstack::{DstackEvidence, DstackPolicy},
     encryption::{decrypt_response, request_aad},
+    fixture_prover::received_aad,
     platform::Evidence,
     verify,
     verify::report_data,
@@ -419,8 +420,10 @@ struct Vectors {
     gpu_token: String,
     report_data: String,
     report_data_no_gpu: String,
+    version: String,
     method: String,
-    request_uri: String,
+    route: String,
+    aad: String,
     enc: String,
     ciphertext: String,
     plaintext: String,
@@ -439,12 +442,14 @@ struct AadCase {
 }
 
 #[test]
-fn the_aad_drops_every_credential_as_the_go_prover_does() {
+fn the_aad_binds_the_method_and_route_as_the_go_prover_does() {
     let v: Vectors = serde_json::from_str(VECTORS).unwrap();
+    assert_eq!(v.version, super::VERSION);
+    assert_eq!(request_aad(&v.method, &v.route), v.aad);
     assert!(!v.aad_cases.is_empty());
     for case in v.aad_cases {
         assert_eq!(
-            request_aad(&case.method, &case.request_target),
+            received_aad(&case.method, &case.request_target),
             case.aad,
             "{}",
             case.request_target
@@ -488,7 +493,7 @@ fn encryption_interoperates_with_the_go_prover() {
         HPKE_INFO,
     )
     .unwrap();
-    let aad = request_aad(&v.method, &v.request_uri);
+    let aad = request_aad(&v.method, &v.route);
     let plaintext = receiver
         .open(&hex::decode(&v.ciphertext).unwrap(), aad.as_bytes())
         .unwrap();
@@ -509,14 +514,10 @@ fn encryption_interoperates_with_the_go_prover() {
 fn an_encrypted_request_decrypts_only_on_its_route() {
     let v: Vectors = serde_json::from_str(VECTORS).unwrap();
     let (private_key, public_key) = X25519HkdfSha256::derive_keypair(&hex::decode(&v.ikm).unwrap());
-    let encrypted = EncryptedRequest::encrypt(
-        &public_key.to_bytes().into(),
-        "GET",
-        "/prove/merge/status?jobId=a",
-        b"",
-    )
-    .unwrap();
-    let open_on = |uri: &str| {
+    let encrypted =
+        EncryptedRequest::encrypt(&public_key.to_bytes().into(), "GET", "/proving-keys", b"")
+            .unwrap();
+    let open_on = |aad: &str| {
         let encapped = <X25519HkdfSha256 as Kem>::EncappedKey::from_bytes(
             &hex::decode(&encrypted.enc).unwrap(),
         )
@@ -528,12 +529,12 @@ fn an_encrypted_request_decrypts_only_on_its_route() {
             HPKE_INFO,
         )
         .unwrap();
-        receiver
-            .open(&encrypted.body, format!("GET {uri}").as_bytes())
-            .is_ok()
+        receiver.open(&encrypted.body, aad.as_bytes()).is_ok()
     };
-    assert!(open_on("/prove/merge/status?jobId=a"));
-    assert!(!open_on("/prove/merge/status?jobId=b"));
+    assert!(open_on("GET /proving-keys"));
+    assert!(!open_on("GET /health"));
+    assert!(!open_on("POST /proving-keys"));
+    assert!(!open_on("GET /proving-keys?api-key=k"));
 }
 
 #[test]

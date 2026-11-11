@@ -14,23 +14,28 @@ import (
 	"testing"
 )
 
-// encryptRequest is the client half of the encryption, as the SDKs implement it.
-func encryptRequest(t *testing.T, publicKey []byte, method, uri string, body []byte) (enc, ciphertext, responseKey []byte) {
+// versions are the wire versions a prover accepts.
+var versions = []string{Version1_1, Version1}
+
+// encryptRequest is the client half of the encryption, as the SDKs implement
+// it, bound to the request a proxy forwards as uri.
+func encryptRequest(t *testing.T, publicKey []byte, version, method, uri string, body []byte) (enc, ciphertext, responseKey []byte) {
 	t.Helper()
+	binding := bindings[version]
 	kem, kdf, aead := suite()
 	pk, err := kem.NewPublicKey(publicKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	enc, sender, err := hpke.NewSender(pk, kdf, aead, []byte(hpkeInfo))
+	enc, sender, err := hpke.NewSender(pk, kdf, aead, []byte(binding.info))
 	if err != nil {
 		t.Fatal(err)
 	}
-	ciphertext, err = sender.Seal(requestAAD(method, uri), body)
+	ciphertext, err = sender.Seal(binding.aad(method, uri), body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	responseKey, err = sender.Export(responseExport, responseKeySize)
+	responseKey, err = sender.Export(binding.responseExport, responseKeySize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,88 +76,141 @@ func echo(status int) http.Handler {
 	})
 }
 
-func encryptedRequest(t *testing.T, s *Server, method, uri string, body []byte) (*http.Request, []byte) {
+func encryptedRequest(t *testing.T, s *Server, version, method, uri string, body []byte) (*http.Request, []byte) {
 	t.Helper()
-	enc, ciphertext, responseKey := encryptRequest(t, s.publicKey, method, uri, body)
+	enc, ciphertext, responseKey := encryptRequest(t, s.publicKey, version, method, uri, body)
 	request := httptest.NewRequest(method, uri, bytes.NewReader(ciphertext))
 	if bodiless(method) {
 		request = httptest.NewRequest(method, uri, nil)
 		request.Header.Set(HeaderCiphertext, hex.EncodeToString(ciphertext))
 	}
-	request.Header.Set(HeaderVersion, Version)
+	request.Header.Set(HeaderVersion, version)
 	request.Header.Set(HeaderEnc, hex.EncodeToString(enc))
 	request.Header.Set("Content-Type", "application/octet-stream")
 	return request, responseKey
 }
 
 func TestWrapDecryptsAndEncrypts(t *testing.T) {
-	s := testServer(t)
-	request, responseKey := encryptedRequest(t, s, http.MethodPost, "/prove/transfer_2_2?api-key=k", []byte(`{"secret":1}`))
-	recorder := httptest.NewRecorder()
-	s.Wrap(echo(http.StatusTooManyRequests)).ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusTooManyRequests {
-		t.Fatalf("outer status %d", recorder.Code)
-	}
-	if recorder.Header().Get(HeaderVersion) != Version || recorder.Header().Get("Retry-After") != "3" {
-		t.Fatalf("headers %v", recorder.Header())
-	}
-	if bytes.Contains(recorder.Body.Bytes(), []byte("secret")) {
-		t.Fatal("response body is not encrypted")
-	}
-	status, body, err := decryptResponse(responseKey, recorder.Body.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status != http.StatusTooManyRequests || string(body) != `POST:application/json:{"secret":1}` {
-		t.Fatalf("status %d body %q", status, body)
-	}
-}
-
-func TestWrapEncryptsBodilessPoll(t *testing.T) {
-	s := testServer(t)
-	request, responseKey := encryptedRequest(t, s, http.MethodGet, "/prove/transfer_2_2/status?jobId=abc", nil)
-	recorder := httptest.NewRecorder()
-	s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
-	status, body, err := decryptResponse(responseKey, recorder.Body.Bytes())
-	if err != nil || status != http.StatusOK || string(body) != "GET:application/json:" {
-		t.Fatalf("status %d body %q err %v", status, body, err)
-	}
-}
-
-func TestWrapRefusesAnEncryptedHead(t *testing.T) {
-	s := testServer(t)
-	for name, inHeader := range map[string]bool{"body": false, "header": true} {
-		t.Run(name, func(t *testing.T) {
-			request, _ := encryptedRequest(t, s, http.MethodHead, "/health", nil)
-			if inHeader {
-				encrypted, _ := io.ReadAll(request.Body)
-				request.Header.Set(HeaderCiphertext, hex.EncodeToString(encrypted))
-				request.Body = http.NoBody
-			}
+	for _, version := range versions {
+		t.Run(version, func(t *testing.T) {
+			s := testServer(t)
+			request, responseKey := encryptedRequest(t, s, version, http.MethodPost, "/prove/transfer_2_2?api-key=k", []byte(`{"secret":1}`))
 			recorder := httptest.NewRecorder()
-			reached := false
-			s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
-			assertRejected(t, recorder, reached, codeRequestMalformed)
+			s.Wrap(echo(http.StatusTooManyRequests)).ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusTooManyRequests {
+				t.Fatalf("outer status %d", recorder.Code)
+			}
+			if recorder.Header().Get(HeaderVersion) != version || recorder.Header().Get("Retry-After") != "3" {
+				t.Fatalf("headers %v", recorder.Header())
+			}
+			if bytes.Contains(recorder.Body.Bytes(), []byte("secret")) {
+				t.Fatal("response body is not encrypted")
+			}
+			status, body, err := decryptResponse(responseKey, recorder.Body.Bytes())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if status != http.StatusTooManyRequests || string(body) != `POST:application/json:{"secret":1}` {
+				t.Fatalf("status %d body %q", status, body)
+			}
 		})
 	}
 }
 
-func TestWrapRejectsRebinding(t *testing.T) {
-	s := testServer(t)
-	type rejection struct {
-		mutate func(*http.Request)
-		code   string
+// Clients read /health and /proving-keys through the attested channel too.
+func TestWrapEncryptsABodilessGet(t *testing.T) {
+	for _, version := range versions {
+		t.Run(version, func(t *testing.T) {
+			s := testServer(t)
+			request, responseKey := encryptedRequest(t, s, version, http.MethodGet, "/v1/spr/proving-keys?api-key=k", nil)
+			recorder := httptest.NewRecorder()
+			s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+			status, body, err := decryptResponse(responseKey, recorder.Body.Bytes())
+			if err != nil || status != http.StatusOK || string(body) != "GET:application/json:" {
+				t.Fatalf("status %d body %q err %v", status, body, err)
+			}
+		})
 	}
+}
+
+func TestWrapRefusesMethodsOtherThanGetAndPost(t *testing.T) {
+	s := testServer(t)
+	for _, method := range []string{http.MethodHead, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		for name, inHeader := range map[string]bool{"body": false, "header": true} {
+			t.Run(method+" "+name, func(t *testing.T) {
+				request, _ := encryptedRequest(t, s, Version1_1, method, "/health", []byte(`{}`))
+				if inHeader {
+					encrypted, _ := io.ReadAll(request.Body)
+					request.Header.Set(HeaderCiphertext, hex.EncodeToString(encrypted))
+					request.Body = http.NoBody
+				}
+				recorder := httptest.NewRecorder()
+				reached := false
+				s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
+				assertRejected(t, recorder, reached, codeRequestMalformed)
+			})
+		}
+	}
+}
+
+// A handler sees only the method, the route and the decrypted body; headers
+// and the query reach the prover unauthenticated. Its answer carries no inner
+// header but the retry delay.
+func TestWrapHandsOnOnlyWhatTheClientBound(t *testing.T) {
+	for _, version := range versions {
+		t.Run(version, func(t *testing.T) {
+			s := testServer(t)
+			target := GatewayPrefix + "/prove/merge_8_1?async=true&sync=true&api-key=k"
+			request, responseKey := encryptedRequest(t, s, version, http.MethodPost, target, []byte(`{}`))
+			for _, name := range []string{"X-Async", "X-Sync", "X-Prover-Timing", "X-Request-ID", "Authorization", "X-API-Key"} {
+				request.Header.Set(name, "true")
+			}
+			var seen *http.Request
+			recorder := httptest.NewRecorder()
+			s.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seen = r
+				for _, name := range []string{"Retry-After", "X-Warning", "Server-Timing", "X-Prover-Timing", "X-Request-ID", "Location"} {
+					w.Header().Set(name, "1")
+				}
+				w.WriteHeader(http.StatusTooManyRequests)
+			})).ServeHTTP(recorder, request)
+
+			if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+			if len(seen.Header) != 1 || seen.Header.Get("Content-Type") != "application/json" {
+				t.Fatalf("inner headers %v", seen.Header)
+			}
+			route := GatewayPrefix + "/prove/merge_8_1"
+			if seen.URL.RawQuery != "" || seen.RequestURI != route || seen.URL.Path != route {
+				t.Fatalf("inner target %q, query %q", seen.RequestURI, seen.URL.RawQuery)
+			}
+			for name := range recorder.Header() {
+				switch name {
+				case "Retry-After", HeaderVersion, "Content-Type", "Content-Length":
+				default:
+					t.Fatalf("inner header %s left the enclave", name)
+				}
+			}
+		})
+	}
+}
+
+type rejection struct {
+	mutate func(*http.Request)
+	code   string
+}
+
+func TestWrapRejectsRebinding(t *testing.T) {
 	cases := map[string]rejection{
-		"other job": {func(r *http.Request) { r.RequestURI = "/prove/transfer_2_2/status?jobId=other" }, codeDecryptionFailed},
 		"other key under the gateway": {func(r *http.Request) {
 			r.RequestURI = GatewayPrefix + "/prove/merge_8_1/status?jobId=abc"
 		}, codeDecryptionFailed},
 		"gateway prefix twice": {func(r *http.Request) {
 			r.RequestURI = GatewayPrefix + GatewayPrefix + "/prove/transfer_2_2/status?jobId=abc"
 		}, codeDecryptionFailed},
-		"other method": {func(r *http.Request) { r.Method = http.MethodPut }, codeDecryptionFailed},
+		"other method": {func(r *http.Request) { r.Method = http.MethodPost }, codeDecryptionFailed},
 		"bad enc":      {func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", 32)) }, codeDecryptionFailed},
 		"version":      {func(r *http.Request) { r.Header.Set(HeaderVersion, "v2") }, codeVersionUnsupported},
 		"ciphertext in body": {func(r *http.Request) {
@@ -165,21 +223,45 @@ func TestWrapRejectsRebinding(t *testing.T) {
 		"long enc":           {func(r *http.Request) { r.Header.Set(HeaderEnc, strings.Repeat("00", encSize+1)) }, codeRequestMalformed},
 		"non-hex ciphertext": {func(r *http.Request) { r.Header.Set(HeaderCiphertext, "zz") }, codeRequestMalformed},
 	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			request, _ := encryptedRequest(t, s, http.MethodGet, "/prove/transfer_2_2/status?jobId=abc", nil)
-			c.mutate(request)
-			recorder := httptest.NewRecorder()
-			reached := false
-			s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
-			assertRejected(t, recorder, reached, c.code)
+	for _, version := range versions {
+		other := Version1
+		if version == Version1 {
+			other = Version1_1
+		}
+		for name, c := range cases {
+			t.Run(version+" "+name, func(t *testing.T) { assertRebindingRejected(t, version, c) })
+		}
+		t.Run(version+" sent as "+other, func(t *testing.T) {
+			assertRebindingRejected(t, version, rejection{func(r *http.Request) { r.Header.Set(HeaderVersion, other) }, codeDecryptionFailed})
 		})
 	}
+	// v1 binds the query; v1.1 binds the route exactly as sent.
+	t.Run("v1 other job", func(t *testing.T) {
+		assertRebindingRejected(t, Version1, rejection{func(r *http.Request) {
+			r.RequestURI = "/prove/transfer_2_2/status?jobId=other"
+		}, codeDecryptionFailed})
+	})
+	t.Run("v1.1 trailing slash", func(t *testing.T) {
+		assertRebindingRejected(t, Version1_1, rejection{func(r *http.Request) {
+			r.RequestURI = "/prove/transfer_2_2/status/?jobId=abc"
+		}, codeDecryptionFailed})
+	})
+}
+
+func assertRebindingRejected(t *testing.T, version string, c rejection) {
+	t.Helper()
+	s := testServer(t)
+	request, _ := encryptedRequest(t, s, version, http.MethodGet, "/prove/transfer_2_2/status?jobId=abc", nil)
+	c.mutate(request)
+	recorder := httptest.NewRecorder()
+	reached := false
+	s.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true })).ServeHTTP(recorder, request)
+	assertRejected(t, recorder, reached, c.code)
 }
 
 func TestWrapRejectsABodyOverTheCap(t *testing.T) {
 	s := testServer(t)
-	request, _ := encryptedRequest(t, s, http.MethodPost, "/prove/merge", nil)
+	request, _ := encryptedRequest(t, s, Version1_1, http.MethodPost, "/prove/merge", nil)
 	request.Body = io.NopCloser(io.LimitReader(zeros{}, maxEncryptedBody+1))
 	request.ContentLength = -1
 	recorder := httptest.NewRecorder()
@@ -206,11 +288,11 @@ func assertRejected(t *testing.T, recorder *httptest.ResponseRecorder, reached b
 	}
 }
 
-func TestWrapIgnoresTheCredentialAProxyMoves(t *testing.T) {
+func TestWrapV1IgnoresTheCredentialAProxyMoves(t *testing.T) {
 	s := testServer(t)
 	for _, name := range []string{"api-key", "api%2Dkey", "%61pi-%6bey", "%61%70%69%2d%6b%65%79"} {
 		for _, target := range []string{"/prove/merge/status?jobId=a&api-key=other", "/prove/merge/status?jobId=a"} {
-			request, responseKey := encryptedRequest(t, s, http.MethodGet, "/prove/merge/status?"+name+"=k&jobId=a", nil)
+			request, responseKey := encryptedRequest(t, s, Version1, http.MethodGet, "/prove/merge/status?"+name+"=k&jobId=a", nil)
 			request.RequestURI = target
 			recorder := httptest.NewRecorder()
 			s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
@@ -223,9 +305,28 @@ func TestWrapIgnoresTheCredentialAProxyMoves(t *testing.T) {
 
 // A client binds the route below its prover URL, wherever a proxy mounts it.
 func TestWrapOpensARouteBareOrUnderTheGatewayPrefix(t *testing.T) {
+	for _, version := range versions {
+		s := testServer(t)
+		for _, target := range []string{"/prove/transfer_2_2?jobId=a", GatewayPrefix + "/prove/transfer_2_2?jobId=a"} {
+			request, responseKey := encryptedRequest(t, s, version, http.MethodPost, "/prove/transfer_2_2?jobId=a", []byte(`{}`))
+			request.RequestURI = target
+			recorder := httptest.NewRecorder()
+			s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
+			if _, _, err := decryptResponse(responseKey, recorder.Body.Bytes()); err != nil {
+				t.Fatalf("%s %s: %v", version, target, err)
+			}
+		}
+	}
+}
+
+// v1.1 binds no query pair, so a proxy may add, move or drop any of them.
+func TestWrapV1_1OpensWhateverQueryAProxySends(t *testing.T) {
 	s := testServer(t)
-	for _, target := range []string{"/prove/transfer_2_2?jobId=a", GatewayPrefix + "/prove/transfer_2_2?jobId=a"} {
-		request, responseKey := encryptedRequest(t, s, http.MethodPost, "/prove/transfer_2_2?jobId=a", []byte(`{}`))
+	for _, target := range []string{
+		"/prove/merge_8_1", "/prove/merge_8_1?api-key=k", "/prove/merge_8_1?",
+		GatewayPrefix + "/prove/merge_8_1?jobId=b&async=true&",
+	} {
+		request, responseKey := encryptedRequest(t, s, Version1_1, http.MethodPost, "/prove/merge_8_1?jobId=a", []byte(`{}`))
 		request.RequestURI = target
 		recorder := httptest.NewRecorder()
 		s.Wrap(echo(http.StatusOK)).ServeHTTP(recorder, request)
@@ -237,10 +338,10 @@ func TestWrapOpensARouteBareOrUnderTheGatewayPrefix(t *testing.T) {
 
 func TestWrapRejectsTamperedBody(t *testing.T) {
 	s := testServer(t)
-	enc, ciphertext, _ := encryptRequest(t, s.publicKey, http.MethodPost, "/prove/merge", []byte(`{}`))
+	enc, ciphertext, _ := encryptRequest(t, s.publicKey, Version1_1, http.MethodPost, "/prove/merge", []byte(`{}`))
 	ciphertext[0] ^= 1
 	request := httptest.NewRequest(http.MethodPost, "/prove/merge", bytes.NewReader(ciphertext))
-	request.Header.Set(HeaderVersion, Version)
+	request.Header.Set(HeaderVersion, Version1_1)
 	request.Header.Set(HeaderEnc, hex.EncodeToString(enc))
 	recorder := httptest.NewRecorder()
 	reached := false
@@ -289,7 +390,7 @@ func TestReplayedRequestsUseFreshResponseNonces(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		t.Run(method, func(t *testing.T) {
 			s := testServer(t)
-			request, responseKey := encryptedRequest(t, s, method, "/prove/merge/status?jobId=abc", nil)
+			request, responseKey := encryptedRequest(t, s, Version1_1, method, "/prove/merge/status?jobId=abc", nil)
 			ciphertext, err := io.ReadAll(request.Body)
 			if err != nil {
 				t.Fatal(err)
@@ -329,12 +430,12 @@ func TestReplayedRequestsUseFreshResponseNonces(t *testing.T) {
 	}
 }
 
-func TestWrapAcceptsProxyTrailingSlashNormalization(t *testing.T) {
+func TestWrapV1AcceptsProxyTrailingSlashNormalization(t *testing.T) {
 	s := testServer(t)
 	for _, route := range []string{"/v1/spr/prove/sample", "/v1/spr"} {
 		for _, suffix := range []string{"", "/", "//"} {
 			target := route + suffix + "?id=a%20b"
-			request, responseKey := encryptedRequest(t, s, http.MethodPost, target, []byte(`{"value":1}`))
+			request, responseKey := encryptedRequest(t, s, Version1, http.MethodPost, target, []byte(`{"value":1}`))
 			request.RequestURI = route + "?id=a%20b"
 			request.URL.Path = route
 			recorder := httptest.NewRecorder()

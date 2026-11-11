@@ -2,19 +2,19 @@ import { Aes256Gcm, CipherSuite, DhkemX25519HkdfSha256, HkdfSha256 } from "@hpke
 import { gcm } from "@noble/ciphers/aes.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
-import { SPR_GATEWAY_PATH } from "../../../endpoint.js";
 import { ClientError } from "../../error.js";
 
 export const HEADER_VERSION = "Spr-Tee";
 export const HEADER_ENC = "Spr-Tee-Enc";
 /** Carries the encrypted bytes of a GET, fetch refuses a GET body. */
 export const HEADER_CIPHERTEXT = "Spr-Tee-Ciphertext";
-export const VERSION = "v1";
+/** The wire version this client sends; it binds the method and the route. */
+export const VERSION = "v1.1";
 export const RESPONSE_NONCE_SIZE = 12;
 
 // Domain separation for the HPKE context and its response exporter.
-const HPKE_INFO = utf8ToBytes("zolana/prover-tee/v1");
-const RESPONSE_EXPORT = utf8ToBytes("zolana/prover-tee/v1/response");
+const HPKE_INFO = utf8ToBytes("zolana/prover-tee/v1.1");
+const RESPONSE_EXPORT = utf8ToBytes("zolana/prover-tee/v1.1/response");
 
 const suite = new CipherSuite({
   kem: new DhkemX25519HkdfSha256(),
@@ -32,21 +32,19 @@ export type EncryptedRequest = Readonly<{
 }>;
 
 /**
- * Binds `method` and `requestUri` without its `api-key` pairs as AAD, so the
- * encrypted body decrypts only on the route it was sent to. `requestUri` is
- * the path below the prover URL and its query.
+ * Binds `method` and `route` as AAD, so the encrypted body decrypts only on the
+ * route it was sent to. `route` is the path below the prover URL, such as
+ * `/prove/transfer_2_2`; the query is not bound and the prover never reads it.
  */
 export async function encryptRequest(
   hpkePublicKey: Uint8Array,
   method: string,
-  requestUri: string,
+  route: string,
   plaintext: Uint8Array,
 ): Promise<EncryptedRequest> {
   const recipientPublicKey = await suite.kem.deserializePublicKey(hpkePublicKey);
   const sender = await suite.createSenderContext({ recipientPublicKey, info: HPKE_INFO });
-  const body = new Uint8Array(
-    await sender.seal(plaintext, utf8ToBytes(requestAad(method, requestUri))),
-  );
+  const body = new Uint8Array(await sender.seal(plaintext, utf8ToBytes(requestAad(method, route))));
   const responseKey = new Uint8Array(await sender.export(RESPONSE_EXPORT, 32));
   return Object.freeze({
     enc: bytesToHex(new Uint8Array(sender.enc)),
@@ -56,25 +54,11 @@ export async function encryptRequest(
 }
 
 /**
- * The method, route and query minus every `api-key` parameter, so a proxy can
- * move the credential while the route and job stay bound. The route drops
- * trailing slashes and then the gateway prefix, in the order a gateway trims
- * and forwards; a client passes the path below its prover URL, so a proxy can
- * serve the prover under any path.
+ * A client binds the route below its prover URL, so a proxy can serve the
+ * prover under any path.
  */
-export function requestAad(method: string, requestUri: string): string {
-  const separator = requestUri.indexOf("?");
-  const received = separator === -1 ? requestUri : requestUri.slice(0, separator);
-  const trimmed = received.replace(/\/+$/, "");
-  const path =
-    (trimmed.startsWith(`${SPR_GATEWAY_PATH}/`)
-      ? trimmed.slice(SPR_GATEWAY_PATH.length)
-      : trimmed) || "/";
-  const query = separator === -1 ? "" : requestUri.slice(separator + 1);
-  const kept = query
-    .split("&")
-    .filter((pair) => pair !== "" && !new URLSearchParams(`?${pair}`).has("api-key"));
-  return kept.length === 0 ? `${method} ${path}` : `${method} ${path}?${kept.join("&")}`;
+export function requestAad(method: string, route: string): string {
+  return `${method} ${route}`;
 }
 
 export function decryptResponse(key: Uint8Array, encrypted: Uint8Array): DecryptedResponse {

@@ -1,4 +1,4 @@
-# Encrypted prover wire contract, v1
+# Encrypted prover wire contract, v1.1
 
 This contract lets a client encrypt a prover request to a key that only a measured confidential computing environment holds.
 Each platform proves the environment its own way and carries the same 64-byte binding.
@@ -7,7 +7,7 @@ JSON fields are snake_case, and byte fields and the `Spr-Tee-Enc` and `Spr-Tee-C
 | Method | Request | Result |
 |--------|---------|--------|
 | `GET /attestation?nonce=<32 bytes hex>` | a fresh nonce and the prover API key | `platform`, `hpke_public_key`, `gpu` and `evidence` |
-| any prover route, encrypted | `Spr-Tee: v1`, `Spr-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Spr-Tee-Ciphertext` | the inner status, `Spr-Tee: v1`, and the encrypted status and body |
+| any prover route, encrypted as a GET or POST | `Spr-Tee: v1.1`, `Spr-Tee-Enc`, and the encrypted bytes in the body or, for GET, in `Spr-Tee-Ciphertext` | the inner status, `Spr-Tee: v1.1`, and the encrypted status and body |
 
 A TEE prover rejects a request without `Spr-Tee` before reading its body, except on `/auth`, `/ready`, `/health`, `/proving-keys` and the attestation route.
 The proof routes, `/proving-keys` and the attestation route also answer under the `/v1/spr` gateway prefix.
@@ -117,29 +117,44 @@ No file revokes a signed release: it stays usable until its `expires_at`, unless
 ## Encryption
 
 The client encrypts a request body with HPKE base mode, DHKEM(X25519, HKDF-SHA256), HKDF-SHA256 and AES-256-GCM.
-The recipient is `hpke_public_key`, and the info is `zolana/prover-tee/v1`.
-`Spr-Tee-Enc` carries the encapsulated key.
+The recipient is `hpke_public_key`, and the info is `zolana/prover-tee/v1.1`.
+`Spr-Tee: v1.1` names the version, and `Spr-Tee-Enc` carries the encapsulated key.
+Only a GET or a POST is encrypted.
 A GET carries its encrypted bytes in `Spr-Tee-Ciphertext`, because fetch refuses a GET body.
-Every other method carries them as an `application/octet-stream` body.
-The AAD is the method, the route and the query without its `api-key` parameters:
+A POST carries them as an `application/octet-stream` body.
+The AAD is the method and the route:
+
+```
+aad = METHOD " " route
+```
+
+The route is the path below the prover's base, such as `/prove/transfer_2_2`, exactly as sent.
+A client drops the path of the prover URL it was given, and the prover drops a leading `/v1/spr` once, so the route stays the same wherever a proxy mounts the prover.
+The AAD does not cover the query, so a proxy can add, move or drop any pair, the API key among them.
+The prover passes its handler only the method, the route and the decrypted body as JSON, never an outer header or the query, because neither is authenticated.
+The answer is AES-256-GCM with a fresh random 12-byte nonce and empty AAD, under the 32-byte HPKE export `zolana/prover-tee/v1.1/response`.
+Its wire bytes are the nonce, ciphertext and 16-byte tag.
+Its plaintext is the status as a big-endian `u16`, then the body.
+Of the handler's headers only `Retry-After` leaves the prover, in the clear, for load shedding.
+A replayed request derives the same response key, but each answer gets an independent nonce.
+A client refuses a 2xx answer without `Spr-Tee: v1.1`.
+A 400 `tee_decryption_failed` answer means the request does not decrypt under the key the prover holds.
+The client then attests again and resends the call once, because a boot key changes at every boot and a release key at every release.
+A resent proof request costs only a second proof, because an encrypted prover runs each request synchronously and keeps no job state.
+An unencrypted failure reaches the caller as unauthenticated, so load shedding and retries still work.
+
+### v1
+
+Released clients send `Spr-Tee: v1`, and a prover accepts it until they have moved to v1.1.
+A v1 call uses the info `zolana/prover-tee/v1` and the response export `zolana/prover-tee/v1/response`, and its AAD also binds the query:
 
 ```
 aad = METHOD " " route [ "?" query ]
 ```
 
-The route is the path below the prover's base, such as `/prove/transfer_2_2`.
-A client drops the path of the prover URL it was given, and the prover drops a leading `/v1/spr` once, so the route stays the same wherever a proxy mounts the prover.
-The query keeps its pairs in order and drops empty pairs and every pair whose key is `api-key`.
-The AAD omits `?` when no pair remains.
-The answer is AES-256-GCM with a fresh random 12-byte nonce and empty AAD, under the 32-byte HPKE export `zolana/prover-tee/v1/response`.
-Its wire bytes are the nonce, ciphertext and 16-byte tag.
-Its plaintext is the status as a big-endian `u16`, then the body.
-A replayed request derives the same response key, but each answer gets an independent nonce.
-A client refuses a 2xx answer without `Spr-Tee: v1`.
-A 400 `tee_decryption_failed` answer means the request does not decrypt under the key the prover holds.
-The client then attests again and resends the call once, because a boot key changes at every boot and a release key at every release.
-A resent proof request costs only a second proof, because an encrypted prover runs each request synchronously and keeps no job state.
-An unencrypted failure reaches the caller as unauthenticated, so load shedding and retries still work.
+Its route drops trailing slashes before the prover drops `/v1/spr`.
+Its query keeps its pairs in order and drops empty pairs and every pair whose form-decoded key is `api-key`, and the AAD omits `?` when no pair remains.
+In every other way the prover treats a v1 call as a v1.1 call, and answers it with `Spr-Tee: v1`.
 
 ## Authorization
 
@@ -150,8 +165,8 @@ The AAD never covers it, so a proxy can move or strip it.
 
 ## Proxies
 
-A proxy can serve the prover under any path, and delivers the route bare or under `/v1/spr`.
-It keeps the non-credential query pairs as sent.
+A proxy can serve the prover under any path, and delivers the route bare or under `/v1/spr`, exactly as the client sent it.
+It keeps the non-credential query pairs of a v1 call as sent.
 It forwards `Spr-Tee`, `Spr-Tee-Enc` and `Spr-Tee-Ciphertext`, and passes octet-stream bodies through unchanged.
 For browsers it allows the three headers in CORS preflight and exposes `Spr-Tee`.
 An authorization subrequest to the prover must drop `Spr-Tee`, or the prover tries to decrypt it.
@@ -166,15 +181,16 @@ In the seconds the regions move apart, a client can attest at one release and se
 | 401 | `unauthorized` | the API key is missing or wrong |
 | 429 | `attestation_busy` | quote capacity is exhausted, retry after the `Retry-After` seconds |
 | 503 | `attestation_unavailable` | the prover cannot produce attestation evidence |
-| 400 | `tee_version_unsupported` | `Spr-Tee` names another version |
+| 400 | `tee_version_unsupported` | `Spr-Tee` names neither `v1.1` nor `v1` |
 | 400 | `tee_required` | a request outside the plaintext routes has no `Spr-Tee` |
-| 400 | `tee_request_malformed` | an encrypted HEAD, a missing or non-hex `Spr-Tee-Enc` or GET `Spr-Tee-Ciphertext`, a `Spr-Tee-Enc` not of 32 bytes, or a body over the size cap |
+| 400 | `tee_request_malformed` | an encrypted request that is neither a GET nor a POST, a missing or non-hex `Spr-Tee-Enc` or GET `Spr-Tee-Ciphertext`, a `Spr-Tee-Enc` not of 32 bytes, or a body over the size cap |
 | 400 | `tee_decryption_failed` | the encrypted request does not decrypt under the held key |
 
 ## Test vectors
 
-`testdata/vectors.json` pins report_data with and without a GPU verdict, the GPU nonce, and an encrypted request with its encrypted answer.
-`aad_cases` pins the AAD of each request target.
+`testdata/vectors.json` pins report_data with and without a GPU verdict, the GPU nonce, and an encrypted v1.1 request with its route, its AAD and its encrypted answer.
+`aad_cases` pins the AAD a prover opens a request with from the target a proxy forwarded it to.
+`v1` pins an encrypted v1 request and the v1 `aad_cases`.
 `ikm` derives the prover key with RFC 9180 `DeriveKeyPair`.
 `testdata/nitro_cbor_cases.json` pins whether a client accepts each `aws-nitro` case when it trusts `root` in place of the AWS root.
 A case holds a full COSE_Sign1, or a payload the test signs with `leaf_key` into a tagged COSE_Sign1.

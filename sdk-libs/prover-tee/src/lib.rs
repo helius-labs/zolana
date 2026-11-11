@@ -37,15 +37,15 @@ pub const HEADER_VERSION: &str = "Spr-Tee";
 pub const HEADER_ENC: &str = "Spr-Tee-Enc";
 /// Carries the encrypted bytes of a GET, fetch refuses a GET body.
 pub const HEADER_CIPHERTEXT: &str = "Spr-Tee-Ciphertext";
-pub const VERSION: &str = "v1";
+/// The wire version this client sends; it binds the method and the route.
+pub const VERSION: &str = "v1.1";
 pub const NONCE_SIZE: usize = 32;
 pub const MAX_ATTESTATION_BYTES: usize = 1 << 20;
 
 // Domain separation for every hash and HPKE context the protocol binds.
 const REPORT_DOMAIN: &[u8] = b"zolana/prover-tee/v1/report";
-const HPKE_INFO: &[u8] = b"zolana/prover-tee/v1";
-const RESPONSE_EXPORT: &[u8] = b"zolana/prover-tee/v1/response";
-const API_KEY_PARAM: &str = "api-key";
+const HPKE_INFO: &[u8] = b"zolana/prover-tee/v1.1";
+const RESPONSE_EXPORT: &[u8] = b"zolana/prover-tee/v1.1/response";
 /// `Number.MAX_SAFE_INTEGER`, the TS client reads no larger integer exactly.
 const MAX_INTEGER: u64 = (1 << 53) - 1;
 

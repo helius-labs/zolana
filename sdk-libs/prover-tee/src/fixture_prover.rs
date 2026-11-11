@@ -10,6 +10,23 @@ use rand_core::{OsRng, TryRngCore};
 
 use crate::{encryption::request_aad, TeeError, HPKE_INFO, RESPONSE_EXPORT};
 
+/// The path the Helius gateway serves the prover under; the prover answers
+/// every route under it with the same handler as the bare route.
+const GATEWAY_PREFIX: &str = "/v1/spr";
+
+/// The AAD the prover opens a request forwarded to `request_target` with: its
+/// path after one leading [`GATEWAY_PREFIX`], without the query.
+pub(crate) fn received_aad(method: &str, request_target: &str) -> String {
+    let path = request_target
+        .split_once('?')
+        .map_or(request_target, |(path, _)| path);
+    let route = path
+        .strip_prefix(GATEWAY_PREFIX)
+        .filter(|route| route.starts_with('/'))
+        .unwrap_or(path);
+    request_aad(method, route)
+}
+
 /// A prover key derived with RFC 9180 `DeriveKeyPair` from `ikm`.
 pub struct FixtureProver {
     private_key: <X25519HkdfSha256 as Kem>::PrivateKey,
@@ -35,12 +52,12 @@ impl FixtureProver {
         self.public_key
     }
 
-    /// Opens a request sent as `method request_uri`, with `enc` from
-    /// `Spr-Tee-Enc` and `body` the encrypted bytes.
+    /// Opens a request a proxy forwarded as `method request_target`, with
+    /// `enc` from `Spr-Tee-Enc` and `body` the encrypted bytes.
     pub fn open(
         &self,
         method: &str,
-        request_uri: &str,
+        request_target: &str,
         enc: &[u8],
         body: &[u8],
     ) -> Result<OpenedRequest, TeeError> {
@@ -54,7 +71,7 @@ impl FixtureProver {
         )
         .map_err(|_| TeeError::Encryption("HPKE setup failed"))?;
         let plaintext = receiver
-            .open(body, request_aad(method, request_uri).as_bytes())
+            .open(body, received_aad(method, request_target).as_bytes())
             .map_err(|_| TeeError::Encryption("request does not decrypt"))?;
         let mut response_key = [0u8; 32];
         receiver
@@ -97,48 +114,43 @@ mod tests {
     #[test]
     fn a_sealed_request_opens_only_on_its_route_and_its_answer_reads_back() {
         let prover = FixtureProver::from_ikm(&[0x5a; 32]);
-        for name in [
-            "api-key",
-            "api%2Dkey",
-            "%61pi-%6bey",
-            "%61%70%69%2d%6b%65%79",
-        ] {
-            let sent = EncryptedRequest::encrypt(
-                &prover.hpke_public_key(),
-                "POST",
-                &format!("/v1/spr/prove/transfer_2_2?{name}=k&jobId=%61%31&q=a%20b+c"),
-                br#"{"inputs":["secret"]}"#,
-            )
-            .unwrap();
-            let enc = hex::decode(&sent.enc).unwrap();
+        let sent = EncryptedRequest::encrypt(
+            &prover.hpke_public_key(),
+            "POST",
+            "/prove/transfer_2_2",
+            br#"{"inputs":["secret"]}"#,
+        )
+        .unwrap();
+        let enc = hex::decode(&sent.enc).unwrap();
 
-            let opened = prover
-                .open(
-                    "POST",
-                    "/v1/spr/prove/transfer_2_2?jobId=%61%31&q=a%20b+c",
-                    &enc,
-                    &sent.body,
-                )
-                .unwrap();
+        for target in [
+            "/prove/transfer_2_2",
+            "/v1/spr/prove/transfer_2_2?api-key=k",
+            "/v1/spr/prove/transfer_2_2?jobId=a&async=true",
+        ] {
+            let opened = prover.open("POST", target, &enc, &sent.body).unwrap();
             assert_eq!(opened.plaintext, br#"{"inputs":["secret"]}"#);
             assert_eq!(&opened.response_key, sent.response_key());
-            assert!(prover
-                .open("POST", "/v1/spr/prove/merge_8_1", &enc, &sent.body)
-                .is_err());
-            assert!(prover
-                .open(
-                    "POST",
-                    "/v1/spr/prove/transfer_2_2?jobId=a1&q=a%20b+c",
-                    &enc,
-                    &sent.body
-                )
-                .is_err());
-
-            let answer = seal_response(&opened.response_key, 200, br#"{"proof":"ok"}"#).unwrap();
-            assert_eq!(
-                decrypt_response(sent.response_key(), &answer).unwrap(),
-                (200, br#"{"proof":"ok"}"#.to_vec())
+        }
+        for (method, target) in [
+            ("POST", "/v1/spr/prove/merge_8_1"),
+            ("POST", "/prove/transfer_2_2/"),
+            ("POST", "/v1/spr/v1/spr/prove/transfer_2_2"),
+            ("GET", "/prove/transfer_2_2"),
+        ] {
+            assert!(
+                prover.open(method, target, &enc, &sent.body).is_err(),
+                "{method} {target}"
             );
         }
+
+        let opened = prover
+            .open("POST", "/prove/transfer_2_2", &enc, &sent.body)
+            .unwrap();
+        let answer = seal_response(&opened.response_key, 200, br#"{"proof":"ok"}"#).unwrap();
+        assert_eq!(
+            decrypt_response(sent.response_key(), &answer).unwrap(),
+            (200, br#"{"proof":"ok"}"#.to_vec())
+        );
     }
 }

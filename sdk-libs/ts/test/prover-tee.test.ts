@@ -31,6 +31,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ClientError } from "../src/client/error.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import {
+  VERSION,
   decryptResponse,
   requestAad,
   encryptRequest,
@@ -376,17 +377,17 @@ describe("encryption", () => {
     return suite.createRecipientContext({
       recipientKey: pair,
       enc,
-      info: utf8ToBytes("zolana/prover-tee/v1"),
+      info: utf8ToBytes("zolana/prover-tee/v1.1"),
     });
   }
 
   it("interoperates with the Go prover", async () => {
     const context = await recipient(hexToBytes(vector("enc")));
-    const aad = utf8ToBytes(requestAad(vector("method"), vector("request_uri")));
+    const aad = utf8ToBytes(requestAad(vector("method"), vector("route")));
     const plaintext = new Uint8Array(await context.open(hexToBytes(vector("ciphertext")), aad));
     expect(new TextDecoder().decode(plaintext)).toBe(vector("plaintext"));
     const responseKey = new Uint8Array(
-      await context.export(utf8ToBytes("zolana/prover-tee/v1/response"), 32),
+      await context.export(utf8ToBytes("zolana/prover-tee/v1.1/response"), 32),
     );
     expect(bytesToHex(responseKey)).toBe(vector("response_key"));
     const opened = decryptResponse(responseKey, hexToBytes(vector("encrypted_response")));
@@ -394,41 +395,30 @@ describe("encryption", () => {
     expect(new TextDecoder().decode(opened.body)).toBe(vector("response_body"));
   });
 
-  it("drops every credential from the AAD as the Go prover does", () => {
-    const cases = decode.list(vectors["aad_cases"], "aad_cases");
-    expect(cases.length).toBeGreaterThan(0);
-    for (const entry of cases) {
-      const c = decode.record(entry, "case");
-      expect(
-        requestAad(
-          decode.string(c["method"], "method"),
-          decode.string(c["request_target"], "target"),
-        ),
-      ).toBe(decode.string(c["aad"], "aad"));
-    }
+  it("binds the method and route as the Go prover does", () => {
+    expect(vector("version")).toBe(VERSION);
+    expect(requestAad(vector("method"), vector("route"))).toBe(vector("aad"));
   });
 
-  it.each(["api-key", "api%2Dkey", "%61pi-%6bey", "%61%70%69%2d%6b%65%79"])(
-    "opens only on its authenticated route after removing %s",
-    async (name) => {
-      const encrypted = await encryptRequest(
-        hexToBytes(vector("hpke_public_key")),
-        "GET",
-        `/prove/merge/status?${name}=k&jobId=%61%31`,
-        new Uint8Array(),
+  it("opens only on its method and route", async () => {
+    const encrypted = await encryptRequest(
+      hexToBytes(vector("hpke_public_key")),
+      "GET",
+      "/proving-keys",
+      new Uint8Array(),
+    );
+    const opensOn = async (aad: string): Promise<boolean> => {
+      const context = await recipient(hexToBytes(encrypted.enc));
+      return context.open(encrypted.body, utf8ToBytes(aad)).then(
+        () => true,
+        () => false,
       );
-      const opensOn = async (uri: string): Promise<boolean> => {
-        const context = await recipient(hexToBytes(encrypted.enc));
-        return context.open(encrypted.body, utf8ToBytes(`GET ${uri}`)).then(
-          () => true,
-          () => false,
-        );
-      };
-      expect(await opensOn("/prove/merge/status?jobId=%61%31")).toBe(true);
-      expect(await opensOn("/prove/merge/status?jobId=a1")).toBe(false);
-      expect(await opensOn("/prove/merge/status?jobId=b")).toBe(false);
-    },
-  );
+    };
+    expect(await opensOn("GET /proving-keys")).toBe(true);
+    expect(await opensOn("GET /health")).toBe(false);
+    expect(await opensOn("POST /proving-keys")).toBe(false);
+    expect(await opensOn("GET /proving-keys?api-key=k")).toBe(false);
+  });
 });
 
 describe("encrypted request shape", () => {
@@ -452,7 +442,7 @@ describe("encrypted request shape", () => {
     const init = encryptedInit(call("GET"), encrypted);
     expect(init.body).toBeUndefined();
     expect(init.headers).toMatchObject({
-      "Spr-Tee": "v1",
+      "Spr-Tee": "v1.1",
       "Spr-Tee-Enc": "ab",
       "Spr-Tee-Ciphertext": "0102",
     });
@@ -529,7 +519,7 @@ it("keeps the cached key independent of the attestation report", async () => {
     const receiver = await suite.createRecipientContext({
       recipientKey: substituted,
       enc,
-      info: utf8ToBytes("zolana/prover-tee/v1"),
+      info: utf8ToBytes("zolana/prover-tee/v1.1"),
     });
     const body = init.body;
     if (!(body instanceof Uint8Array)) throw new Error("unexpected encrypted body");
@@ -587,7 +577,7 @@ it("keeps a concurrent attestation report out of an encrypted request", async ()
     const receiver = await suite.createRecipientContext({
       recipientKey: substituted,
       enc,
-      info: utf8ToBytes("zolana/prover-tee/v1"),
+      info: utf8ToBytes("zolana/prover-tee/v1.1"),
     });
     const body = init.body;
     if (!(body instanceof Uint8Array)) throw new Error("unexpected encrypted body");
@@ -810,7 +800,7 @@ describe("a prover that lost the attested key", () => {
         const headers = new Headers(init?.headers);
         requested.push([
           path,
-          headers.get("Spr-Tee") === "v1" &&
+          headers.get("Spr-Tee") === "v1.1" &&
             /^[0-9a-f]{64}$/u.test(headers.get("Spr-Tee-Enc") ?? "") &&
             headers.has("Spr-Tee-Ciphertext"),
         ]);

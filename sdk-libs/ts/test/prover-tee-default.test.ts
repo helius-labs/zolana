@@ -66,7 +66,7 @@ describe("caller-supplied prover policy", () => {
           expect(url.searchParams.get("api-key")).toBe("k");
           if (url.pathname.endsWith("/attestation")) return Response.json(fixture["attestation"]);
           const headers = new Headers(init?.headers);
-          expect(headers.get("Spr-Tee")).toBe("v1");
+          expect(headers.get("Spr-Tee")).toBe("v1.1");
           expect(headers.get("Spr-Tee-Ciphertext")).toMatch(/^[0-9a-f]+$/u);
           return new Response(null, { status: 404 });
         };

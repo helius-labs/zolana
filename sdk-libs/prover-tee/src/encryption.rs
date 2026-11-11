@@ -6,11 +6,7 @@ use hpke::{
 use rand_core::{OsRng, UnwrapErr};
 use zeroize::Zeroizing;
 
-use super::{TeeError, API_KEY_PARAM, HPKE_INFO, RESPONSE_EXPORT};
-
-/// The path the Helius gateway serves the prover under. The prover answers
-/// every route under it with the same handler as the bare route.
-const GATEWAY_PREFIX: &str = "/v1/spr";
+use super::{TeeError, HPKE_INFO, RESPONSE_EXPORT};
 
 /// One request encrypted to the attested key, holding the key that decrypts its answer.
 pub struct EncryptedRequest {
@@ -20,13 +16,14 @@ pub struct EncryptedRequest {
 }
 
 impl EncryptedRequest {
-    /// Binds `method` and `request_uri` without its `api-key` pairs as AAD, so
-    /// the encrypted body decrypts only on the route it was sent to.
-    /// `request_uri` is the path below the prover URL and its query.
+    /// Binds `method` and `route` as AAD, so the encrypted body decrypts only
+    /// on the route it was sent to. `route` is the path below the prover URL,
+    /// such as `/prove/transfer_2_2`; the query is not bound and the prover
+    /// never reads it.
     pub fn encrypt(
         hpke_public_key: &[u8; 32],
         method: &str,
-        request_uri: &str,
+        route: &str,
         plaintext: &[u8],
     ) -> Result<Self, TeeError> {
         let public_key = <X25519HkdfSha256 as Kem>::PublicKey::from_bytes(hpke_public_key)
@@ -40,7 +37,7 @@ impl EncryptedRequest {
             )
             .map_err(|_| TeeError::Encryption("HPKE setup failed"))?;
         let body = context
-            .seal(plaintext, request_aad(method, request_uri).as_bytes())
+            .seal(plaintext, request_aad(method, route).as_bytes())
             .map_err(|_| TeeError::Encryption("HPKE encryption failed"))?;
         let mut response_key = Zeroizing::new([0u8; 32]);
         context
@@ -80,31 +77,8 @@ pub fn decrypt_response(key: &[u8; 32], encrypted: &[u8]) -> Result<(u16, Vec<u8
     Ok((u16::from_be_bytes(*status), body.to_vec()))
 }
 
-/// The method, route and query minus every `api-key` parameter, so a proxy can
-/// move the credential while the route and job stay bound. The route drops
-/// trailing slashes and then [`GATEWAY_PREFIX`], in the order a gateway trims
-/// and forwards; a client passes the path below its prover URL, so a proxy can
-/// serve the prover under any path.
-pub(crate) fn request_aad(method: &str, request_uri: &str) -> String {
-    let (path, query) = request_uri.split_once('?').unwrap_or((request_uri, ""));
-    let path = path.trim_end_matches('/');
-    let path = path
-        .strip_prefix(GATEWAY_PREFIX)
-        .filter(|route| route.starts_with('/'))
-        .unwrap_or(path);
-    let path = if path.is_empty() { "/" } else { path };
-    let kept: Vec<&str> = query
-        .split('&')
-        .filter(|pair| {
-            !pair.is_empty()
-                && form_urlencoded::parse(pair.as_bytes())
-                    .next()
-                    .is_none_or(|(key, _)| key != API_KEY_PARAM)
-        })
-        .collect();
-    if kept.is_empty() {
-        format!("{method} {path}")
-    } else {
-        format!("{method} {path}?{}", kept.join("&"))
-    }
+/// A client binds the route below its prover URL, so a proxy can serve the
+/// prover under any path.
+pub(crate) fn request_aad(method: &str, route: &str) -> String {
+    format!("{method} {route}")
 }

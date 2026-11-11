@@ -118,7 +118,7 @@ impl<'a> Call<'a> {
         let encrypted = TeeSession::encrypt(
             &recipient.key,
             self.method.as_str(),
-            &endpoint.route(self.url),
+            endpoint.route(self.url),
             self.body.unwrap_or_default().as_bytes(),
         )
         .map_err(CallError::Refused)?;
@@ -322,14 +322,16 @@ mod tests {
     }
 
     /// A proxy that serves the prover under its own path forwards the route
-    /// bare or under the gateway prefix; the call opens on either.
+    /// bare or under the gateway prefix, with any query; the call opens on
+    /// either.
     #[test]
     fn an_encrypted_call_binds_the_route_below_its_prover_url() {
         let prover = FixtureProver::from_ikm(&[0x5a; 32]);
         let session = session();
         let endpoint =
             ProverEndpoint::parse("https://app.example/api/tvc/zolana/prover/?api-key=k");
-        let url = endpoint.url("/prove/merge_8_1/status").unwrap();
+        let mut url = endpoint.url("/prove/merge_8_1/status").unwrap();
+        url.query_pairs_mut().append_pair("jobId", "job-a");
         let prepared = Call::get(&url, Duration::from_secs(1))
             .prepare(
                 Some(Recipient {
@@ -345,6 +347,7 @@ mod tests {
         for target in [
             "/prove/merge_8_1/status",
             "/v1/spr/prove/merge_8_1/status?api-key=other",
+            "/prove/merge_8_1/status?jobId=job-b",
         ] {
             assert!(prover.open("GET", target, &enc, &body).is_ok(), "{target}");
         }
