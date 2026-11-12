@@ -34,7 +34,7 @@ Alice wants to send Bob 10 USDC privately. Bob has not registered his viewing an
    Follow the [Nitro prover's seed recovery](../../tools/nitro/README.md#shared-key):
    1. Provision a 32-byte seed once using `KMS.GenerateDataKeyWithoutPlaintext`. Store the encrypted seed and its encryption context with durable backups.
    2. Call `KMS.Decrypt` with the encrypted seed, encryption context, and Nitro attestation in `Recipient`. KMS verifies the enclave measurements and returns `CiphertextForRecipient`; the enclave unwraps it to recover the seed.
-   3. Derive recipient-specific keys on demand inside the TEE using HKDF-SHA256. `recipient_pk` is the recipient's raw 32-byte Solana public key. `nullifier_prk` is the `prk` of the service's initial seed, retained independently of viewing key rotation.
+   3. Derive recipient-specific keys on demand inside the TEE using HKDF-SHA256. `recipient_pk` is the 32-byte Ed25519 key inside the request's `PublicKey` (`recipient_pubkey` or `signer_pubkey`). `nullifier_prk` is the `prk` of the service's initial seed, retained independently of viewing key rotation.
       ```text
        prk := HKDF-Extract(salt=∅, IKM=seed)
        viewing_sk := clamp(HKDF-Expand(
@@ -83,7 +83,7 @@ Alice wants to send Bob 10 USDC privately. Bob has not registered his viewing an
 
 #### `getPublicKey`
 
-Return the viewing and nullifier public keys derived for `recipient_pubkey`. The viewing private key stays inside the TEE.
+Return the viewing and nullifier public keys derived for `recipient_pubkey`. Reject a `recipient_pubkey` whose curve is not Ed25519. The viewing private key stays inside the TEE.
 
 The request and response use the [encrypted transport](#end-to-end-encrypted-communication). A response that decrypts comes from the attested enclave, and the relay does not learn which recipient a sender looks up. A UTXO created with keys from another source cannot be decrypted by the service or spent by the recipient.
 
@@ -140,7 +140,7 @@ application_domain := SHA-256(decrypt_label)
 
 `hex` is lowercase, so the payload is printable ASCII as message format 0 requires. One signature authorizes the decryption of one output.
 
-1. Decrypt and decode the request inside the TEE.
+1. Decrypt and decode the request inside the TEE. Reject a `signer_pubkey` whose curve is not Ed25519.
 2. Rebuild `decrypt_message` from `signer_pubkey` and the output hash, and verify `signature` over it using `signer_pubkey`. Reject the request if verification fails.
 3. Find the current or retained seed root whose recipient-specific viewing public key for `signer_pubkey` matches `viewing_pubkey`, then decrypt the UTXO with that key.
 4. Derive the signer's recipient-specific nullifier secret and compute the UTXO hash using its nullifier public key, the plaintext, and `signer_pubkey`.
