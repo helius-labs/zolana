@@ -57,9 +57,10 @@ recipient's wallet secrets. `transfer --to <PUBKEY>` resolves registered
 recipients from the on-chain user registry. If the registry record is absent,
 the command fails unless `--allow-public` is provided, allowing a public
 withdrawal that reveals the recipient, amount, and asset. SOL goes to that
-pubkey; SPL tokens go to its associated token account, which must already
-exist. Registered recipients still receive a shielded transfer with the flag.
-`withdraw --to <PUBKEY>` always uses a regular public Solana destination.
+pubkey; SPL tokens go to its associated token account, which the CLI creates
+first at the sender's expense, as `withdraw` does. Registered recipients still
+receive a shielded transfer with the flag. `withdraw --to <PUBKEY>` always uses
+a regular public Solana destination.
 
 CLI-wide defaults live at `~/.config/zolana/config.json`. Explicit flags win
 over config values, and config values win over built-in localnet defaults. The

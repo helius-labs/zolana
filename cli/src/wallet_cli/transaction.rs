@@ -24,8 +24,8 @@ use super::{
     spend::{send_private, Send},
     sync::{sync_context, sync_rpc, SyncContext},
     util::{
-        ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey,
-        resolve_spl_token_program,
+        ensure_owner_spl_token_account, ensure_positive, format_address, parse_address,
+        parse_hex_array, parse_pubkey,
     },
 };
 use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
@@ -57,11 +57,12 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
+    let recipient = parse_pubkey(&opts.to)?;
+    // Refuse an unregistered recipient before the wallet sync and airdrop.
+    let registered = resolve_transfer_recipient(&rpc, recipient, opts.allow_public)?;
     let ctx = sync_context(&opts.network.sync, &rpc)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = client(rpc, &network)?;
-    let recipient = parse_pubkey(&opts.to)?;
-    let registered = resolve_transfer_recipient(&client, recipient, opts.allow_public)?;
 
     let inputs = select_spend(ctx.spendable.utxos(), asset, opts.amount)?;
     let mut transaction = ConfidentialTransaction::new(inputs, payer(&ctx))?;
@@ -75,7 +76,11 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
             ("shielded", Vec::new())
         }
         None => {
-            let spl_token_program = spl_token_program(&client, asset)?;
+            // Like `withdraw`, an SPL fallback settles into the recipient's
+            // associated token account, so create it first (no-op for SOL).
+            let spl_token_program =
+                ensure_owner_spl_token_account(&client, &ctx.material.funding, recipient, asset)?
+                    .map(|(_, token_program)| token_program);
             let settlement =
                 transaction.withdraw_to(asset, opts.amount, recipient, spl_token_program)?;
             ("withdraw", vec![settlement])
@@ -300,18 +305,6 @@ fn merge_inputs(ctx: &SyncContext, asset: Address, hashes: &[[u8; 32]]) -> Resul
 
 fn payer(ctx: &SyncContext) -> Address {
     Address::new_from_array(ctx.material.funding.pubkey().to_bytes())
-}
-
-/// The token program of an SPL `asset`; `None` for SOL.
-pub(super) fn spl_token_program<R: Rpc>(
-    rpc: &R,
-    asset: Address,
-) -> Result<Option<solana_pubkey::Pubkey>> {
-    if asset == SOL_MINT {
-        return Ok(None);
-    }
-    let mint = solana_pubkey::Pubkey::new_from_array(asset.to_bytes());
-    Ok(Some(resolve_spl_token_program(rpc, &mint)?))
 }
 
 pub(super) fn maybe_airdrop(

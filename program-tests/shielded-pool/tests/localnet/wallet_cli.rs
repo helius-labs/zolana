@@ -771,11 +771,13 @@ fn phase_spl_deposit_and_transfers(
         &cli_env,
     )?;
 
-    // An unregistered recipient requires an explicit public-withdrawal opt-in.
+    // An unregistered Solana pubkey has no user-registry record (spec Single
+    // Player, lookup-negative), so `transfer` refuses it unless the sender opts
+    // in to a public withdrawal with `--allow-public`.
     let fallback_recipient = Keypair::new().pubkey();
     let fallback_amount = 2_000_000u64;
     let fallback_before = rpc
-        .get_account(Address::new_from_array(fallback_recipient.to_bytes()))?
+        .get_account(fallback_recipient)?
         .map_or(0, |account| account.lamports);
     let fallback_keypair = env.bob_keypair.display().to_string();
     let fallback_address = fallback_recipient.to_string();
@@ -818,12 +820,53 @@ fn phase_spl_deposit_and_transfers(
         TransferMode::Withdraw
     );
     let fallback_after = rpc
-        .get_account(Address::new_from_array(fallback_recipient.to_bytes()))?
+        .get_account(fallback_recipient)?
         .map_or(0, |account| account.lamports);
     assert_eq!(
         fallback_after,
         fallback_before + fallback_amount,
         "explicit public fallback should credit the recipient's SOL balance"
+    );
+
+    // The SPL fallback settles into the recipient's associated token account,
+    // which the CLI creates because a fresh pubkey has none.
+    let spl_fallback_recipient = Keypair::new().pubkey();
+    let spl_fallback_ata =
+        pda::associated_token_address(&spl_fallback_recipient, &pool.spl_mint.parse::<Pubkey>()?);
+    assert!(
+        rpc.get_account(spl_fallback_ata)?.is_none(),
+        "the SPL fallback recipient must start without an ATA"
+    );
+    let spl_fallback_amount = 25_000u64;
+    let spl_fallback_out = run_cli_with_env(
+        &[
+            "transfer",
+            "--keypair",
+            &env.bob_keypair.display().to_string(),
+            "--to",
+            &spl_fallback_recipient.to_string(),
+            "--amount",
+            &spl_fallback_amount.to_string(),
+            "--mint",
+            &pool.spl_mint,
+            "--rpc-url",
+            &env.rpc_url,
+            "--indexer-url",
+            &env.indexer_url,
+            "--prover-url",
+            &env.prover_url,
+            "--allow-public",
+        ],
+        &cli_env,
+    )?;
+    assert_eq!(
+        TransferOutput::parse(&spl_fallback_out)?.mode,
+        TransferMode::Withdraw
+    );
+    assert_eq!(
+        spl_token_account_amount(rpc, &spl_fallback_ata)?,
+        spl_fallback_amount,
+        "explicit SPL public fallback should fund the recipient's new ATA"
     );
 
     // Pay alice by her plain Solana pubkey: she was registered up front, so the

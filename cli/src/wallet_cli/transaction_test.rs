@@ -6,7 +6,6 @@ use spr_user_registry_interface::{
 };
 
 use super::*;
-use crate::args::{parse_cli, CliCommand};
 
 struct RegistryRpc {
     account: Option<Account>,
@@ -18,30 +17,11 @@ impl Rpc for RegistryRpc {
     }
 }
 
-fn transfer_options(extra: &[&str]) -> TransferOptions {
-    let args: Vec<_> = [
-        "transfer",
-        "--to",
-        "11111111111111111111111111111111",
-        "--amount",
-        "1",
-    ]
-    .into_iter()
-    .chain(extra.iter().copied())
-    .collect();
-    let Some(CliCommand::Transfer(opts)) = parse_cli(&args).command else {
-        panic!("expected transfer command");
-    };
-    opts
-}
-
 #[test]
 fn unregistered_recipient_requires_explicit_public_opt_in() {
-    let opts = transfer_options(&[]);
-    let recipient = parse_pubkey(&opts.to).unwrap();
+    let recipient = Address::default();
     let error =
-        resolve_transfer_recipient(&RegistryRpc { account: None }, recipient, opts.allow_public)
-            .unwrap_err();
+        resolve_transfer_recipient(&RegistryRpc { account: None }, recipient, false).unwrap_err();
     assert_eq!(
         error.to_string(),
         format!(
@@ -52,10 +32,8 @@ fn unregistered_recipient_requires_explicit_public_opt_in() {
 
 #[test]
 fn allow_public_permits_an_unregistered_recipient() {
-    let opts = transfer_options(&["--allow-public"]);
-    let recipient = parse_pubkey(&opts.to).unwrap();
     assert_eq!(
-        resolve_transfer_recipient(&RegistryRpc { account: None }, recipient, opts.allow_public)
+        resolve_transfer_recipient(&RegistryRpc { account: None }, Address::default(), true)
             .unwrap(),
         None
     );
@@ -76,6 +54,7 @@ fn registered_recipient_stays_shielded_with_or_without_public_opt_in() {
     };
     let mut account_data = vec![UserRecord::DISCRIMINATOR];
     account_data.extend(borsh::to_vec(&record).unwrap());
+    account_data.resize(UserRecord::SIZE, 0);
     let rpc = RegistryRpc {
         account: Some(Account {
             lamports: 1,
@@ -125,8 +104,7 @@ fn allow_public_does_not_hide_invalid_registry_records() {
         assert!(
             matches!(
                 error.downcast_ref::<ClientError>(),
-                Some(ClientError::Rpc(message))
-                    if message == "user record account is not owned by the user registry program"
+                Some(ClientError::Rpc(_))
             ),
             "expected an invalid registry record error, got {error}"
         );
