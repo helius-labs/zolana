@@ -18,8 +18,8 @@ use photon_indexer::ingester::indexer::{
     fetch_last_indexed_slot_with_infinite_retry, index_block_stream,
 };
 use photon_indexer::migration::{
+    migrate_up,
     sea_orm::{DatabaseBackend, DatabaseConnection, SqlxPostgresConnector, SqlxSqliteConnector},
-    MigratorTrait, RingsMigrator,
 };
 
 use photon_indexer::monitor::continuously_monitor_photon;
@@ -393,7 +393,7 @@ async fn main() -> Result<()> {
 
     if args.db_url.is_none() {
         info!("Running migrations...");
-        RingsMigrator::up(db_conn.as_ref(), None)
+        migrate_up(db_conn.as_ref(), None)
             .await
             .context("Failed to run migrations")?;
     }
