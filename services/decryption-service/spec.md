@@ -17,7 +17,7 @@ Alice wants to send Bob 10 USDC privately. Bob has not registered his viewing an
 
 1. Bob fetches the encrypted UTXO.
 2. Bob signs a decryption request with his Solana key and sends it to the TEE over an end-to-end encrypted connection.
-3. The TEE decrypts the UTXO, verifies Bob's signature, and checks that the signing key owns the UTXO.
+3. The TEE verifies Bob's signature, decrypts the UTXO, and checks that the signing key owns the UTXO.
 4. The TEE returns the decrypted UTXO and Bob's nullifier secret over the encrypted connection.
 5. Bob retains the nullifier secret to spend these UTXOs; his signature is still required to authorize a spend.
 
@@ -141,10 +141,10 @@ application_domain := SHA-256(decrypt_label)
 `hex` is lowercase, so the payload is printable ASCII as message format 0 requires. One signature authorizes the decryption of one output.
 
 1. Decrypt and decode the request inside the TEE.
-2. Find the current or retained seed root whose recipient-specific viewing public key for `signer_pubkey` matches `viewing_pubkey`, then decrypt the UTXO with that key.
-3. Derive the signer's recipient-specific nullifier secret and compute the UTXO hash using its nullifier public key, the plaintext, and `signer_pubkey`.
-4. Check that the computed hash matches the authenticated output commitment.
-5. Rebuild `decrypt_message` from `signer_pubkey` and the output hash, and verify `signature` over it using `signer_pubkey`.
+2. Rebuild `decrypt_message` from `signer_pubkey` and the output hash, and verify `signature` over it using `signer_pubkey`. Reject the request if verification fails.
+3. Find the current or retained seed root whose recipient-specific viewing public key for `signer_pubkey` matches `viewing_pubkey`, then decrypt the UTXO with that key.
+4. Derive the signer's recipient-specific nullifier secret and compute the UTXO hash using its nullifier public key, the plaintext, and `signer_pubkey`.
+5. Check that the computed hash matches the authenticated output commitment.
 6. Encrypt the decrypted UTXO and the recipient's nullifier secret back to the requester and return them.
 
 #### End-to-end encrypted communication
