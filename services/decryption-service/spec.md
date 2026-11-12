@@ -144,7 +144,7 @@ application_domain := SHA-256(decrypt_label)
 2. Rebuild `decrypt_message` from `signer_pubkey` and the output hash, and verify `signature` over it using `signer_pubkey`. Reject the request if verification fails.
 3. Find the current or retained seed root whose recipient-specific viewing public key for `signer_pubkey` matches `viewing_pubkey`, then decrypt the UTXO with that key.
 4. Derive the signer's recipient-specific nullifier secret and compute the UTXO hash using its nullifier public key, the plaintext, and `signer_pubkey`.
-5. Check that the computed hash matches the authenticated output commitment.
+5. Check that the computed hash equals `output.output_context.hash` from the request. The service has no view of Solana state; the SDK compares the returned UTXO with the output hash it fetched.
 6. Encrypt the decrypted UTXO and the recipient's nullifier secret back to the requester and return them.
 
 #### End-to-end encrypted communication
@@ -156,7 +156,7 @@ application_domain := SHA-256(decrypt_label)
 ## SDK
 
 1. **Send:** look up the recipient in the registry. If unregistered, call `getPublicKey(recipient_pubkey)` through the attested encrypted transport and use the returned viewing and nullifier public keys to create the transfer.
-2. **Receive:** fetch encrypted UTXOs and send signed `decrypt` requests through the attested encrypted transport. Verify each returned UTXO against its commitment and retain its nullifier secret.
+2. **Receive:** fetch encrypted UTXOs and send signed `decrypt` requests through the attested encrypted transport. Recompute each returned UTXO's hash, compare it with the fetched output hash, and retain its nullifier secret.
 3. **Spend:** use the UTXO's retained nullifier secret and the owner's Solana signature to create the spend.
 
 ### Future work
