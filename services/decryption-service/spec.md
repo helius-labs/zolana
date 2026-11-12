@@ -137,4 +137,4 @@ Attestation verification and request/response encryption follow the [TEE wire co
 
 ### Future work
 
-PDA authorization verification, we need an authorization pda. You can bridge the pda state with wormhole into the TEE.
+For PDA authorization verification we need an authorization pda. We can bridge the verification pda state with wormhole into the TEE.
