@@ -111,15 +111,7 @@ pub struct GetPublicKeyResponse {
 use spr_keypair::{PublicKey, Signature, X25519Pubkey};
 use spr_transaction::{OutputSlot, Utxo};
 
-pub struct DecryptRequest {
-    pub ciphertext: Vec<u8>,
-}
-
-pub struct DecryptResponse {
-    pub ciphertext: Vec<u8>,
-}
-
-pub struct DecryptRequestPlaintext {
+pub struct DecryptUtxosRequest {
     pub signer_pubkey: PublicKey,
     pub signature: Signature,
     pub outputs: Vec<EncryptedOutput>,
@@ -133,7 +125,7 @@ pub struct EncryptedOutput {
     pub output: OutputSlot,
 }
 
-pub struct DecryptResponsePlaintext {
+pub struct DecryptUtxosResponse {
     /// In the order of the request's `outputs`.
     pub utxos: Vec<Utxo>,
     pub nullifier_secret: [u8; 31],
@@ -164,7 +156,7 @@ application_domain := SHA-256(decrypt_label)
 
 #### End-to-end encrypted communication
 
-`getPublicKey` and `decrypt` are sent encrypted. Attestation verification and request/response encryption follow the [TEE wire contract](../../prover/tee/WIRE_CONTRACT.md) with these values:
+`getPublicKey` and `decrypt` are sent encrypted: the request and response structs above are the plaintext bodies. Attestation verification and request/response encryption follow the [TEE wire contract](../../prover/tee/WIRE_CONTRACT.md) with these values:
 
 | Contract parameter | Decryption service value |
 | --- | --- |
