@@ -38,10 +38,10 @@ Alice wants to send Bob 10 USDC privately. Bob has not registered his viewing an
       ```text
        prk := HKDF-Extract(salt=∅, IKM=seed)
        viewing_sk := clamp(HKDF-Expand(
-           prk, "TSPP/view_key/ed25519/x25519/v1" || recipient_pk, L=32))
+           prk, "TSPP/decryption-service/view_key/x25519/v1" || recipient_pk, L=32))
        viewing_pk := 0x04 || X25519(viewing_sk, 9)
        nullifier_secret := HKDF-Expand(
-           nullifier_prk, "TSPP/nf_key/ed25519/v1" || recipient_pk, L=31)
+           nullifier_prk, "TSPP/decryption-service/nf_key/v1" || recipient_pk, L=31)
        nullifier_pk := Poseidon(nullifier_secret)
        hpke_ikm := HKDF-Expand(
            nullifier_prk, "TSPP/decryption-service/hpke/v1", L=32)
@@ -83,7 +83,7 @@ Alice wants to send Bob 10 USDC privately. Bob has not registered his viewing an
 | API call       | Inputs                                                          | Output                                                                                                                              |
 | -------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `getPublicKey` | Encrypted request containing the recipient's Solana public key. | Encrypted response containing the recipient-specific viewing and nullifier public keys derived by the service.                      |
-| `decrypt`      | Encrypted decryption request.                                   | Encrypted response containing the decrypted UTXO and the recipient's nullifier secret, after verifying the signature and ownership. |
+| `decrypt`      | Encrypted decryption request.                                   | Encrypted response containing the decrypted UTXOs and the recipient's nullifier secret, after verifying the signature and ownership. |
 
 
 #### `getPublicKey`
@@ -122,6 +122,10 @@ pub struct DecryptResponse {
 pub struct DecryptRequestPlaintext {
     pub signer_pubkey: PublicKey,
     pub signature: Signature,
+    pub outputs: Vec<EncryptedOutput>,
+}
+
+pub struct EncryptedOutput {
     pub viewing_pubkey: X25519Pubkey,
     pub tx_viewing_pubkey: X25519Pubkey,
     pub salt: [u8; 16],
@@ -130,7 +134,8 @@ pub struct DecryptRequestPlaintext {
 }
 
 pub struct DecryptResponsePlaintext {
-    pub utxo: Utxo,
+    /// In the order of the request's `outputs`.
+    pub utxos: Vec<Utxo>,
     pub nullifier_secret: [u8; 31],
 }
 ```
@@ -139,18 +144,23 @@ pub struct DecryptResponsePlaintext {
 
 ```text
 decrypt_label      := "TSPP/decryption-service/decrypt/v1"
-payload            := decrypt_label || "/" || hex(output.output_context.hash)
+outputs_digest     := SHA-256(outputs[0].output.output_context.hash || ... ||
+                              outputs[n-1].output.output_context.hash)
+payload            := decrypt_label || "/" || hex(outputs_digest)
 application_domain := SHA-256(decrypt_label)
 ```
 
-`hex` is lowercase, so the payload is printable ASCII as message format 0 requires. One signature authorizes the decryption of one output.
+`hex` is lowercase, so the payload is printable ASCII as message format 0 requires. One signature authorizes the decryption of the request's outputs, in their order.
 
-1. Decrypt and decode the request inside the TEE. Reject a `signer_pubkey` whose curve is not Ed25519.
-2. Rebuild `decrypt_message` from `signer_pubkey` and the output hash, and verify `signature` over it using `signer_pubkey`. Reject the request if verification fails.
-3. Find the current or retained seed root whose recipient-specific viewing public key for `signer_pubkey` matches `viewing_pubkey`, then decrypt the UTXO with that key.
-4. Derive the signer's recipient-specific nullifier secret and compute the UTXO hash using its nullifier public key, the plaintext, and `signer_pubkey`.
-5. Check that the computed hash equals `output.output_context.hash` from the request. The service has no view of Solana state; the SDK compares the returned UTXO with the output hash it fetched.
-6. Encrypt the decrypted UTXO and the recipient's nullifier secret back to the requester and return them.
+1. Decrypt and decode the request inside the TEE. Reject a `signer_pubkey` whose curve is not Ed25519 and an empty `outputs`.
+2. Rebuild `decrypt_message` from `signer_pubkey` and the output hashes, and verify `signature` over it using `signer_pubkey`. Reject the request if verification fails.
+3. Derive the signer's recipient-specific nullifier secret.
+4. For each entry of `outputs`:
+   1. Find the current or retained seed root whose recipient-specific viewing public key for `signer_pubkey` matches `viewing_pubkey`, then decrypt the UTXO with that key.
+   2. Compute the UTXO hash using the signer's nullifier public key, the plaintext, and `signer_pubkey`.
+   3. Check that the computed hash equals `output.output_context.hash` from the request. The service has no view of Solana state; the SDK compares the returned UTXO with the output hash it fetched.
+5. Reject the request if any entry fails.
+6. Encrypt the decrypted UTXOs and the recipient's nullifier secret back to the requester and return them.
 
 #### End-to-end encrypted communication
 
@@ -172,9 +182,11 @@ application_domain := SHA-256(decrypt_label)
 ## SDK
 
 1. **Send:** look up the recipient in the registry. If unregistered, call `getPublicKey(recipient_pubkey)` through the attested encrypted transport and use the returned viewing and nullifier public keys to create the transfer.
-2. **Receive:** fetch encrypted UTXOs and send signed `decrypt` requests through the attested encrypted transport. Recompute each returned UTXO's hash, compare it with the fetched output hash, and retain its nullifier secret.
+2. **Receive:** fetch encrypted UTXOs and send them in one signed `decrypt` request through the attested encrypted transport. Recompute each returned UTXO's hash, compare it with the fetched output hash, and retain its nullifier secret.
 3. **Spend:** use the UTXO's retained nullifier secret and the owner's Solana signature to create the spend.
 
 ### Future work
 
 For PDA authorization verification we need an authorization pda. We can bridge the verification pda state with wormhole into the TEE.
+
+Anonymous transfers. After the first transfer from a sender, the recipient finds later transfers through the [`recipient_shared_view_tag`](../../docs/spec.md#recipient-view-tag), which is derived from the recipient's viewing private key. That key stays inside the TEE, so the service needs an API call that returns the recipient's shared view tags for a sender.
