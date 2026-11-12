@@ -65,7 +65,7 @@ Alice wants to send Bob 10 USDC privately. Bob has not registered his viewing an
    A KMS key policy names one set of enclave measurements, so a new enclave image cannot recover the service seeds from KMS. The running enclave hands them over:
    1. Deploy the new image with its own KMS key and a 32-byte release seed, provisioned as in step 2 with a key policy that names the new measurements. The release seed is used only to encrypt handed-over seeds.
    2. The new enclave draws an X25519 keypair and requests a Nitro attestation document that contains its public key and a nonce drawn by the running enclave.
-   3. The running enclave verifies the document with the [aws-nitro checks](../../prover/tee/WIRE_CONTRACT.md#aws-nitro). It requires PCR0, PCR1 and PCR2 to equal the measurements of a [signed release](../../prover/tee/WIRE_CONTRACT.md#signed-policy) whose version is higher than its own and which the release keys pinned in its own image signed.
+   3. The running enclave verifies the document with the [aws-nitro checks](../../prover/tee/WIRE_CONTRACT.md#aws-nitro). It requires PCR0, PCR1 and PCR2 to equal the measurements of a [signed release](../../prover/tee/WIRE_CONTRACT.md#signed-policy) whose version is higher than its own and which the release keys pinned in its own image signed. The release's `network` must equal the network pinned in the running enclave's image.
    4. The running enclave encrypts the seeds it holds, and which of them is the initial seed, to the attested public key with HPKE base mode and the info `TSPP/decryption-service/handover/v1`.
    5. The new enclave encrypts each received seed with AES-256-GCM using a wrap key and stores the results with the backups of step 3. After a restart it recovers its release seed from KMS and decrypts them.
       ```text
@@ -179,6 +179,6 @@ application_domain := SHA-256(decrypt_label)
 
 ### Future work
 
-For PDA authorization verification we need an authorization pda. We can bridge the verification pda state with wormhole into the TEE.
+For PDA authorization verification we need an authorization pda. We can bridge the verification pda state with wormhole into the TEE. Until then both API calls reject a PDA `PublicKey`.
 
 Anonymous transfers. After the first transfer from a sender, the recipient finds later transfers through the [`recipient_shared_view_tag`](../../docs/spec.md#recipient-view-tag), which is derived from the recipient's viewing private key. That key stays inside the TEE, so the service needs an API call that returns the recipient's shared view tags for a sender.
