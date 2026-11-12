@@ -130,11 +130,21 @@ pub struct DecryptResponsePlaintext {
 }
 ```
 
+`signature` is the signer's Ed25519 signature over `decrypt_message`, a Solana off-chain message v0 with the encoding of [`derivation_message`](../../docs/spec.md#solana-wallet) and its own payload and application domain. `signer_pubkey` is the message's one signer.
+
+```text
+decrypt_label      := "TSPP/decryption-service/decrypt/v1"
+payload            := decrypt_label || "/" || hex(output.output_context.hash)
+application_domain := SHA-256(decrypt_label)
+```
+
+`hex` is lowercase, so the payload is printable ASCII as message format 0 requires. One signature authorizes the decryption of one output.
+
 1. Decrypt and decode the request inside the TEE.
 2. Find the current or retained seed root whose recipient-specific viewing public key for `signer_pubkey` matches `viewing_pubkey`, then decrypt the UTXO with that key.
 3. Derive the signer's recipient-specific nullifier secret and compute the UTXO hash using its nullifier public key, the plaintext, and `signer_pubkey`.
 4. Check that the computed hash matches the authenticated output commitment.
-5. Verify the request signature using `signer_pubkey`.
+5. Rebuild `decrypt_message` from `signer_pubkey` and the output hash, and verify `signature` over it using `signer_pubkey`.
 6. Encrypt the decrypted UTXO and the recipient's nullifier secret back to the requester and return them.
 
 #### End-to-end encrypted communication
