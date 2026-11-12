@@ -57,10 +57,30 @@ Alice wants to send Bob 10 USDC privately. Bob has not registered his viewing an
 
    1. After a restart, recover the same seed to reconstruct the same recipient keys.
    2. To rotate viewing keys, provision a new seed and return its recipient viewing public keys through `getPublicKey`; retain the initial seed for `nullifier_prk`.
-   3. Retain every encrypted seed, its encryption context, and access to its KMS key so replacement enclaves can recover existing UTXOs.
+   3. Retain every encrypted seed, its encryption context, and access to its KMS key so a replacement enclave with the same measurements can recover existing UTXOs. An enclave with other measurements receives the seeds through the enclave upgrade in step 4.
    4. Restore a missing encrypted seed from backup; never generate a replacement for existing payments. Fail recovery if the original seed cannot be restored.
    5. Back up each encrypted seed, encryption context, and KMS key ARN using [S3 Object Lock](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html) in compliance mode for the configured retention period; retain the object version ID and protect the KMS key separately.
-   6. Protect the KMS key from deletion and policy changes using the [existing Nitro key-policy protection](../../tools/nitro/README.md#roles).
+   6. Protect each KMS key from deletion and policy changes using the [existing Nitro key-policy protection](../../tools/nitro/README.md#roles). After that protection the policy cannot change.
+
+4. Enclave upgrade.
+
+   A KMS key policy names one set of enclave measurements, so a new enclave image cannot recover the service seeds from KMS. The running enclave hands them over:
+
+   1. Deploy the new image with its own KMS key and a 32-byte release seed, provisioned as in step 2 with a key policy that names the new measurements. The release seed is used only to encrypt handed-over seeds.
+   2. The new enclave draws an X25519 keypair and requests a Nitro attestation document that contains its public key and a nonce drawn by the running enclave.
+   3. The running enclave verifies the document with the [aws-nitro checks](../../prover/tee/WIRE_CONTRACT.md#aws-nitro). It requires PCR0, PCR1 and PCR2 to equal the measurements of a [signed release](../../prover/tee/WIRE_CONTRACT.md#signed-policy) whose version is higher than its own and which the release keys pinned in its own image signed.
+   4. The running enclave encrypts the seeds it holds, and which of them is the initial seed, to the attested public key with HPKE base mode and the info `TSPP/decryption-service/handover/v1`.
+   5. The new enclave encrypts each received seed with AES-256-GCM using a wrap key and stores the results with the backups of step 3. After a restart it recovers its release seed from KMS and decrypts them.
+
+      ```text
+      wrap_key := HKDF-Expand(
+          HKDF-Extract(salt=∅, IKM=release_seed),
+          "TSPP/decryption-service/seed_wrap/v1", L=32)
+      ```
+
+   6. Before requests move to the new enclaves, check that they return the same `getPublicKey` response as the running enclaves for the same recipient, and that a restarted new enclave still does. Keep the running enclaves until both checks pass. A release without a completed handover must not replace them.
+
+   The release keys can approve an image that receives the seeds, so they are part of the trust root for the derived viewing keys and nullifier secrets.
 
 ### API calls
 
