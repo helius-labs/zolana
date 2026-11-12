@@ -43,7 +43,12 @@ Alice wants to send Bob 10 USDC privately. Bob has not registered his viewing an
        nullifier_secret := HKDF-Expand(
            nullifier_prk, "TSPP/nf_key/ed25519/v1" || recipient_pk, L=31)
        nullifier_pk := Poseidon(nullifier_secret)
+       hpke_ikm := HKDF-Expand(
+           nullifier_prk, "TSPP/decryption-service/hpke/v1", L=32)
+       (hpke_sk, hpke_public_key) := DeriveKeyPair(hpke_ikm)
       ```
+
+      `DeriveKeyPair` is the RFC 9180 function for DHKEM(X25519, HKDF-SHA256). `hpke_public_key` is the key the [encrypted transport](#end-to-end-encrypted-communication) attests and clients encrypt requests to.
    
       The service must never expose plaintext seeds or viewing private keys outside the TEE.
    
@@ -159,6 +164,8 @@ application_domain := SHA-256(decrypt_label)
 | HPKE info | `TSPP/decryption-service/transport/v1` |
 | Response export label | `TSPP/decryption-service/transport/v1/response` |
 | Encrypted routes | `POST /getPublicKey`, `POST /decrypt` |
+
+`hpke_public_key` derives from the initial seed, so it is the same across restarts, viewing key rotations and enclave upgrades, and a client policy can pin it.
 
 
 
