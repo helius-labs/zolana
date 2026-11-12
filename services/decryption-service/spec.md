@@ -149,7 +149,16 @@ application_domain := SHA-256(decrypt_label)
 
 #### End-to-end encrypted communication
 
-`getPublicKey` and `decrypt` are sent encrypted. Attestation verification and request/response encryption follow the [TEE wire contract](../../prover/tee/WIRE_CONTRACT.md), using `TSPP/decryption-service/transport/v1` as the HPKE info and `TSPP/decryption-service/transport/v1/response` as the response-export label.
+`getPublicKey` and `decrypt` are sent encrypted. Attestation verification and request/response encryption follow the [TEE wire contract](../../prover/tee/WIRE_CONTRACT.md) with these values:
+
+| Contract parameter | Decryption service value |
+| --- | --- |
+| `platform` | `aws-nitro` |
+| `gpu` | null, so `gpu_digest` is 32 zero bytes |
+| `report_data` domain | `TSPP/decryption-service/transport/v1/report` |
+| HPKE info | `TSPP/decryption-service/transport/v1` |
+| Response export label | `TSPP/decryption-service/transport/v1/response` |
+| Encrypted routes | `POST /getPublicKey`, `POST /decrypt` |
 
 
 
