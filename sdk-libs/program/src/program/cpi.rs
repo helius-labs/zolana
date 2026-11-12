@@ -10,7 +10,7 @@ use spr_instruction::{
     PrivateTxHash, TransactExternalData, TransactInputs,
 };
 use spr_interface::{
-    event::OutputDataEncoding,
+    event::encode_plaintext_output_data,
     instruction::instruction_data::transact::{
         CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext,
     },
@@ -21,7 +21,7 @@ use spr_interface::{
 use crate::hasher::DataHasher;
 
 use super::{
-    load_tree_id, unique::UtxoInput, utxo::DataUtxo, CompressedAccountError, PdaOwner,
+    load_tree_id, unique::UtxoInput, utxo::AccountUtxo, CompressedAccountError, PdaOwner,
     UniqueDataUtxo,
 };
 
@@ -174,7 +174,7 @@ impl SppTransactCpi {
             input_hashes.push(input_hash);
             address_nullifiers.push(address_nullifier);
 
-            let output_hash = DataUtxo {
+            let output_hash = AccountUtxo {
                 owner: &write.owner,
                 data_hash: write.data_hash,
                 blinding: write.blinding,
@@ -234,15 +234,11 @@ fn plaintext_output_data<T: BorshSerialize>(
     address: &[u8; 32],
     state: &T,
 ) -> Result<Vec<u8>, CompressedAccountError> {
-    let mut data = alloc::vec![OutputDataEncoding::PLAINTEXT_TAG, 0, 0, 0, 0];
-    data.extend_from_slice(address);
-    state
-        .serialize(&mut data)
-        .map_err(|_| CompressedAccountError::SerializationFailed)?;
-    let length =
-        u32::try_from(data.len() - 5).map_err(|_| CompressedAccountError::SerializationFailed)?;
-    data[1..5].copy_from_slice(&length.to_le_bytes());
-    Ok(data)
+    encode_plaintext_output_data(address.len() + size_of::<T>(), |data| {
+        data.extend_from_slice(address);
+        state.serialize(data)
+    })
+    .map_err(|_| CompressedAccountError::SerializationFailed)
 }
 
 /// Reuse a tree's context wherever it occurs in the input order.

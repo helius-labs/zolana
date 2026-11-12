@@ -53,19 +53,10 @@ pub use shielded_pda::ShieldedPda;
 pub use spr_keypair::circuit::OwnerCircuitErrorKind;
 #[cfg(feature = "circuit")]
 pub use spr_macros::ZkProgramCircuit;
-// The gates of the ZkCircuit derive, on the zk DSL's features, which this
-// crate's features forward.
-#[cfg(feature = "circuit")]
-#[doc(hidden)]
-pub use spr_zk_dsl::{__zk_circuit_r1cs, __zk_circuit_wasm, __zk_circuit_wasm_prover};
-// The derive alone; with `client`, `spr_zk_dsl::ZkCircuit` brings the
-// derive and the trait of the same name.
 #[cfg(feature = "circuit")]
 pub use spr_transaction::circuit::UtxoCircuitErrorKind;
 #[cfg(feature = "build")]
 pub use spr_zk_dsl::build;
-#[cfg(all(feature = "circuit", not(feature = "client")))]
-pub use spr_zk_dsl::circuit::ZkCircuit;
 pub use spr_zk_dsl::CompressedProof;
 #[cfg(feature = "setup")]
 pub use spr_zk_dsl::R1cs;
@@ -80,3 +71,14 @@ pub use spr_zk_dsl::{Groth16Keys, Proof, ProvingKey, SolanaVerifyingKey, Verifyi
 pub use spr_zk_dsl::{Groth16Prover, ProofInputs, ProofResult, SolanaProof};
 #[cfg(feature = "setup")]
 pub use spr_zk_dsl::{SetupKind, VerifyingKeyExport};
+
+// The gates of the ZkCircuit derive, on the zk DSL's features, which this
+// crate's features forward.
+#[cfg(feature = "circuit")]
+#[doc(hidden)]
+pub use spr_zk_dsl::{__zk_circuit_r1cs, __zk_circuit_wasm, __zk_circuit_wasm_prover};
+
+// The derive alone; with `client`, `spr_zk_dsl::ZkCircuit` brings the
+// derive and the trait of the same name.
+#[cfg(all(feature = "circuit", not(feature = "client")))]
+pub use spr_zk_dsl::circuit::ZkCircuit;

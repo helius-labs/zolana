@@ -43,14 +43,11 @@ impl<S> HasBalance for UniqueDataUtxo<S> {
 }
 
 impl<S: Default> UniqueDataUtxo<S> {
-    #[track_caller]
     /// The seed scopes the address within the owner. Derive it from the
     /// program id and account identifier to separate applications and accounts.
+    #[track_caller]
     pub fn new_init(owner: &UtxoOwner, seed: &CircuitVar) -> Result<Self, CircuitError> {
-        owner.key().tag().assert_equal(
-            &constant(u64::from(spr_hasher::primitives::SOLANA_OWNER_TAG)),
-            "an address owner must be a Solana signer",
-        )?;
+        assert_address_owner(owner)?;
         let address = derive_address(owner, seed)?;
         Ok(Self {
             utxo: DataUtxo::fresh(owner, S::default(), Some(address.clone())),
@@ -122,6 +119,17 @@ impl<S: UtxoData> UniqueDataUtxo<S> {
     }
 }
 
+/// Requires the owner of a new address to be a Solana signer.
+#[track_caller]
+pub(crate) fn assert_address_owner(owner: &UtxoOwner) -> Result<(), CircuitError> {
+    owner.key().tag().assert_equal(
+        &constant(u64::from(spr_hasher::primitives::SOLANA_OWNER_TAG)),
+        "an address owner is a Solana signer",
+    )
+}
+
+/// The address of `owner` and `seed`. It hashes the owner's key under the
+/// zero nullifier key, whatever nullifier key `owner` carries.
 #[track_caller]
 pub(crate) fn derive_address(
     owner: &UtxoOwner,

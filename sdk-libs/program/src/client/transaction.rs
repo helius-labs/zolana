@@ -6,12 +6,12 @@ use spr_transaction::instructions::transact::{
 };
 use spr_transaction::{instructions::transact::SppProofInputs, keys::ShieldedKeys};
 
-use spr_zk_dsl::{prover::ArkworksCircuit, ProofInputs};
+use spr_zk_dsl::{conversion::u16_value, prover::ArkworksCircuit, ProofInputs};
 
 use super::transfer::public_transfer;
 use crate::{
     circuit::{value, CheckedTransaction, Circuit},
-    conversion::{field_bytes, to_bytes, u16_value, Allocator, FromCircuit, Records},
+    conversion::{field_bytes, to_bytes, Allocator, FromCircuit, Records},
     ClientError, ClientErrorKind, SlotKind, ZkCircuit,
 };
 

@@ -43,11 +43,11 @@ pub enum CompressedAccountError {
     TooManyAccounts = 14009,
     /// Two inputs of one tree name different root indexes.
     #[error("inputs of one tree name different root indexes")]
-    ConflictingTreeContexts = 14011,
+    ConflictingTreeContexts = 14010,
     #[error("hashing failed")]
-    HashingFailed = 14013,
+    HashingFailed = 14011,
     #[error("serialization failed")]
-    SerializationFailed = 14014,
+    SerializationFailed = 14012,
 }
 
 impl CompressedAccountError {

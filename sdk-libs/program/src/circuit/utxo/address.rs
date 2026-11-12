@@ -1,6 +1,6 @@
-use super::{derive_address, CreatedAddress};
+use super::{assert_address_owner, derive_address, CreatedAddress};
 use crate::{
-    circuit::{constant, poseidon, zero, Assert, CircuitVar, UtxoOwner},
+    circuit::{poseidon, zero, Assert, CircuitVar, UtxoOwner},
     CircuitError,
 };
 
@@ -11,13 +11,16 @@ pub struct NewAddress {
 }
 
 impl NewAddress {
-    /// Derives an address reservation independent of a state output.
+    /// Derives an address reservation independent of a state output. `owner`
+    /// is the address's own preimage, so it carries the zero nullifier key the
+    /// address hashes under. [`UniqueDataUtxo::new_init`] does not require
+    /// this: its owner also owns the state UTXO, which commits the owner's
+    /// own nullifier key.
+    ///
+    /// [`UniqueDataUtxo::new_init`]: crate::circuit::UniqueDataUtxo::new_init
     #[track_caller]
     pub fn new(owner: &UtxoOwner, seed: &CircuitVar) -> Result<Self, CircuitError> {
-        owner.key().tag().assert_equal(
-            &constant(u64::from(spr_hasher::primitives::SOLANA_OWNER_TAG)),
-            "an address is owned by a Solana signer",
-        )?;
+        assert_address_owner(owner)?;
         owner.nullifier_pk().assert_equal(
             &poseidon(&[zero()])?,
             "an address uses the zero nullifier key",

@@ -5,7 +5,9 @@ use wincode::{SchemaRead, SchemaWrite};
 
 use crate::hasher::{unique_data_hash, DataHasher};
 
-use super::{utxo::DataUtxo, AddressSeed, CompressedAccountError, NewAddress, PdaOwner, UtxoKey};
+use super::{
+    utxo::AccountUtxo, AddressSeed, CompressedAccountError, NewAddress, PdaOwner, UtxoKey,
+};
 
 /// What a client sends about a compressed account's current UTXO besides its
 /// state. Wrong values yield a UTXO hash or nullifier no proof can match.
@@ -20,12 +22,12 @@ pub struct UtxoMeta {
     pub tree_context: TreeContext,
 }
 
-/// A unique state UTXO owned by a program PDA, with zero SOL and no ring.
-/// The address is immutable metadata; dereferencing exposes only application state.
-/// A write to one account: [`Self::new_init`] creates the account
-/// and [`Self::new_mut`] updates it. It derefs to the account's state, which
-/// the program changes before [`super::SppTransactCpi`] turns the writes of one
-/// instruction into one shielded-pool transaction.
+/// A write to one account, a unique state UTXO owned by a program PDA, with
+/// zero SOL and no ring: [`Self::new_init`] creates the account and
+/// [`Self::new_mut`] updates it. The address is immutable metadata. It derefs
+/// to the account's state only, which the program changes before
+/// [`super::SppTransactCpi`] turns the writes of one instruction into one
+/// shielded-pool transaction.
 #[must_use]
 pub struct UniqueDataUtxo<'a, S> {
     pub(super) owner: &'a PdaOwner,
@@ -111,7 +113,7 @@ impl<'a, S: DataHasher> UniqueDataUtxo<'a, S> {
         state: &S,
         tree_id: u16,
     ) -> Result<UtxoKey, CompressedAccountError> {
-        DataUtxo {
+        AccountUtxo {
             owner,
             data_hash: unique_data_hash(&meta.address, &state.hash()?)?,
             blinding: meta.blinding,

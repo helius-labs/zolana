@@ -1,4 +1,6 @@
-use pinocchio::{address::address_eq, AccountView, Address};
+use core::ops::Deref;
+
+use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address};
 use spr_interface::{
     instruction::instruction_data::transact::TreeContext,
     pda::nullifier_pda,
@@ -15,16 +17,26 @@ use super::{CompressedAccountError, PdaOwner, UniqueDataUtxo, UtxoKey, UtxoMeta}
 /// folds it in, so a program hashes with the id of the tree it passes to the
 /// pool rather than assuming one.
 pub fn load_tree_id(tree: &AccountView) -> Result<u16, CompressedAccountError> {
-    if !tree.owned_by(&PROGRAM_ID_PUBKEY) {
+    let data = tree_data(tree.owned_by(&PROGRAM_ID_PUBKEY), tree.try_borrow())?;
+    read_tree_id(&data).ok_or(CompressedAccountError::InvalidTreeAccount)
+}
+
+/// The borrowed data of a tree account: an account of another owner or with
+/// another discriminator is not a shielded-pool tree. Ownership is checked
+/// first, so an account of another owner fails as not a tree even when its
+/// data cannot be borrowed.
+fn tree_data<D: Deref<Target = [u8]>>(
+    owned_by_pool: bool,
+    data: Result<D, ProgramError>,
+) -> Result<D, CompressedAccountError> {
+    if !owned_by_pool {
         return Err(CompressedAccountError::InvalidTreeAccount);
     }
-    let data = tree
-        .try_borrow()
-        .map_err(|_| CompressedAccountError::AccountBorrowFailed)?;
+    let data = data.map_err(|_| CompressedAccountError::AccountBorrowFailed)?;
     if data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
         return Err(CompressedAccountError::InvalidTreeAccount);
     }
-    read_tree_id(&data).ok_or(CompressedAccountError::InvalidTreeAccount)
+    Ok(data)
 }
 
 /// The roots a read proves against and the tree they come from. Its fields are
@@ -60,16 +72,8 @@ impl ReadRoots {
         tree: &mut AccountView,
         tree_context: &TreeContext,
     ) -> Result<Self, CompressedAccountError> {
-        if !tree.owned_by(&PROGRAM_ID_PUBKEY) {
-            return Err(CompressedAccountError::InvalidTreeAccount);
-        }
         let address = *tree.address();
-        let mut data = tree
-            .try_borrow_mut()
-            .map_err(|_| CompressedAccountError::AccountBorrowFailed)?;
-        if data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
-            return Err(CompressedAccountError::InvalidTreeAccount);
-        }
+        let mut data = tree_data(tree.owned_by(&PROGRAM_ID_PUBKEY), tree.try_borrow_mut())?;
         let account = TreeAccount::from_bytes(&mut data, address.to_bytes())
             .map_err(|_| CompressedAccountError::InvalidTreeAccount)?;
         let utxo_root = account

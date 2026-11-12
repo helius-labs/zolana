@@ -145,9 +145,9 @@ fn error_codes_are_stable() {
         (OwnerNotSigner, 14007),
         (NoAccounts, 14008),
         (TooManyAccounts, 14009),
-        (ConflictingTreeContexts, 14011),
-        (HashingFailed, 14013),
-        (SerializationFailed, 14014),
+        (ConflictingTreeContexts, 14010),
+        (HashingFailed, 14011),
+        (SerializationFailed, 14012),
     ] {
         assert_eq!(ProgramError::from(error), ProgramError::Custom(code));
     }

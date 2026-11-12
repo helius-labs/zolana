@@ -14,7 +14,7 @@ use spr_interface::UTXO_DOMAIN;
 pub(crate) use spr_transaction::circuit::{SpentInput, Utxo};
 pub use token::TokenUtxos;
 pub use unique::UniqueDataUtxo;
-pub(crate) use unique::{derive_address, CreatedAddress};
+pub(crate) use unique::{assert_address_owner, derive_address, CreatedAddress};
 
 use crate::circuit::{constant, CircuitVar};
 
