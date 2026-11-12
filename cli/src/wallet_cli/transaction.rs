@@ -3,8 +3,11 @@ use std::collections::HashSet;
 use anyhow::{bail, Result};
 use solana_signer::Signer;
 use spr_client::{
-    check_service_url, indexer::SprIndexer, prover::ProverClient,
-    user_registry::try_resolve_registered_address, MergeSubmission, Rpc, SolanaRpc, SprClient,
+    check_service_url,
+    indexer::SprIndexer,
+    prover::ProverClient,
+    user_registry::{try_resolve_registered_address, ResolvedAddress},
+    MergeSubmission, Rpc, SolanaRpc, SprClient,
 };
 use spr_interface::shape::Shape;
 use spr_transaction::{
@@ -21,11 +24,15 @@ use super::{
     spend::{send_private, Send},
     sync::{sync_context, sync_rpc, SyncContext},
     util::{
-        ensure_positive, format_address, parse_address, parse_hex_array, parse_pubkey,
-        resolve_spl_token_program,
+        ensure_owner_spl_token_account, ensure_positive, format_address, parse_address,
+        parse_hex_array, parse_pubkey,
     },
 };
 use crate::args::{MergeOptions, SplitOptions, TransferOptions, UtxosOptions};
+
+#[cfg(test)]
+#[path = "transaction_test.rs"]
+mod tests;
 
 pub(super) fn client(
     rpc: SolanaRpc,
@@ -44,20 +51,22 @@ pub(super) fn client(
 }
 
 /// Send privately to `--to`'s registered shielded address. An account without
-/// one is paid by a public withdrawal instead.
+/// one requires `--allow-public` to be paid by a public withdrawal instead.
 pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     ensure_positive(opts.amount)?;
     let asset = parse_address(&opts.mint)?;
     let network = get_network(&opts.network)?;
     let mut rpc = SolanaRpc::new(network.sync.rpc_url.clone());
+    let recipient = parse_pubkey(&opts.to)?;
+    // Refuse an unregistered recipient before the wallet sync and airdrop.
+    let registered = resolve_transfer_recipient(&rpc, recipient, opts.allow_public)?;
     let ctx = sync_context(&opts.network.sync, &rpc)?;
     maybe_airdrop(&mut rpc, &ctx.material, network.airdrop_lamports)?;
     let client = client(rpc, &network)?;
-    let recipient = parse_pubkey(&opts.to)?;
 
     let inputs = select_spend(ctx.spendable.utxos(), asset, opts.amount)?;
     let mut transaction = ConfidentialTransaction::new(inputs, payer(&ctx))?;
-    let (mode, settlement_transfers) = match try_resolve_registered_address(&client, recipient)? {
+    let (mode, settlement_transfers) = match registered {
         Some(registered) => {
             if asset == SOL_MINT {
                 transaction.transfer_sol(&registered.address, opts.amount)?;
@@ -67,7 +76,11 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
             ("shielded", Vec::new())
         }
         None => {
-            let spl_token_program = spl_token_program(&client, asset)?;
+            // Like `withdraw`, an SPL fallback settles into the recipient's
+            // associated token account, so create it first (no-op for SOL).
+            let spl_token_program =
+                ensure_owner_spl_token_account(&client, &ctx.material.funding, recipient, asset)?
+                    .map(|(_, token_program)| token_program);
             let settlement =
                 transaction.withdraw_to(asset, opts.amount, recipient, spl_token_program)?;
             ("withdraw", vec![settlement])
@@ -83,6 +96,20 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
         signature
     );
     Ok(())
+}
+
+fn resolve_transfer_recipient<R: Rpc>(
+    rpc: &R,
+    recipient: Address,
+    allow_public: bool,
+) -> Result<Option<ResolvedAddress>> {
+    let registered = try_resolve_registered_address(rpc, recipient)?;
+    if registered.is_none() && !allow_public {
+        bail!(
+            "recipient {recipient} is not registered; pass --allow-public to allow a public withdrawal (reveals recipient, amount, and asset)"
+        );
+    }
+    Ok(registered)
 }
 
 /// List the wallet's spendable utxos for one asset. The printed hashes are the
@@ -278,18 +305,6 @@ fn merge_inputs(ctx: &SyncContext, asset: Address, hashes: &[[u8; 32]]) -> Resul
 
 fn payer(ctx: &SyncContext) -> Address {
     Address::new_from_array(ctx.material.funding.pubkey().to_bytes())
-}
-
-/// The token program of an SPL `asset`; `None` for SOL.
-pub(super) fn spl_token_program<R: Rpc>(
-    rpc: &R,
-    asset: Address,
-) -> Result<Option<solana_pubkey::Pubkey>> {
-    if asset == SOL_MINT {
-        return Ok(None);
-    }
-    let mint = solana_pubkey::Pubkey::new_from_array(asset.to_bytes());
-    Ok(Some(resolve_spl_token_program(rpc, &mint)?))
 }
 
 pub(super) fn maybe_airdrop(

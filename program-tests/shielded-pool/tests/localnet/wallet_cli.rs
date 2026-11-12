@@ -771,46 +771,102 @@ fn phase_spl_deposit_and_transfers(
         &cli_env,
     )?;
 
-    // An unregistered Solana pubkey has no user-registry record, so `transfer`
-    // silently falls back to a public withdrawal (spec Single Player,
-    // lookup-negative): the CLI reports mode=withdraw and the lamports land in
-    // the recipient's public account.
+    // An unregistered Solana pubkey has no user-registry record (spec Single
+    // Player, lookup-negative), so `transfer` refuses it unless the sender opts
+    // in to a public withdrawal with `--allow-public`.
     let fallback_recipient = Keypair::new().pubkey();
     let fallback_amount = 2_000_000u64;
     let fallback_before = rpc
-        .get_account(Address::new_from_array(fallback_recipient.to_bytes()))?
+        .get_account(fallback_recipient)?
         .map_or(0, |account| account.lamports);
-    let fallback_out = run_cli_with_env(
+    let fallback_keypair = env.bob_keypair.display().to_string();
+    let fallback_address = fallback_recipient.to_string();
+    let fallback_amount_arg = fallback_amount.to_string();
+    let mut fallback_args = vec![
+        "transfer",
+        "--keypair",
+        &fallback_keypair,
+        "--to",
+        &fallback_address,
+        "--amount",
+        &fallback_amount_arg,
+        "--mint",
+        "SOL",
+        "--rpc-url",
+        &env.rpc_url,
+        "--indexer-url",
+        &env.indexer_url,
+        "--prover-url",
+        &env.prover_url,
+    ];
+    let refused = run_cli_expect_failure(&fallback_args, &cli_env)?;
+    assert!(
+        refused.contains(&format!(
+            "recipient {fallback_recipient} is not registered; pass --allow-public"
+        )),
+        "expected a public-withdrawal opt-in error: {refused}"
+    );
+    assert_eq!(
+        rpc.get_account(fallback_recipient)?
+            .map_or(0, |account| account.lamports),
+        fallback_before,
+        "a refused transfer must not credit the recipient"
+    );
+
+    fallback_args.push("--allow-public");
+    let fallback_out = run_cli_with_env(&fallback_args, &cli_env)?;
+    assert_eq!(
+        TransferOutput::parse(&fallback_out)?.mode,
+        TransferMode::Withdraw
+    );
+    let fallback_after = rpc
+        .get_account(fallback_recipient)?
+        .map_or(0, |account| account.lamports);
+    assert_eq!(
+        fallback_after,
+        fallback_before + fallback_amount,
+        "explicit public fallback should credit the recipient's SOL balance"
+    );
+
+    // The SPL fallback settles into the recipient's associated token account,
+    // which the CLI creates because a fresh pubkey has none.
+    let spl_fallback_recipient = Keypair::new().pubkey();
+    let spl_fallback_ata =
+        pda::associated_token_address(&spl_fallback_recipient, &pool.spl_mint.parse::<Pubkey>()?);
+    assert!(
+        rpc.get_account(spl_fallback_ata)?.is_none(),
+        "the SPL fallback recipient must start without an ATA"
+    );
+    let spl_fallback_amount = 25_000u64;
+    let spl_fallback_out = run_cli_with_env(
         &[
             "transfer",
             "--keypair",
             &env.bob_keypair.display().to_string(),
             "--to",
-            &fallback_recipient.to_string(),
+            &spl_fallback_recipient.to_string(),
             "--amount",
-            &fallback_amount.to_string(),
+            &spl_fallback_amount.to_string(),
             "--mint",
-            "SOL",
+            &pool.spl_mint,
             "--rpc-url",
             &env.rpc_url,
             "--indexer-url",
             &env.indexer_url,
             "--prover-url",
             &env.prover_url,
+            "--allow-public",
         ],
         &cli_env,
     )?;
     assert_eq!(
-        TransferOutput::parse(&fallback_out)?.mode,
+        TransferOutput::parse(&spl_fallback_out)?.mode,
         TransferMode::Withdraw
     );
-    let fallback_after = rpc
-        .get_account(Address::new_from_array(fallback_recipient.to_bytes()))?
-        .map_or(0, |account| account.lamports);
     assert_eq!(
-        fallback_after,
-        fallback_before + fallback_amount,
-        "silent public fallback should credit the recipient's SOL balance"
+        spl_token_account_amount(rpc, &spl_fallback_ata)?,
+        spl_fallback_amount,
+        "explicit SPL public fallback should fund the recipient's new ATA"
     );
 
     // Pay alice by her plain Solana pubkey: she was registered up front, so the

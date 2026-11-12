@@ -10658,6 +10658,7 @@ name = "spr-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "borsh",
  "clap",
  "groth16-solana",
  "hex",
@@ -10665,6 +10666,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "solana-account 4.3.2",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-keypair",
