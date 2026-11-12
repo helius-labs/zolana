@@ -127,9 +127,7 @@ pub struct DecryptResponsePlaintext {
 
 Attestation verification and request/response encryption follow the [TEE wire contract](../../prover/tee/WIRE_CONTRACT.md), using `TSPP/decryption-service/transport/v1` as the HPKE info and `TSPP/decryption-service/transport/v1/response` as the response-export label.
 
-### Future work
 
-PDA authorization verification.
 
 ## SDK
 
@@ -137,4 +135,6 @@ PDA authorization verification.
 2. **Receive:** fetch encrypted UTXOs and send signed `decrypt` requests through the attested encrypted transport. Verify each returned UTXO against its commitment and retain its nullifier secret.
 3. **Spend:** use the UTXO's retained nullifier secret and the owner's Solana signature to create the spend.
 
-## PDA Authorization Program
+### Future work
+
+PDA authorization verification, we need an authorization pda. You can bridge the pda state with wormhole into the TEE.
