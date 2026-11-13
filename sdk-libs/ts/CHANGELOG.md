@@ -27,6 +27,7 @@ Breaking
 - `TreeFeeSchedule.feePerNullifier` becomes `feePerTree`, a flat fee a transact or merge payer pays once to every tree the transaction writes, and `defaultTreeFees()` takes no argument and returns 5,000 lamports per tree with forester reimbursements at cost → rename the field, drop the ZKP batch size argument, and fund payers for the per-tree fee.
 - `buildKeyUpdateTransaction` sends only the new viewing key, and the user-registry program refuses the earlier layout that also carried the nullifier key → upgrade the SDK together with the user-registry program.
 - `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` are removed → use `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS`, `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS` and `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+- A prover's refusal of the encrypted request itself, `tee_required`, `tee_version_unsupported`, `tee_request_malformed`, or `tee_decryption_failed` after the one fresh attestation and resend, fails with `CLIENT_PROVER_TEE_REJECTED` instead of `CLIENT_PROVER_HTTP`, with the prover's code in `details.reason` and the request headers it concerns in `details.headers` → handle `CLIENT_PROVER_TEE_REJECTED` wherever you matched those reasons on `CLIENT_PROVER_HTTP`.
 
 Added
 
@@ -34,11 +35,17 @@ Added
 - `SprClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `SprClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
 - `SprClientConfig.provingKeys`, with `proofDataSource: "client"`, makes every proof use the set's keys and `checkProverProvingKeys()` check only those keys; a circuit outside the set and the indexed route fail with `CLIENT_PROVING_KEY_SET`, whose `details.check` names the reason.
+- `compileVersion1Transaction({ feePayer, lifetime, instructions, computeUnitLimit, priorityFeeLamports })` compiles your own instructions, such as one that wraps a shielded-pool instruction, into an unsigned version 1 transaction that always carries the compute-unit and loaded-accounts-data limits, with `computeUnitLimit` defaulting to `DEFAULT_TRANSACT_COMPUTE_UNIT_LIMIT` (450,000).
+- `PROVER_TEE_HEADERS` lists the request and response headers of the encrypted prover channel, so a proxy in front of a prover can forward them and, for browsers, allow and expose them.
+- `ClientErrorCode.CLIENT_CRYPTO_UNSUPPORTED` reports a runtime whose WebCrypto cannot run an algorithm encrypted prover requests need, such as X25519 key agreement on Bun 1.2, naming it in `details.algorithm` and the runtime and version in `details.runtime`.
 
 Changed
 
-- The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
+- The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer, and its unit tests also pass on Bun 1.4.4.
+- Before the first encrypted prover request in a process, the SDK checks once that WebCrypto can generate X25519 keys and derive a secret with them, and otherwise fails the request with `CLIENT_CRYPTO_UNSUPPORTED` before contacting the prover.
 - A ring config created on a pool with permissionless ring activation reads `ringAuthorityTransactIsEnabled` true from creation, where it read false until `setRingActivation`.
+- `ClientError.cause` of a failure from outside the SDK keeps the error's class `name`, and a `DOMException` its `message`, so a `CLIENT_UNEXPECTED` says what failed without carrying other error text.
+- `SprClient.getShieldedTransactionsBySignature(signature)` without a config waits, under the client's poll schedule, until the indexer reaches the slot that `confirmTransaction` or `confirmPrivateTransaction` saw the signature land in, so a lookup right after confirmation no longer reads a lagging indexer as no events; an explicit config, `atSlot(slot)` included, is used as given.
 - `SprIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.
 
 Fixed

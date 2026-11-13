@@ -20,13 +20,18 @@ export {
   CANONICAL_CLIENT_ERROR_CODES,
   ClientError,
   DEFAULT_INDEXER_POLL_CONFIG,
+  DEFAULT_TRANSACT_COMPUTE_UNIT_LIMIT,
   LocalKeys,
+  PROVER_TEE_HEADERS,
   type ClientErrorCode,
   type IndexerPollConfig,
+  type LatestBlockhash,
   type ProofAuthority,
   type ProofService,
   type WalletKeys,
   type SprClientConfig,
+  type Version1TransactionOptions,
+  compileVersion1Transaction,
 } from "./client/index.js";
 export {
   MergeEncryptionScheme,

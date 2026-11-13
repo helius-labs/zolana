@@ -121,7 +121,7 @@ test-shielded-pool: build-test-programs build-prover-server build-cli
 # The proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
 test-program-fast: test-feature-gate build-test-programs
-    cargo nextest run -p spr-interface -p spr-instruction -p spr-protocol-instructions
+    cargo nextest run -p spr-event -p spr-interface -p spr-instruction -p spr-protocol-instructions
     cargo nextest run -p shielded-pool-program --lib --tests
     cargo nextest run -p spr-user-registry --tests
     cargo nextest run -p shielded-pool-tests

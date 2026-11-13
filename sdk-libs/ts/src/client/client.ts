@@ -35,6 +35,7 @@ import type { ProofInputUtxo } from "../transaction/utxo.js";
 import { checkAuthorizedBinding, checkTransactData } from "../transaction/wallet/intent.js";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
+import { DEFAULT_TRANSACT_COMPUTE_UNIT_LIMIT } from "./compile.js";
 import { checkedComputeUnitLimit, checkedPriorityFee } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
 import { checkedServiceUrl, hasProofMethods, inputTreeAddress } from "./internal.js";
@@ -97,6 +98,7 @@ import { compressProof } from "./prover/proof.js";
 import type { TransactOwnerSigner, TransferCircuit, TransferInputs } from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
+  atSlot,
   indexerPollTimeout,
   pollUntil,
   validatePollConfig,
@@ -118,25 +120,9 @@ import {
   type SpendProof,
 } from "./rpc.js";
 
-/**
- * Compute-unit ceiling a private transaction is submitted with unless the
- * caller overrides it, matching Rust's `DEFAULT_TRANSACT_CU_LIMIT`. A shielded
- * transact verifies a Groth16 proof on chain, which does not fit inside the
- * budget a legacy transaction received per instruction.
- *
- * Sized from the widest shape this client can send on the rail it sends it on:
- * proving goes through the EdDSA rail, and the widest confidential transaction,
- * 49x2 with every input real, consumes 305,340 CU on a validator
- * (`program-tests/spp-test-validator/tests/max_shapes.rs`). The remaining
- * headroom absorbs the per-input `create_nullifier_pdas` cost, which moves with
- * tree state rather than with the shape.
- *
- * Under transaction version 1 this rides in the message header, and requested
- * units rather than consumed ones set the priority fee, so a caller sending
- * only small shapes should pass a lower `computeUnitLimit`.
- */
-const DEFAULT_TRANSACT_CU_LIMIT = 450_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
+/** How many confirmed signatures a client remembers the landing slot of. */
+const MAX_LANDED_SLOTS = 1024;
 
 export interface SprClientConfig {
   /**
@@ -230,6 +216,8 @@ export class SprClient
   readonly #priorityFee: bigint | undefined;
   readonly #indexerConfig: IndexerRpcConfig;
   readonly #proofDataSource: ProofDataSource;
+  // Only ever raises the slot a lookup waits for; a forgotten signature reads as before.
+  readonly #landedSlots = new Map<Signature, bigint>();
 
   constructor(input: SprClientConfig) {
     const candidate: unknown = input;
@@ -320,7 +308,7 @@ export class SprClient
     this.#proofDataSource = input.proofDataSource ?? "prover";
 
     this.#computeUnitLimit = checkedComputeUnitLimit(
-      input.computeUnitLimit ?? DEFAULT_TRANSACT_CU_LIMIT,
+      input.computeUnitLimit ?? DEFAULT_TRANSACT_COMPUTE_UNIT_LIMIT,
     );
     checkedPriorityFee(input.priorityFeeLamports);
     this.tree = tree;
@@ -450,6 +438,14 @@ export class SprClient
     );
   }
 
+  /**
+   * The Rings events of one Solana transaction. Without `config`, a signature
+   * this client confirmed through `confirmTransaction` or
+   * `confirmPrivateTransaction` waits, under the client's poll schedule, until
+   * the indexer has reached the slot it landed in, so a lookup right after
+   * confirmation does not read a lagging indexer as no events. An explicit
+   * `config` is used as given, `atSlot(slot)` included.
+   */
   getShieldedTransactionsBySignature(
     signature: Signature,
     config?: IndexerRpcConfig,
@@ -458,9 +454,27 @@ export class SprClient
     checkedSignature(signature);
     return this.#indexer.getShieldedTransactionsBySignature(
       signature,
-      this.#configOr(config),
+      config ?? this.#landedConfig(signature),
       context,
     );
+  }
+
+  #landedConfig(signature: Signature): IndexerRpcConfig {
+    const landed = this.#landedSlots.get(signature);
+    const base = this.#indexerConfig;
+    if (landed === undefined) return base;
+    const required =
+      base.requireSlot !== undefined && base.requireSlot > landed ? base.requireSlot : landed;
+    return atSlot(required, base.poll);
+  }
+
+  #rememberLanded(signature: Signature, slot: bigint): void {
+    this.#landedSlots.delete(signature);
+    this.#landedSlots.set(signature, slot);
+    if (this.#landedSlots.size > MAX_LANDED_SLOTS) {
+      const [oldest] = this.#landedSlots.keys();
+      if (oldest !== undefined) this.#landedSlots.delete(oldest);
+    }
   }
 
   /**
@@ -482,6 +496,8 @@ export class SprClient
   /**
    * Poll the RPC until the signature reaches this client's commitment; returns
    * the slot the transaction landed in, ready for `atSlot` freshness gates.
+   * The client remembers the slot, so `getShieldedTransactionsBySignature`
+   * for this signature waits for the indexer to reach it.
    */
   async confirmTransaction(
     signature: Signature,
@@ -506,6 +522,7 @@ export class SprClient
       },
     );
     // The accept predicate above guarantees the poll resolved with a slot.
+    this.#rememberLanded(signature, slot as bigint);
     return slot as bigint;
   }
 

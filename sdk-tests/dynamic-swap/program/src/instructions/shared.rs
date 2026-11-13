@@ -274,6 +274,8 @@ fn transact_accounts_error(
             _ => DynamicSwapError::MissingPoolAuthority.into(),
         },
         TransactAccountsError::NotEnoughAccounts => ProgramError::NotEnoughAccountKeys,
+        error @ (TransactAccountsError::TooManyAccounts
+        | TransactAccountsError::MissingTransactTag) => error.into(),
     }
 }
 

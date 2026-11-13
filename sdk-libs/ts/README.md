@@ -134,6 +134,9 @@ transaction from this SDK holds no compute budget instruction and no address
 lookup table. `SprClientConfig.computeUnitLimit` sets the budget a transact
 asks for and `priorityFeeLamports` the fee for the whole transaction, not a
 price per compute unit. The RPC and the validator must accept version 1.
+A program that wraps a shielded-pool instruction in its own compiles its
+transaction with `compileVersion1Transaction`, which writes both header limits;
+a version 1 transaction that leaves one out cannot execute.
 
 ### Endpoints
 
@@ -205,6 +208,12 @@ prover started without an indexer refuses these requests with
 The Helius deployment must activate the corresponding REST routes, prover
 pools and TEE header forwarding before these calls can succeed. The SDK
 does not infer those capabilities from the hostname.
+
+A proxy of your own in front of the prover must forward the headers in
+`PROVER_TEE_HEADERS.request` unchanged, pass the `application/octet-stream`
+body through, and return `PROVER_TEE_HEADERS.response`. A prover that misses
+one refuses the call with `CLIENT_PROVER_TEE_REJECTED`, whose
+`details.headers` names the headers concerned.
 
 Use `attestProver` and `checkProverProvingKeys` for gateway readiness;
 the operator `/health` route is not part of the public Helius API.

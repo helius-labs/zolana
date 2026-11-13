@@ -227,11 +227,25 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_PROVER_TEE_ATTESTATION: Readonly<{ check: string }>;
   readonly CLIENT_PROVER_TEE_ENCRYPTION: Readonly<{ check: string }>;
   /**
+   * The prover refused the encrypted envelope: `reason` is its code,
+   * `tee_required`, `tee_version_unsupported`, `tee_request_malformed` or
+   * `tee_decryption_failed` (after one fresh attestation and resend), and
+   * `headers` the comma-separated request headers it concerns. A proxy that
+   * drops or rewrites one of `PROVER_TEE_HEADERS` causes it.
+   */
+  readonly CLIENT_PROVER_TEE_REJECTED: Readonly<{ reason: string; headers: string }>;
+  /**
    * A runtime proving key set was refused: `attestation_required`,
    * `unavailable`, `runtime_missing`, `incompatible`, `source_mismatch`,
    * `malformed`, `unsupported_circuit` or `indexed_proving_unsupported`.
    */
   readonly CLIENT_PROVING_KEY_SET: Readonly<{ check: string }>;
+  /**
+   * The JavaScript runtime cannot run a WebCrypto algorithm the SDK needs,
+   * such as `X25519` for encrypted prover requests. `runtime` names the
+   * runtime and its version when it can be told, such as `bun 1.2.22`.
+   */
+  readonly CLIENT_CRYPTO_UNSUPPORTED: Readonly<{ algorithm: string; runtime?: string }>;
   readonly CLIENT_INVALID_RPC_RESPONSE: Readonly<{
     path?: string;
     method?: string;
@@ -303,7 +317,9 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_PROVER_JSON",
   "CLIENT_PROVER_TEE_ATTESTATION",
   "CLIENT_PROVER_TEE_ENCRYPTION",
+  "CLIENT_PROVER_TEE_REJECTED",
   "CLIENT_PROVING_KEY_SET",
+  "CLIENT_CRYPTO_UNSUPPORTED",
   "CLIENT_INVALID_RPC_RESPONSE",
 ] as const satisfies readonly ClientErrorCode[]);
 
@@ -329,7 +345,11 @@ export type ClientErrorCause =
     }>
   | Readonly<{ category: "hasher"; code: HasherErrorCode }>
   | RetryErrorCause
-  | Readonly<{ category: "external"; code?: string }>;
+  /**
+   * A cause from outside the SDK: its string `code`, its class `name`, and
+   * for a `DOMException` its `message`, never any other text it carries.
+   */
+  | Readonly<{ category: "external"; code?: string; name?: string; message?: string }>;
 
 type ClientErrorOptions<Code extends ClientErrorCode> = Readonly<{
   details?: Exclude<ClientErrorDetails<Code>, undefined>;
@@ -458,7 +478,9 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_PROVER_TIMEOUT: { method: "string", jobId: "string", timeoutMs: "number" },
   CLIENT_PROVER_TEE_ATTESTATION: { check: "string" },
   CLIENT_PROVER_TEE_ENCRYPTION: { check: "string" },
+  CLIENT_PROVER_TEE_REJECTED: { reason: "string", headers: "string" },
   CLIENT_PROVING_KEY_SET: { check: "string" },
+  CLIENT_CRYPTO_UNSUPPORTED: { algorithm: "string", runtime: "string" },
   CLIENT_INVALID_RPC_RESPONSE: {
     path: "string",
     method: "string",
@@ -493,6 +515,7 @@ const REQUIRED_DETAIL_FIELDS: Partial<Readonly<Record<ClientErrorCode, readonly 
   CLIENT_PROVER_TEE_ATTESTATION: ["check"],
   CLIENT_PROVER_TEE_ENCRYPTION: ["check"],
   CLIENT_PROVING_KEY_SET: ["check"],
+  CLIENT_CRYPTO_UNSUPPORTED: ["algorithm"],
   CLIENT_INVALID_RPC_RESPONSE: [],
 };
 
@@ -567,15 +590,46 @@ function safeCause(cause: unknown): ClientErrorCause | undefined {
   ) {
     return Object.freeze({ category: "hasher", code: cause.code });
   }
-  if (
-    typeof cause === "object" &&
-    cause !== null &&
-    "code" in cause &&
-    typeof cause.code === "string"
-  ) {
-    return Object.freeze({ category: "external", code: cause.code });
-  }
-  return cause === undefined ? undefined : Object.freeze({ category: "external" });
+  if (cause === undefined) return undefined;
+  const code =
+    typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string"
+      ? cause.code
+      : undefined;
+  return Object.freeze({
+    category: "external",
+    ...(code === undefined ? {} : { code }),
+    ...externalErrorText(cause),
+  });
+}
+
+const MAX_CAUSE_MESSAGE_CHARS = 200;
+const ERROR_NAME = /^[A-Za-z_$][\w$]{0,63}$/u;
+
+/**
+ * An unknown error keeps its class name, so a failure such as an `EncapError`
+ * stays diagnosable. Only a `DOMException` keeps its message: those come from
+ * the platform with fixed text, where any other error's message can hold
+ * caller or server data. Either is dropped when it names a secret.
+ */
+function externalErrorText(cause: unknown): Readonly<{ name?: string; message?: string }> {
+  if (!(cause instanceof Error)) return {};
+  const name =
+    typeof cause.name === "string" &&
+    ERROR_NAME.test(cause.name) &&
+    !SECRET_KEY_PATTERN.test(cause.name)
+      ? cause.name
+      : undefined;
+  const message =
+    typeof DOMException === "function" &&
+    cause instanceof DOMException &&
+    typeof cause.message === "string" &&
+    !SECRET_KEY_PATTERN.test(cause.message)
+      ? cause.message.slice(0, MAX_CAUSE_MESSAGE_CHARS)
+      : undefined;
+  return {
+    ...(name === undefined ? {} : { name }),
+    ...(message === undefined ? {} : { message }),
+  };
 }
 
 export function isClientError(value: unknown): value is ClientError {

@@ -138,6 +138,9 @@ describe("the networks the SDK pins", () => {
 
 describe("a prover client under a signed policy", () => {
   afterEach(() => vi.restoreAllMocks());
+  // Bound once, before any spy: under Bun a copy bound inside a test can
+  // capture an earlier test's spy, which then calls itself.
+  const fill = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
 
   /**
    * Serves `files` in turn at /policy.json and records every path asked for.
@@ -150,7 +153,6 @@ describe("a prover client under a signed policy", () => {
   ) {
     vi.restoreAllMocks();
     const nonce = hexToBytes(decode.string(live["nonce"], "nonce"));
-    const fill = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
     vi.spyOn(globalThis.crypto, "getRandomValues").mockImplementation((bytes) => {
       if (!(bytes instanceof Uint8Array) || bytes.length !== nonce.length) return fill(bytes);
       bytes.set(nonce);

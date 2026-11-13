@@ -51,7 +51,7 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
 
 2. [Rust workspace](workflows/rust.yml)
 
-    **Triggered by:** PR/main changes outside these ignored paths; `programs/**` overrides the exclusions:
+    **Triggered by:** PR/main changes outside these ignored paths; `programs/**` and `docs/spec.md` (whose instruction tags `spr-event` tests against the code) override the exclusions:
 
     1. `protocol-ops/**`.
     2. `.github/workflows/protocol-ops.yml`.
@@ -73,47 +73,48 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     5. Workspace compilation: `just check-all`.
     6. `spr-cli`: `cargo nextest run`.
     7. `xtask`: `cargo nextest run`.
-    8. `spr-interface`: `cargo nextest run`.
-    9. `spr-instruction`: `cargo nextest run`.
-    10. `spr-protocol-instructions`: `cargo nextest run`.
-    11. `shielded-pool-program`: `cargo nextest run`.
-    12. `shielded-pool-tests`: `cargo nextest run`.
-    13. `spr-user-registry`: `cargo nextest run`.
-    14. `user-registry-tests`: `cargo nextest run`.
-    15. `swap-program`: `cargo nextest run`.
-    16. `spr-program-test`: `cargo nextest run`.
-    17. `spr-program`: `cargo nextest run`, `cargo test`.
-    18. `spr-keypair`: `cargo nextest run`, `cargo test --doc`.
-    19. `spr-event-parser`: `cargo nextest run`.
-    20. `spr-transaction`: `cargo nextest run`.
-    21. `spr-client`: `cargo nextest run`, `cargo test --doc`.
-    22. `spr-test-utils`: `cargo nextest run`.
-    23. `spr-rpc-http`: `cargo nextest run`.
-    24. `spr-gnark-ffi-prover`: `cargo nextest run`.
-    25. `swap-prover`: `cargo nextest run`.
-    26. `dynamic-swap-program` and `dynamic-swap-sdk`: `cargo test --release`.
-    27. `sdk-libs/gnark-sdk`: `go test`.
-    28. `spr-zk-standalone-fixture`: `cargo test`.
-    29. `spr-macros`: `cargo test`.
-    30. `timelock-escrow-program`: `cargo test`.
-    31. `zk-tests`: `cargo nextest run`.
-    32. Wasm compilation: `just check-wasm`.
-    33. Photon binary: `cargo build`.
-    34. SBF test programs: `just build-test-programs`, explicitly enabling `confidential-eddsa`.
-    35. Localnet tools: `just build-localnet-tools`.
-    36. Localnet test archives: `just build-localnet-archives`.
-    37. Localnet e2e: `just test-localnet-e2e-photon`.
-    38. SPP lifecycle/decode: `just test-spp-validator-lifecycle-decode`.
-    39. SPP merge: `just test-spp-validator-merge`.
-    40. SPP randomized: `just test-spp-validator-randomized`.
-    41. SPP proof CU: `just test-spp-validator-proof-cu`.
-    42. Ring lifecycle: `just test-ring-validator`.
-    43. Maximum transaction shapes: `just test-max-shapes-validator`.
-    44. Swap and escrow: `just test-swap-and-escrow-validator`.
-    45. Dynamic swap: `just test-dynamic-swap`.
-    46. Compression: `just test-compression-validator`.
-    47. RFQ settlement: `just test-rfq-validator`.
-    48. Coverage: `just coverage`.
+    8. `spr-event` (spec instruction tags): `cargo nextest run`.
+    9. `spr-interface`: `cargo nextest run`.
+    10. `spr-instruction`: `cargo nextest run`.
+    11. `spr-protocol-instructions`: `cargo nextest run`.
+    12. `shielded-pool-program`: `cargo nextest run`.
+    13. `shielded-pool-tests`: `cargo nextest run`.
+    14. `spr-user-registry`: `cargo nextest run`.
+    15. `user-registry-tests`: `cargo nextest run`.
+    16. `swap-program`: `cargo nextest run`.
+    17. `spr-program-test`: `cargo nextest run`.
+    18. `spr-program`: `cargo nextest run`, `cargo test`.
+    19. `spr-keypair`: `cargo nextest run`, `cargo test --doc`.
+    20. `spr-event-parser`: `cargo nextest run`.
+    21. `spr-transaction`: `cargo nextest run`.
+    22. `spr-client`: `cargo nextest run`, `cargo test --doc`.
+    23. `spr-test-utils`: `cargo nextest run`.
+    24. `spr-rpc-http`: `cargo nextest run`.
+    25. `spr-gnark-ffi-prover`: `cargo nextest run`.
+    26. `swap-prover`: `cargo nextest run`.
+    27. `dynamic-swap-program` and `dynamic-swap-sdk`: `cargo test --release`.
+    28. `sdk-libs/gnark-sdk`: `go test`.
+    29. `spr-zk-standalone-fixture`: `cargo test`.
+    30. `spr-macros`: `cargo test`.
+    31. `timelock-escrow-program`: `cargo test`.
+    32. `zk-tests`: `cargo nextest run`.
+    33. Wasm compilation: `just check-wasm`.
+    34. Photon binary: `cargo build`.
+    35. SBF test programs: `just build-test-programs`, explicitly enabling `confidential-eddsa`.
+    36. Localnet tools: `just build-localnet-tools`.
+    37. Localnet test archives: `just build-localnet-archives`.
+    38. Localnet e2e: `just test-localnet-e2e-photon`.
+    39. SPP lifecycle/decode: `just test-spp-validator-lifecycle-decode`.
+    40. SPP merge: `just test-spp-validator-merge`.
+    41. SPP randomized: `just test-spp-validator-randomized`.
+    42. SPP proof CU: `just test-spp-validator-proof-cu`.
+    43. Ring lifecycle: `just test-ring-validator`.
+    44. Maximum transaction shapes: `just test-max-shapes-validator`.
+    45. Swap and escrow: `just test-swap-and-escrow-validator`.
+    46. Dynamic swap: `just test-dynamic-swap`.
+    47. Compression: `just test-compression-validator`.
+    48. RFQ settlement: `just test-rfq-validator`.
+    49. Coverage: `just coverage`.
 
     `just test-spr-program-release` generates native escrow and dynamic-swap
     proving keys, checks the committed verifier modules, and runs their Rust
@@ -138,12 +139,13 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     1. `@heliuslabs/spr`: `npm run check:ts`.
     2. API documentation: `npm run docs:ts`.
     3. Package smoke test: `npm pack`, `tsc`, `node`.
-    4. SDK e2e: `just test-ts-e2e`.
-    5. Escrow e2e: `just test-escrow-ts`.
-    6. `spr-program-wasm-test-program`: `cargo test`.
-    7. `sdk-libs/program/tests/wasm`: `npm test`.
-    8. `spr-zk-standalone-fixture`: `cargo test`.
-    9. Standalone Wasm: `node --test`.
+    4. `@heliuslabs/spr` under Bun 1.4.4: `npx bun@1.4.4 --bun x vitest run --exclude "test/e2e/**"`.
+    5. SDK e2e: `just test-ts-e2e`.
+    6. Escrow e2e: `just test-escrow-ts`.
+    7. `spr-program-wasm-test-program`: `cargo test`.
+    8. `sdk-libs/program/tests/wasm`: `npm test`.
+    9. `spr-zk-standalone-fixture`: `cargo test`.
+    10. Standalone Wasm: `node --test`.
 
     The SDK e2e job requires repository variables `ZOLANA_TEE_PROVER_URL`
     (the live prover endpoint) and `ZOLANA_TEE_PROVER_POLICY` (the reviewed

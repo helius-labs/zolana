@@ -30,6 +30,7 @@ import {
   encryptRequest,
   type EncryptedRequest,
 } from "./encryption.js";
+import { ensureX25519 } from "./crypto-support.js";
 import { checkedTeePolicy } from "./policy.js";
 import type { TeePolicy } from "./registry.js";
 import { SignedTeePolicy } from "./signed.js";
@@ -42,6 +43,14 @@ const STATUS_SIZE = 2;
 const MAX_ERROR_BYTES = 4096;
 /** The prover no longer holds the key the request was encrypted to. */
 const KEY_LOST = "tee_decryption_failed";
+/** The prover's refusals of the encrypted envelope itself, as `WIRE_CONTRACT.md` lists them. */
+const TEE_REFUSALS = [
+  "tee_required",
+  "tee_version_unsupported",
+  "tee_request_malformed",
+  KEY_LOST,
+] as const;
+type TeeRefusal = (typeof TEE_REFUSALS)[number];
 
 /** A fixed policy, or one downloaded from its signers. */
 export type ProverTee = TeePolicy | SignedTeePolicy;
@@ -202,16 +211,21 @@ export class TeeSession {
     return prover;
   }
 
-  /** Resends once to a fresh attestation when the prover holds another key, having read nothing. */
+  /**
+   * Resends once to a fresh attestation when the prover holds another key. Any
+   * other refusal of the envelope, or a second key loss, is `CLIENT_PROVER_TEE_REJECTED`.
+   */
   async send(call: ProverCall): Promise<Response | undefined> {
+    // Before attesting, so a runtime that cannot encrypt costs the prover nothing.
+    await ensureX25519();
     for (let resent = false; ; resent = true) {
       const key = await this.#key(call);
       const prepared = await this.#encrypt(call, key);
       const response = await fetched(call, prepared.init);
       if (response === undefined) return undefined;
-      if (resent) return prepared.finish(response);
-      const answer = await keyLost(response);
-      if (answer !== "lost") return prepared.finish(answer);
+      const answer = await teeRefusal(response);
+      if (answer instanceof Response) return prepared.finish(answer);
+      if (answer !== KEY_LOST || resent) throw teeRejected(answer, call.method);
       if (this.#attested !== undefined && equalBytes(this.#attested.key, key)) {
         this.#attested = undefined;
       }
@@ -340,8 +354,8 @@ async function fetched(call: ProverCall, init: RequestInit): Promise<Response | 
   }
 }
 
-/** `"lost"` consumes the answer; any other answer comes back readable. */
-async function keyLost(response: Response): Promise<Response | "lost"> {
+/** A refusal of the envelope consumes the answer; any other answer comes back readable. */
+async function teeRefusal(response: Response): Promise<Response | TeeRefusal> {
   if (response.status !== 400 || response.headers.get(HEADER_VERSION) === VERSION) return response;
   // Read once: cancelling an oversized clone would wait for its unread twin.
   let bytes: Uint8Array;
@@ -357,15 +371,23 @@ async function keyLost(response: Response): Promise<Response | "lost"> {
   } catch {
     answer = undefined;
   }
-  if (
-    typeof answer === "object" &&
-    answer !== null &&
-    "code" in answer &&
-    answer.code === KEY_LOST
-  ) {
-    return "lost";
+  if (typeof answer === "object" && answer !== null && "code" in answer) {
+    const refusal = TEE_REFUSALS.find((code) => code === answer.code);
+    if (refusal !== undefined) return refusal;
   }
   return new Response(bytes.slice(), { status: response.status, headers: response.headers });
+}
+
+/**
+ * Names the request headers the refusal concerns, the ones a proxy between
+ * the client and the prover most often drops or rewrites. Only the prover's
+ * code is kept, never its message.
+ */
+function teeRejected(reason: TeeRefusal, method: ProverCall["method"]): ClientError {
+  const sealed = method === "GET" ? `${HEADER_ENC}, ${HEADER_CIPHERTEXT}` : HEADER_ENC;
+  const headers =
+    reason === "tee_required" || reason === "tee_version_unsupported" ? HEADER_VERSION : sealed;
+  return new ClientError("CLIENT_PROVER_TEE_REJECTED", { details: { reason, headers } });
 }
 
 const refused = (check: string): ClientError =>

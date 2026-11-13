@@ -829,9 +829,10 @@ describe("a prover that lost the attested key", () => {
   }
 
   const refusal = (code: string) => () => Response.json({ code }, { status: 400 });
-  const refusedWith = (code: string): Readonly<Record<string, unknown>> => ({
-    code: "CLIENT_PROVER_HTTP",
-    details: { method: "health", status: 400, reason: code },
+  // `health` is a GET, so its sealed bytes travel in two headers.
+  const refusedWith = (reason: string): Readonly<Record<string, unknown>> => ({
+    code: "CLIENT_PROVER_TEE_REJECTED",
+    details: { reason, headers: "Spr-Tee-Enc, Spr-Tee-Ciphertext" },
   });
   const attestation = ["/attestation", false] as const;
   const health = ["/health", true] as const;

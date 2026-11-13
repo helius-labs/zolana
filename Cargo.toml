@@ -186,10 +186,12 @@ spl-token = "9.0"
 spl-token-2022 = { version = "11.0", features = ["no-entrypoint"] }
 spl-token-2022-interface = "2.0"
 spl-pod = "0.7"
+# pinocchio 0.12 needs solana-address >= 2.8, but litesvm (0.16 here, 0.18.2
+# latest) pins solana-address ~2.6 / ~2.7, which is why solana-address is held
+# at =2.6.1 above. Bump pinocchio (with pinocchio-system 0.7) once a litesvm
+# release accepts solana-address 2.8.
 pinocchio = "0.11"
-pinocchio-pubkey = "0.3.0"
 pinocchio-system = "0.6.0"
-pinocchio-token-program = { git = "https://github.com/Lightprotocol/token", rev = "f7bee9bbc8039c224a88ea76e9ae2edd78e0f9c3" }
 
 # Async, HTTP, logging, and utilities.
 aes-gcm = "0.10"
