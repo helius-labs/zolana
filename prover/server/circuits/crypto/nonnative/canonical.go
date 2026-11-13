@@ -34,6 +34,7 @@ const (
 // Constrain the unique representative in [0,modulus). Width bounds alone
 // do not exclude representatives equal to or above the modulus.
 func (f *Field) AssertCanonical(e *Element) {
+	f.checkLayout(e)
 	if !e.IsReduced(f.widths) {
 		panic("canonical check needs a reduced element")
 	}
@@ -55,6 +56,12 @@ func (f *Field) AssertCanonical(e *Element) {
 		return
 	}
 	// 3 - Otherwise hint the nonnegative gap to modulus - 1 and bound its limbs.
+	nbLimbs, limbBits := f.layout.NbLimbs, f.layout.LimbBits
+	lowLimbCount := (nbLimbs + 1) / 2
+	// Each half sum is an integer below 2^(lowLimbCount*limbBits+1) and must not wrap.
+	if lowLimbCount*limbBits+1 >= f.api.Compiler().FieldBitLen() {
+		panic("nonnative: canonical check halves exceed the native field")
+	}
 	inputs := f.hintInputs(nil, []*Element{e})
 	pieces, err := f.api.Compiler().NewHint(modulusGapHint, f.layout.nbPiecesAll(f.widths)+1, inputs...)
 	if err != nil {
@@ -65,8 +72,6 @@ func (f *Field) AssertCanonical(e *Element) {
 	f.api.AssertIsBoolean(carry)
 	// 4 - Require element + gap = modulus - 1 using a bounded carry between halves.
 	maximumCanonicalValue := new(big.Int).Sub(f.mod, big.NewInt(1))
-	nbLimbs, limbBits := f.layout.NbLimbs, f.layout.LimbBits
-	lowLimbCount := (nbLimbs + 1) / 2
 	maximumLow := new(big.Int).And(maximumCanonicalValue, new(big.Int).Sub(pow2(lowLimbCount*limbBits), big.NewInt(1)))
 	maximumHigh := new(big.Int).Rsh(maximumCanonicalValue, uint(lowLimbCount*limbBits))
 	sumPart := func(from, to int) frontend.Variable {
@@ -87,8 +92,11 @@ func (f *Field) assertBelowModulusLimbwise(e *Element) bool {
 	limbCount := len(f.widths)
 	maximumLimbs := f.layout.decompose(new(big.Int).Sub(f.mod, big.NewInt(1)), limbCount)
 	kinds := make([]limbKind, limbCount)
+	// Run sums stay below runMax and the low-gap sum below lowGapMax. Neither may wrap.
+	runMax, lowGapMax := new(big.Int), new(big.Int)
 	for i, w := range f.widths {
 		full := new(big.Int).Sub(pow2(w), big.NewInt(1))
+		runMax.Add(runMax, full)
 		switch {
 		case maximumLimbs[i].Cmp(full) == 0:
 			kinds[i] = limbAllOnes
@@ -100,9 +108,13 @@ func (f *Field) assertBelowModulusLimbwise(e *Element) bool {
 			kinds[i] = limbBelowAllOnes
 		case i == 0 && maximumLimbs[i].Cmp(full) < 0:
 			kinds[i] = limbLowGap
+			lowGapMax.Sub(new(big.Int).Lsh(full, 1), maximumLimbs[i])
 		default:
 			return false
 		}
+	}
+	if q := api.Compiler().Field(); runMax.Cmp(q) >= 0 || lowGapMax.Cmp(q) >= 0 {
+		return false
 	}
 	limbs := e.limbs
 	var matchesHigherLimbs frontend.Variable = 1
@@ -170,7 +182,7 @@ func modulusGapHint(q *big.Int, inputs, outputs []*big.Int) error {
 	if gap.Sign() < 0 {
 		gap.SetInt64(0)
 	}
-	layout, err := layoutOf(inputs)
+	layout, _, err := decodeLayout(inputs)
 	if err != nil {
 		return err
 	}

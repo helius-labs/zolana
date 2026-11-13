@@ -58,7 +58,7 @@ func TestEvalProjectedRejectsNativeModulusAliases(t *testing.T) {
 				if err := PlainCheckHint(q, inputs, outputs); err != nil {
 					return err
 				}
-				lay, err := layoutOf(inputs)
+				lay, _, err := decodeLayout(inputs)
 				if err != nil {
 					return err
 				}
@@ -95,7 +95,7 @@ func TestEvalProjectedRejectsNativeModulusAliases(t *testing.T) {
 			if err := PlainCheckHint(q, inputs, outputs); err != nil {
 				return err
 			}
-			lay, err := layoutOf(inputs)
+			lay, _, err := decodeLayout(inputs)
 			if err != nil {
 				return err
 			}

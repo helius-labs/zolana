@@ -90,3 +90,92 @@ func TestLateTableMutationRejectsCompilation(t *testing.T) {
 		}
 	}
 }
+
+// The lookup hint reads only the rows inserted before the query.
+type insertAfterLookupCircuit struct {
+	Index frontend.Variable
+}
+
+func (c *insertAfterLookupCircuit) Define(api frontend.API) error {
+	table := New(api, 1)
+	table.Insert([]frontend.Variable{10})
+	table.Lookup(c.Index)
+	table.Insert([]frontend.Variable{20})
+	return nil
+}
+
+func TestInsertAfterLookupRejectsCompilation(t *testing.T) {
+	_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &insertAfterLookupCircuit{})
+	if err == nil || !strings.Contains(err.Error(), "lookup table already queried") {
+		t.Fatalf("insert after lookup: %v", err)
+	}
+}
+
+// Writes to a caller slice or pointer constant must not change the deferred relation.
+type callerWriteCircuit struct {
+	A, B frontend.Variable
+	Mode string `gnark:"-"`
+}
+
+func (c *callerWriteCircuit) Define(api frontend.API) error {
+	table := New(api, 1)
+	switch c.Mode {
+	case "row":
+		row := []frontend.Variable{c.A}
+		table.Insert(row)
+		row[0] = c.B
+		api.AssertIsEqual(table.Lookup(0)[0], c.A)
+	case "result":
+		table.Insert([]frontend.Variable{c.A})
+		out := table.Lookup(0)
+		result := out[0]
+		out[0] = c.B
+		api.AssertIsEqual(result, c.A)
+	case "constant":
+		entry := big.NewInt(1)
+		table.Insert([]frontend.Variable{entry})
+		entry.SetInt64(2)
+		api.AssertIsEqual(table.Lookup(0)[0], 1)
+	case "index":
+		table.Insert([]frontend.Variable{1})
+		table.Insert([]frontend.Variable{2})
+		index := big.NewInt(0)
+		result := table.Lookup(index)[0]
+		index.SetInt64(1)
+		api.AssertIsEqual(result, 1)
+	}
+	return nil
+}
+
+func TestCallerWritesDoNotAliasTheTable(t *testing.T) {
+	for _, mode := range []string{"row", "result", "constant", "index"} {
+		cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &callerWriteCircuit{Mode: mode})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w, err := frontend.NewWitness(&callerWriteCircuit{A: 1, B: 2}, ecc.BN254.ScalarField())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cs.IsSolved(w); err != nil {
+			t.Errorf("%s: %v", mode, err)
+		}
+	}
+}
+
+// A lookup into a table without rows can never be satisfied.
+type emptyTableCircuit struct {
+	Index frontend.Variable
+}
+
+func (c *emptyTableCircuit) Define(api frontend.API) error {
+	New(api, 1).Lookup(c.Index)
+	return nil
+}
+
+func TestEmptyTableLookupRejectsCompilation(t *testing.T) {
+	_, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &emptyTableCircuit{})
+	if err == nil || !strings.Contains(err.Error(), "lookup table has no rows") {
+		t.Fatalf("empty table lookup: %v", err)
+	}
+}

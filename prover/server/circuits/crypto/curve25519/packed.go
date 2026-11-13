@@ -9,18 +9,26 @@ import (
 )
 
 // PackCoordinate combines already bounded limbs into native groups for a
-// lookup row. The caller picks a group width whose packed value stays below
-// the native modulus. The represented value is unchanged.
+// lookup row. The represented value is unchanged.
 // Ben-Sasson, Chiesa, Genkin, Tromer, Virza, SNARKs for C, CRYPTO 2013, §2.3.3, https://cs-people.bu.edu/tromer/papers/csnark-20131007.pdf.
 // Kosba, Papamanthou, Shi, xJsnark, IEEE S&P 2018, App. B-A(2), https://akosba.github.io/papers/xjsnark.pdf.
 func PackCoordinate(api frontend.API, f *nonnative.Field, e *nonnative.Element, group int) []frontend.Variable {
+	requirePositiveGroup(group)
 	limbs := e.Limbs()
+	magnitudes := e.LimbMagnitudes()
 	limbBits := f.Layout().LimbBits
+	half := new(big.Int).Rsh(api.Compiler().Field(), 1)
 	var out []frontend.Variable
 	for g := 0; g < len(limbs); g += group {
 		sum := frontend.Variable(0)
+		bound := new(big.Int)
 		for j := g; j < min(g+group, len(limbs)); j++ {
 			sum = api.Add(sum, api.Mul(limbs[j], Pow2(limbBits*(j-g))))
+			bound.Add(bound, new(big.Int).Lsh(magnitudes[j], uint(limbBits*(j-g))))
+		}
+		// Signed groups need |value| below half the native modulus.
+		if bound.Cmp(half) >= 0 {
+			panic("curve25519: packed group exceeds the native field")
 		}
 		out = append(out, sum)
 	}
@@ -32,6 +40,7 @@ func PackCoordinate(api frontend.API, f *nonnative.Field, e *nonnative.Element, 
 // WithBounds only records that justification and adds no range constraints.
 // Signed groups carry the symmetric interval of a negated reduced coordinate.
 func UnpackCoordinate(f *nonnative.Field, packed []frontend.Variable, group int, signed bool) *nonnative.Element {
+	requirePositiveGroup(group)
 	widths := f.ReducedWidths()
 	n := len(widths)
 	limbs := make([]frontend.Variable, n)
@@ -82,8 +91,15 @@ func RowSplit(nbBits, nbLimbs int) int {
 // WithBounds. Those bounds are metadata, not range constraints.
 // Boyar, Find, Multiplicative Complexity of Vector Valued Boolean Functions, TCS 2018, §3.2, proof of Thm. 7, https://arxiv.org/abs/1407.6169.
 func SelectConstant(api frontend.API, f *nonnative.Field, rows, cols []frontend.Variable, group int, coordinate func(index int) *big.Int) *nonnative.Element {
+	requirePositiveGroup(group)
 	lay := f.Layout()
 	fieldBits := f.Modulus().BitLen()
+	for index := 0; index < len(rows)*len(cols); index++ {
+		// Masking below would silently truncate a constant outside the field.
+		if c := coordinate(index); c.Sign() < 0 || c.Cmp(f.Modulus()) >= 0 {
+			panic("curve25519: table constant outside the field")
+		}
+	}
 	limbs := make([]frontend.Variable, lay.NbLimbs)
 	lo, hi := make([]*big.Int, lay.NbLimbs), make([]*big.Int, lay.NbLimbs)
 	for i := range limbs {
@@ -94,6 +110,10 @@ func SelectConstant(api frontend.API, f *nonnative.Field, rows, cols []frontend.
 			continue
 		}
 		width := min(group*lay.LimbBits, fieldBits-i*lay.LimbBits)
+		// A wider constant would reduce modulo the native field below its recorded bound.
+		if width >= api.Compiler().FieldBitLen() {
+			panic("curve25519: packed group exceeds the native field")
+		}
 		mask := new(big.Int).Sub(Pow2(width), big.NewInt(1))
 		value := frontend.Variable(0)
 		for row, rf := range rows {
@@ -109,4 +129,10 @@ func SelectConstant(api frontend.API, f *nonnative.Field, rows, cols []frontend.
 		hi[i] = mask
 	}
 	return f.WithBounds(limbs, lo, hi)
+}
+
+func requirePositiveGroup(group int) {
+	if group <= 0 {
+		panic("curve25519: packing group must be positive")
+	}
 }

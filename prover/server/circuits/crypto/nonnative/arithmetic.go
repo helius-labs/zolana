@@ -102,6 +102,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *
 	for i, t := range inputTerms {
 		terms[i] = term{coef: big.NewInt(t.Coef), factors: t.Factors}
 		for _, e := range t.Factors {
+			f.checkLayout(e)
 			if _, ok := elementIndices[e]; !ok {
 				elementIndices[e] = len(elements)
 				elements = append(elements, e)
@@ -114,7 +115,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *
 	for _, t := range terms {
 		poly := []*big.Int{new(big.Int).Abs(t.coef)}
 		for _, e := range t.factors {
-			poly = polyMulAbs(poly, limbAbs(e))
+			poly = polyMulAbs(poly, e.LimbMagnitudes())
 		}
 		coefficientBounds = addInto(coefficientBounds, poly)
 		lo, hi := termRange(t)
@@ -264,8 +265,7 @@ func (f *Field) checkPolynomial(inputTerms []Term, withResult, projected bool) *
 		}
 		inputs = append(inputs, len(elements))
 		for _, e := range elements {
-			inputs = append(inputs, len(e.limbs))
-			inputs = append(inputs, e.limbs...)
+			inputs = f.appendLimbs(inputs, e)
 		}
 		out, err := api.Compiler().NewHint(PlainCheckHint, outputCount, inputs...)
 		if err != nil {
@@ -423,6 +423,9 @@ func (f *Field) Lazy(inputTerms ...Term) *Element {
 	terms := make([]term, len(inputTerms))
 	for i, t := range inputTerms {
 		terms[i] = term{coef: big.NewInt(t.Coef), factors: t.Factors}
+		for _, e := range t.Factors {
+			f.checkLayout(e)
+		}
 	}
 	coefficientMin, coefficientMax := lazyCoefficientIntervals(terms)
 	for i := range coefficientMin {
@@ -433,7 +436,7 @@ func (f *Field) Lazy(inputTerms ...Term) *Element {
 	degree := len(coefficientMin) - 1
 	fold := f.arithmetic.fold(limbCount, degree)
 	expressionForm := f.foldedForms(terms, degree, fold)
-	e := &Element{limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount), valueMin: new(big.Int), valueMax: new(big.Int)}
+	e := &Element{layout: f.layout, limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount), valueMin: new(big.Int), valueMax: new(big.Int)}
 	for j := 0; j < limbCount; j++ {
 		lo, hi := new(big.Int), new(big.Int)
 		for i := range coefficientMin {
@@ -909,16 +912,11 @@ func balanceOffset(layout Layout, widths []int) *big.Int {
 
 // Suggest balanced digits. HintBalanced checks their signed intervals.
 func BalanceHint(_ *big.Int, inputs, outputs []*big.Int) error {
-	layout, err := layoutOf(inputs)
+	layout, mod, err := decodeLayout(inputs)
 	if err != nil {
 		return err
 	}
-	n := layout.NbLimbs
-	if len(inputs) < headerLen+n {
-		return errors.New("balance: missing modulus")
-	}
-	mod := layout.recompose(inputs[headerLen : headerLen+n])
-	raw := inputs[headerLen+n:]
+	raw := inputs[headerLen+layout.NbLimbs:]
 	widths := layout.reducedWidths(mod.BitLen())
 	per := layout.nbPiecesAll(widths)
 	if len(raw) != len(outputs) || len(raw)%per != 0 {
@@ -948,17 +946,11 @@ func PlainCheckHint(nativeModulus *big.Int, inputs, outputs []*big.Int) error {
 		return v
 	}
 	nextInt := func() int { return int(next().Int64()) }
-	layout, err := layoutOf(inputs)
+	layout, modulus, err := decodeLayout(inputs)
 	if err != nil {
 		return err
 	}
-	position = headerLen
-	limbCount := layout.NbLimbs
-	modLimbs := make([]*big.Int, limbCount)
-	for i := range modLimbs {
-		modLimbs[i] = next()
-	}
-	modulus := layout.recompose(modLimbs)
+	position = headerLen + layout.NbLimbs
 	hasRemainder, hasQuotient, quotientBits := nextInt(), nextInt(), nextInt()
 	var quotientWidths []int
 	if hasQuotient == 1 {

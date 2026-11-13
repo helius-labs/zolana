@@ -22,17 +22,14 @@ import (
 // computation. This is witness generation only. Callers own circuit equations.
 func Unwrap(nativeModulus *big.Int, inputs, outputs []*big.Int, fn func(modulus *big.Int, nativeInputs, elementInputs, elementOutputs []*big.Int) error) error {
 	// 1 - Decode the layout, modulus, and native inputs from the hint header.
-	layout, err := layoutOf(inputs)
+	layout, modulus, err := decodeLayout(inputs)
 	if err != nil {
 		return err
 	}
-	limbCount := layout.NbLimbs
-	position := headerLen
-	if len(inputs) < position+limbCount+1 {
+	position := headerLen + layout.NbLimbs
+	if len(inputs) < position+1 {
 		return errors.New("missing hint header")
 	}
-	modulus := layout.recompose(inputs[position : position+limbCount])
-	position += limbCount
 	nativeCount := int(inputs[position].Int64())
 	position++
 	nativeInputs := inputs[position : position+nativeCount]

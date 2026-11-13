@@ -28,6 +28,7 @@ type part struct {
 // Element tracks circuit limbs and compile-time bounds for their integer values.
 // Bounds are metadata. Constructors such as Bounded do not prove them.
 type Element struct {
+	layout             Layout
 	limbs              []frontend.Variable
 	lo, hi             []*big.Int
 	valueMin, valueMax *big.Int
@@ -57,6 +58,9 @@ func NewFor(api frontend.API, modulus *big.Int, layout Layout) *Field {
 	key := fieldKey{modulus.String(), layout}
 	if f, ok := kv.GetKeyValue(key).(*Field); ok {
 		return f
+	}
+	if err := layout.check(modulus.BitLen()); err != nil {
+		panic(err)
 	}
 	f := &Field{
 		api:         api,
@@ -105,7 +109,7 @@ func (l Layout) recompose(limbs []*big.Int) *big.Int {
 func (f *Field) Const(v *big.Int) *Element {
 	r := new(big.Int).Mod(v, f.mod)
 	limbs := f.layout.decompose(r, f.layout.NbLimbs)
-	e := &Element{limbs: make([]frontend.Variable, f.layout.NbLimbs), lo: limbs, hi: limbs, valueMin: r, valueMax: r}
+	e := &Element{layout: f.layout, limbs: make([]frontend.Variable, f.layout.NbLimbs), lo: limbs, hi: limbs, valueMin: r, valueMax: r}
 	for i := range limbs {
 		e.limbs[i] = limbs[i]
 	}
@@ -117,9 +121,13 @@ func (f *Field) Bounded(limbs []frontend.Variable, widths []int) *Element {
 	if len(limbs) != len(widths) {
 		panic("limb count mismatch")
 	}
-	e := &Element{limbs: limbs, lo: make([]*big.Int, len(limbs)), hi: make([]*big.Int, len(limbs))}
+	e := &Element{layout: f.layout, limbs: limbs, lo: make([]*big.Int, len(limbs)), hi: make([]*big.Int, len(limbs))}
 	total := 0
 	for i, w := range widths {
+		// The aggregate bound below assumes every lower limb fits the layout.
+		if i < len(widths)-1 && w > f.layout.LimbBits {
+			panic("nonnative: lower limb wider than the layout")
+		}
 		e.lo[i] = new(big.Int)
 		e.hi[i] = new(big.Int).Sub(pow2(w), big.NewInt(1))
 		total = i*f.layout.LimbBits + w
@@ -135,7 +143,7 @@ func (f *Field) WithBounds(limbs []frontend.Variable, lo, hi []*big.Int) *Elemen
 	if len(limbs) != len(lo) || len(limbs) != len(hi) {
 		panic("limb count mismatch")
 	}
-	e := &Element{limbs: limbs, lo: lo, hi: hi, valueMin: new(big.Int), valueMax: new(big.Int)}
+	e := &Element{layout: f.layout, limbs: limbs, lo: lo, hi: hi, valueMin: new(big.Int), valueMax: new(big.Int)}
 	for i := range limbs {
 		if lo[i].Cmp(hi[i]) > 0 {
 			panic("empty limb interval")
@@ -168,6 +176,14 @@ func (e *Element) Limbs() []frontend.Variable {
 	return e.limbs
 }
 
+func (e *Element) Layout() Layout { return e.layout }
+
+func (f *Field) checkLayout(e *Element) {
+	if e.layout != f.layout {
+		panic("nonnative: element layout differs from the field")
+	}
+}
+
 // Inspect existing interval metadata only. No constraints or canonicality check.
 func (e *Element) IsReduced(widths []int) bool {
 	if len(e.limbs) != len(widths) || e.parts != nil {
@@ -189,9 +205,10 @@ func (f *Field) Lin(coefficients []int64, elements ...*Element) *Element {
 	}
 	limbCount := 0
 	for _, e := range elements {
+		f.checkLayout(e)
 		limbCount = max(limbCount, len(e.limbs))
 	}
-	combination := &Element{limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount), valueMin: new(big.Int), valueMax: new(big.Int)}
+	combination := &Element{layout: f.layout, limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount), valueMin: new(big.Int), valueMax: new(big.Int)}
 	for i := range combination.limbs {
 		combination.limbs[i] = 0
 		combination.lo[i] = new(big.Int)
@@ -237,8 +254,10 @@ func (f *Field) Neg(a *Element) *Element {
 // Select every limb, zero-extending unequal lengths. API.Select constrains
 // Booleanity. Valid input intervals bound either selected representative.
 func (f *Field) Select(selector frontend.Variable, x, y *Element) *Element {
+	f.checkLayout(x)
+	f.checkLayout(y)
 	limbCount := max(len(x.limbs), len(y.limbs))
-	selected := &Element{limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount)}
+	selected := &Element{layout: f.layout, limbs: make([]frontend.Variable, limbCount), lo: make([]*big.Int, limbCount), hi: make([]*big.Int, limbCount)}
 	limb := func(e *Element, i int) (frontend.Variable, *big.Int, *big.Int) {
 		if i < len(e.limbs) {
 			return e.limbs[i], e.lo[i], e.hi[i]
@@ -287,10 +306,21 @@ func (f *Field) hintInputs(natives []frontend.Variable, elems []*Element) []fron
 	inputs = append(inputs, len(natives))
 	inputs = append(inputs, natives...)
 	for _, e := range elems {
-		inputs = append(inputs, len(e.limbs))
-		inputs = append(inputs, e.limbs...)
+		inputs = f.appendLimbs(inputs, e)
 	}
 	return inputs
+}
+
+// signed() decodes these limbs, so each interval must fit its symmetric native window.
+func (f *Field) appendLimbs(inputs []frontend.Variable, e *Element) []frontend.Variable {
+	f.checkLayout(e)
+	half := new(big.Int).Rsh(f.api.Compiler().Field(), 1)
+	for i := range e.limbs {
+		if absMax(e.lo[i], e.hi[i]).Cmp(half) > 0 {
+			panic("nonnative: hint limb exceeds the signed native window")
+		}
+	}
+	return append(append(inputs, len(e.limbs)), e.limbs...)
 }
 
 // Obtain unsigned width-bounded outputs only. Callers must constrain their

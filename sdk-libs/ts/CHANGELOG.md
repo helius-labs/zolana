@@ -84,6 +84,7 @@ Breaking
 - `ZolanaClient` now defaults to `proofDataSource: "prover"` for Helius API URLs too → configure indexed proving on the upstream or set `proofDataSource: "client"` to retain SDK-fetched proof data.
 - `checkProvingKeys` and `checkProverProvingKeys` return a download catalog with gnark and optional zopro artifacts, replacing the prefix and loading flags → read each artifact’s `format`, `sha256`, `size` and `url`, and upgrade the prover to the same schema.
 - `defaultTeePolicy()` and `DEFAULT_TEE_PROVER_ENDPOINT` are removed, and remote prover calls without a supplied policy fail before HTTP → supply your prover URL and a reviewed `proverTee` to `ZolanaClient` or `tee` to `ProverClient`, parsed with `teePolicyFromJson`.
+- `PROVING_KEY_SHA256S` pins rotated in-proof `confidentialEddsa` and anonymous ring transfer proving keys, so `ProverClient` rejects a proof from a prover on the previous keys with `CLIENT_PROVING_KEY_MISMATCH` → prove against the prover of this release.
 
 Changed
 

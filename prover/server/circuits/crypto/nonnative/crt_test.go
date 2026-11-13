@@ -2,10 +2,14 @@ package nonnative
 
 import (
 	"crypto/rand"
+	"errors"
 	"math/big"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc"
+	"github.com/consensys/gnark/backend/groth16"
+	"github.com/consensys/gnark/frontend"
+	"github.com/consensys/gnark/frontend/cs/r1cs"
 )
 
 // CRT product reconstruction matches the folded coefficient calculation.
@@ -108,5 +112,91 @@ func TestCRTBasisCertificationRejectsCorruption(t *testing.T) {
 		b := newCRTBasis(f, 6, q, interpolation)
 		tc.corrupt(b)
 		requirePanic(tc.name, tc.want, func() { tc.certify(b) })
+	}
+}
+
+// 2^258 folds to 4*2^172 - 5*2^86 + 2, a fold polynomial (X-1)^2 (X-2) with a repeated root.
+var repeatedRootLayout = Layout{NbLimbs: 3, LimbBits: 86, PieceBits: 10}
+
+var repeatedRootModulus = func() *big.Int {
+	top := new(big.Int).Mul(big.NewInt(4), pow2(172))
+	top.Sub(top, new(big.Int).Mul(big.NewInt(5), pow2(86)))
+	top.Add(top, big.NewInt(2))
+	return new(big.Int).Sub(pow2(258), top)
+}()
+
+type repeatedRootCircuit struct {
+	A, C [3]frontend.Variable
+	B    frontend.Variable
+}
+
+func (c *repeatedRootCircuit) Define(api frontend.API) error {
+	f := NewFor(api, repeatedRootModulus, repeatedRootLayout)
+	if f.arithmetic.foldDigits == nil || f.arithmetic.crtBasis(f, api.Compiler().Field()) != nil {
+		return errors.New("repeated root must keep the plain fold")
+	}
+	a, product := fromLimbs(f, c.A[:]), fromLimbs(f, c.C[:])
+	// Two full-width operands overflow the quotient range, so b gets small proved bounds.
+	f.RangeChecker().Check(c.B, 4)
+	lo, hi := make([]*big.Int, 3), make([]*big.Int, 3)
+	for i := range lo {
+		lo[i], hi[i] = new(big.Int), new(big.Int)
+	}
+	hi[0].SetInt64(15)
+	b := f.WithBounds([]frontend.Variable{c.B, 0, 0}, lo, hi)
+	f.AssertZero(T(1, a, b), T(-1, product))
+	return nil
+}
+
+func TestRepeatedRootFoldMultiplies(t *testing.T) {
+	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &repeatedRootCircuit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := rand.Int(rand.Reader, repeatedRootModulus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	product := new(big.Int).Mul(a, big.NewInt(13))
+	product.Mod(product, repeatedRootModulus)
+	assign := func(c *big.Int) *repeatedRootCircuit {
+		w := &repeatedRootCircuit{B: 13}
+		for i, l := range repeatedRootLayout.decompose(a, 3) {
+			w.A[i] = l
+		}
+		for i, l := range repeatedRootLayout.decompose(c, 3) {
+			w.C[i] = l
+		}
+		return w
+	}
+	honest, err := frontend.NewWitness(assign(product), ecc.BN254.ScalarField())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cs.IsSolved(honest); err != nil {
+		t.Fatal(err)
+	}
+	wrong := new(big.Int).Add(product, big.NewInt(1))
+	forged, err := frontend.NewWitness(assign(wrong.Mod(wrong, repeatedRootModulus)), ecc.BN254.ScalarField())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.IsSolved(forged) == nil {
+		t.Fatal("wrong product accepted")
+	}
+	pk, vk, err := groth16.Setup(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := groth16.Prove(cs, pk, honest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, err := honest.Public()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := groth16.Verify(proof, vk, public); err != nil {
+		t.Fatal(err)
 	}
 }

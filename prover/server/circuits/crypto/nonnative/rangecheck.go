@@ -21,6 +21,8 @@ import (
 	"github.com/consensys/gnark/constraint/solver"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/multicommit"
+
+	"github.com/helius-labs/zolana/prover/server/circuits/crypto/lookup"
 )
 
 // Registers untrusted witness hints. Their callers enforce the required relations.
@@ -79,6 +81,7 @@ func (rc *RangeChecker) Check(v frontend.Variable, bits int) {
 		panic("nonnative: range width must stay below the native field bit length")
 	}
 	pieceBits := rc.pieceBits
+	v = lookup.Snapshot(rc.api, v)
 	switch {
 	case bits <= 0:
 		rc.api.AssertIsEqual(v, 0)

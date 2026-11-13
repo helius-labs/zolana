@@ -266,7 +266,7 @@ func TestEdProjectedReducerRejectsAliases(t *testing.T) {
 						if err := PlainCheckHint(q, in, out); err != nil {
 							return err
 						}
-						lay, err := layoutOf(in)
+						lay, _, err := decodeLayout(in)
 						if err != nil {
 							return err
 						}
