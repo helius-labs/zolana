@@ -663,6 +663,45 @@ fn fetch_keeps_the_spent_utxos_and_the_transactions_that_spent_them() {
 }
 
 #[test]
+fn a_deposit_whose_blinding_is_no_field_element_does_not_fail_the_scan() {
+    let owner = keypair(11);
+    let address = owner.shielded_address().unwrap();
+    let (valid_deposit, valid) = deposit(&owner, 50, 1);
+    // Anyone can publish a deposit naming this owner with any blinding.
+    let (mut crafted, _) = deposit(&owner, 0, 2);
+    let mut utxo = sol(&owner, 0, 2);
+    utxo.blinding = [0xff; 32];
+    crafted.output_slot.payload = Proofless::encode(
+        &[utxo],
+        &OwnerCx {
+            owner: address.signing_pubkey,
+            assets: &AssetRegistry::default(),
+            ring_program_id: None,
+            first_nullifier: None,
+        },
+        [0; 32],
+        &ProoflessEncode {
+            owner_hash: address.owner_hash().unwrap(),
+            data_hash: None,
+            ring_data_hash: None,
+        },
+    )
+    .unwrap()
+    .data;
+    let indexer = Indexer {
+        deposits: vec![crafted, valid_deposit],
+        ..Indexer::default()
+    };
+    let assets = AssetRegistry::default();
+    let spendable = UtxoScan::new(&owner, &assets)
+        .fetch(&indexer)
+        .unwrap()
+        .spendable;
+    let utxos: Vec<_> = spendable.utxos().map(|utxo| utxo.utxo_hash).collect();
+    assert_eq!(utxos, [valid.hash]);
+}
+
+#[test]
 fn a_merge_found_before_one_of_its_inputs_decrypts_from_its_own_transaction() {
     let owner = keypair(8);
     let (first_deposit, first) = deposit(&owner, 30, 1);

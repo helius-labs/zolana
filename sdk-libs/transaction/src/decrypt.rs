@@ -2,12 +2,13 @@ use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
 
 use solana_address::Address;
 use spr_event::{split_merge_output_body, OutputDataEncoding};
+use spr_hasher::primitives::is_canonical_bn254_scalar_be;
 use spr_keypair::{shielded::ShieldedAddress, x25519::X25519_PUBKEY_LEN, KeypairError};
 
 use crate::{
     asset::{AssetBalance, AssetRegistry, Balances, Mint},
     error::TransactionError,
-    indexer_types::{OutputSlot, ShieldedTransaction},
+    indexer_types::{OutputContext, OutputSlot, ShieldedTransaction},
     instructions::merge::MergeOutputPlaintext,
     keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
     serialization::{
@@ -120,7 +121,11 @@ pub fn decrypt_spendable<K: ShieldedKeys + ?Sized>(
     verify_spendable(shielded_keys, &decrypted)
 }
 
-/// Returns decoded candidates without commitment or spend verification.
+/// Returns decoded candidates without spend verification. A candidate carries
+/// the commitment its slot publishes, unchecked against its fields, except
+/// that each output of a plaintext-transfer bundle takes the slot of its
+/// transaction whose commitment it reproduces. An output that cannot be hashed
+/// is no candidate.
 pub fn decrypt<K: ShieldedKeys + ?Sized>(
     shielded_keys: &K,
     transactions: &[ShieldedTransaction],
@@ -150,7 +155,7 @@ impl DecryptionResult {
             for (position, slot) in tx.output_slots.iter().enumerate() {
                 let slot_index =
                     u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?;
-                let decoded =
+                let mut decoded =
                     match decode_slot(shielded_keys, &address, tx, slot, slot_index, assets) {
                         Ok(Some(decoded)) => decoded,
                         Ok(None) => continue,
@@ -168,18 +173,22 @@ impl DecryptionResult {
                         }
                         Err(error) => return Err(error),
                     };
-                for utxo in decoded.utxos {
-                    let hash = slot.output_context.hash;
+                for utxo in std::mem::take(&mut decoded.utxos) {
+                    let Some((slot_index, context)) =
+                        decoded.place(&address, tx, (slot_index, slot), &utxo)
+                    else {
+                        continue;
+                    };
                     found.push(WalletUtxo {
                         utxo,
                         nullifier_pubkey: address.nullifier_pubkey,
-                        utxo_hash: hash,
+                        utxo_hash: context.hash,
                         nullifier: [0; 32],
                         tx_viewing_key: None,
                         data_hash: decoded.data_hash,
                         ring_data_hash: decoded.ring_data_hash,
-                        tree_id: slot.output_context.tree_id,
-                        leaf_index: slot.output_context.leaf_index,
+                        tree_id: context.tree_id,
+                        leaf_index: context.leaf_index,
                         latest_tree_id: None,
                         slot: tx.slot,
                         tx_signature: tx.tx_signature,
@@ -341,6 +350,66 @@ struct DecodedSlot {
     utxos: Vec<Utxo>,
     data_hash: Option<[u8; 32]>,
     ring_data_hash: Option<[u8; 32]>,
+    /// A plaintext-transfer bundle rebuilds several outputs of its
+    /// transaction from the one slot that carries it.
+    bundle: bool,
+}
+
+impl DecodedSlot {
+    /// The commitment `utxo` has under this wallet's nullifier key in tree
+    /// `tree_id`. `None` when a field the sender chose is no field element:
+    /// such an output is no note, and no nullifier derives from it.
+    fn commitment(&self, address: &ShieldedAddress, utxo: &Utxo, tree_id: u16) -> Option<[u8; 32]> {
+        utxo.hash(
+            &address.nullifier_pubkey,
+            &self.data_hash.unwrap_or_default(),
+            &self.ring_data_hash.unwrap_or_default(),
+            tree_id,
+        )
+        .ok()
+    }
+
+    /// The slot index and published context `utxo` is a candidate for: its
+    /// carrying slot, or for a bundle output the slot of `tx` whose commitment
+    /// it reproduces. `None` when it cannot be hashed, when its slot publishes
+    /// a commitment no nullifier derives from, or for a bundle output of
+    /// another owner or of no slot.
+    fn place<'a>(
+        &self,
+        address: &ShieldedAddress,
+        tx: &'a ShieldedTransaction,
+        (slot_index, slot): (u32, &'a OutputSlot),
+        utxo: &Utxo,
+    ) -> Option<(u32, &'a OutputContext)> {
+        if !self.bundle {
+            let context = &slot.output_context;
+            let hashable = self.commitment(address, utxo, context.tree_id).is_some()
+                && is_canonical_bn254_scalar_be(&context.hash);
+            return hashable.then_some((slot_index, context));
+        }
+        if utxo.owner != address.signing_pubkey {
+            return None;
+        }
+        // Slots of one transaction share a tree in practice, so the commitment
+        // is hashed again only when the tree changes.
+        let mut hashed: Option<(u16, [u8; 32])> = None;
+        for (position, slot) in tx.output_slots.iter().enumerate() {
+            let context = &slot.output_context;
+            let hash = match hashed {
+                Some((tree_id, hash)) if tree_id == context.tree_id => hash,
+                _ => {
+                    let hash = self.commitment(address, utxo, context.tree_id)?;
+                    hashed = Some((context.tree_id, hash));
+                    hash
+                }
+            };
+            if hash == context.hash {
+                // `extend` fails on a position beyond `u32` as it reaches it.
+                return Some((u32::try_from(position).ok()?, context));
+            }
+        }
+        None
+    }
 }
 
 fn decode_slot<K: ShieldedKeys + ?Sized>(
@@ -385,6 +454,7 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                                 utxos,
                                 data_hash,
                                 ring_data_hash,
+                                bundle: false,
                             }
                         }),
                     )
@@ -399,6 +469,7 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                                 utxos,
                                 data_hash: None,
                                 ring_data_hash: None,
+                                bundle: true,
                             },
                         ),
                     )
@@ -470,6 +541,7 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
                     utxos,
                     data_hash: None,
                     ring_data_hash: None,
+                    bundle: false,
                 }));
             }
             Ok(None)
@@ -537,12 +609,15 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
         tx.ring_program_id,
     );
     let context = &slot.output_context;
-    let hash = utxo.hash(
+    // A ring merge's unverified ring data hash may be no field element.
+    let Ok(hash) = utxo.hash(
         &address.nullifier_pubkey,
         &[0; 32],
         &ring_data_hash.copied().unwrap_or_default(),
         context.tree_id,
-    )?;
+    ) else {
+        return Ok(None);
+    };
     if hash != context.hash {
         return Ok(None);
     }
@@ -551,6 +626,7 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
         utxos: vec![utxo],
         data_hash: None,
         ring_data_hash: ring_data_hash.copied(),
+        bundle: false,
     }))
 }
 
