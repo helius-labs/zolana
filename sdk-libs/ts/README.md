@@ -145,17 +145,17 @@ The public dashboard reports protocol and service health.
 
 **Devnet:**
 
-| Service    | URL                                                | Notes                                                                                     |
-| ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>` | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
-| Indexer    | `https://d34xe1hqb2ibg2.cloudfront.net`            | Fetches encrypted state.                                                                  |
-| Prover     | `https://dd73hh473h6ha.cloudfront.net`             | Generates ZK proofs in a Nitro Enclave the SDK attests and encrypts every request to.     |
-| Dashboard  | `https://djq45ljnl16bl.cloudfront.net`             | Shows public protocol and service health.                                                 |
+| Service    | URL                                                      | Notes                                                                                     |
+| ---------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>`       | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
+| Indexer    | `https://devnet.helius-rpc.com/v1/spr?api-key=<API_KEY>` | Fetches encrypted state.                                                                  |
+| Prover     | `https://devnet.helius-rpc.com/v1/spr?api-key=<API_KEY>` | Generates ZK proofs in a Nitro Enclave the SDK attests and encrypts every request to.     |
+| Dashboard  | `https://djq45ljnl16bl.cloudfront.net`                   | Shows public protocol and service health.                                                 |
 
-**Mainnet:** Photon RPC is `https://dgcj4pjarvo65.cloudfront.net` and the
-Nitro prover is `https://d3ky2kt0ntqxt1.cloudfront.net`. These are deployment
-examples; the SDK embeds no prover URLs. It pins who signs each network's
-prover policy, so a client follows new prover releases without an SDK release:
+**Mainnet:** the indexer and the prover are both
+`https://mainnet.helius-rpc.com/v1/spr?api-key=<API_KEY>`. The SDK embeds no
+prover URLs. It pins who signs each network's prover policy, so a client
+follows new prover releases without an SDK release:
 
 ```ts
 import { SignedTeePolicy, SprClient } from "@heliuslabs/spr/client";
@@ -168,8 +168,8 @@ const client = new SprClient({
 });
 ```
 
-A unified Helius `/v1/spr` base URL can be used for both `indexerUrl` and
-`proverUrl`; policy selection is independent of the URL. Every remote prover
+The Helius `/v1/spr` base URL serves both `indexerUrl` and `proverUrl`, and is
+the only supported way to reach either; policy selection is independent of the URL. Every remote prover
 requires the caller's `proverTee` (`tee` on `ProverClient`) before any HTTP
 request. The client downloads the network's signed policy again whenever it
 attests again, every `max_age_secs` of the policy, and never uses it once its
