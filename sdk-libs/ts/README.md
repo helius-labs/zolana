@@ -213,7 +213,8 @@ A proxy of your own in front of the prover must forward the headers in
 `PROVER_TEE_HEADERS.request` unchanged, pass the `application/octet-stream`
 body through, and return `PROVER_TEE_HEADERS.response`. A prover that misses
 one refuses the call with `CLIENT_PROVER_TEE_REJECTED`, whose
-`details.headers` names the headers concerned.
+`details.headers` names the headers most likely at fault (a
+`tee_request_malformed` refusal can also mean a body over the prover's size cap).
 
 Use `attestProver` and `checkProverProvingKeys` for gateway readiness;
 the operator `/health` route is not part of the public Helius API.

@@ -230,8 +230,9 @@ export interface ClientErrorDetailsMap {
    * The prover refused the encrypted envelope: `reason` is its code,
    * `tee_required`, `tee_version_unsupported`, `tee_request_malformed` or
    * `tee_decryption_failed` (after one fresh attestation and resend), and
-   * `headers` the comma-separated request headers it concerns. A proxy that
-   * drops or rewrites one of `PROVER_TEE_HEADERS` causes it.
+   * `headers` the comma-separated request headers most likely at fault. A
+   * proxy that drops or rewrites one of `PROVER_TEE_HEADERS` causes it;
+   * `tee_request_malformed` can also mean a body over the prover's size cap.
    */
   readonly CLIENT_PROVER_TEE_REJECTED: Readonly<{ reason: string; headers: string }>;
   /**

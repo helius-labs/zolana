@@ -98,7 +98,7 @@ impl<'a> SppTransactAccounts<'a> {
                 .ok_or(TransactAccountsError::TooManyAccounts)?,
             data: instruction_data,
         };
-        invoke_signed_with_bounds::<MAX_ACCOUNTS, _>(&instruction, self.accounts, signers)
+        invoke_in_own_frame::<MAX_ACCOUNTS>(&instruction, self.accounts, signers)
     }
 
     /// The CPI's account metas on the stack: every account keeps its writable
@@ -119,6 +119,19 @@ impl<'a> SppTransactAccounts<'a> {
             None => InstructionAccount::readonly(&PROGRAM_ID_PUBKEY),
         }))
     }
+}
+
+/// `invoke_signed_with_bounds` is always inlined and stages `MAX_ACCOUNTS` CPI
+/// accounts (56 bytes each) on the stack. Calling it from a separate frame
+/// keeps that array apart from the caller's `MAX_ACCOUNTS` metas, so both fit
+/// the 4 KB SBF stack frame up to the 64-account CPI limit.
+#[inline(never)]
+fn invoke_in_own_frame<const MAX_ACCOUNTS: usize>(
+    instruction: &InstructionView,
+    accounts: &[AccountView],
+    signers: &[Signer],
+) -> ProgramResult {
+    invoke_signed_with_bounds::<MAX_ACCOUNTS, _>(instruction, accounts, signers)
 }
 
 /// An account list that is not the transact layout. It converts into
