@@ -10,6 +10,7 @@ on:
     paths-ignore:
       - "protocol-ops/**"
       - ".github/workflows/protocol-ops.yml"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
