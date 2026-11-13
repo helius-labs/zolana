@@ -65,6 +65,8 @@ pub struct NullifierTreeBatchUpdate {
     pub new_root: [u8; 32],
     pub zkp_batch_size: u64,
     pub num_update: u32,
+    /// The first leaf this event appends, as the chain reports it.
+    pub old_next_index: u64,
     /// The tree's sequence number after this event, taken from the chain rather
     /// than counted locally.
     ///

@@ -47,16 +47,98 @@ async fn persist_nullifier_tree_batch_update(
         )));
     }
 
-    if let Some(root) = current_root(txn, batch_update.tree).await? {
-        if root.hash == batch_update.new_root.to_vec() {
-            return reconcile_root_sequence(txn, batch_update, &root).await;
-        }
+    // The event names the leaves it appends, so applying it is decided by
+    // where the tree ends, not by what was recorded about earlier events.
+    let first_leaf = batch_update.old_next_index;
+    let end_leaf = first_leaf
+        .checked_add(batch_update.appended_count())
+        .ok_or_else(|| {
+            IngesterError::ParserError(format!(
+                "Nullifier leaf index overflow for tree {}",
+                batch_update.tree
+            ))
+        })?;
+    let next_leaf = current_nullifier_count(txn, batch_update.tree)
+        .await?
+        .checked_add(1)
+        .ok_or_else(|| {
+            IngesterError::ParserError(format!(
+                "Nullifier leaf index overflow for tree {}",
+                batch_update.tree
+            ))
+        })?;
+
+    if next_leaf == first_leaf || batch_update.appended_count() == 0 {
+        let batch_seq = batch_update.sequence_number;
+        let reconstructed = reconstruct_batch_updates(txn, batch_update, batch_seq).await?;
+        persist_indexed_tree_updates(txn, reconstructed.updates, tree_info_cache).await?;
+        return verify_reconstructed_root(txn, batch_update).await;
     }
 
-    let batch_seq = batch_update.sequence_number;
-    let reconstructed = reconstruct_batch_updates(txn, batch_update, batch_seq).await?;
-    persist_indexed_tree_updates(txn, reconstructed.updates, tree_info_cache).await?;
-    verify_reconstructed_root(txn, batch_update).await
+    if next_leaf < end_leaf {
+        return Err(IngesterError::ParserError(format!(
+            "Nullifier batch for tree {} appends leaves {}..{}, but the tree's next leaf is {}",
+            batch_update.tree, first_leaf, end_leaf, next_leaf
+        )));
+    }
+
+    // The tree already holds every leaf of this event: a replay. Check it.
+    verify_applied_leaves(txn, batch_update, first_leaf).await?;
+    if next_leaf == end_leaf {
+        let root = current_root(txn, batch_update.tree).await?.ok_or_else(|| {
+            IngesterError::DatabaseError(format!(
+                "Missing nullifier root for tree {}",
+                batch_update.tree
+            ))
+        })?;
+        if root.hash != batch_update.new_root.to_vec() {
+            return Err(IngesterError::ParserError(format!(
+                "Nullifier root mismatch for tree {} at leaf {}: expected {:?}, got {:?}",
+                batch_update.tree, end_leaf, batch_update.new_root, root.hash
+            )));
+        }
+        return reconcile_root_sequence(txn, batch_update, &root).await;
+    }
+    Ok(())
+}
+
+/// Check that the leaves an already-applied event covers are the nullifiers
+/// queued at the same positions.
+async fn verify_applied_leaves(
+    txn: &DatabaseTransaction,
+    batch_update: &NullifierTreeBatchUpdate,
+    first_leaf: u64,
+) -> Result<(), IngesterError> {
+    let count = batch_update.appended_count();
+    let queued = queued_nullifiers_for_batch(txn, batch_update.tree, first_leaf, count).await?;
+    let leaves = indexed_trees::Entity::find()
+        .filter(indexed_trees::Column::Tree.eq(batch_update.tree.to_bytes().to_vec()))
+        .filter(
+            indexed_trees::Column::LeafIndex.gte(i64_from_u64(first_leaf, "indexed leaf index")?),
+        )
+        .order_by_asc(indexed_trees::Column::LeafIndex)
+        .limit(count)
+        .all(txn)
+        .await?;
+
+    if leaves.len() != queued.len() {
+        return Err(IngesterError::ParserError(format!(
+            "Nullifier tree {} holds {} of the {} leaves from {}",
+            batch_update.tree,
+            leaves.len(),
+            queued.len(),
+            first_leaf
+        )));
+    }
+    for (leaf, nullifier) in leaves.iter().zip(&queued) {
+        if leaf.leaf_index != nullifier.input_queue_seq || leaf.value != nullifier.nullifier {
+            return Err(IngesterError::ParserError(format!(
+                "Nullifier tree {} leaf {} is not the nullifier queued at {}",
+                batch_update.tree, leaf.leaf_index, nullifier.input_queue_seq
+            )));
+        }
+    }
+    Ok(())
 }
 
 async fn reconstruct_batch_updates(
@@ -527,6 +609,9 @@ mod tests {
             new_root: [0; 32],
             zkp_batch_size: NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
             num_update,
+            old_next_index: sequence_number.saturating_sub(u64::from(num_update))
+                * NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE
+                + 1,
             sequence_number,
             signature: Signature::from([8; 64]),
         }
@@ -594,6 +679,95 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(root_seq(&tx, tree).await, 2);
+
+        tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn replaying_an_earlier_event_changes_nothing() {
+        // A snapshot replayed onto an index that is already past it delivers
+        // every old event again. Their roots are not the current root, and the
+        // nullifiers they appended are no longer at the head of the queue.
+        let db = setup_test_db().await;
+        let tree = Pubkey::new_from_array([7; 32]);
+        let tree_info_cache = insert_test_tree(&db, tree).await;
+        let batch_size = NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+
+        let tx = db.begin().await.unwrap();
+        seed_queued_nullifiers(&tx, tree, batch_size * 2).await;
+
+        let first_root = apply_event(&tx, tree, &tree_info_cache, 1, 1).await;
+        let second_root = apply_event(&tx, tree, &tree_info_cache, 1, 2).await;
+        assert_ne!(first_root, second_root);
+
+        let earlier = NullifierTreeBatchUpdate {
+            new_root: fixed_32(first_root, "root hash").unwrap(),
+            signature: Signature::from([9; 64]),
+            ..batch_event(tree, 1, 1)
+        };
+        persist_nullifier_tree_batch_update(&tx, &earlier, &tree_info_cache)
+            .await
+            .unwrap();
+
+        let root = current_root(&tx, tree).await.unwrap().unwrap();
+        assert_eq!(root.hash, second_root);
+        assert_eq!(root_seq(&tx, tree).await, 2);
+
+        tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_event_past_a_gap_is_refused() {
+        let db = setup_test_db().await;
+        let tree = Pubkey::new_from_array([7; 32]);
+        let tree_info_cache = insert_test_tree(&db, tree).await;
+        let batch_size = NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+
+        let tx = db.begin().await.unwrap();
+        seed_queued_nullifiers(&tx, tree, batch_size * 3).await;
+        apply_event(&tx, tree, &tree_info_cache, 1, 1).await;
+
+        // The second event never arrived; the third must not be applied or skipped.
+        let third = batch_event(tree, 1, 3);
+        let err = persist_nullifier_tree_batch_update(&tx, &third, &tree_info_cache)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("the tree's next leaf is"));
+        assert_eq!(
+            current_nullifier_count(&tx, tree).await.unwrap(),
+            batch_size
+        );
+
+        tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_replayed_event_must_match_the_leaves_in_the_tree() {
+        let db = setup_test_db().await;
+        let tree = Pubkey::new_from_array([7; 32]);
+        let tree_info_cache = insert_test_tree(&db, tree).await;
+        let batch_size = NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+
+        let tx = db.begin().await.unwrap();
+        seed_queued_nullifiers(&tx, tree, batch_size * 2).await;
+        apply_event(&tx, tree, &tree_info_cache, 1, 1).await;
+        apply_event(&tx, tree, &tree_info_cache, 1, 2).await;
+
+        rings_tx_nullifiers::Entity::update_many()
+            .col_expr(
+                rings_tx_nullifiers::Column::Nullifier,
+                Expr::value(vec![0xAB_u8; 32]),
+            )
+            .filter(rings_tx_nullifiers::Column::InputQueueSeq.eq(3))
+            .exec(&tx)
+            .await
+            .unwrap();
+
+        let err =
+            persist_nullifier_tree_batch_update(&tx, &batch_event(tree, 1, 1), &tree_info_cache)
+                .await
+                .unwrap_err();
+        assert!(err.to_string().contains("is not the nullifier queued at"));
 
         tx.rollback().await.unwrap();
     }
