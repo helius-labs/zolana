@@ -56,6 +56,7 @@ pub fn parse_nullifier_tree_batch_updates(
                 new_root: event.new_root,
                 zkp_batch_size: u64::from(event.zkp_batch_size),
                 num_update: event.num_update,
+                old_next_index: event.old_next_index,
                 sequence_number,
                 signature: tx.signature,
             });
