@@ -145,11 +145,12 @@ Most validation jobs skip draft PRs. TypeScript and deployment-script checks als
     8. `spr-zk-standalone-fixture`: `cargo test`.
     9. Standalone Wasm: `node --test`.
 
-    The SDK e2e job requires repository variables `ZOLANA_TEE_PROVER_URL`
-    (the live prover endpoint) and `ZOLANA_TEE_PROVER_POLICY` (the reviewed
-    JSON policy path relative to the checkout). The live TEE test receives
-    these separately from `ZOLANA_PROVER_URL`, which the localnet runner
-    sets to its local prover. Missing configuration fails before builds.
+    The SDK e2e job requires the repository secret `HELIUS_API_KEY`. Its live
+    TEE test reaches the devnet prover through the Helius gateway with that
+    key and attests it against the signed devnet policy the SDK pins. It
+    receives `ZOLANA_TEE_PROVER_URL` separately from `ZOLANA_PROVER_URL`,
+    which the localnet runner sets to its local prover. A missing secret
+    fails before builds.
 
 4. [Photon](workflows/photon.yml)
 

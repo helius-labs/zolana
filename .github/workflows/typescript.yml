@@ -93,18 +93,15 @@ jobs:
       # Independent of the local prover URL that just test-ts-e2e supplies. The
       # live enclave test describes the deployment, which lags a pull request
       # until its release, so pull requests leave it unset and the test skips.
-      ZOLANA_TEE_PROVER_URL: ${{ github.event_name != 'pull_request' && vars.ZOLANA_TEE_PROVER_URL || '' }}
-      ZOLANA_TEE_PROVER_POLICY: ${{ github.event_name != 'pull_request' && format('{0}/{1}', github.workspace, vars.ZOLANA_TEE_PROVER_POLICY) || '' }}
+      ZOLANA_TEE_PROVER_URL: ${{ github.event_name != 'pull_request' && format('https://devnet.helius-rpc.com/v1/spr?api-key={0}', secrets.HELIUS_API_KEY) || '' }}
+      ZOLANA_TEE_POLICY_NETWORK: devnet
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Check live TEE test configuration
         if: github.event_name != 'pull_request'
         env:
-          POLICY_PATH: ${{ vars.ZOLANA_TEE_PROVER_POLICY }}
-        run: |
-          test -n "$ZOLANA_TEE_PROVER_URL"
-          test -n "$POLICY_PATH"
-          test -f "$ZOLANA_TEE_PROVER_POLICY"
+          HELIUS_API_KEY: ${{ secrets.HELIUS_API_KEY }}
+        run: test -n "$HELIUS_API_KEY"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
