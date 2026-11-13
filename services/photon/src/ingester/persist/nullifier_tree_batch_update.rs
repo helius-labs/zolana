@@ -51,6 +51,15 @@ async fn persist_nullifier_tree_batch_update(
         if root.hash == batch_update.new_root.to_vec() {
             return reconcile_root_sequence(txn, batch_update, &root).await;
         }
+        // A replayed event from before the tree's current state: its nullifiers
+        // are already in the tree, and the queue no longer starts at them.
+        let recorded = root
+            .seq
+            .map(|seq| u64_from_i64(seq, "root sequence"))
+            .transpose()?;
+        if recorded.is_some_and(|recorded| recorded > batch_update.sequence_number) {
+            return Ok(());
+        }
     }
 
     let batch_seq = batch_update.sequence_number;
@@ -593,6 +602,39 @@ mod tests {
         persist_nullifier_tree_batch_update(&tx, &already_applied, &tree_info_cache)
             .await
             .unwrap();
+        assert_eq!(root_seq(&tx, tree).await, 2);
+
+        tx.rollback().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn replaying_an_earlier_event_changes_nothing() {
+        // A snapshot replayed onto an index that is already past it delivers
+        // every old event again. Their roots are not the current root, and the
+        // nullifiers they appended are no longer at the head of the queue.
+        let db = setup_test_db().await;
+        let tree = Pubkey::new_from_array([7; 32]);
+        let tree_info_cache = insert_test_tree(&db, tree).await;
+        let batch_size = NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE;
+
+        let tx = db.begin().await.unwrap();
+        seed_queued_nullifiers(&tx, tree, batch_size * 2).await;
+
+        let first_root = apply_event(&tx, tree, &tree_info_cache, 1, 1).await;
+        let second_root = apply_event(&tx, tree, &tree_info_cache, 1, 2).await;
+        assert_ne!(first_root, second_root);
+
+        let earlier = NullifierTreeBatchUpdate {
+            new_root: fixed_32(first_root, "root hash").unwrap(),
+            signature: Signature::from([9; 64]),
+            ..batch_event(tree, 1, 1)
+        };
+        persist_nullifier_tree_batch_update(&tx, &earlier, &tree_info_cache)
+            .await
+            .unwrap();
+
+        let root = current_root(&tx, tree).await.unwrap().unwrap();
+        assert_eq!(root.hash, second_root);
         assert_eq!(root_seq(&tx, tree).await, 2);
 
         tx.rollback().await.unwrap();
