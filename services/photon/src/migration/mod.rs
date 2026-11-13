@@ -1,9 +1,22 @@
 pub use sea_orm_migration::prelude::*;
+use sea_orm_migration::sea_orm::{DatabaseConnection, DbBackend, TransactionTrait};
 
 mod migrations;
 mod model;
 
 pub struct RingsMigrator;
+
+pub async fn migrate_up(db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
+    if db.get_database_backend() == DbBackend::Sqlite {
+        // SQLite caches schema per connection. Keep schema reads and DDL on the
+        // same connection so an ADD followed by a DROP sees the updated schema.
+        let transaction = db.begin().await?;
+        RingsMigrator::up(&transaction, steps).await?;
+        transaction.commit().await
+    } else {
+        RingsMigrator::up(db, steps).await
+    }
+}
 
 #[async_trait::async_trait]
 impl MigratorTrait for RingsMigrator {

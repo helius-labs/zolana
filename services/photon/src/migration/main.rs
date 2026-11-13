@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use photon_indexer::migration::{MigratorTrait, RingsMigrator};
+use photon_indexer::migration::{migrate_up, MigratorTrait, RingsMigrator};
 use sea_orm_migration::sea_orm::{ConnectOptions, Database, DbConn};
 
 #[derive(Parser, Debug)]
@@ -50,9 +50,13 @@ async fn main() {
         .database_schema
         .or_else(|| std::env::var("DATABASE_SCHEMA").ok())
         .unwrap_or_else(|| "public".to_owned());
-    let connect_options = ConnectOptions::new(url)
-        .set_schema_search_path(schema)
-        .to_owned();
+    let mut connect_options = ConnectOptions::new(&url);
+    connect_options.set_schema_search_path(schema);
+    // All SQLite migration commands must retain one connection's schema state,
+    // including fresh/refresh, which also change connection-local PRAGMAs.
+    if url.starts_with("sqlite:") {
+        connect_options.max_connections(1);
+    }
     let db = match Database::connect(connect_options).await {
         Ok(db) => db,
         Err(err) => {
@@ -61,7 +65,7 @@ async fn main() {
         }
     };
 
-    let result = run::<RingsMigrator>(&db, args.command).await;
+    let result = run(&db, args.command).await;
 
     if let Err(err) = result {
         eprintln!("{err}");
@@ -69,18 +73,15 @@ async fn main() {
     }
 }
 
-async fn run<M>(db: &DbConn, command: Option<Command>) -> Result<(), Box<dyn std::error::Error>>
-where
-    M: MigratorTrait,
-{
+async fn run(db: &DbConn, command: Option<Command>) -> Result<(), Box<dyn std::error::Error>> {
     match command {
-        Some(Command::Fresh) => M::fresh(db).await?,
-        Some(Command::Refresh) => M::refresh(db).await?,
-        Some(Command::Reset) => M::reset(db).await?,
-        Some(Command::Status) => M::status(db).await?,
-        Some(Command::Up { num }) => M::up(db, num).await?,
-        Some(Command::Down { num }) => M::down(db, Some(num)).await?,
-        None => M::up(db, None).await?,
+        Some(Command::Fresh) => RingsMigrator::fresh(db).await?,
+        Some(Command::Refresh) => RingsMigrator::refresh(db).await?,
+        Some(Command::Reset) => RingsMigrator::reset(db).await?,
+        Some(Command::Status) => RingsMigrator::status(db).await?,
+        Some(Command::Up { num }) => migrate_up(db, num).await?,
+        Some(Command::Down { num }) => RingsMigrator::down(db, Some(num)).await?,
+        None => migrate_up(db, None).await?,
     }
     Ok(())
 }
