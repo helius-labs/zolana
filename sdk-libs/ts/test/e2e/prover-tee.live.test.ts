@@ -14,6 +14,7 @@ import {
   type TransferOutput,
 } from "../../src/client/index.js";
 import { asField } from "../../src/client/prover/assembly.js";
+import { NETWORKS } from "../../src/client/prover/tee/signed.js";
 import { wireDecoder } from "../../src/interface/decode.js";
 
 // A committed, valid circuit witness, independent of any chain or wallet.
@@ -130,23 +131,20 @@ describe.skipIf(!process.env["ZOLANA_TEE_PROVER_URL"])("configured TEE prover", 
       return value;
     };
     const endpoint = required("ZOLANA_TEE_PROVER_URL");
-    // A reviewed policy file, or else the network's signed policy.
+    // A reviewed policy file, or else the signed policy the SDK pins for the network.
     const policyPath = process.env["ZOLANA_TEE_PROVER_POLICY"];
+    const network = policyPath === undefined ? required("ZOLANA_TEE_POLICY_NETWORK") : undefined;
+    if (network !== undefined && network !== "mainnet" && network !== "devnet") {
+      throw new Error("ZOLANA_TEE_POLICY_NETWORK must be mainnet or devnet");
+    }
     const policy =
-      policyPath === undefined
-        ? new SignedTeePolicy({
-            url: required("ZOLANA_TEE_POLICY_URL"),
-            network: required("ZOLANA_TEE_POLICY_NETWORK"),
-            publicKeys: required("ZOLANA_TEE_POLICY_SIGNERS").split(","),
-            threshold: Number(required("ZOLANA_TEE_POLICY_THRESHOLD")),
-          })
-        : teePolicyFromJson(JSON.parse(readFileSync(policyPath, "utf8")) as unknown);
+      network === undefined
+        ? teePolicyFromJson(JSON.parse(readFileSync(policyPath ?? "", "utf8")) as unknown)
+        : SignedTeePolicy.forNetwork(network);
     const proverUrl = new URL(endpoint);
     // The prover, and the signed policy's host when there is one.
     const origins = [proverUrl.origin];
-    if (policy instanceof SignedTeePolicy) {
-      origins.push(new URL(required("ZOLANA_TEE_POLICY_URL")).origin);
-    }
+    if (network !== undefined) origins.push(new URL(NETWORKS[network].url).origin);
     const proofPathPrefix = `${proverUrl.pathname.replace(/\/+$/u, "")}/prove/`;
     let encryptedProofCalls = 0;
     const observedFetch: typeof globalThis.fetch = async (resource, init) => {
