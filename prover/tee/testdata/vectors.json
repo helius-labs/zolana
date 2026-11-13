@@ -6,55 +6,52 @@
   "report_data": "00e611aac3df68da4c51dfe291e0b9093b426c3a985952f9be71cc11f3eef90113c540c58fdde93b451fb22f80d87143d42b0fc3de8b79fefe88ececba955e03",
   "report_data_no_gpu": "b862900309ded091670546a72ac72e6aefcd3bb1da1516d739933ce9fc025ad366fbddd3915b948749c809916909f902e57e354ffdff2c0e731080994283216a",
   "gpu_nonce": "a60303f260939f6351f9ae36813887f29d56809a05f5379712dc1f3ce039405d",
+  "version": "v1.1",
   "method": "POST",
-  "request_uri": "/v1/spr/prove/transfer_2_2?api-key=k",
-  "enc": "6828aaf2fb92da6438ad6cd76426049a00d0c346e4499c342c8c371f7d6d535f",
-  "ciphertext": "134095a0847bb8e110f928050dee72caf80eff78146bb422cc7a1080730bcff1f12bbc5d9f",
+  "route": "/prove/transfer_2_2",
+  "aad": "POST /prove/transfer_2_2",
+  "enc": "11d9c9260ec3c6b13f98c0c9d3feaccc025e70e06a1b398a12bac71d01ec5c1e",
+  "ciphertext": "8ea518cce59fa0e2c5901dd4492e7ff2695628606035621dcd4eec859b4b8484468c7e2f63",
   "plaintext": "{\"inputs\":[\"secret\"]}",
-  "response_key": "05692f14a640f109dc57583e13090b07e51672af03441bdb15ef0ad766c87139",
+  "response_key": "ded20eb052db1aa79059fe4e13c28fc191fa93dfd481b895c1215258bb60e8a4",
   "response_status": 200,
   "response_body": "{\"proof\":\"ok\"}",
-  "encrypted_response": "1bf03def0ec31b3aaf991808a46732d1703980cf11e4ec1500fe2ce6f9abd0e903faf93d34d66a16b36ab411",
+  "encrypted_response": "5cb220cdf678f3f9599c239a0c68f186eb5d31c1e0ea4761c98261610f044972707006c870f5cb366df664ed",
   "aad_cases": [
-    {
-      "method": "GET",
-      "request_target": "/",
-      "aad": "GET /"
-    },
-    {
-      "method": "POST",
-      "request_target": "/v1/spr/prove/sample/?id=a%20b",
-      "aad": "POST /prove/sample?id=a%20b"
-    },
-    {
-      "method": "POST",
-      "request_target": "/prove/sample//?id=a%20b",
-      "aad": "POST /prove/sample?id=a%20b"
-    },
-    {
-      "method": "POST",
-      "request_target": "/prove/sample%2F/?id=a%20b",
-      "aad": "POST /prove/sample%2F?id=a%20b"
-    },
-    {
-      "method": "GET",
-      "request_target": "/v1/spr/?jobId=a",
-      "aad": "GET /v1/spr?jobId=a"
-    },
-    {
-      "method": "GET",
-      "request_target": "/v1/spr//",
-      "aad": "GET /v1/spr"
-    },
     {
       "method": "GET",
       "request_target": "/health",
       "aad": "GET /health"
     },
     {
+      "method": "GET",
+      "request_target": "/v1/spr/proving-keys?api-key=k",
+      "aad": "GET /proving-keys"
+    },
+    {
       "method": "POST",
-      "request_target": "/v1/spr/prove/transfer_2_2?api-key=k",
+      "request_target": "/prove/transfer_2_2",
       "aad": "POST /prove/transfer_2_2"
+    },
+    {
+      "method": "POST",
+      "request_target": "/v1/spr/prove/transfer_2_2?api-key=k\u0026jobId=a\u0026async=true",
+      "aad": "POST /prove/transfer_2_2"
+    },
+    {
+      "method": "POST",
+      "request_target": "/v1/spr/prove/merge_8_1/indexed",
+      "aad": "POST /prove/merge_8_1/indexed"
+    },
+    {
+      "method": "POST",
+      "request_target": "/prove/transfer_2_2/",
+      "aad": "POST /prove/transfer_2_2/"
+    },
+    {
+      "method": "POST",
+      "request_target": "/prove/sample%2F",
+      "aad": "POST /prove/sample%2F"
     },
     {
       "method": "POST",
@@ -69,52 +66,122 @@
     {
       "method": "GET",
       "request_target": "/v1/spr?jobId=a",
-      "aad": "GET /v1/spr?jobId=a"
+      "aad": "GET /v1/spr"
     },
     {
       "method": "GET",
-      "request_target": "/prove/merge_8_1/status?api-key=k\u0026jobId=a1",
-      "aad": "GET /prove/merge_8_1/status?jobId=a1"
-    },
-    {
-      "method": "GET",
-      "request_target": "/prove/merge_8_1/status?jobId=a1\u0026api-key=k",
-      "aad": "GET /prove/merge_8_1/status?jobId=a1"
-    },
-    {
-      "method": "GET",
-      "request_target": "/attestation?nonce=ab\u0026api-key=k1\u0026api-key=k2",
-      "aad": "GET /attestation?nonce=ab"
-    },
-    {
-      "method": "GET",
-      "request_target": "/prove/x?api-keys=v\u0026api-key",
-      "aad": "GET /prove/x?api-keys=v"
-    },
-    {
-      "method": "GET",
-      "request_target": "/prove/x?\u0026\u0026jobId=a\u0026",
-      "aad": "GET /prove/x?jobId=a"
-    },
-    {
-      "method": "POST",
-      "request_target": "/v1/spr/prove/transfer_2_2?api%2Dkey=k\u0026jobId=%61%31\u0026q=a%20b+c",
-      "aad": "POST /prove/transfer_2_2?jobId=%61%31\u0026q=a%20b+c"
-    },
-    {
-      "method": "GET",
-      "request_target": "/prove/x?%61pi-key=a\u0026api-%6Bey=b\u0026%61%70%69%2d%6b%65%79=c\u0026jobId=a",
-      "aad": "GET /prove/x?jobId=a"
-    },
-    {
-      "method": "GET",
-      "request_target": "/prove/x?api-key=k\u0026API-KEY=keep\u0026api+key=keep\u0026api%2Bkey=keep\u0026bad%=keep",
-      "aad": "GET /prove/x?API-KEY=keep\u0026api+key=keep\u0026api%2Bkey=keep\u0026bad%=keep"
-    },
-    {
-      "method": "GET",
-      "request_target": "/prove/x??api-key=keep\u0026jobId=a",
-      "aad": "GET /prove/x??api-key=keep\u0026jobId=a"
+      "request_target": "/v1/spr/",
+      "aad": "GET /"
     }
-  ]
+  ],
+  "v1": {
+    "method": "POST",
+    "request_uri": "/v1/spr/prove/transfer_2_2?api-key=k",
+    "enc": "40b898aee47b37c95dafd8d3530d8f26eb0f7674b72c773b005a6782d57a8808",
+    "ciphertext": "1f6dac4d1c265aa34478590573cdf3231510a528c6cf90c37c09bb3de7c4a176b16460a5d6",
+    "plaintext": "{\"inputs\":[\"secret\"]}",
+    "response_key": "4d291c9a7aa745896d7b59bd4ad5a360b5568bad6d12ac643eb5216da25a1c91",
+    "aad_cases": [
+      {
+        "method": "GET",
+        "request_target": "/",
+        "aad": "GET /"
+      },
+      {
+        "method": "POST",
+        "request_target": "/v1/spr/prove/sample/?id=a%20b",
+        "aad": "POST /prove/sample?id=a%20b"
+      },
+      {
+        "method": "POST",
+        "request_target": "/prove/sample//?id=a%20b",
+        "aad": "POST /prove/sample?id=a%20b"
+      },
+      {
+        "method": "POST",
+        "request_target": "/prove/sample%2F/?id=a%20b",
+        "aad": "POST /prove/sample%2F?id=a%20b"
+      },
+      {
+        "method": "GET",
+        "request_target": "/v1/spr/?jobId=a",
+        "aad": "GET /v1/spr?jobId=a"
+      },
+      {
+        "method": "GET",
+        "request_target": "/v1/spr//",
+        "aad": "GET /v1/spr"
+      },
+      {
+        "method": "GET",
+        "request_target": "/health",
+        "aad": "GET /health"
+      },
+      {
+        "method": "POST",
+        "request_target": "/v1/spr/prove/transfer_2_2?api-key=k",
+        "aad": "POST /prove/transfer_2_2"
+      },
+      {
+        "method": "POST",
+        "request_target": "/v1/spr/v1/spr/prove/x",
+        "aad": "POST /v1/spr/prove/x"
+      },
+      {
+        "method": "POST",
+        "request_target": "/v1/sprx/prove/x",
+        "aad": "POST /v1/sprx/prove/x"
+      },
+      {
+        "method": "GET",
+        "request_target": "/v1/spr?jobId=a",
+        "aad": "GET /v1/spr?jobId=a"
+      },
+      {
+        "method": "GET",
+        "request_target": "/prove/merge_8_1/status?api-key=k\u0026jobId=a1",
+        "aad": "GET /prove/merge_8_1/status?jobId=a1"
+      },
+      {
+        "method": "GET",
+        "request_target": "/prove/merge_8_1/status?jobId=a1\u0026api-key=k",
+        "aad": "GET /prove/merge_8_1/status?jobId=a1"
+      },
+      {
+        "method": "GET",
+        "request_target": "/attestation?nonce=ab\u0026api-key=k1\u0026api-key=k2",
+        "aad": "GET /attestation?nonce=ab"
+      },
+      {
+        "method": "GET",
+        "request_target": "/prove/x?api-keys=v\u0026api-key",
+        "aad": "GET /prove/x?api-keys=v"
+      },
+      {
+        "method": "GET",
+        "request_target": "/prove/x?\u0026\u0026jobId=a\u0026",
+        "aad": "GET /prove/x?jobId=a"
+      },
+      {
+        "method": "POST",
+        "request_target": "/v1/spr/prove/transfer_2_2?api%2Dkey=k\u0026jobId=%61%31\u0026q=a%20b+c",
+        "aad": "POST /prove/transfer_2_2?jobId=%61%31\u0026q=a%20b+c"
+      },
+      {
+        "method": "GET",
+        "request_target": "/prove/x?%61pi-key=a\u0026api-%6Bey=b\u0026%61%70%69%2d%6b%65%79=c\u0026jobId=a",
+        "aad": "GET /prove/x?jobId=a"
+      },
+      {
+        "method": "GET",
+        "request_target": "/prove/x?api-key=k\u0026API-KEY=keep\u0026api+key=keep\u0026api%2Bkey=keep\u0026bad%=keep",
+        "aad": "GET /prove/x?API-KEY=keep\u0026api+key=keep\u0026api%2Bkey=keep\u0026bad%=keep"
+      },
+      {
+        "method": "GET",
+        "request_target": "/prove/x??api-key=keep\u0026jobId=a",
+        "aad": "GET /prove/x??api-key=keep\u0026jobId=a"
+      }
+    ]
+  }
 }

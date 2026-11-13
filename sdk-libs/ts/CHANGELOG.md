@@ -27,6 +27,7 @@ Breaking
 - `TreeFeeSchedule.feePerNullifier` becomes `feePerTree`, a flat fee a transact or merge payer pays once to every tree the transaction writes, and `defaultTreeFees()` takes no argument and returns 5,000 lamports per tree with forester reimbursements at cost → rename the field, drop the ZKP batch size argument, and fund payers for the per-tree fee.
 - `buildKeyUpdateTransaction` sends only the new viewing key, and the user-registry program refuses the earlier layout that also carried the nullifier key → upgrade the SDK together with the user-registry program.
 - `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` are removed → use `AT_COST_APPEND_REIMBURSEMENT_LAMPORTS`, `AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS` and `DEFAULT_FEE_PER_TREE_LAMPORTS`.
+- Calls a `proverTee` client encrypts send `Spr-Tee: v1.1`, which binds each call to its method and route but not its query, and a TEE prover released before it refuses them with `tee_version_unsupported` → attest a prover release that accepts `v1.1`.
 
 Added
 

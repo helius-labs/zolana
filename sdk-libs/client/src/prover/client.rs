@@ -1566,13 +1566,13 @@ mod tests {
                 &OpModeR::Base,
                 &private_key,
                 &enc,
-                b"zolana/prover-tee/v1",
+                b"zolana/prover-tee/v1.1",
             )
             .unwrap();
             let url = Url::parse(&request.path).unwrap_or_else(|_| {
                 Url::parse(&format!("http://localhost{}", request.path)).unwrap()
             });
-            let uri = &url[url::Position::BeforePath..];
+            let uri = url.path();
             let method = request.header.split_whitespace().next().unwrap();
             let ciphertext = if method == "GET" {
                 hex::decode(header("spr-tee-ciphertext")).unwrap()
@@ -1592,7 +1592,7 @@ mod tests {
             );
             let mut key = [0; 32];
             receiver
-                .export(b"zolana/prover-tee/v1/response", &mut key)
+                .export(b"zolana/prover-tee/v1.1/response", &mut key)
                 .unwrap();
             let plaintext = [status.to_be_bytes().as_slice(), body.to_string().as_bytes()].concat();
             let nonce = [0; 12]; // Fresh exported key for every request.
@@ -3720,7 +3720,7 @@ mod tests {
             }),
             encrypted: header.lines().any(|line| {
                 let lower = line.to_ascii_lowercase();
-                lower.strip_prefix("spr-tee:").map(str::trim) == Some("v1")
+                lower.strip_prefix("spr-tee:").map(str::trim) == Some("v1.1")
             }),
         }
     }
@@ -3736,7 +3736,7 @@ mod tests {
     }
 
     fn write_encrypted_response(stream: &mut TcpStream, body: &[u8]) {
-        write!(stream, "HTTP/1.1 200 OK\r\nspr-tee: v1\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).unwrap();
+        write!(stream, "HTTP/1.1 200 OK\r\nspr-tee: v1.1\r\ncontent-type: application/octet-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).unwrap();
         stream.write_all(body).unwrap();
     }
 

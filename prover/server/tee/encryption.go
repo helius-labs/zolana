@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/helius-labs/zolana/prover/server/logging"
 )
@@ -39,12 +40,14 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 			}
 			return
 		}
-		if version != Version {
+		binding, ok := bindings[version]
+		if !ok {
 			rejectEncrypted(w, codeVersionUnsupported)
 			return
 		}
-		// net/http drops a HEAD answer body, so its encrypted answer never arrives.
-		if r.Method == http.MethodHead {
+		// Clients encrypt only reads and proofs. net/http drops a HEAD answer
+		// body, so its encrypted answer would never arrive.
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			rejectEncrypted(w, codeRequestMalformed)
 			return
 		}
@@ -53,23 +56,16 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 			rejectEncrypted(w, codeRequestMalformed)
 			return
 		}
-		plaintext, responseKey, err := s.open(r, enc, ciphertext)
+		plaintext, responseKey, err := s.open(binding, r, enc, ciphertext)
 		if err != nil {
 			rejectEncrypted(w, codeDecryptionFailed)
 			return
 		}
 		defer clear(plaintext)
 		defer clear(responseKey)
-		inner := r.Clone(r.Context())
-		inner.Body = io.NopCloser(bytes.NewReader(plaintext))
-		inner.ContentLength = int64(len(plaintext))
-		inner.Header.Del(HeaderVersion)
-		inner.Header.Del(HeaderEnc)
-		inner.Header.Del(HeaderCiphertext)
-		inner.Header.Set("Content-Type", "application/json")
 
 		recorder := newRecorder()
-		next.ServeHTTP(recorder, inner)
+		next.ServeHTTP(recorder, innerRequest(r, plaintext))
 
 		encrypted, err := encryptResponse(responseKey, recorder.status, recorder.body.Bytes())
 		if err != nil {
@@ -77,13 +73,12 @@ func (s *Server) Wrap(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		for name, values := range recorder.header {
-			if name == "Content-Type" || name == "Content-Length" {
-				continue
-			}
-			w.Header()[name] = values
+		// Shedding needs the retry delay in the clear; every other header a
+		// handler sets stays inside the enclave.
+		if retryAfter := recorder.header.Get("Retry-After"); retryAfter != "" {
+			w.Header().Set("Retry-After", retryAfter)
 		}
-		w.Header().Set(HeaderVersion, Version)
+		w.Header().Set(HeaderVersion, version)
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.Header().Set("Content-Length", strconv.Itoa(len(encrypted)))
 		w.WriteHeader(recorder.status)
@@ -127,17 +122,33 @@ func hexHeader(r *http.Request, name string) ([]byte, error) {
 	return hex.DecodeString(value)
 }
 
-func (s *Server) open(r *http.Request, enc, ciphertext []byte) ([]byte, []byte, error) {
+// innerRequest hands a handler only what the client encrypted or bound: the
+// method, the route and the body. The outer headers and query arrive
+// unauthenticated, so none of them may steer the prover.
+func innerRequest(r *http.Request, plaintext []byte) *http.Request {
+	inner := r.Clone(r.Context())
+	inner.Header = http.Header{"Content-Type": {"application/json"}}
+	inner.Trailer = nil
+	inner.URL.RawQuery = ""
+	inner.URL.ForceQuery = false
+	inner.RequestURI, _, _ = strings.Cut(r.RequestURI, "?")
+	inner.Form, inner.PostForm, inner.MultipartForm = nil, nil, nil
+	inner.Body = io.NopCloser(bytes.NewReader(plaintext))
+	inner.ContentLength = int64(len(plaintext))
+	return inner
+}
+
+func (s *Server) open(binding binding, r *http.Request, enc, ciphertext []byte) ([]byte, []byte, error) {
 	_, kdf, aead := suite()
-	recipient, err := hpke.NewRecipient(enc, s.key, kdf, aead, []byte(hpkeInfo))
+	recipient, err := hpke.NewRecipient(enc, s.key, kdf, aead, []byte(binding.info))
 	if err != nil {
 		return nil, nil, err
 	}
-	plaintext, err := recipient.Open(requestAAD(r.Method, r.RequestURI), ciphertext)
+	plaintext, err := recipient.Open(binding.aad(r.Method, r.RequestURI), ciphertext)
 	if err != nil {
 		return nil, nil, err
 	}
-	responseKey, err := recipient.Export(responseExport, responseKeySize)
+	responseKey, err := recipient.Export(binding.responseExport, responseKeySize)
 	if err != nil {
 		return nil, nil, err
 	}

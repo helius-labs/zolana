@@ -446,19 +446,19 @@ async function sealedAnswer(
   const recipient = await suite.createRecipientContext({
     recipientKey: enclaveKey,
     enc: hexToBytes(headers.get("Spr-Tee-Enc") ?? ""),
-    info: utf8ToBytes("zolana/prover-tee/v1"),
+    info: utf8ToBytes("zolana/prover-tee/v1.1"),
   });
   await recipient.open(
     hexToBytes(headers.get("Spr-Tee-Ciphertext") ?? ""),
     utf8ToBytes("GET /proving-keys"),
   );
   const key = new Uint8Array(
-    await recipient.export(utf8ToBytes("zolana/prover-tee/v1/response"), 32),
+    await recipient.export(utf8ToBytes("zolana/prover-tee/v1.1/response"), 32),
   );
   const nonce = randomBytes(12);
   const plaintext = concatBytes(Uint8Array.of(status >> 8, status & 0xff), utf8ToBytes(body));
   return new Response(concatBytes(nonce, gcm(key, nonce).encrypt(plaintext)), {
-    headers: { "Spr-Tee": "v1" },
+    headers: { "Spr-Tee": "v1.1" },
   });
 }
 
