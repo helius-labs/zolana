@@ -192,8 +192,10 @@ func (t Transaction) ValidateLayout(numInputs int) error {
 }
 
 // Constrain proves the common merge statement and binds every supplied common
-// public-input-hash component to its in-circuit derivation.
-func (t Transaction) Constrain(api frontend.API) (Derived, error) {
+// public-input-hash component to its in-circuit derivation. Input nullifiers
+// key on UserNullifierSecret, the output blinding, dummy nullifiers and
+// transaction blinding on seed, since a note opening reveals a zero secret.
+func (t Transaction) Constrain(api frontend.API, seed frontend.Variable) (Derived, error) {
 	userOwnerHash := gadget.PoseidonHash(
 		api,
 		[]frontend.Variable{t.OwnerPkHash, t.UserNullifierPk},
@@ -224,6 +226,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	ctx := mergeInputContext{
 		OwnerHash:       userOwnerHash,
 		NullifierSecret: t.UserNullifierSecret,
+		Seed:            seed,
 		Asset:           asset,
 		RingProgramID:   t.RingProgramID,
 		FirstNullifier:  frontend.Variable(0),
@@ -241,7 +244,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		sumInputs = api.Add(sumInputs, t.Inputs[i].Amount)
 	}
 
-	outputBlinding := MergeOutputBlinding(api, t.UserNullifierSecret, nullifiers[0])
+	outputBlinding := MergeOutputBlinding(api, seed, nullifiers[0])
 	outputHash := constrainOutput(
 		api,
 		t.Output,
@@ -263,7 +266,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		inputHashes,
 		[]frontend.Variable{outputHash},
 		addressNullifiers,
-		transaction.DerivePrivateTxBlinding(api, nullifiers[0], t.UserNullifierSecret),
+		transaction.DerivePrivateTxBlinding(api, nullifiers[0], seed),
 	)
 	api.AssertIsEqual(privateTxHash, t.Public.PrivateTxHash)
 

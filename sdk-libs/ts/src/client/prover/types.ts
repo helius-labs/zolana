@@ -113,6 +113,10 @@ export interface MergeInputs {
   readonly publicInputHash: Field;
   readonly outputRingDataHash: Field;
   readonly ringProgramId: Field;
+  /** A zero-key ring merge's seed. */
+  readonly mergeSeed?: Field;
+  /** The owner's hashed key a zero-key ring merge publishes. */
+  readonly publishedOwner?: Field;
 }
 
 /**

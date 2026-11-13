@@ -425,9 +425,7 @@ func TestResolveCancellationReleasesPreparation(t *testing.T) {
 	}
 }
 
-// A merge-ring request carries the shared prefix and the ring tail only, since
-// the ring merge proof binds no ciphertext; the default merge's count is
-// refused for it, and the other way round.
+// Each rail refuses its sibling rail's public input count.
 func TestMergePublicInputCountFollowsTheRail(t *testing.T) {
 	request := func(circuitType common.CircuitType, count int) []byte {
 		t.Helper()
@@ -446,8 +444,10 @@ func TestMergePublicInputCountFollowsTheRail(t *testing.T) {
 		circuitType  common.CircuitType
 		right, wrong int
 	}{
-		{common.MergeCircuitType, 12, 8},
-		{common.MergeRingCircuitType, 8, 12},
+		{common.MergeCircuitType, 12, 13},
+		{common.MergeRingCircuitType, 13, 12},
+		{common.TransferRingAuthorityCircuitType, 14, 17},
+		{common.TransferRingAuthorityExitCircuitType, 17, 14},
 	} {
 		if _, _, err := decodeRequest(request(test.circuitType, test.wrong)); err == nil || err.Error() != "invalid public input count" {
 			t.Fatalf("%s with %d public inputs: got %v, want the count refused", test.circuitType, test.wrong, err)
@@ -535,5 +535,47 @@ func TestResolvePreparedRejectsAnInputCountMismatch(t *testing.T) {
 	request := Request{Trees: make([]Tree, 1), Inputs: make([]Lookup, 2)}
 	if _, err := resolver.ResolvePrepared(context.Background(), request, &Prepared{Inputs: make([]Input, 1)}); err == nil {
 		t.Fatal("mismatched input counts resolved")
+	}
+}
+
+func TestOnlyARingFrameOfDummiesOpensATreeWithOne(t *testing.T) {
+	cases := map[string]struct {
+		dummies []bool
+		circuit common.CircuitType
+		opens   bool
+	}{
+		"ring deposit":    {dummies: []bool{true, true}, circuit: common.TransferRingCircuitType, opens: true},
+		"default deposit": {dummies: []bool{true, true}, circuit: common.TransferConfidentialCircuitType, opens: false},
+		"mixed":           {dummies: []bool{true, false}, circuit: common.TransferRingCircuitType, opens: false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			request, _, _ := fixture(t)
+			var prepared transfer.TransferParametersJSON
+			if err := json.Unmarshal(request.Prepared, &prepared); err != nil {
+				t.Fatal(err)
+			}
+			prepared.CircuitType, request.CircuitType = tc.circuit, tc.circuit
+			if tc.circuit == common.TransferRingCircuitType {
+				prepared.RingProgramID = "0x5"
+			}
+			commitment := request.Inputs[0].Commitment
+			for index, dummy := range tc.dummies {
+				prepared.Inputs[index].IsDummy = "0x0"
+				request.Inputs[index].Commitment = commitment
+				if dummy {
+					prepared.Inputs[index].IsDummy = "0x1"
+					request.Inputs[index].Commitment = nil
+				}
+			}
+			request.Prepared = encoded(t, prepared)
+			err := Validate(encoded(t, request))
+			if tc.opens && err != nil {
+				t.Fatalf("%s frame: %v", name, err)
+			}
+			if !tc.opens && (err == nil || !strings.Contains(err.Error(), "input tree starts with a dummy")) {
+				t.Fatalf("%s frame: %v", name, err)
+			}
+		})
 	}
 }

@@ -57,8 +57,8 @@ macro_rules! circuit_key_item {
                 (49, 2) => transfer_confidential_49_2, transfer_ring_49_2, transfer_eddsa_ring_49_2;
             }
             authority {
-                (2, 2) => transfer_ring_authority_2_2;
-                (4, 4) => transfer_ring_authority_4_4;
+                (2, 2) => transfer_ring_authority_2_2, transfer_ring_authority_exit_2_2;
+                (4, 4) => transfer_ring_authority_4_4, transfer_ring_authority_exit_4_4;
             }
             confidential_eddsa {
                 (2, 8) => transfer_confidential_eddsa_2_8;
@@ -78,7 +78,7 @@ macro_rules! circuit_key_item {
     };
     (@select $circuit:expr, $item:ident;
         transact { $(($i:literal, $o:literal) => $confidential:ident, $ring:ident, $eddsa:ident;)* }
-        authority { $(($ai:literal, $ao:literal) => $authority:ident;)* }
+        authority { $(($ai:literal, $ao:literal) => $authority:ident, $exit:ident;)* }
         confidential_eddsa { $(($ei:literal, $eo:literal) => $confidential_eddsa:ident;)* }
     ) => {{
         use super::*;
@@ -93,6 +93,7 @@ macro_rules! circuit_key_item {
             )*
             $(
                 CircuitId::RingAuthority($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$authority::$item,
+                CircuitId::RingAuthorityExit($ai, $ao, CURRENT_PUBLIC_ASSET_SLOTS) => &$exit::$item,
             )*
             $(
                 CircuitId::ConfidentialEddsa($ei, $eo, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
@@ -287,6 +288,8 @@ pub enum OutputOwnerMode {
 /// authority has no twin: its circuit binds no cache selection. The twins are
 /// appended last so no existing tag encoding moves, and a transact that uses no
 /// cache is byte-identical to one built before caches existed.
+///
+/// [`CircuitId::RingAuthorityExit`] binds the empty cache selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 #[wincode(tag_encoding = "u16")]
 pub enum CircuitId {
@@ -300,6 +303,7 @@ pub enum CircuitId {
     AnonymousRingEddsaCached(u8, u8, u8, AnonymousRingEddsaProofData, CacheAccess),
     ConfidentialEddsa(u8, u8, u8, EddsaProofData),
     ConfidentialEddsaCached(u8, u8, u8, EddsaProofData, CacheAccess),
+    RingAuthorityExit(u8, u8, u8),
 }
 
 impl CircuitId {
@@ -339,6 +343,7 @@ impl CircuitId {
             Self::ConfidentialSigner(n, _, _)
             | Self::ConfidentialRingEddsa(n, _, _)
             | Self::RingAuthority(n, _, _)
+            | Self::RingAuthorityExit(n, _, _)
             | Self::AnonymousRingEddsa(n, _, _, _)
             | Self::ConfidentialSignerCached(n, _, _, _)
             | Self::ConfidentialRingEddsaCached(n, _, _, _)
@@ -353,6 +358,7 @@ impl CircuitId {
             Self::ConfidentialSigner(_, n, _)
             | Self::ConfidentialRingEddsa(_, n, _)
             | Self::RingAuthority(_, n, _)
+            | Self::RingAuthorityExit(_, n, _)
             | Self::AnonymousRingEddsa(_, n, _, _)
             | Self::ConfidentialSignerCached(_, n, _, _)
             | Self::ConfidentialRingEddsaCached(_, n, _, _)
@@ -367,6 +373,7 @@ impl CircuitId {
             Self::ConfidentialSigner(_, _, n)
             | Self::ConfidentialRingEddsa(_, _, n)
             | Self::RingAuthority(_, _, n)
+            | Self::RingAuthorityExit(_, _, n)
             | Self::AnonymousRingEddsa(_, _, n, _)
             | Self::ConfidentialSignerCached(_, _, n, _)
             | Self::ConfidentialRingEddsaCached(_, _, n, _)
@@ -391,6 +398,7 @@ impl CircuitId {
                 | Self::ConfidentialRingEddsa(..)
                 | Self::AnonymousRingEddsa(..)
                 | Self::ConfidentialEddsa(..)
+                | Self::RingAuthorityExit(..)
         )
     }
 
@@ -399,12 +407,13 @@ impl CircuitId {
             self.uncached(),
             Self::ConfidentialRingEddsa(..)
                 | Self::RingAuthority(..)
+                | Self::RingAuthorityExit(..)
                 | Self::AnonymousRingEddsa(..)
         )
     }
 
     pub const fn is_authority(self) -> bool {
-        matches!(self, Self::RingAuthority(..))
+        matches!(self, Self::RingAuthority(..) | Self::RingAuthorityExit(..))
     }
 
     pub const fn is_anonymous(self) -> bool {
@@ -467,7 +476,8 @@ impl CircuitId {
             Self::ConfidentialRingEddsa(..)
             | Self::AnonymousRingEddsa(..)
             | Self::ConfidentialRingEddsaCached(..)
-            | Self::AnonymousRingEddsaCached(..) => OutputOwnerMode::ConfidentialMarked,
+            | Self::AnonymousRingEddsaCached(..)
+            | Self::RingAuthorityExit(..) => OutputOwnerMode::ConfidentialMarked,
             Self::RingAuthority(..) => OutputOwnerMode::None,
         }
     }
@@ -486,7 +496,7 @@ impl CircuitId {
             | Self::ConfidentialSignerCached(..)
             | Self::ConfidentialRingEddsaCached(..)
             | Self::AnonymousRingEddsaCached(..) => shape.is_supported(),
-            Self::RingAuthority(..) => shape.is_ring_authority(),
+            Self::RingAuthority(..) | Self::RingAuthorityExit(..) => shape.is_ring_authority(),
             Self::ConfidentialEddsa(..) | Self::ConfidentialEddsaCached(..) => {
                 shape.is_confidential_eddsa()
             }

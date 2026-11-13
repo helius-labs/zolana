@@ -289,6 +289,15 @@ pub enum TransactionError {
     #[error("merge input {index} has a different nullifier key than the merging keypair")]
     MergeInputNullifierKeyMismatch { index: usize },
 
+    #[error("merge seed must be a nonzero field element")]
+    InvalidMergeSeed,
+
+    #[error("a zero key merge needs a ring")]
+    ZeroKeyMergeWithoutRing,
+
+    #[error("a merge seed requires the zero nullifier key")]
+    MergeSeedWithNullifierKey,
+
     #[error("merge input {index} has a different asset")]
     MergeInputAssetMismatch { index: usize },
 

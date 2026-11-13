@@ -13,7 +13,7 @@ use crate::{
         cache::CacheSelection,
         field::be,
         transact::assembly::{
-            assemble_transaction, validate_shape, AssembledTransaction, OwnerMode, PublicInputs,
+            validate_shape, AssembleTransaction, AssembledTransaction, OwnerMode, PublicInputs,
             TransferInputUtxo,
         },
         Shape, TransferInputs, TreeSlotFields,
@@ -82,15 +82,17 @@ impl TransferProver {
             external_data_hash,
             private_tx_hash: private_tx,
             input_flags,
-        } = assemble_transaction(
-            &self.inputs,
-            &self.outputs,
-            &self.blinding_seed,
-            self.output_tree_id,
-            &cache.external_data_hash,
-            &OwnerMode::SolanaEddsa,
-            self.allow_dummy_inputs,
-        )?;
+        } = AssembleTransaction {
+            inputs: &self.inputs,
+            outputs: &self.outputs,
+            blinding_seed: &self.blinding_seed,
+            output_tree_id: self.output_tree_id,
+            external_data_hash: &cache.external_data_hash,
+            owner_mode: &OwnerMode::SolanaEddsa,
+            ring_program_id: None,
+            allow_dummy_inputs: self.allow_dummy_inputs,
+        }
+        .assemble()?;
         let public_input = PublicInputs {
             nullifiers: &assembled_inputs.nullifiers,
             output_hashes: &assembled_outputs.output_hashes,

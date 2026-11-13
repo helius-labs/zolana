@@ -246,6 +246,15 @@ impl ConfidentialTransaction {
         }
 
         // 3. Read the first nullifier and initialize the transaction.
+        Self::initialized(inputs, addresses, payer, input_tree_ids)
+    }
+
+    fn initialized(
+        inputs: Vec<SppProofInputUtxo>,
+        addresses: Vec<SppProofInputUtxo>,
+        payer: Address,
+        input_tree_ids: Vec<u16>,
+    ) -> Result<Self, TransactionError> {
         let first_nullifier = addresses
             .first()
             .map(|input| input.nullifier)

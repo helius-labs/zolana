@@ -207,7 +207,12 @@ impl ConfidentialTransaction {
             .cloned()
             .chain(self.inputs.iter().cloned())
             .collect();
-        pad_inputs(&mut inputs, shape, self.compact_padding)?;
+        pad_inputs(
+            &mut inputs,
+            shape,
+            self.compact_padding,
+            self.ring_program_id,
+        )?;
         self.outputs = outputs;
         self.padded_inputs = Some(inputs);
         Ok(self)

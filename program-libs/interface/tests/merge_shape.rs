@@ -81,7 +81,7 @@ fn every_count_up_to_the_widest_shape_selects_the_narrowest_circuit() {
 #[test]
 fn cache_slot_round_trips_in_both_merge_rails() {
     use spr_interface::instruction::{
-        instruction_data::merge_ring::MergeRingIxDataRef, MergeRingIxData,
+        instruction_data::merge_ring::MergeRingIxDataRef, MergeRingAuthority, MergeRingIxData,
     };
     for (cache_slot, encoded_len) in [(None, 639), (Some(0), 640), (Some(35), 640)] {
         let mut data = data_with(8);
@@ -96,6 +96,7 @@ fn cache_slot_round_trips_in_both_merge_rails() {
         );
         let ring = MergeRingIxData {
             output_ring_data_hash: [7; 32],
+            authority: MergeRingAuthority::Ring,
             merge: data,
         };
         let bytes = ring.serialize().unwrap();

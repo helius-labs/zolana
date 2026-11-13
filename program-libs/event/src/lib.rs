@@ -110,6 +110,7 @@ pub struct MergeEvent {
     pub output_leaf_index: u64,
     /// Owner-indexing tag of the merged output: the registered signing view tag
     /// (user-record state) for `merge_transact`, the first nullifier for
+    /// a nonzero-key `merge_ring`, the published `owner_pk_hash` for a zero-key
     /// `merge_ring`.
     pub output_view_tag: [u8; 32],
 }

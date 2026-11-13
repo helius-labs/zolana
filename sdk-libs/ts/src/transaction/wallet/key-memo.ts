@@ -177,17 +177,22 @@ function decryptKey(request: DecryptRequest): string {
 }
 
 function deriveKey(request: DeriveRequest): string {
+  if (request.kind === "nullifier") {
+    return `nullifier|${bytesKey(request.utxoHash)}|${bytesKey(request.blinding)}`;
+  }
+  const seed =
+    request.zeroKeySeed === undefined
+      ? ""
+      : `|ring:${request.zeroKeySeed.ringProgramId}|view:${bytesKey(request.zeroKeySeed.viewingPublicKey.toBytes())}`;
   switch (request.kind) {
-    case "nullifier":
-      return `nullifier|${bytesKey(request.utxoHash)}|${bytesKey(request.blinding)}`;
     case "mergeDummyNullifier":
-      return `mergeDummy|${bytesKey(request.firstNullifier)}|${String(request.slotIndex)}`;
+      return `mergeDummy|${bytesKey(request.firstNullifier)}|${String(request.slotIndex)}${seed}`;
     case "mergeOutputBlinding":
-      return `mergeBlinding|${bytesKey(request.firstNullifier)}`;
+      return `mergeBlinding|${bytesKey(request.firstNullifier)}${seed}`;
     case "mergePrivateTxBlinding":
-      return `mergePrivateTxBlinding|${bytesKey(request.firstNullifier)}`;
+      return `mergePrivateTxBlinding|${bytesKey(request.firstNullifier)}${seed}`;
     case "mergeOutputKey":
-      return `mergeOutputKey|${bytesKey(request.firstNullifier)}`;
+      return `mergeOutputKey|${bytesKey(request.firstNullifier)}${seed}`;
   }
 }
 

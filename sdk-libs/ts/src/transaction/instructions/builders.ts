@@ -1,4 +1,5 @@
 import { equalBytes } from "../../interface/bytes.js";
+import { isCanonicalField } from "../../interface/canonical-field.js";
 import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import {
@@ -6,6 +7,7 @@ import {
   mergeOutputBlinding,
   mergeOutputKey,
   mergePrivateTxBlinding,
+  zeroNullifierPublicKey,
 } from "../../keypair/merge/index.js";
 import type { ShieldedPublicKey } from "../../keypair/public-key.js";
 import { X25519PublicKey } from "../../keypair/x25519.js";
@@ -61,6 +63,8 @@ export class PreparedMerge {
   readonly inputTreeId: TreeId;
   /** The tree the merged output is appended to. */
   readonly outputTreeId: TreeId;
+  /** Set only under the zero nullifier key, whose secret derives nothing private. */
+  readonly mergeSeed?: Bytes32;
   readonly #dummyNullifiers: readonly Bytes32[];
   readonly #privateTxBlinding: Bytes32;
   readonly #outputCiphertextSalt: Bytes16;
@@ -90,6 +94,7 @@ export class PreparedMerge {
        */
       outputCiphertext: MergeOutputCiphertext;
       outputTreeId: TreeId;
+      mergeSeed?: Bytes32;
     }>,
   ) {
     if (!MERGE_SUPPORTED_INPUT_COUNTS.includes(input.inputs.length)) {
@@ -179,6 +184,16 @@ export class PreparedMerge {
     }
     this.#outputCiphertext = Object.freeze([ciphertext0, ciphertext1, ciphertext2] as const);
     this.outputTreeId = checkedTreeId(input.outputTreeId);
+    if (input.mergeSeed !== undefined) {
+      const seed = checked<Bytes32>(input.mergeSeed, 32, "merge seed");
+      if (seed.every((byte) => byte === 0) || !isCanonicalField(seed)) {
+        throw new TransactionError("TRANSACTION_INVALID_MERGE_SEED");
+      }
+      if (!equalBytes(this.nullifierPublicKey, zeroNullifierPublicKey())) {
+        throw new TransactionError("TRANSACTION_MERGE_SEED_WITH_NULLIFIER_KEY");
+      }
+      this.mergeSeed = seed;
+    }
   }
 
   /** The merged output's commitment in `outputTreeId`. */
@@ -299,6 +314,8 @@ export class Merge {
       outputCiphertextSalt?: Bytes16;
       outputTreeId?: TreeId;
       ring?: Readonly<{ programId: Address; outputDataHash?: Bytes32 }>;
+      /** Zero nullifier key only, replaces the nullifier secret in every derivation above. */
+      mergeSeed?: Bytes32;
     }>,
   ) {
     const inputs = input.inputs;
@@ -377,6 +394,7 @@ export class Merge {
       outputCiphertextSalt,
       outputCiphertext,
       outputTreeId: checkedTreeId(input.outputTreeId ?? DEFAULT_TREE_ID),
+      ...(input.mergeSeed === undefined ? {} : { mergeSeed: input.mergeSeed }),
     });
   }
 
@@ -426,6 +444,7 @@ export class Merge {
       outputCiphertextSalt: this.#prepared.outputCiphertextSalt(),
       outputCiphertext: this.#prepared.outputCiphertext(),
       outputTreeId: this.#prepared.outputTreeId,
+      ...(this.#prepared.mergeSeed === undefined ? {} : { mergeSeed: this.#prepared.mergeSeed }),
     });
     return this;
   }
@@ -443,6 +462,7 @@ export class Merge {
       outputCiphertextSalt: this.#prepared.outputCiphertextSalt(),
       outputCiphertext: this.#prepared.outputCiphertext(),
       outputTreeId: checkedTreeId(outputTreeId),
+      ...(this.#prepared.mergeSeed === undefined ? {} : { mergeSeed: this.#prepared.mergeSeed }),
     });
     return this;
   }

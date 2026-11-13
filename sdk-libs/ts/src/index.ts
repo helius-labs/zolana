@@ -69,6 +69,7 @@ export {
   serializeWallet,
   type DecryptRequest,
   type DeriveRequest,
+  type ZeroKeySeed,
   type SerializedSyncCheckpoint,
   type SerializedNoteReservation,
   type SerializedSyncCheckpoints,

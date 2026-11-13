@@ -164,6 +164,9 @@ export function decodeIndexedInputs(value: unknown): IndexedProofInputs {
               : { userNullifierSecret: field("userNullifierSecret") }),
             allowDummyInputs: field("allowDummyInputs"),
             outputRingDataHash: field("outputRingDataHash"),
+            ...(payload["mergeSeed"] === undefined
+              ? {}
+              : { mergeSeed: field("mergeSeed"), publishedOwner: field("publishedOwner") }),
           },
         }
       : circuit === "transferConfidentialEddsa"
@@ -331,10 +334,11 @@ function requestField(value: unknown): Field {
 /**
  * Public inputs before the tree slots are folded in. A default merge ends with
  * the owner binding and its four ciphertext elements, a ring merge with the
- * output ring data hash and the ring program id only.
+ * output ring data hash, the ring program id, the published owner and the same
+ * four ciphertext elements.
  */
 function statementLength(inputs: IndexedProofInputs): number {
-  if (inputs.circuit === "merge") return BigInt(inputs.payload.ringProgramId) === 0n ? 12 : 8;
+  if (inputs.circuit === "merge") return BigInt(inputs.payload.ringProgramId) === 0n ? 12 : 13;
   if (inputs.circuit === "transferRingAuthority") return 14;
   // The confidential layout plus the message hash and the verified owner.
   return inputs.circuit === "transferConfidentialEddsa" ||
@@ -410,6 +414,12 @@ function checkStatement(inputs: IndexedProofInputs): void {
   // Inputs from different trees may interleave, so a dummy only needs an
   // earlier input to have opened the tree it names. Compact padding, a dummy
   // publishing nullifier 0, carries the nullifier its witness is taken for.
+  // On a ring circuit, a frame of only dummies lets any dummy open a tree.
+  const deposit =
+    (inputs.circuit === "transferRing" ||
+      inputs.circuit === "transferRingAuthority" ||
+      inputs.circuit === "transferAnonymousRingEddsa") &&
+    inputs.payload.inputs.every((input) => input.isDummy === 1n);
   const used = new Set<number>();
   inputs.lookups.forEach((lookup, index) => {
     const input = inputs.payload.inputs[index];
@@ -449,7 +459,7 @@ function checkStatement(inputs: IndexedProofInputs): void {
       (lookup.nullifier === null) !== (input.isDummy === 0n || input.nullifier !== 0n)
     )
       throw invalid();
-    if (input.isDummy === 1n && !used.has(lookup.treeSlot)) throw invalid();
+    if (input.isDummy === 1n && !deposit && !used.has(lookup.treeSlot)) throw invalid();
     if (lookup.commitment !== null) bytesField(lookup.commitment, "commitment");
     if (lookup.nullifier !== null && bytesField(lookup.nullifier, "nullifier") === 0n)
       throw invalid();

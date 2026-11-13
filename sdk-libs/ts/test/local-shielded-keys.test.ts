@@ -6,10 +6,21 @@ import type { Bytes32, Bytes64 } from "../src/interface/index.js";
 import {
   ed25519DerivationMessage,
   KeypairError,
+  NullifierKey,
+  ShieldedAddress,
   ShieldedKeypair,
   SigningKey,
+  type Bytes31,
 } from "../src/keypair/index.js";
+import {
+  mergeDummyNullifierFromSeed,
+  mergeOutputBlindingFromSeed,
+  mergeOutputKeyFromSeed,
+  mergePrivateTxBlindingFromSeed,
+  zeroNullifierPublicKey,
+} from "../src/keypair/merge/index.js";
 import { LocalShieldedKeys, Utxo, SOL_MINT } from "../src/transaction/index.js";
+import { decodeAddress } from "../src/transaction/internal.js";
 
 function hex(value: Uint8Array): string {
   return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -156,6 +167,56 @@ describe("LocalShieldedKeys", () => {
         nullifierKey: other.nullifierKey(),
       }),
     ).toThrowError(expect.objectContaining({ code: "TRANSACTION_KEYS_IDENTITY_MISMATCH" }));
+  });
+
+  it("seeds a zero-key merge from the named viewing key and refuses a seed beside a nullifier secret", async () => {
+    const owner = ShieldedKeypair.generate();
+    const retired = ShieldedKeypair.generate();
+    const firstNullifier = new Uint8Array(32).fill(5) as Bytes32;
+    const ringProgramId = owner.shieldedAddress().solanaAddress();
+    const zeroKeySeed = { ringProgramId, viewingPublicKey: retired.viewingPublicKey() };
+    const requests = [
+      { kind: "mergeOutputKey", firstNullifier, zeroKeySeed },
+      { kind: "mergeOutputBlinding", firstNullifier, zeroKeySeed },
+      { kind: "mergePrivateTxBlinding", firstNullifier, zeroKeySeed },
+      { kind: "mergeDummyNullifier", firstNullifier, slotIndex: 3, zeroKeySeed },
+    ] as const;
+    const withSecret = LocalShieldedKeys.fromKeypair(owner);
+    await expect(withSecret.derive([requests[0]])).rejects.toMatchObject({
+      code: "TRANSACTION_MERGE_SEED_WITH_NULLIFIER_KEY",
+    });
+    const zeroKey = LocalShieldedKeys.fromKeys({
+      address: ShieldedAddress.fromPublicKeys(
+        owner.signingPublicKey(),
+        zeroNullifierPublicKey(),
+        owner.viewingPublicKey(),
+      ),
+      viewingKeys: [owner.viewingKey(), retired.viewingKey()],
+      nullifierKey: NullifierKey.fromSecret(new Uint8Array(31) as Bytes31),
+    });
+    const seed = retired.viewingKey().mergeSeed(decodeAddress(ringProgramId), firstNullifier);
+    expect((await zeroKey.derive(requests)).map(hex)).toEqual(
+      [
+        mergeOutputKeyFromSeed(seed, firstNullifier),
+        mergeOutputBlindingFromSeed(seed, firstNullifier),
+        mergePrivateTxBlindingFromSeed(seed, firstNullifier),
+        mergeDummyNullifierFromSeed(seed, firstNullifier, 3),
+      ].map(hex),
+    );
+    await expect(
+      zeroKey.derive([
+        {
+          ...requests[0],
+          zeroKeySeed: {
+            ringProgramId,
+            viewingPublicKey: ShieldedKeypair.generate().viewingPublicKey(),
+          },
+        },
+      ]),
+    ).rejects.toMatchObject({ code: "TRANSACTION_MISSING_CURRENT_VIEWING_KEY" });
+    expect(
+      hex(await zeroKey.derive([{ kind: "mergeOutputKey", firstNullifier }]).then(([k]) => k!)),
+    ).not.toBe(hex(mergeOutputKeyFromSeed(seed, firstNullifier)));
   });
 
   it("opens under a retired viewing key and refuses one it does not hold", async () => {

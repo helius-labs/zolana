@@ -2059,7 +2059,7 @@ mod tests {
         let merge = ExpectedProvingKey::merge(8).unwrap();
         assert_eq!(client.expected(merge.clone()).unwrap(), merge);
         assert!(matches!(
-            client.expected(ExpectedProvingKey::merge_ring(8).unwrap()),
+            client.expected(ExpectedProvingKey::transfer_ring_authority(2, 2).unwrap()),
             Err(ClientError::ProvingKeySet("unsupported_circuit"))
         ));
         assert!(client.key_set().is_some());
@@ -2476,7 +2476,7 @@ mod tests {
             ExpectedProvingKey::transfer_ring_authority(4, 4).expect("4x4 authority"),
             ExpectedProvingKey::transfer_anonymous_ring_eddsa(49, 2).expect("49x2 anonymous"),
             ExpectedProvingKey::merge(24).expect("merge 24"),
-            ExpectedProvingKey::merge_ring(52).expect("merge ring 52"),
+            ExpectedProvingKey::merge_ring(8).expect("merge ring 8"),
             ExpectedProvingKey::batch_address_append(40, 4999).expect("address append 4999"),
         ];
         let names: Vec<&str> = keys.iter().map(|key| key.name.as_str()).collect();
@@ -2488,7 +2488,7 @@ mod tests {
                 "transfer_ring_authority_4_4.key",
                 "transfer_eddsa_ring_49_2.key",
                 "merge_24_1.key",
-                "merge_ring_52_1.key",
+                "merge_ring_8_1.key",
                 "batch_address-append_40_4999.key",
             ]
         );

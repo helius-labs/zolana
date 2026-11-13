@@ -14,6 +14,7 @@ import (
 type mergeInputContext struct {
 	OwnerHash       frontend.Variable
 	NullifierSecret frontend.Variable
+	Seed            frontend.Variable
 	Asset           frontend.Variable
 	RingProgramID   frontend.Variable
 	FirstNullifier  frontend.Variable
@@ -80,7 +81,7 @@ func constrainInput(
 	})
 	nullifier = api.Select(
 		isDummy,
-		MergeDummyNullifier(api, ctx.NullifierSecret, ctx.FirstNullifier, slotIndex),
+		MergeDummyNullifier(api, ctx.Seed, ctx.FirstNullifier, slotIndex),
 		nullifier,
 	)
 

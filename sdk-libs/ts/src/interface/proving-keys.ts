@@ -17,9 +17,9 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
   "merge_24_1.key": "be917f00eb2f0436e8083ff5b32ffab5f4d6d360c189e84e6022bdad4658167d",
   "merge_52_1.key": "2b0a595827d9e4a0c9f643e8b197e964a772c69ae50ba3e02109f0b372ecbebd",
   "merge_8_1.key": "cb59ca915a79b1abf49b9f9fa997835e7da185c8b6293f5a4a977cf603a4d380",
-  "merge_ring_24_1.key": "bfe4cd6e25924ed83bb42ad79131fe63fa893f8c4b9585198f0920bc96f99576",
-  "merge_ring_52_1.key": "bd2dfceea6f081551a52c21f77cad14fa0656f1a68551a9352d6e607695d51c9",
-  "merge_ring_8_1.key": "635f9f6d7d74447f2313264c691b818bc6a5611aedb0dcca3abd24405919d4a4",
+  "merge_ring_24_1.key": "0235dc4cadb1ddb2a595bbec115670bfc8f214796ef08a8bcc4442ad8d22d095",
+  "merge_ring_52_1.key": "1e41f8444033bb97de680244073f79bc321ca89486299bdcb3be3020aff7db71",
+  "merge_ring_8_1.key": "9be7cd4300b9d935e08694435c6a95a8973f31a44e0b5f7de2369bdc23a8f6ee",
   "transfer_confidential_12_2.key":
     "663d0de50bc0e6947492cad785ea5d34db51bfddeb59a5ed22d4722cf16a9190",
   "transfer_confidential_12_4.key":
@@ -217,6 +217,10 @@ export const PROVING_KEY_SHA256S: Readonly<Record<string, string>> = Object.free
     "bfe4f5d6652bd66430db96ab906a44456fa9223fcf775ab7e77e8dadb419cc4a",
   "transfer_ring_authority_4_4.key":
     "cdf6888df14ca4311ca203a73bc46a1b123cfaa5280e1f42cd421faf4822fa2a",
+  "transfer_ring_authority_exit_2_2.key":
+    "6b0a1e1ad12671c77d002d5e15d0b860d53395225f038f5134889ec7251c6893",
+  "transfer_ring_authority_exit_4_4.key":
+    "ae2bf6f34eda6e7d97af1e912bb5cd9d51419219fbfa4d1c59a59d155b4b1a80",
 });
 
 /** A prove request's circuit, as the prover names its key file. */
@@ -243,6 +247,11 @@ export type ProvingKeyCircuit =
     }
   | {
       readonly circuit: "transfer-ring-authority";
+      readonly nInputs: number;
+      readonly nOutputs: number;
+    }
+  | {
+      readonly circuit: "transfer-ring-authority-exit";
       readonly nInputs: number;
       readonly nOutputs: number;
     }
@@ -281,6 +290,8 @@ function provingKeyName(request: ProvingKeyCircuit): string {
       return `transfer_ring_${request.nInputs}_${request.nOutputs}.key`;
     case "transfer-ring-authority":
       return `transfer_ring_authority_${request.nInputs}_${request.nOutputs}.key`;
+    case "transfer-ring-authority-exit":
+      return `transfer_ring_authority_exit_${request.nInputs}_${request.nOutputs}.key`;
     case "merge":
       return `merge_${request.nInputs}_1.key`;
     case "merge-ring":

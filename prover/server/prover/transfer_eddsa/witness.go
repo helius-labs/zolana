@@ -131,7 +131,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	}
 	shape := txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)}
 	wantSigners := shape.SignerWidth()
-	if p.Variant == RingAuthorityVariant {
+	if p.Variant == RingAuthorityVariant || p.Variant == RingAuthorityExitVariant {
 		wantSigners = 1
 	}
 	if len(p.SignerPkHashes) != wantSigners {
@@ -193,36 +193,25 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			},
 		}, nil
 	case RingAuthorityVariant:
-		return &customring.CustomRingAuthorityCircuit{
-			Shape: shape,
-			Public: customring.CustomRingAuthorityPublic{
-				Nullifiers:       core.nullifiers,
-				OutputHashes:     core.outputHashes,
-				TreeSlots:        core.treeSlots,
-				OutputTreeID:     p.OutputTreeID,
-				PrivateTxHash:    p.PrivateTxHash,
-				ExternalDataHash: p.ExternalDataHash,
-				PublicAssets:     core.publicAssets,
-				PublicAmounts:    core.publicAmounts,
-				RingProgramID:    p.RingProgramID,
-				SignerPkHashes:   signerPkHashes,
-				InputFlags:       p.InputFlags,
-				PublicInputHash:  p.PublicInputHash,
+		return authorityWitness(shape, core, p, signerPkHashes), nil
+	case RingAuthorityExitVariant:
+		outputOwnerPkHashes, outputNullifierPks := outputOwnerWitness(p.Outputs)
+		authority := authorityWitness(shape, core, p, signerPkHashes)
+		return &customring.CustomRingAuthorityExitCircuit{
+			CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
+			Shape:        shape,
+			Public: customring.CustomRingAuthorityExitPublic{
+				CustomRingAuthorityPublic:    authority.Public,
+				PublishedOutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 			},
-			Private: customring.CustomRingAuthorityPrivate{
-				Inputs:             core.inputs,
-				InputOwnerPkHashes: core.inputOwnerPkHashes,
-				Outputs:            core.outputs,
-				BlindingSeed:       p.BlindingSeed,
+			Private: customring.CustomRingAuthorityExitPrivate{
+				CustomRingAuthorityPrivate: authority.Private,
+				OutputOwnerPkHashes:        outputOwnerPkHashes,
+				OutputNullifierPks:         outputNullifierPks,
 			},
 		}, nil
 	default:
-		outputOwnerPkHashes := make([]frontend.Variable, len(p.Outputs))
-		outputNullifierPks := make([]frontend.Variable, len(p.Outputs))
-		for i, out := range p.Outputs {
-			outputOwnerPkHashes[i] = orZero(out.OwnerPkHash)
-			outputNullifierPks[i] = orZero(out.NullifierPk)
-		}
+		outputOwnerPkHashes, outputNullifierPks := outputOwnerWitness(p.Outputs)
 		return &customring.CustomRingConfidentialEddsaCircuit{
 			CachedInputs: p.Cache.circuitInputs(int(p.NInputs)),
 			Shape:        shape,
@@ -253,6 +242,16 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	}
 }
 
+func outputOwnerWitness(outputs []OutputParams) (ownerPkHashes, nullifierPks []frontend.Variable) {
+	ownerPkHashes = make([]frontend.Variable, len(outputs))
+	nullifierPks = make([]frontend.Variable, len(outputs))
+	for i, out := range outputs {
+		ownerPkHashes[i] = orZero(out.OwnerPkHash)
+		nullifierPks[i] = orZero(out.NullifierPk)
+	}
+	return ownerPkHashes, nullifierPks
+}
+
 // orZero returns big.NewInt(0) for a nil pointer so gnark always sees an
 // assigned witness value. Public output-tag fields are absent on anonymous
 // ring-authority params.
@@ -261,4 +260,35 @@ func orZero(x *big.Int) *big.Int {
 		return big.NewInt(0)
 	}
 	return x
+}
+
+func authorityWitness(
+	shape txcircuit.Shape,
+	core witnessCore,
+	p *TransferParameters,
+	signerPkHashes []frontend.Variable,
+) *customring.CustomRingAuthorityCircuit {
+	return &customring.CustomRingAuthorityCircuit{
+		Shape: shape,
+		Public: customring.CustomRingAuthorityPublic{
+			Nullifiers:       core.nullifiers,
+			OutputHashes:     core.outputHashes,
+			TreeSlots:        core.treeSlots,
+			OutputTreeID:     p.OutputTreeID,
+			PrivateTxHash:    p.PrivateTxHash,
+			ExternalDataHash: p.ExternalDataHash,
+			PublicAssets:     core.publicAssets,
+			PublicAmounts:    core.publicAmounts,
+			RingProgramID:    p.RingProgramID,
+			SignerPkHashes:   signerPkHashes,
+			InputFlags:       p.InputFlags,
+			PublicInputHash:  p.PublicInputHash,
+		},
+		Private: customring.CustomRingAuthorityPrivate{
+			Inputs:             core.inputs,
+			InputOwnerPkHashes: core.inputOwnerPkHashes,
+			Outputs:            core.outputs,
+			BlindingSeed:       p.BlindingSeed,
+		},
+	}
 }

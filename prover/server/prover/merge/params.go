@@ -92,9 +92,12 @@ type MergeParameters struct {
 	AllowDummyInputs *big.Int
 
 	// OutputCiphertextSalt is the per-proof pad nonce of the PoseidonCtrV1
-	// output ciphertext, from the instruction data. Default merge rail only;
-	// nil on the merge-ring rail, whose circuit has no ciphertext.
+	// output ciphertext, from the instruction data.
 	OutputCiphertextSalt *big.Int
+
+	// MergeSeed keys the derivations in place of a zero UserNullifierSecret.
+	MergeSeed      *big.Int
+	PublishedOwner *big.Int
 
 	PublicInputHash *big.Int
 }

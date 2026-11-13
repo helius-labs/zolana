@@ -60,6 +60,7 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
 	circuit.UserNullifierSecret = p.UserNullifierSecret
+	circuit.MergeSeed = p.MergeSeed
 	circuit.MintChunks = p.mintChunks()
 	circuit.ExternalDataHash = p.ExternalDataHash
 	circuit.PrivateTxHash = p.PrivateTxHash
@@ -68,6 +69,8 @@ func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error)
 	circuit.OutputTreeID = p.OutputTreeID
 	circuit.OutputRingDataHash = p.OutputRingDataHash
 	circuit.RingProgramID = p.RingProgramID
+	circuit.PublishedOwner = p.PublishedOwner
+	circuit.OutputCiphertextSalt = p.OutputCiphertextSalt
 	circuit.PublicInputHash = p.PublicInputHash
 
 	if err := p.assignTreeSlots(circuit.TreeSlots); err != nil {

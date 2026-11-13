@@ -388,8 +388,10 @@ export function prepareTransfer(
 ): PreparedTransferAssembly {
   try {
     const checked = checkedTransferPlan(proofInputs, circuit);
-    const slots = prepareSlots(proofInputs.inputUtxos, (input) =>
-      bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
+    const slots = prepareSlots(
+      proofInputs.inputUtxos,
+      (input) => bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
+      "ring" in circuit,
     );
     return prepareTransferUnchecked(proofInputs, slots, checked);
   } catch (cause) {
@@ -431,8 +433,12 @@ function assembleUnchecked(
   circuit: TransferCircuit,
 ): AssembledTransfer {
   const checked = checkedTransferPlan(proofInputs, circuit);
-  const slots = assembleSlots(proofInputs, spendProofs, dummyNullifierProofs, (input) =>
-    bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
+  const slots = assembleSlots(
+    proofInputs,
+    spendProofs,
+    dummyNullifierProofs,
+    (input) => bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
+    "ring" in circuit,
   );
   const prepared = prepareTransferUnchecked(proofInputs, slots, checked);
   const complete = prepared.finish(slots.inputTrees);
@@ -471,7 +477,7 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
     plan.authority &&
     (shape.inputs !== shape.outputs ||
       !RING_AUTHORITY_WIDTHS.includes(shape.inputs) ||
-      proofInputs.externalData.interfaceTransfers.length !== 0 ||
+      proofInputs.externalData.interfaceTransfers.some((transfer) => transfer.isDeposit) ||
       proofInputs.inputUtxos.some(
         (input) => !input.isDummy() && input.utxo.ringProgramId !== plan.ring,
       ) ||
@@ -485,8 +491,6 @@ function checkedTransferPlan(proofInputs: SppProofInputs, circuit: TransferCircu
   ) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
-  const realInputs = proofInputs.inputUtxos.filter((input) => !input.isDummy());
-  if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
   validateOutputBlindings(proofInputs);
   const cache = checkedTransferCache(proofInputs);
 
@@ -1077,12 +1081,14 @@ export function prepareInput(
 export function prepareSlots(
   inputs: readonly ProofInputUtxo[],
   ownerField: (input: ProofInputUtxo, index: number) => bigint,
+  ring = false,
 ): PreparedSlots {
   const treeIds: TreeId[] = [];
   const treeIndexes: number[] = [];
+  const deposit = ring && inputs.every((input) => input.isDummy());
   const transferInputs = inputs.map((input, index) => {
     let treeSlot = treeIds.indexOf(input.treeId);
-    if (input.isDummy()) {
+    if (input.isDummy() && !(deposit && treeSlot === -1 && !input.isCompact())) {
       if (treeIds.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
       // SPP packs tree index 0 for the slots it never receives, so compact
       // padding must name the first tree.
@@ -1133,19 +1139,22 @@ export function prepareSlots(
  * proof is taken for, and it must name the first tree.
  *
  * `ownerField` is the caller's rail: it is the one thing Rust's `OwnerMode`
- * varies, and every rail shares the rest of this loop.
+ * varies, and every rail shares the rest of this loop. `ring` lets a frame of
+ * only dummies, a ring deposit, open its tree on a random dummy.
  */
 export function assembleSlots(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[],
   ownerField: (input: ProofInputUtxo, index: number) => bigint,
+  ring = false,
 ): AssembledSlots {
   const transferInputs: TransferInput[] = [];
   const nullifiers: Bytes32[] = [];
   const inputOwnerFields: bigint[] = [];
   const runs: InputTreeRun[] = [];
   const treeIndexes: number[] = [];
+  const deposit = ring && proofInputs.inputUtxos.every((input) => input.isDummy());
   let proofIndex = 0;
   let dummyProofIndex = 0;
   for (let index = 0; index < proofInputs.inputUtxos.length; index++) {
@@ -1160,11 +1169,13 @@ export function assembleSlots(
     const openIndex = runs.findIndex((run) => run.treeId === treeId);
     const openRun = runs[openIndex];
     if (input.isDummy()) {
-      if (runs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
-      if (openRun === undefined || (input.isCompact() && openIndex !== INPUT_TREE_SLOT)) {
-        throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", {
-          details: { index },
-        });
+      if (!(deposit && openRun === undefined && !input.isCompact())) {
+        if (runs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
+        if (openRun === undefined || (input.isCompact() && openIndex !== INPUT_TREE_SLOT)) {
+          throw new ClientError("CLIENT_INPUT_TREE_UNRESOLVED", {
+            details: { index },
+          });
+        }
       }
       const proof = dummyNullifierProofs[dummyProofIndex++];
       if (!proof) {
@@ -1173,17 +1184,17 @@ export function assembleSlots(
         });
       }
       validateNullifierProof(input, proof, index);
-      checkNullifierRoot(openRun, proof, expectedTree, index);
+      const treeIndex = joinNullifierRun(runs, openIndex, treeId, proof, expectedTree, index);
       const converted = createDummyTransferInput(
         input,
         proof,
         input.publishedNullifier(),
-        openIndex,
+        treeIndex,
       );
       transferInputs.push(converted);
       nullifiers.push(bigintToBytes(converted.nullifier, "nullifier") as Bytes32);
       inputOwnerFields.push(converted.ownerPublicKeyHash);
-      treeIndexes.push(openIndex);
+      treeIndexes.push(treeIndex);
       continue;
     }
     let treeIndex: number;
@@ -1197,24 +1208,7 @@ export function assembleSlots(
         });
       }
       validateNullifierProof(input, proof, index);
-      if (openRun !== undefined) {
-        treeIndex = openIndex;
-        checkNullifierRoot(openRun, proof, expectedTree, index);
-      } else {
-        checkNewTree(runs);
-        if (proof.merkleContext.tree !== expectedTree) {
-          throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", {
-            details: { index },
-          });
-        }
-        runs.push({
-          treeId,
-          nullifierRoot: new Uint8Array(proof.root) as Bytes32,
-          nullifierRootIndex: proof.rootIndex,
-          state: undefined,
-        });
-        treeIndex = runs.length - 1;
-      }
+      treeIndex = joinNullifierRun(runs, openIndex, treeId, proof, expectedTree, index);
       owner = ownerField(input, index);
       converted = createCachedInput(input, proof, owner, treeIndex);
     } else {
@@ -1294,6 +1288,35 @@ interface InputTreeRun {
   readonly nullifierRoot: Bytes32;
   readonly nullifierRootIndex: number;
   state: Readonly<{ root: Bytes32; index: number }> | undefined;
+}
+
+/** A run opened here publishes no state root. */
+function joinNullifierRun(
+  runs: InputTreeRun[],
+  openIndex: number,
+  treeId: TreeId,
+  proof: NonInclusionProof,
+  expectedTree: Address,
+  index: number,
+): number {
+  const openRun = runs[openIndex];
+  if (openRun !== undefined) {
+    checkNullifierRoot(openRun, proof, expectedTree, index);
+    return openIndex;
+  }
+  checkNewTree(runs);
+  if (proof.merkleContext.tree !== expectedTree) {
+    throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", {
+      details: { index },
+    });
+  }
+  runs.push({
+    treeId,
+    nullifierRoot: new Uint8Array(proof.root) as Bytes32,
+    nullifierRootIndex: proof.rootIndex,
+    state: undefined,
+  });
+  return runs.length - 1;
 }
 
 function checkNewTree(runs: readonly InputTreeRun[]): void {

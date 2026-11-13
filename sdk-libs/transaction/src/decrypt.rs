@@ -8,8 +8,11 @@ use crate::{
     asset::{AssetBalance, AssetRegistry, Balances, Mint},
     error::TransactionError,
     indexer_types::{OutputSlot, ShieldedTransaction},
-    instructions::merge::MergeOutputPlaintext,
-    keys::{DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest},
+    instructions::merge::{zero_key_pubkey, MergeOutputPlaintext},
+    keys::{
+        DecryptLabel, DecryptRequest, DeriveRequest, ShieldedKeys, TransactionKeyRequest,
+        ZeroKeySeed,
+    },
     serialization::{
         confidential::Confidential, plaintext::PlaintextTransfer, proofless::Proofless,
         scheme::EncryptedScheme, OwnerCx, UtxoSerialization,
@@ -482,8 +485,9 @@ fn decode_slot<K: ShieldedKeys + ?Sized>(
 
 /// A merge output publishes its amount and mint encrypted under a key the
 /// owner derives from the nullifier secret and the first nullifier, so the
-/// owner rebuilds the output from the merge transaction alone. A default merge
-/// proof binds that ciphertext, whichever inputs the merger chose; a ring merge
+/// owner rebuilds the output from the merge transaction alone. A zero key
+/// seeds from its viewing key instead. A default merge proof binds that
+/// ciphertext, whichever inputs the merger chose; a ring merge
 /// (`ring`) publishes it unverified. The cipher is unauthenticated: a merge of
 /// another wallet, or a wrong ring merge ciphertext, decrypts to noise, which
 /// the plaintext range check or the commitment rejects.
@@ -514,44 +518,75 @@ fn decode_merge<K: ShieldedKeys + ?Sized>(
     let Some(&first_nullifier) = tx.nullifiers.first() else {
         return Ok(None);
     };
-    let requests = [
-        DeriveRequest::MergeOutputKey { first_nullifier },
-        DeriveRequest::MergeOutputBlinding { first_nullifier },
-    ];
+    let zero_key_seeds = if address.nullifier_pubkey == zero_key_pubkey()? {
+        let Some(ring_program_id) = tx.ring_program_id else {
+            return Ok(None);
+        };
+        shielded_keys
+            .viewing_public_keys()
+            .into_iter()
+            .map(|viewing_pubkey| {
+                Some(ZeroKeySeed {
+                    ring_program_id,
+                    viewing_pubkey,
+                })
+            })
+            .collect()
+    } else {
+        vec![None]
+    };
+    let requests: Vec<_> = zero_key_seeds
+        .into_iter()
+        .flat_map(|zero_key_seed| {
+            [
+                DeriveRequest::MergeOutputKey {
+                    first_nullifier,
+                    zero_key_seed,
+                },
+                DeriveRequest::MergeOutputBlinding {
+                    first_nullifier,
+                    zero_key_seed,
+                },
+            ]
+        })
+        .collect();
     let derived = shielded_keys.derive(&requests)?;
-    let [key, blinding] = <[[u8; 32]; 2]>::try_from(derived).map_err(|derived| {
-        TransactionError::IncompleteDerivation {
+    if derived.len() != requests.len() {
+        return Err(TransactionError::IncompleteDerivation {
             got: derived.len(),
             want: requests.len(),
-        }
-    })?;
-    let Ok(plaintext) = MergeOutputPlaintext::decrypt(encrypted, &key) else {
-        return Ok(None);
-    };
-    // Only the mint address enters the commitment. Resolve its registry ID
-    // after authentication so unverified ciphertext cannot request backfills.
-    let mut utxo = plaintext.into_utxo(
-        owner_cx.owner,
-        Mint::new(plaintext.mint, 0),
-        blinding,
-        tx.ring_program_id,
-    );
-    let context = &slot.output_context;
-    let hash = utxo.hash(
-        &address.nullifier_pubkey,
-        &[0; 32],
-        &ring_data_hash.copied().unwrap_or_default(),
-        context.tree_id,
-    )?;
-    if hash != context.hash {
-        return Ok(None);
+        });
     }
-    utxo.asset = owner_cx.assets.mint(&plaintext.mint)?;
-    Ok(Some(DecodedSlot {
-        utxos: vec![utxo],
-        data_hash: None,
-        ring_data_hash: ring_data_hash.copied(),
-    }))
+    let context = &slot.output_context;
+    for [key, blinding] in derived.as_chunks::<2>().0 {
+        let Ok(plaintext) = MergeOutputPlaintext::decrypt(encrypted, key) else {
+            continue;
+        };
+        // Only the mint address enters the commitment. Resolve its registry ID
+        // after authentication so unverified ciphertext cannot request backfills.
+        let mut utxo = plaintext.into_utxo(
+            owner_cx.owner,
+            Mint::new(plaintext.mint, 0),
+            *blinding,
+            tx.ring_program_id,
+        );
+        let hash = utxo.hash(
+            &address.nullifier_pubkey,
+            &[0; 32],
+            &ring_data_hash.copied().unwrap_or_default(),
+            context.tree_id,
+        )?;
+        if hash != context.hash {
+            continue;
+        }
+        utxo.asset = owner_cx.assets.mint(&plaintext.mint)?;
+        return Ok(Some(DecodedSlot {
+            utxos: vec![utxo],
+            data_hash: None,
+            ring_data_hash: ring_data_hash.copied(),
+        }));
+    }
+    Ok(None)
 }
 
 /// A sender-chosen plaintext that rebuilds no note skips its slot, except a registry miss.

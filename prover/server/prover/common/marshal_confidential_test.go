@@ -42,6 +42,8 @@ func TestReadSystemFromFileResolvesTransferVariant(t *testing.T) {
 		{"transfer_ring_2_4.key", false, true, TransferRingCircuitType},
 		{"transfer_confidential_2_4.key", false, true, TransferConfidentialCircuitType},
 		{"transfer_eddsa_ring_2_4.key", true, true, TransferAnonymousRingEddsaCircuitType},
+		{"transfer_ring_authority_2_4.key", false, false, TransferRingAuthorityCircuitType},
+		{"transfer_ring_authority_exit_2_4.key", false, true, TransferRingAuthorityExitCircuitType},
 	}
 
 	dir := t.TempDir()

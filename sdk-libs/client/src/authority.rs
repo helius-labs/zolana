@@ -183,7 +183,7 @@ mod tests {
             },
         ];
 
-        assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa)
+        assemble_inputs(&input_utxos, &OwnerMode::SolanaEddsa, None)
             .expect("assemble inputs")
             .inputs
     }

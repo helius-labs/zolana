@@ -273,10 +273,10 @@ interface MergePublicInputFields {
 
 /**
  * What follows the shared seven-element prefix. A default merge binds the
- * owner's signing and nullifier public keys and its PoseidonCtrV1 output
- * ciphertext (the salt as a field element, then the three elements). A ring
- * merge binds the output ring data hash and the ring program id only: SPP
- * publishes its ciphertext unverified.
+ * owner's signing and nullifier public keys, a ring merge the output ring data
+ * hash, the ring program id and the published owner. Both then bind the
+ * PoseidonCtrV1 output ciphertext (the salt as a field element, then the three
+ * elements).
  */
 type MergePublicInputBinding =
   | Readonly<{
@@ -290,6 +290,10 @@ type MergePublicInputBinding =
       kind: "ring";
       outputRingDataHash: bigint;
       ringProgramId: bigint;
+      /** The signer's hashed key under a zero nullifier secret, else 0. */
+      publishedOwner: bigint;
+      outputCiphertextSalt: bigint;
+      outputCiphertext: readonly [bigint, bigint, bigint];
     }>;
 
 /**
@@ -308,13 +312,14 @@ export function mergePublicInputs(input: MergePublicInputFields): readonly bigin
     input.externalDataHash,
     1n,
     ...(input.binding.kind === "default"
-      ? [
-          input.binding.ownerPublicKeyHash,
-          input.binding.nullifierPublicKey,
-          input.binding.outputCiphertextSalt,
-          ...input.binding.outputCiphertext,
-        ]
-      : [input.binding.outputRingDataHash, input.binding.ringProgramId]),
+      ? [input.binding.ownerPublicKeyHash, input.binding.nullifierPublicKey]
+      : [
+          input.binding.outputRingDataHash,
+          input.binding.ringProgramId,
+          input.binding.publishedOwner,
+        ]),
+    input.binding.outputCiphertextSalt,
+    ...input.binding.outputCiphertext,
   ];
 }
 
@@ -412,6 +417,7 @@ export function prepareMerge(
   }
   const [mintChunk0, mintChunk1] = mergeMintChunks(prepared.output.asset);
   const mintChunks = [asField(mintChunk0), asField(mintChunk1)] as const;
+  const publishedOwner = prepared.mergeSeed === undefined ? 0n : ownerPublicKeyHash;
   const publicInputs = mergePublicInputs({
     nullifiers: nullifiers.map(bytesToBigInt),
     outputHash: bytesToBigInt(outputHash),
@@ -434,6 +440,9 @@ export function prepareMerge(
             kind: "ring",
             outputRingDataHash: BigInt(output.circuit.ringDataHash),
             ringProgramId: BigInt(output.circuit.ringProgramId),
+            publishedOwner,
+            outputCiphertextSalt: bytesToBigInt(outputCiphertextSalt),
+            outputCiphertext: [ciphertext0, ciphertext1, ciphertext2],
           },
   }).map(asField);
   const payload: PreparedMergeInputs = Object.freeze({
@@ -451,6 +460,13 @@ export function prepareMerge(
     allowDummyInputs: asField(1n),
     outputRingDataHash: output.circuit.ringDataHash,
     ringProgramId: output.circuit.ringProgramId,
+    ...(prepared.mergeSeed === undefined
+      ? {}
+      : {
+          mergeSeed: asField(bytesToBigInt(prepared.mergeSeed)),
+          publishedOwner: asField(publishedOwner),
+          userNullifierSecret: asField(0n),
+        }),
   });
   return Object.freeze({
     inputs: Object.freeze({

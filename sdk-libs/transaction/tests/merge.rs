@@ -546,13 +546,20 @@ fn merge_routes_key_requests_and_propagates_failures() {
             assert_eq!(
                 *keys.derived.borrow(),
                 [
-                    DeriveRequest::MergeOutputBlinding { first_nullifier },
-                    DeriveRequest::MergeOutputKey { first_nullifier },
+                    DeriveRequest::MergeOutputBlinding {
+                        first_nullifier,
+                        zero_key_seed: None,
+                    },
+                    DeriveRequest::MergeOutputKey {
+                        first_nullifier,
+                        zero_key_seed: None,
+                    },
                 ]
                 .into_iter()
                 .chain((1..8).map(|slot_index| DeriveRequest::MergeDummyNullifier {
                     first_nullifier,
-                    slot_index
+                    slot_index,
+                    zero_key_seed: None,
                 }))
                 .collect::<Vec<_>>()
             );
@@ -901,4 +908,75 @@ fn merge_output_tree_defaults_to_the_first_inputs_latest_tree() {
         ),
         5
     );
+}
+
+mod merge_seed {
+    use serde_json::Value;
+    use spr_keypair::ViewingKey;
+    use spr_transaction::{
+        instructions::merge::{MergeOutputPlaintext, MergeSeed},
+        Address, TransactionError,
+    };
+
+    fn vector() -> Value {
+        serde_json::from_str(include_str!("../../../test-vectors/merge_ring.json")).unwrap()
+    }
+
+    fn field(value: &Value) -> [u8; 32] {
+        hex::decode(value.as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap()
+    }
+
+    #[test]
+    fn seed_derivations_match_the_shared_vector() {
+        let vector = vector();
+        let first_nullifier = field(&vector["first_nullifier"]);
+        let ring = Address::new_from_array(field(&vector["ring_program_id"]));
+        let viewing_key = ViewingKey::from_bytes(&field(&vector["viewing_secret"]));
+        let seed = MergeSeed::derive(&viewing_key, &ring, &first_nullifier).unwrap();
+        assert_eq!(seed.as_bytes(), &field(&vector["merge_seed"]));
+        assert_eq!(
+            seed.output_blinding(&first_nullifier).unwrap(),
+            field(&vector["output_blinding"])
+        );
+        assert_eq!(
+            seed.output_key(&first_nullifier).unwrap(),
+            field(&vector["output_key"])
+        );
+        assert_eq!(
+            seed.private_tx_blinding(&first_nullifier).unwrap(),
+            field(&vector["private_tx_blinding"])
+        );
+        let slot_index = u8::try_from(vector["dummy_slot_index"].as_u64().unwrap()).unwrap();
+        assert_eq!(
+            seed.dummy_nullifier(&first_nullifier, slot_index).unwrap(),
+            field(&vector["dummy_nullifier"])
+        );
+        let salt: [u8; 16] = hex::decode(vector["output_ciphertext_salt"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let ciphertext = MergeOutputPlaintext {
+            amount: vector["output_amount"].as_u64().unwrap(),
+            mint: Address::new_from_array(field(&vector["output_mint"])),
+        }
+        .encrypt(&seed.output_key(&first_nullifier).unwrap(), &salt)
+        .unwrap();
+        for (index, element) in ciphertext.iter().enumerate() {
+            assert_eq!(element, &field(&vector["output_ciphertext"][index]));
+        }
+    }
+
+    #[test]
+    fn a_seed_must_be_a_nonzero_field_element() {
+        for refused in [[0; 32], [0xff; 32]] {
+            assert!(matches!(
+                MergeSeed::from_bytes(refused),
+                Err(TransactionError::InvalidMergeSeed)
+            ));
+        }
+        assert!(MergeSeed::from_bytes(field(&vector()["merge_seed"])).is_ok());
+    }
 }

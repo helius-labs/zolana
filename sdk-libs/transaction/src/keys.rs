@@ -17,6 +17,7 @@
 //! place: proving. That capability lives on the client layer, next to the
 //! witness types that need it, and is deliberately absent here.
 
+use solana_address::Address;
 use spr_keypair::{
     shielded::{ShieldedAddress, ShieldedKeypair},
     viewing_key::Salt,
@@ -28,9 +29,7 @@ use crate::{
     decrypt::{decrypt_spendable, SpendableDecryptionResult},
     error::TransactionError,
     indexer_types::ShieldedTransaction,
-    instructions::merge::{
-        merge_dummy_nullifier, merge_output_blinding, merge_output_key, merge_private_tx_blinding,
-    },
+    instructions::merge::MergeSeed,
 };
 
 /// Which cipher opened a slot. A ring deposit publishes one ciphertext and no
@@ -67,16 +66,28 @@ pub enum DeriveRequest {
     MergeDummyNullifier {
         first_nullifier: [u8; 32],
         slot_index: u8,
+        zero_key_seed: Option<ZeroKeySeed>,
     },
     MergeOutputBlinding {
         first_nullifier: [u8; 32],
+        zero_key_seed: Option<ZeroKeySeed>,
     },
     MergePrivateTxBlinding {
         first_nullifier: [u8; 32],
+        zero_key_seed: Option<ZeroKeySeed>,
     },
     MergeOutputKey {
         first_nullifier: [u8; 32],
+        zero_key_seed: Option<ZeroKeySeed>,
     },
+}
+
+/// A zero key's merge seeds from the named viewing key, its nullifier secret
+/// being public.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ZeroKeySeed {
+    pub ring_program_id: Address,
+    pub viewing_pubkey: X25519Pubkey,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -175,6 +186,25 @@ impl LocalShieldedKeys {
             .find(|key| &key.pubkey() == pubkey)
             .ok_or(TransactionError::UnknownViewingKey)
     }
+
+    fn merge_seed(
+        &self,
+        zero_key_seed: Option<&ZeroKeySeed>,
+        first_nullifier: &[u8; 32],
+    ) -> Result<MergeSeed, TransactionError> {
+        MergeSeed::select(
+            &self.nullifier,
+            zero_key_seed.map(|seed| {
+                || {
+                    MergeSeed::derive(
+                        self.viewing_key(&seed.viewing_pubkey)?,
+                        &seed.ring_program_id,
+                        first_nullifier,
+                    )
+                }
+            }),
+        )
+    }
 }
 
 impl ShieldedKeys for LocalShieldedKeys {
@@ -220,16 +250,28 @@ impl ShieldedKeys for LocalShieldedKeys {
                 DeriveRequest::MergeDummyNullifier {
                     first_nullifier,
                     slot_index,
-                } => merge_dummy_nullifier(&self.nullifier, first_nullifier, *slot_index),
-                DeriveRequest::MergeOutputBlinding { first_nullifier } => {
-                    merge_output_blinding(&self.nullifier, first_nullifier)
-                }
-                DeriveRequest::MergePrivateTxBlinding { first_nullifier } => {
-                    merge_private_tx_blinding(&self.nullifier, first_nullifier)
-                }
-                DeriveRequest::MergeOutputKey { first_nullifier } => {
-                    merge_output_key(&self.nullifier, first_nullifier)
-                }
+                    zero_key_seed,
+                } => self
+                    .merge_seed(zero_key_seed.as_ref(), first_nullifier)?
+                    .dummy_nullifier(first_nullifier, *slot_index),
+                DeriveRequest::MergeOutputBlinding {
+                    first_nullifier,
+                    zero_key_seed,
+                } => self
+                    .merge_seed(zero_key_seed.as_ref(), first_nullifier)?
+                    .output_blinding(first_nullifier),
+                DeriveRequest::MergePrivateTxBlinding {
+                    first_nullifier,
+                    zero_key_seed,
+                } => self
+                    .merge_seed(zero_key_seed.as_ref(), first_nullifier)?
+                    .private_tx_blinding(first_nullifier),
+                DeriveRequest::MergeOutputKey {
+                    first_nullifier,
+                    zero_key_seed,
+                } => self
+                    .merge_seed(zero_key_seed.as_ref(), first_nullifier)?
+                    .output_key(first_nullifier),
             })
             .collect()
     }

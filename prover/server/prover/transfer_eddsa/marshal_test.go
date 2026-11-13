@@ -170,7 +170,7 @@ func TestTransferParametersValidateShapeTreeSlots(t *testing.T) {
 // variant literals forget to assign: gnark refuses a circuit with an unset
 // signal, so a missing TreeSlots, OutputTreeID, or BlindingSeed fails here.
 func TestTransferParametersCreateCompleteWitness(t *testing.T) {
-	for _, variant := range []Variant{ConfidentialVariant, RingVariant, RingAuthorityVariant} {
+	for _, variant := range []Variant{ConfidentialVariant, RingVariant, RingAuthorityVariant, RingAuthorityExitVariant} {
 		t.Run(string(variant.CircuitType()), func(t *testing.T) {
 			params := sampleTransferParams(variant)
 			data, err := json.Marshal(params)
@@ -253,6 +253,9 @@ func sampleTransferParams(variant Variant) *TransferParameters {
 	if variant == RingAuthorityVariant {
 		signers = 1
 		publishedOwners = 0
+	}
+	if variant == RingAuthorityExitVariant {
+		signers = 1
 	}
 	return &TransferParameters{
 		NInputs:                      nInputs,

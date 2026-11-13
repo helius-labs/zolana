@@ -1,5 +1,5 @@
 use spr_interface::instruction::instruction_data::{
-    merge_ring::{MergeRingIxData, MergeRingIxDataRef},
+    merge_ring::{MergeRingAuthority, MergeRingIxData, MergeRingIxDataRef},
     merge_transact::{
         MergeOutputEncryption, MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS,
         MERGE_DEFAULT_INPUT_COUNT,
@@ -9,6 +9,7 @@ use spr_interface::instruction::instruction_data::{
 fn data() -> MergeRingIxData {
     MergeRingIxData {
         output_ring_data_hash: [8u8; 32],
+        authority: MergeRingAuthority::Ring,
         merge: MergeTransactIxData {
             cache_slot: None,
             expiry_unix_ts: 42,
@@ -42,5 +43,27 @@ fn rejects_empty_and_oversized_nullifier_lists() {
             MergeRingIxDataRef::from_bytes(&bytes).is_err(),
             "{count} nullifiers"
         );
+    }
+}
+
+#[test]
+fn names_its_authority_on_the_wire() {
+    for (authority, byte) in [
+        (MergeRingAuthority::Ring, 0u8),
+        (MergeRingAuthority::OwnerSigned, 1u8),
+    ] {
+        let mut bytes = MergeRingIxData {
+            authority,
+            ..data()
+        }
+        .serialize()
+        .unwrap();
+        assert_eq!(bytes[32], byte);
+        let view = MergeRingIxDataRef::from_bytes(&bytes).unwrap();
+        assert_eq!(view.authority, authority);
+        assert_eq!(view.output_ring_data_hash, &[8u8; 32]);
+
+        bytes[32] = 2;
+        assert!(MergeRingIxDataRef::from_bytes(&bytes).is_err());
     }
 }

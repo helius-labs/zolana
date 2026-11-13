@@ -77,7 +77,7 @@ func TestCachedInputsFetchOnlyNullifierProofs(t *testing.T) {
 }
 
 func TestRejectInvalidCachedLookups(t *testing.T) {
-	for _, corruption := range []string{"missing flag", "nonbit", "short", "dummy", "authority", "commitment", "empty entry"} {
+	for _, corruption := range []string{"missing flag", "nonbit", "short", "dummy", "authority", "authority exit", "commitment", "empty entry"} {
 		t.Run(corruption, func(t *testing.T) {
 			request, state, _ := fixture(t)
 			request = cachedRequest(t, request)
@@ -98,6 +98,9 @@ func TestRejectInvalidCachedLookups(t *testing.T) {
 				request.CircuitType = common.TransferRingAuthorityCircuitType
 				prepared.CircuitType = request.CircuitType
 				request.PublicInputs = request.PublicInputs[:14]
+			case "authority exit":
+				request.CircuitType = common.TransferRingAuthorityExitCircuitType
+				prepared.CircuitType = request.CircuitType
 			case "commitment":
 				request.Inputs[0].Commitment = &state.Proofs[0].Leaf
 			case "empty entry":

@@ -131,6 +131,25 @@ fn constructor_rejects_missing_and_dummy_first_inputs() {
 }
 
 #[test]
+fn a_deposit_spends_only_dummies_of_its_tree() {
+    let funder = keypair(1);
+    let recipient = keypair(2).shielded_address().unwrap();
+    let ring = Address::new_from_array([9; 32]);
+    let mut tx = ConfidentialTransaction::new_deposit_with_ring(7, payer(&funder), ring).unwrap();
+    tx.deposit_sol(5, payer(&funder)).unwrap();
+    tx.transfer_sol(&recipient, 5).unwrap();
+    let key = ViewingKey::new();
+    let proof = tx.encrypt_with_viewing_key(&recipient, &key).unwrap();
+    assert!(proof
+        .input_utxos
+        .iter()
+        .all(|input| input.is_dummy() && input.tree_id == 7));
+    assert_eq!(proof.output_tree_id, 7);
+    assert_eq!(proof.output_utxos[0].amount, 5);
+    proof.check_shape().unwrap();
+}
+
+#[test]
 fn proof_input_constructors_match_wallet_padding_modes() {
     let owner = keypair(1);
     let sender = owner.shielded_address().unwrap();
@@ -387,13 +406,8 @@ fn padding_extends_last_tree_without_touching_existing_inputs() {
         E::TooManyInputs { got: 5, max: 1 },
     );
     error(pad_input_utxos(&mut vec![], Shape::IN1_OUT2), E::NoInputs);
-    error(
-        pad_input_utxos(
-            &mut vec![SppProofInputUtxo::dummy(0).unwrap()],
-            Shape::IN1_OUT2,
-        ),
-        E::NoInputs,
-    );
+    let mut dummies = vec![SppProofInputUtxo::dummy(4).unwrap()];
+    error(pad_input_utxos(&mut dummies, Shape::IN2_OUT2), E::NoInputs);
     let mut many = (0..=MAX_INPUT_TREES)
         .map(|t| SppProofInputUtxo::from(wallet_utxo(&owner, Mint::SOL, 1, t as u16, t as u8)))
         .collect();

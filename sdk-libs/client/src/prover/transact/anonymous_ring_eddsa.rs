@@ -8,7 +8,7 @@ use spr_hasher::primitives::{hash_bytes, solana_owner_identity};
 use spr_interface::instruction::instruction_data::transact::TreeContext;
 use spr_keypair::PublicKey;
 use spr_transaction::{
-    instructions::transact::{PublicTransfers, SppProofInputs},
+    instructions::transact::{CacheAccounts, PublicTransfers, SppProofInputs},
     utxo::program_id_proof_input_hash,
     ExternalData, SppProofOutputUtxo,
 };
@@ -24,7 +24,7 @@ use crate::{
         json::to_json_ring,
         proving_key::ExpectedProvingKey,
         transact::assembly::{
-            assemble_transaction, confidential_marked_output_owner_pk_hashes, validate_shape,
+            confidential_marked_output_owner_pk_hashes, validate_shape, AssembleTransaction,
             AssembledTransaction, OwnerMode, PublicInputs, TransferInputUtxo,
         },
         transact::OwnerAuthorization,
@@ -48,6 +48,7 @@ pub struct AnonymousRingEddsaProver<'a> {
     pub owner: OwnerAuthorization<'a>,
     pub ring_program_id: Option<Address>,
     pub shape: Shape,
+    pub cache_accounts: CacheAccounts,
 }
 
 #[derive(Debug, Clone)]
@@ -98,7 +99,7 @@ impl AnonymousRingEddsaProver<'_> {
         let cache = CacheSelection::derive(
             &self.inputs,
             &self.outputs,
-            Default::default(),
+            self.cache_accounts,
             &self.external_data,
         )?;
         let AssembledTransaction {
@@ -107,15 +108,17 @@ impl AnonymousRingEddsaProver<'_> {
             external_data_hash,
             private_tx_hash: private_tx,
             input_flags,
-        } = assemble_transaction(
-            &self.inputs,
-            &self.outputs,
-            &self.blinding_seed,
-            self.output_tree_id,
-            &cache.external_data_hash,
-            &OwnerMode::AnonymousEddsa(self.owner.public_key()),
-            self.allow_dummy_inputs,
-        )?;
+        } = AssembleTransaction {
+            inputs: &self.inputs,
+            outputs: &self.outputs,
+            blinding_seed: &self.blinding_seed,
+            output_tree_id: self.output_tree_id,
+            external_data_hash: &cache.external_data_hash,
+            owner_mode: &OwnerMode::AnonymousEddsa(self.owner.public_key()),
+            ring_program_id: self.ring_program_id,
+            allow_dummy_inputs: self.allow_dummy_inputs,
+        }
+        .assemble()?;
         let published_output_owner_pk_hashes =
             confidential_marked_output_owner_pk_hashes(&self.external_data, self.outputs.len())?;
         let PreparedAnonymousAuthorization {
@@ -189,10 +192,23 @@ pub fn anonymous_signer_pk_hashes(
     transaction: &SppProofInputs,
     owner: &PublicKey,
 ) -> Result<Vec<[u8; 32]>, ClientError> {
-    let width = transaction.check_shape()?.signer_width();
+    let shape = transaction.check_shape()?;
+    let width = shape.signer_width();
     let hidden = owner.owner_proof_input_hash()?;
-    let mut signers = transaction.signer_pk_hashes(width)?;
-    signers.retain(|signer| *signer != hidden);
+    let mut signers = Vec::with_capacity(width);
+    for signer in transaction.owner_signer_pubkeys()? {
+        let identity = solana_owner_identity(signer.as_array())?;
+        if identity != hidden {
+            signers.push(identity);
+        }
+    }
+    if signers.len() > width {
+        return Err(spr_transaction::TransactionError::UnsupportedShape {
+            n_in: shape.n_inputs(),
+            n_out: shape.n_outputs(),
+        }
+        .into());
+    }
     signers.resize(width, [0; 32]);
     Ok(signers)
 }

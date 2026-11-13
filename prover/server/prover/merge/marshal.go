@@ -48,9 +48,8 @@ type MergeParametersJSON struct {
 	PublicInputHash     string   `json:"publicInputHash"`
 	AllowDummyInputs    string   `json:"allowDummyInputs"`
 	// OutputCiphertextSalt is the 16-byte pad nonce of the PoseidonCtrV1 output
-	// ciphertext. Required on the default merge rail; the merge-ring circuit
-	// has no ciphertext, so a merge-ring request must omit it.
-	OutputCiphertextSalt string `json:"outputCiphertextSalt,omitempty"`
+	// ciphertext.
+	OutputCiphertextSalt string `json:"outputCiphertextSalt"`
 	// OutputRingDataHash is the ring-data hash the calling ring program carries
 	// in the merge_ring instruction/event, asserted against Output.RingDataHash.
 	// Emitted/consumed only on the merge-ring rail; zero on the default rail.
@@ -59,6 +58,9 @@ type MergeParametersJSON struct {
 	// (the ring program's pk_field). Emitted/consumed only on the merge-ring rail;
 	// the default merge rail leaves it zero.
 	RingProgramID string `json:"ringProgramId"`
+	// MergeSeed and PublishedOwner appear on the merge-ring rail alone.
+	MergeSeed      string `json:"mergeSeed,omitempty"`
+	PublishedOwner string `json:"publishedOwner,omitempty"`
 }
 
 func (p *MergeParameters) MarshalJSON() ([]byte, error) {
@@ -93,8 +95,10 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 		PublicInputHash:     common.FeHex(p.PublicInputHash),
 		AllowDummyInputs:    common.FeHex(p.AllowDummyInputs),
 	}
-	if circuitType != common.MergeRingCircuitType {
-		paramsJson.OutputCiphertextSalt = common.FeHex(p.OutputCiphertextSalt)
+	paramsJson.OutputCiphertextSalt = common.FeHex(p.OutputCiphertextSalt)
+	if circuitType == common.MergeRingCircuitType {
+		paramsJson.MergeSeed = common.FeHex(p.MergeSeed)
+		paramsJson.PublishedOwner = common.FeHex(p.PublishedOwner)
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
@@ -121,6 +125,36 @@ func (p *MergeParameters) CreateMergeParametersJSON() MergeParametersJSON {
 	}
 
 	return paramsJson
+}
+
+// updateSeedFromJSON refuses a zero value keying the blindings.
+func (p *MergeParameters) updateSeedFromJSON(params MergeParametersJSON) error {
+	if p.CircuitType != common.MergeRingCircuitType {
+		if params.MergeSeed != "" || params.PublishedOwner != "" {
+			return fmt.Errorf("merge: mergeSeed and publishedOwner are merge-ring inputs")
+		}
+		if p.UserNullifierSecret.Sign() == 0 {
+			return fmt.Errorf("merge: userNullifierSecret must be non-zero")
+		}
+		return nil
+	}
+	if params.MergeSeed == "" {
+		return fmt.Errorf("merge-ring: mergeSeed is required")
+	}
+	if params.PublishedOwner == "" {
+		return fmt.Errorf("merge-ring: publishedOwner is required")
+	}
+	var err error
+	if p.MergeSeed, err = common.FeFromHex(params.MergeSeed); err != nil {
+		return err
+	}
+	if p.PublishedOwner, err = common.FeFromHex(params.PublishedOwner); err != nil {
+		return err
+	}
+	if p.UserNullifierSecret.Sign() == 0 && p.MergeSeed.Sign() == 0 {
+		return fmt.Errorf("merge-ring: a zero nullifier secret requires a non-zero mergeSeed")
+	}
+	return nil
 }
 
 func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
@@ -157,8 +191,8 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 	if p.UserNullifierSecret, err = common.FeFromHex(params.UserNullifierSecret); err != nil {
 		return err
 	}
-	if p.UserNullifierSecret.Sign() == 0 {
-		return fmt.Errorf("merge: userNullifierSecret must be non-zero")
+	if err := p.updateSeedFromJSON(params); err != nil {
+		return err
 	}
 	if p.ExternalDataHash, err = common.FeFromHex(params.ExternalDataHash); err != nil {
 		return err
@@ -180,18 +214,11 @@ func (p *MergeParameters) UpdateWithJSON(params MergeParametersJSON) error {
 			return err
 		}
 	}
-	if p.CircuitType == common.MergeRingCircuitType {
-		if params.OutputCiphertextSalt != "" {
-			return fmt.Errorf("merge-ring: outputCiphertextSalt is not a merge-ring input")
-		}
-		p.OutputCiphertextSalt = nil
-	} else {
-		if params.OutputCiphertextSalt == "" {
-			return fmt.Errorf("merge: outputCiphertextSalt is required")
-		}
-		if p.OutputCiphertextSalt, err = common.FeFromHex(params.OutputCiphertextSalt); err != nil {
-			return err
-		}
+	if params.OutputCiphertextSalt == "" {
+		return fmt.Errorf("merge: outputCiphertextSalt is required")
+	}
+	if p.OutputCiphertextSalt, err = common.FeFromHex(params.OutputCiphertextSalt); err != nil {
+		return err
 	}
 
 	p.Inputs = make([]InputParams, len(params.Inputs))

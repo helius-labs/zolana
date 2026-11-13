@@ -43,7 +43,15 @@ export {
 } from "./derivation.js";
 export { poseidon } from "./poseidon.js";
 export { ownerHash, sha256Be, sha256Bytes, splitBigEndian128 } from "./hash.js";
-export { mergePrivateTxBlinding, symmetricApply } from "./merge/index.js";
+export {
+  mergeDummyNullifierFromSeed,
+  mergeOutputBlindingFromSeed,
+  mergeOutputKeyFromSeed,
+  mergePrivateTxBlinding,
+  mergePrivateTxBlindingFromSeed,
+  symmetricApply,
+  zeroNullifierPublicKey,
+} from "./merge/index.js";
 export { outputBlindingSeed, privateTxBlinding, transactOutputBlinding } from "./transact/index.js";
 export { ShieldedPublicKey } from "./public-key.js";
 export { SigningKey } from "./signing-key.js";

@@ -30,13 +30,20 @@ Breaking
 
 Added
 
+- `Merge` and `PreparedMerge` take a `mergeSeed` to prove a ring merge under the zero nullifier key, and that proof publishes the owner's hashed key, so the owner signs the merge instruction, and they refuse a zero or non-canonical seed with `TRANSACTION_INVALID_MERGE_SEED` and a seed beside a nonzero nullifier key with `TRANSACTION_MERGE_SEED_WITH_NULLIFIER_KEY`.
+- `ConfidentialTransfer.newDeposit(owner, outputTreeId, feePayer, ringProgramId)` builds a ring transfer that spends no note, and `ConfidentialTransfer.deposit(asset, amount, source)` funds its outputs from the public SOL or SPL account a `DepositSource` names.
 - `ClientErrorCode.CLIENT_INDEXER_RESPONSE_TOO_LARGE` reports an indexer response above 10 MiB, the most Photon sends, whether the SDK or Photon (`-32008`) refuses it.
 - `SprClient.proveAnonymousRingTransact(input)` accepts a `TransactOwnerSigner` or an owner signature prepared over `transactMessageDigest(proofInputs)`.
 - `SprClient.fetchProvingKeySet()` reads the prover's key set over the channel `proverTee` attests and encrypts, and returns a `ProvingKeySet` whose `cacheKey` names the release and whose `key(name)` gives each key's zopro download and gnark digest.
+- `ViewingKey.mergeSeed(ringProgramId, firstNullifier)` derives the private seed a custom ring's zero-key merge keys its output blinding and ciphertext on, the same bytes as the Rust `ViewingKey::merge_seed`.
+- The merge `DeriveRequest` kinds take a `ZeroKeySeed` of `ringProgramId` and `viewingPublicKey`, `LocalShieldedKeys` answers it from that viewing key's `mergeSeed` under the zero nullifier key, and wallet sync rebuilds a zero-key ring merge under every viewing key it holds.
+- `mergeOutputKeyFromSeed`, `mergeOutputBlindingFromSeed`, `mergePrivateTxBlindingFromSeed`, `mergeDummyNullifierFromSeed` and `zeroNullifierPublicKey` in `@heliuslabs/spr/keypair`, the same bytes as the Rust `MergeSeed` methods.
 - `SprClientConfig.provingKeys`, with `proofDataSource: "client"`, makes every proof use the set's keys and `checkProverProvingKeys()` check only those keys; a circuit outside the set and the indexed route fail with `CLIENT_PROVING_KEY_SET`, whose `details.check` names the reason.
 
 Changed
 
+- `SprClient.proveRingAuthorityTransact` proves a transfer that withdraws to a public account and still refuses a deposit.
+- `prepareRingAuthorityTransfer` in `@heliuslabs/spr/internal` accepts inputs from two trees and rejects a third tree with `TRANSACTION_TOO_MANY_INPUT_TREES`.
 - The package declares and is tested on Node.js 22.12 or a newer 22.x as well as Node.js 24 or newer.
 - A ring config created on a pool with permissionless ring activation reads `ringAuthorityTransactIsEnabled` true from creation, where it read false until `setRingActivation`.
 - `SprIndexer` history reads given a freshness wait retry Photon's `-32016` minimum-context-slot error until the wait ends, and `syncWallet` rejects a page whose `paginationToken` does not advance or does not name its last transaction, so it never saves a checkpoint past unread history.

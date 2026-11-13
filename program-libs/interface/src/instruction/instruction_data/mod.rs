@@ -23,7 +23,7 @@ pub use deposit::{
     RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, DEPOSIT_BLINDING_DOMAIN,
     MAX_DEPOSIT_ASSETS,
 };
-pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
+pub use merge_ring::{MergeRingAuthority, MergeRingIxData, MergeRingIxDataRef};
 pub use merge_transact::{
     merge_circuit_width, MergeExternalDataHash, MergeOutputEncryption, MergeProof, MergeProofRef,
     MergeTransactIxData, MergeTransactIxDataRef, MAX_MERGE_INPUTS,

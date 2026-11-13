@@ -87,13 +87,15 @@ if [[ "${SKIP_AUTHORITY_KEYS:-0}" != "1" ]]; then
     )
     for shape in "${authority_shapes[@]}"; do
         read -r n_inputs n_outputs <<<"$shape"
-        output="${keys_dir}/transfer_ring_authority_${n_inputs}_${n_outputs}.key"
-        echo "Generating transfer-ring-authority ${n_inputs}x${n_outputs} -> ${output}"
-        ./light-prover setup-transfer \
-            --circuit "transfer-ring-authority" \
-            --n-inputs "$n_inputs" \
-            --n-outputs "$n_outputs" \
-            --output "$output"
+        for rail in ring_authority ring_authority_exit; do
+            output="${keys_dir}/transfer_${rail}_${n_inputs}_${n_outputs}.key"
+            echo "Generating transfer-${rail//_/-} ${n_inputs}x${n_outputs} -> ${output}"
+            ./light-prover setup-transfer \
+                --circuit "transfer-${rail//_/-}" \
+                --n-inputs "$n_inputs" \
+                --n-outputs "$n_outputs" \
+                --output "$output"
+        done
     done
 fi
 

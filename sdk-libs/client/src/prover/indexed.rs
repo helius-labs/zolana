@@ -181,6 +181,14 @@ impl IndexedProofRequest {
         {
             return Err(invalid());
         }
+        // A frame of only dummies lets any dummy open a tree.
+        let deposit = metadata.inputs.iter().all(|input| {
+            input
+                .is_dummy
+                .as_deref()
+                .and_then(|flag| decode_field(flag).ok())
+                == Some(scalar_one())
+        });
         let mut next_tree = 0usize;
         for (index, (lookup, input)) in data.inputs.iter().zip(metadata.inputs.iter()).enumerate() {
             let slot = usize::from(lookup.tree_slot);
@@ -252,7 +260,7 @@ impl IndexedProofRequest {
             // Inputs from different trees may interleave. A real input opens
             // trees in first-use order, and a dummy only joins an open tree.
             if slot == next_tree {
-                if dummy {
+                if dummy && !deposit {
                     return Err(invalid());
                 }
                 next_tree += 1;
@@ -433,9 +441,9 @@ impl IndexedCircuit {
             // The prefix without the tree hash, the owner tail, the ciphertext
             // salt and the three ciphertext elements.
             Self::Merge => 12,
-            // The prefix without the tree hash and the ring tail; the ring
-            // merge proof binds no ciphertext.
-            Self::MergeRing => 8,
+            // The merge layout with the ring data hash, the ring program and
+            // the published owner in place of the owner tail.
+            Self::MergeRing => 13,
         }
     }
 }
@@ -684,9 +692,35 @@ mod tests {
         assert!(body["prepared"].get("treeSlots").is_none());
     }
 
-    /// A ring merge proof binds no ciphertext, so its request carries the
-    /// shared prefix and the ring tail only; the default merge's count is
-    /// refused for it, and the other way round.
+    #[test]
+    fn only_a_frame_of_dummies_opens_a_tree_with_one() {
+        let request = |dummies: &[bool]| {
+            let mut data = request_data();
+            let inputs: Vec<_> = dummies
+                .iter()
+                .map(|dummy| json!({"treeSlot":"0x0", "isDummy": if *dummy { "0x1" } else { "0x0" }}))
+                .collect();
+            *data.witness = json!({"circuitType":"transfer-confidential", "nInputs": dummies.len(),
+                "nOutputs":2, "inputs": inputs, "outputs":[{}, {}]})
+            .to_string();
+            data.inputs = dummies
+                .iter()
+                .map(|dummy| IndexedLookup {
+                    tree_slot: 0,
+                    commitment: (!dummy).then(scalar_one),
+                    nullifier: None,
+                })
+                .collect();
+            IndexedProofRequest::new(data)
+        };
+        request(&[true, true]).expect("a deposit opens its tree");
+        assert!(matches!(
+            request(&[true, false]),
+            Err(ClientError::InvalidIndexedRequest)
+        ));
+    }
+
+    /// Each merge rail refuses the other's public input count.
     #[test]
     fn merge_public_input_count_follows_the_rail() {
         let domain = format!("0x{:x}", spr_interface::UTXO_DOMAIN);
@@ -711,8 +745,8 @@ mod tests {
             public_inputs: vec![scalar_one(); count],
         };
         IndexedProofRequest::new(request("merge", 12)).expect("default merge shape");
-        IndexedProofRequest::new(request("merge-ring", 8)).expect("ring merge shape");
-        for (circuit, count) in [("merge", 8), ("merge-ring", 12)] {
+        IndexedProofRequest::new(request("merge-ring", 13)).expect("ring merge shape");
+        for (circuit, count) in [("merge", 13), ("merge-ring", 12)] {
             assert!(matches!(
                 IndexedProofRequest::new(request(circuit, count)),
                 Err(ClientError::InvalidIndexedRequest)

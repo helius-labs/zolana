@@ -706,10 +706,12 @@ function mergeProverRequest(
       : {}),
     outputTreeId: hex(inputs.outputTreeId, "outputTreeId"),
     mintChunks: inputs.mintChunks.map((chunk) => hex(chunk, "mintChunks")),
-    // The merge-ring circuit binds no ciphertext, and the prover refuses a
-    // salt on a merge-ring request.
-    ...(circuitType === "merge"
-      ? { outputCiphertextSalt: hex(inputs.outputCiphertextSalt, "outputCiphertextSalt") }
+    outputCiphertextSalt: hex(inputs.outputCiphertextSalt, "outputCiphertextSalt"),
+    ...(circuitType === "merge-ring"
+      ? {
+          mergeSeed: hex(inputs.mergeSeed ?? asField(0n), "mergeSeed"),
+          publishedOwner: hex(inputs.publishedOwner ?? asField(0n), "publishedOwner"),
+        }
       : {}),
     ownerPkHash: hex(inputs.ownerPublicKeyHash, "ownerPkHash"),
     userNullifierPk: hex(inputs.userNullifierPublicKey, "userNullifierPk"),

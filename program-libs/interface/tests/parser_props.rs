@@ -16,7 +16,7 @@ use spr_interface::instruction::instruction_data::{
     deposit::{
         DepositEntry, DepositIxData, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
     },
-    merge_ring::{MergeRingIxData, MergeRingIxDataRef},
+    merge_ring::{MergeRingAuthority, MergeRingIxData, MergeRingIxDataRef},
     merge_transact::{
         merge_circuit_width, MergeProof, MergeTransactIxData, MergeTransactIxDataRef,
         MERGE_DEFAULT_INPUT_COUNT,
@@ -361,6 +361,7 @@ proptest! {
     ) {
         let mut owned = MergeRingIxData {
             output_ring_data_hash: view_tag,
+            authority: MergeRingAuthority::Ring,
             merge,
         };
         if clear_nullifiers {

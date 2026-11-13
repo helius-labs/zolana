@@ -36,6 +36,7 @@ export {
 } from "./instructions/index.js";
 export type {
   CacheAccounts,
+  DepositSource,
   EncryptedTransaction,
   ExternalData,
   ExternalDataInit,
@@ -97,6 +98,7 @@ export type {
   DecryptLabel,
   DecryptRequest,
   DeriveRequest,
+  ZeroKeySeed,
   PrivateBalances,
   EncryptedEnvelope,
   EncryptedSplit,
