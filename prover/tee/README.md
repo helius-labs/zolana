@@ -79,10 +79,10 @@ rebuild or key rotation alone does not require an SDK release.
 
 ## Mainnet: v0.6.0-alpha
 
-| Network | Photon RPC | Nitro prover |
-| --- | --- | --- |
-| Mainnet | `https://dgcj4pjarvo65.cloudfront.net` | `https://d3ky2kt0ntqxt1.cloudfront.net` |
-| Devnet-e | `https://d34xe1hqb2ibg2.cloudfront.net` | `https://dd73hh473h6ha.cloudfront.net` |
+| Network | Photon RPC and Nitro prover |
+| --- | --- |
+| Mainnet | `https://mainnet.helius-rpc.com/v1/spr?api-key=<API_KEY>` |
+| Devnet-e | `https://devnet.helius-rpc.com/v1/spr?api-key=<API_KEY>` |
 
 [mainnet-v0.6.0-alpha.json](deployments/mainnet-v0.6.0-alpha.json) contains the
 mainnet PCR0–PCR2 and HPKE key. The measurements come from
@@ -138,8 +138,7 @@ data from Photon. Supply this reviewed policy explicitly when using this deploym
 
 | Service | URL |
 | --- | --- |
-| Client TEE prover | `https://dd73hh473h6ha.cloudfront.net` |
-| Photon JSON-RPC | `https://d34xe1hqb2ibg2.cloudfront.net` |
+| Client TEE prover and Photon | `https://devnet.helius-rpc.com/v1/spr?api-key=<API_KEY>` |
 
 Supply the URL and reviewed policy. In Rust:
 
@@ -162,9 +161,9 @@ import { SprClient, teePolicyFromJson } from "@heliuslabs/spr/client";
 import policyFile from "./prover-policy.json" with { type: "json" };
 
 const client = new SprClient({
-  solanaRpcUrl: "https://api.devnet.solana.com",
-  indexerUrl: "https://d34xe1hqb2ibg2.cloudfront.net",
-  proverUrl: "https://dd73hh473h6ha.cloudfront.net",
+  solanaRpcUrl: "https://devnet.helius-rpc.com/?api-key=<API_KEY>",
+  indexerUrl: "https://devnet.helius-rpc.com/v1/spr?api-key=<API_KEY>",
+  proverUrl: "https://devnet.helius-rpc.com/v1/spr?api-key=<API_KEY>",
   proverTee: teePolicyFromJson(policyFile),
   proofDataSource: "prover",
 });
@@ -176,7 +175,7 @@ The prover proof-data setting uses `/indexed`, including
 From the repository root, check attestation and encrypted proving-key digests:
 
 ```sh
-cargo run -p xtask -- tee-check https://dd73hh473h6ha.cloudfront.net \
+cargo run -p xtask -- tee-check "https://devnet.helius-rpc.com/v1/spr?api-key=<API_KEY>" \
   --policy prover/tee/deployments/devnet-e-v0.6.0-alpha.json
 ```
 
