@@ -1686,9 +1686,10 @@ Usage by instruction:
 
 ## Instructions
 
-Tags 0–9 cover administration and maintenance, tag 10 is the internal event
-hook, tags 11–13 are default-ring operations, tags 14–17 are policy-ring
-operations, and tags 18–21 are maintenance and administration.
+Tags 0–11 are administration, tags 12–13 are forester maintenance, tag 14 is
+the internal event hook, tags 15–17 are default-ring operations, tags 18–21
+are policy-ring operations, and tags 22–23 manage caches. The values are the
+constants in `program-libs/event/src/tag.rs`.
 
 | Instruction | Description |
 | --- | --- |
@@ -1696,28 +1697,30 @@ operations, and tags 18–21 are maintenance and administration.
 | update_protocol_config | Tag 1; gated by `protocol_config.protocol_authority`; updates exactly one authority or flag per call; rotating `protocol_authority` requires the incoming authority to co-sign |
 | create_tree | Tag 2; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; called once per 10 KiB allocation step in one transaction. The first step requires `tree_id == protocol_config.next_tree_id` and increments it, and records its payer and instruction data in the uninitialized account; every later step must have the same payer and instruction data (`TreeCreationMismatch`, 7081), so a creation split across transactions cannot be finished by another caller or with other parameters or fees. The last step clears the record and initializes the shared Tree account (nullifier tree + queue, UTXO tree) with the submitted `TreeFeeSchedule` and `fee_balance = 0`. Every step rejects `fee_per_tree > MAX_FEE_PER_TREE` (`TreeFeeTooHigh`, 7080) and nullifier parameters the initialization would reject (`InvalidTreeAccounts`), so a first step cannot record parameters that no later step can complete. |
 | pause_tree | Tag 3; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
-| batch_update_nullifier_tree | Tag 4; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. Once a queue batch becomes reclaimable it advances `close_before_index`, releasing that batch's nullifier PDAs. Pays `min(append_reimbursement * num_update, fee_balance)` to `reimbursement_recipient` (must not be program-owned); a shortfall does not fail the update. |
-| create_asset_counter | Tag 5; gated by `protocol_config.protocol_authority`; creates the singleton `Asset counter` PDA with `next_asset_id = 2`. |
-| create_spl_interface | Tag 6; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
-| create_ring_config | Tag 7; permissionless. Creates the ring's `ring_config`; signers and initial activation state follow [Ring Accounts](#ring-accounts). |
-| update_ring_config | Tag 8; sets `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused or inactive. |
-| update_ring_config_owner | Tag 9; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority is read only from its account and co-signs, except `Address::default()`, which burns the authority and cannot sign. |
-| emit_event | Tag 10; no-op; instruction data is `[EventKind, borsh(body)]` (see [General Event](#general-event)); SPP self-CPI only. |
-| deposit | Tag 11; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
-| transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
-| merge_transact | Tag 13; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset; dummy slots or compact padding fill a shorter merge) into one output UTXO. Permitted whenever the owner's registry record selects a merge encryption scheme and the instruction's `output_encryption` uses that scheme; any caller may submit it, and the merge proof checks the output against the owner's registered signing identity and nullifier key. Input and output UTXOs are default-ring; extension slots are zero. |
-| ring_deposit | Tag 14; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
-| ring_transact | Tag 15; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
-| merge_ring | Tag 16; CPI from an active ring program; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
-| ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
-| close_nullifier_pdas | Tag 18; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
-| set_tree_fees | Tag 19; gated by `protocol_config.fee_authority`; overwrites the tree's `TreeFeeSchedule`; works on paused trees. Rejects `fee_per_tree > MAX_FEE_PER_TREE` (1,000,000 lamports, `TreeFeeTooHigh`, 7080): transacts and merges pay the rate in effect at execution, which the payer does not sign, so the cap bounds what a fee change can charge. |
-| claim_tree_lamports | Tag 20; gated by `protocol_config.fee_authority`; works on paused trees. First lowers `fee_balance` to the reimbursement reserve `live_nullifier_pdas * close_reimbursement + ceil(live_nullifier_pdas / zkp_batch_size) * append_reimbursement`, what the open nullifier PDAs may still draw (every queued nullifier not yet appended still has its PDA open). Then moves every lamport above `rent_minimum + fee_balance + working_capital` to `recipient` (must not be program-owned), where working capital is `((NUM_BATCHES + 1) * input_queue_batch_size - live_nullifier_pdas) * nullifier_pda_rent` (saturating) recomputed at the current rent. `live_nullifier_pdas` counts the nullifier PDAs the tree funded and has not closed (transact and merge add their queued nullifiers, `close_nullifier_pdas` subtracts the closed count): their rent returns to the tree on close, so it is not reserved a second time. Fails with `NoClaimableTreeLamports` when nothing is above the reserve. Recovers collected fees beyond the reserve and lamports released by a rent reduction. |
-| set_ring_activation | Tag 21; gated by `protocol_config.ring_creation_authority`; sets `ring_config.activated` and `ring_config.ring_authority_transact_is_enabled`. See [Ring Accounts](#ring-accounts). |
+| set_tree_fees | Tag 4; gated by `protocol_config.fee_authority`; overwrites the tree's `TreeFeeSchedule`; works on paused trees. Rejects `fee_per_tree > MAX_FEE_PER_TREE` (1,000,000 lamports, `TreeFeeTooHigh`, 7080): transacts and merges pay the rate in effect at execution, which the payer does not sign, so the cap bounds what a fee change can charge. |
+| claim_tree_lamports | Tag 5; gated by `protocol_config.fee_authority`; works on paused trees. First lowers `fee_balance` to the reimbursement reserve `live_nullifier_pdas * close_reimbursement + ceil(live_nullifier_pdas / zkp_batch_size) * append_reimbursement`, what the open nullifier PDAs may still draw (every queued nullifier not yet appended still has its PDA open). Then moves every lamport above `rent_minimum + fee_balance + working_capital` to `recipient` (must not be program-owned), where working capital is `((NUM_BATCHES + 1) * input_queue_batch_size - live_nullifier_pdas) * nullifier_pda_rent` (saturating) recomputed at the current rent. `live_nullifier_pdas` counts the nullifier PDAs the tree funded and has not closed (transact and merge add their queued nullifiers, `close_nullifier_pdas` subtracts the closed count): their rent returns to the tree on close, so it is not reserved a second time. Fails with `NoClaimableTreeLamports` when nothing is above the reserve. Recovers collected fees beyond the reserve and lamports released by a rent reduction. |
+| create_asset_counter | Tag 6; gated by `protocol_config.protocol_authority`; creates the singleton `Asset counter` PDA with `next_asset_id = 2`. |
+| create_spl_interface | Tag 7; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
+| create_ring_config | Tag 8; permissionless. Creates the ring's `ring_config`; signers and initial activation state follow [Ring Accounts](#ring-accounts). |
+| update_ring_config | Tag 9; sets `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused or inactive. |
+| update_ring_config_owner | Tag 10; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority is read only from its account and co-signs, except `Address::default()`, which burns the authority and cannot sign. |
+| set_ring_activation | Tag 11; gated by `protocol_config.ring_creation_authority`; sets `ring_config.activated` and `ring_config.ring_authority_transact_is_enabled`. See [Ring Accounts](#ring-accounts). |
+| batch_update_nullifier_tree | Tag 12; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. Once a queue batch becomes reclaimable it advances `close_before_index`, releasing that batch's nullifier PDAs. Pays `min(append_reimbursement * num_update, fee_balance)` to `reimbursement_recipient` (must not be program-owned); a shortfall does not fail the update. |
+| close_nullifier_pdas | Tag 13; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
+| emit_event | Tag 14; no-op; instruction data is `[EventKind, borsh(body)]` (see [General Event](#general-event)); SPP self-CPI only. |
+| deposit | Tag 15; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
+| transact | Tag 16; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
+| merge_transact | Tag 17; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset; dummy slots or compact padding fill a shorter merge) into one output UTXO. Permitted whenever the owner's registry record selects a merge encryption scheme and the instruction's `output_encryption` uses that scheme; any caller may submit it, and the merge proof checks the output against the owner's registered signing identity and nullifier key. Input and output UTXOs are default-ring; extension slots are zero. |
+| ring_deposit | Tag 18; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
+| ring_transact | Tag 19; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
+| merge_ring | Tag 20; CPI from an active ring program; consolidates the input slots of an 8-, 24- or 52-input merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
+| ring_authority_transact | Tag 21; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
+| create_cache | Tag 22; creates an empty cache at the PDA derived from the rent sponsor and a nonce; requires exactly payer, cache and system program and a future expiry. Succeeds without change when the cache exists with the same configuration. |
+| close_cache | Tag 23; closes a cache. Before expiry only the cache's `write_authority` may close it; after expiry anyone may. Rent always returns to the stored rent sponsor. Closing cancels the cache fast path; normal tree spending and nullifier protection remain. |
 
 ### `transact`
 
-**Discriminator:** 12
+**Discriminator:** 16
 
 **Description.** Implements deposit, withdraw, or shielded transfer on the `ConfidentialSigner` and `ConfidentialEddsa` circuits. Verifies the proof, nullifies input UTXOs by inserting nullifiers into the nullifier queue, and appends output UTXOs to the UTXO tree.
 
@@ -2069,7 +2072,7 @@ proof (`true` for a deposit).
 
 ### `deposit`
 
-**Discriminator:** 11
+**Discriminator:** 15
 
 **Description.** Public deposit without a proof; deposits dynamic amounts and assets, e.g. the output of a swap. The depositor sends the recipient `owner` (its `owner_hash` from [Shielded Address](#shielded-address)) in the clear, and the program derives the `blinding` (see [Blinding](#blinding-derivation)) and recomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)). The depositor needs only the recipient's public [Shielded Address](#shielded-address), so a third party can deposit to a recipient it shares no secret with; the recipient is not hidden on this rail.
 
@@ -2332,7 +2335,7 @@ struct Movement {
 
 ### `ring_deposit`
 
-**Discriminator:** 14
+**Discriminator:** 18
 
 **Description.** Batched policy-ring analog of [`deposit`](#deposit): a public
 deposit without a proof that creates UTXOs owned by the calling ring program.
@@ -2391,7 +2394,7 @@ the instruction and must use a fresh blinding per output.
 
 ### `merge_transact`
 
-**Discriminator:** 13
+**Discriminator:** 17
 
 **Description.** Consolidates up to 52 input slots (an [8-, 24- or 52-input circuit](#merge-proof---merge-zk-proof)) of one owner and asset into one output of the same owner, asset, and total amount; dummy slots or compact padding fill the slots past the real inputs. Any caller may submit it when the owner's registry record selects a merge encryption scheme, and only with that scheme. SPP nullifies the inputs and appends the output, tagged by the owner signing pubkey for [wallet discovery](#merge-output-indexing-removed-merge-view-tag); the instruction contains the output's amount and mint encrypted for the owner ([Merge](#merge)).
 
@@ -2471,7 +2474,7 @@ With discriminator, `N = 24`: `1,152 B` (a `2,228 B` transaction); `N = 52`:
 
 ### `merge_ring`
 
-**Discriminator:** 16
+**Discriminator:** 20
 
 **Description.** Policy-ring analog of [`merge_transact`](#merge_transact), invoked via CPI from a ring program. The relationship to `merge_transact` parallels how [`ring_authority_transact`](#ring_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `ring_program_id` (matching `ring_config.program_id`) into one output UTXO that preserves `ring_program_id`. The ring program runs its own authorization, including any rules over the input `ring_data_hash` values and its explicitly selected output `ring_data_hash`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the ring program (the `ring_config` signer); SPP does **not** check the registry `merge_encryption` scheme for `merge_ring`.
 

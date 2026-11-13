@@ -4,12 +4,29 @@ import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 
 import { SPR_GATEWAY_PATH } from "../../../endpoint.js";
 import { ClientError } from "../../error.js";
+import { unsupportedCrypto } from "./crypto-support.js";
 
 export const HEADER_VERSION = "Spr-Tee";
 export const HEADER_ENC = "Spr-Tee-Enc";
 /** Carries the encrypted bytes of a GET, fetch refuses a GET body. */
 export const HEADER_CIPHERTEXT = "Spr-Tee-Ciphertext";
 export const VERSION = "v1";
+
+/**
+ * The header names of the encrypted prover channel. A proxy in front of a
+ * prover forwards every `request` header unchanged, passes the
+ * `application/octet-stream` body through, and returns every `response`
+ * header; for browsers it allows the `request` headers in CORS preflight and
+ * exposes the `response` headers. A prover that does not receive them refuses
+ * the call with `CLIENT_PROVER_TEE_REJECTED`.
+ */
+export const PROVER_TEE_HEADERS: Readonly<{
+  request: readonly ["Spr-Tee", "Spr-Tee-Enc", "Spr-Tee-Ciphertext"];
+  response: readonly ["Spr-Tee"];
+}> = Object.freeze({
+  request: Object.freeze([HEADER_VERSION, HEADER_ENC, HEADER_CIPHERTEXT] as const),
+  response: Object.freeze([HEADER_VERSION] as const),
+});
 export const RESPONSE_NONCE_SIZE = 12;
 
 // Domain separation for the HPKE context and its response exporter.
@@ -42,17 +59,25 @@ export async function encryptRequest(
   requestUri: string,
   plaintext: Uint8Array,
 ): Promise<EncryptedRequest> {
-  const recipientPublicKey = await suite.kem.deserializePublicKey(hpkePublicKey);
-  const sender = await suite.createSenderContext({ recipientPublicKey, info: HPKE_INFO });
-  const body = new Uint8Array(
-    await sender.seal(plaintext, utf8ToBytes(requestAad(method, requestUri))),
-  );
-  const responseKey = new Uint8Array(await sender.export(RESPONSE_EXPORT, 32));
-  return Object.freeze({
-    enc: bytesToHex(new Uint8Array(sender.enc)),
-    body,
-    decrypt: (encrypted: Uint8Array) => decryptResponse(responseKey, encrypted),
-  });
+  // Each step names the WebCrypto algorithm a runtime may lack.
+  let algorithm = "X25519";
+  try {
+    const recipientPublicKey = await suite.kem.deserializePublicKey(hpkePublicKey);
+    const sender = await suite.createSenderContext({ recipientPublicKey, info: HPKE_INFO });
+    algorithm = "AES-256-GCM";
+    const body = new Uint8Array(
+      await sender.seal(plaintext, utf8ToBytes(requestAad(method, requestUri))),
+    );
+    algorithm = "HKDF-SHA256";
+    const responseKey = new Uint8Array(await sender.export(RESPONSE_EXPORT, 32));
+    return Object.freeze({
+      enc: bytesToHex(new Uint8Array(sender.enc)),
+      body,
+      decrypt: (encrypted: Uint8Array) => decryptResponse(responseKey, encrypted),
+    });
+  } catch (error) {
+    throw unsupportedCrypto(error, algorithm) ?? error;
+  }
 }
 
 /**

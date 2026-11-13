@@ -84,6 +84,25 @@ jobs:
           NODE
           )
 
+  # Bun ships its own WebCrypto, which can lack algorithms Node has (Bun 1.2
+  # cannot derive X25519 secrets), so the unit suite also runs under Bun.
+  bun:
+    name: typescript / test (bun)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BUN_VERSION: "1.4.4"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Unit tests under Bun
+        working-directory: sdk-libs/ts
+        run: npx --yes "bun@$BUN_VERSION" --bun x vitest run --exclude "test/e2e/**"
+
   e2e:
     name: typescript / e2e
     runs-on: ubuntu-latest

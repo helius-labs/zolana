@@ -113,5 +113,7 @@ fn transact_accounts_error(error: TransactAccountsError) -> ProgramError {
             TimelockEscrowError::MissingEscrowAuthority.into()
         }
         TransactAccountsError::NotEnoughAccounts => ProgramError::NotEnoughAccountKeys,
+        error @ (TransactAccountsError::TooManyAccounts
+        | TransactAccountsError::MissingTransactTag) => error.into(),
     }
 }

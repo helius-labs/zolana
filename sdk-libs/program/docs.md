@@ -437,6 +437,13 @@ pub fn process_increment_ix(accounts: &mut [AccountView], data: &[u8]) -> Progra
 }
 ```
 
+`invoke` copies `transact_data` behind the transact tag, which allocates. A
+program without a heap allocator has the client place the tag
+(`spr_interface::instruction::tag::TRANSACT`) in front of the transact data
+and forwards that slice unchanged with `invoke_tagged::<16>(tagged_data,
+signers)`. The account metas are built on the stack either way, bounded by
+`MAX_ACCOUNTS`.
+
 ## Build
 
 The Zolana CLI builds the circuits, verifier modules, client wasm package, and Solana program.

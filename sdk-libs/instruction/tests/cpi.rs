@@ -3,7 +3,7 @@
 use pinocchio::{error::ProgramError, AccountView, Address};
 use spr_account_checks::account_info::test_account_info::get_account_view;
 use spr_instruction::cpi::{SppTransactAccounts, TransactAccountsError};
-use spr_interface::SHIELDED_POOL_PROGRAM_ID;
+use spr_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
 
 const PDA: [u8; 32] = [4u8; 32];
 
@@ -68,6 +68,77 @@ fn signs_for_only_the_signer_pdas() {
 }
 
 #[test]
+fn instruction_accounts_keep_flags_and_sign_only_for_the_pdas() {
+    let pda = Address::new_from_array(PDA);
+    let signer_pdas = [&pda];
+    let mut accounts = transact_accounts(SHIELDED_POOL_PROGRAM_ID);
+    // A read-only owner that signed the outer transaction keeps its signature.
+    accounts.push(get_account_view(
+        [30u8; 32],
+        [0u8; 32],
+        true,
+        false,
+        false,
+        Vec::new(),
+    ));
+    let spp = SppTransactAccounts::new(&accounts, &signer_pdas).unwrap();
+
+    let metas = spp.instruction_accounts::<8>().unwrap();
+    let flags: Vec<([u8; 32], bool, bool)> = metas
+        .iter()
+        .take(accounts.len())
+        .map(|meta| (meta.address.to_bytes(), meta.is_writable, meta.is_signer))
+        .collect();
+
+    assert_eq!(
+        flags,
+        vec![
+            ([1u8; 32], true, false),
+            ([21u8; 32], true, false),
+            (SHIELDED_POOL_PROGRAM_ID, true, false),
+            ([0u8; 32], true, false),
+            (PDA, true, true),
+            ([30u8; 32], false, true),
+        ]
+    );
+}
+
+#[test]
+fn instruction_accounts_reject_more_accounts_than_the_bound() {
+    let pda = Address::new_from_array(PDA);
+    let signer_pdas = [&pda];
+    let accounts = transact_accounts(SHIELDED_POOL_PROGRAM_ID);
+    let spp = SppTransactAccounts::new(&accounts, &signer_pdas).unwrap();
+
+    assert_eq!(
+        (
+            spp.instruction_accounts::<4>().map(|_| ()),
+            spp.instruction_accounts::<5>().map(|_| ()),
+        ),
+        (Err(TransactAccountsError::TooManyAccounts), Ok(()))
+    );
+}
+
+#[test]
+fn invoke_tagged_rejects_data_without_the_transact_tag() {
+    let pda = Address::new_from_array(PDA);
+    let signer_pdas = [&pda];
+    let accounts = transact_accounts(SHIELDED_POOL_PROGRAM_ID);
+    let spp = SppTransactAccounts::new(&accounts, &signer_pdas).unwrap();
+    let expected = Err(ProgramError::from(
+        TransactAccountsError::MissingTransactTag,
+    ));
+
+    assert_eq!(
+        (
+            spp.invoke_tagged::<8>(&[], &[]),
+            spp.invoke_tagged::<8>(&[TRANSACT.wrapping_add(1), 0], &[]),
+        ),
+        (expected.clone(), expected)
+    );
+}
+
+#[test]
 fn error_codes_are_stable() {
     use TransactAccountsError::*;
 
@@ -75,6 +146,8 @@ fn error_codes_are_stable() {
         (NotEnoughAccounts, 14100),
         (InvalidSppProgram, 14101),
         (MissingPdaSigner { index: 3 }, 14102),
+        (TooManyAccounts, 14103),
+        (MissingTransactTag, 14104),
     ] {
         assert_eq!(ProgramError::from(error), ProgramError::Custom(code));
     }

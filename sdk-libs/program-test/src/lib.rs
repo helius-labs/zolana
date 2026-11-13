@@ -80,7 +80,11 @@ pub fn test_blinding(byte: u8) -> [u8; 32] {
 
 #[derive(Debug, Error)]
 pub enum ProgramTestError {
-    #[error("missing program binary at {0:?}; run `cargo build-sbf -p shielded-pool-program`")]
+    #[error(
+        "missing shielded-pool program binary at {0:?}; in the zolana repository run \
+         `just build-programs`, or dump the deployed program with `solana program dump \
+         <shielded-pool program id> <path>`, then point SHIELDED_POOL_PROGRAM_PATH at it"
+    )]
     MissingProgram(PathBuf),
     #[error("litesvm failure: {0}")]
     Litesvm(String),
@@ -141,11 +145,16 @@ impl SprProgramTest {
         if !path.exists() {
             return Err(ProgramTestError::MissingProgram(path.to_path_buf()));
         }
+        Self::with_program_bytes(&std::fs::read(path)?)
+    }
 
+    /// Boot with the shielded-pool program from `program_bytes`, for callers
+    /// outside this workspace that ship or download the binary themselves.
+    /// Load the program under test next to it with `svm.add_program`.
+    pub fn with_program_bytes(program_bytes: &[u8]) -> Result<Self, ProgramTestError> {
         let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
         let mut svm = LiteSVM::new();
-        let program_bytes = std::fs::read(path)?;
-        svm.add_program(program_id, &program_bytes)
+        svm.add_program(program_id, program_bytes)
             .map_err(|e| ProgramTestError::Litesvm(format!("add_program: {e:?}")))?;
 
         let payer = Keypair::new();

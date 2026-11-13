@@ -62,6 +62,8 @@ fn transact_accounts_error(error: TransactAccountsError) -> ProgramError {
         TransactAccountsError::InvalidSppProgram => SwapError::InvalidShieldedPoolProgram.into(),
         TransactAccountsError::MissingPdaSigner { .. } => SwapError::MissingOrderAuthority.into(),
         TransactAccountsError::NotEnoughAccounts => ProgramError::NotEnoughAccountKeys,
+        error @ (TransactAccountsError::TooManyAccounts
+        | TransactAccountsError::MissingTransactTag) => error.into(),
     }
 }
 

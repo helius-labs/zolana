@@ -1,4 +1,10 @@
 export { MERGE_TRANSACT_COMPUTE_UNIT_LIMIT, SprClient } from "./client.js";
+export {
+  DEFAULT_TRANSACT_COMPUTE_UNIT_LIMIT,
+  compileVersion1Transaction,
+  type Version1TransactionOptions,
+} from "./compile.js";
+export type { LatestBlockhash } from "./kit.js";
 export type { AuthorizedPrivateTransaction, ProvedMerge, SprClientConfig } from "./client.js";
 export { LocalKeys, NullifierKeyProofAuthority } from "./keys.js";
 export type {
@@ -61,6 +67,7 @@ export {
   type ProvingKeyReport,
 } from "./prover/client.js";
 export type { ProvingKeySet, ProvingKeySetKey } from "./prover/key-set.js";
+export { PROVER_TEE_HEADERS } from "./prover/tee/encryption.js";
 export { teePolicyFromJson, type GpuRequirement } from "./prover/tee/policy.js";
 export type {
   AwsNitroPolicy,

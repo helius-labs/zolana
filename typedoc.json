@@ -42,7 +42,6 @@
     "DecryptTransactionsConfig",
     "FixedBytes",
     "IndexDetails",
-    "LatestBlockhash",
     "MethodDetails",
     "ProgramAccountReader",
     "SerializedPrivateTransaction",

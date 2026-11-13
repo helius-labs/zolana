@@ -19,6 +19,8 @@ on:
       - "!package.json"
       - "!package-lock.json"
       - "programs/**"
+      # spr-event pins the spec's instruction tags to the code.
+      - "docs/spec.md"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -34,6 +36,8 @@ on:
       - "!package.json"
       - "!package-lock.json"
       - "programs/**"
+      # spr-event pins the spec's instruction tags to the code.
+      - "docs/spec.md"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
