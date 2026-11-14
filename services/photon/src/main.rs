@@ -230,13 +230,14 @@ fn continuously_index_new_blocks(
     tokio::spawn(async move {
         let block_stream = block_stream_config.load_block_stream();
         index_block_stream(
-            block_stream,
+            block_stream.map(Ok),
             db,
             rpc_client.clone(),
             last_indexed_slot,
             None,
         )
-        .await;
+        .await
+        .unwrap_or_else(|err| error!("Block stream failed: {err:#}"));
     })
 }
 
@@ -324,17 +325,17 @@ async fn load_snapshot_if_present(
     info!("Loading Rings BlockInfo snapshot through slot {snapshot_end_slot}...");
     let block_stream = load_block_stream_from_directory_adapter(directory_adapter.clone()).await;
     pin_mut!(block_stream);
-    let Some(first_blocks) = block_stream.next().await else {
-        info!("Snapshot source was empty");
-        return Ok(());
-    };
-    let Some(first_block) = first_blocks.first() else {
-        info!("Snapshot contained no blocks");
-        return Ok(());
-    };
+    let first_blocks = block_stream
+        .next()
+        .await
+        .transpose()?
+        .context("Snapshot source contained no blocks")?;
+    let first_block = first_blocks
+        .first()
+        .context("Snapshot contained an empty block batch")?;
     let last_indexed_slot = first_block.metadata.parent_slot;
     let replay_stream = stream! {
-        yield first_blocks;
+        yield Ok(first_blocks);
         while let Some(blocks) = block_stream.next().await {
             yield blocks;
         }
@@ -347,7 +348,8 @@ async fn load_snapshot_if_present(
         last_indexed_slot,
         Some(snapshot_end_slot),
     )
-    .await;
+    .await
+    .context("Failed to restore snapshot")?;
     Ok(())
 }
 
