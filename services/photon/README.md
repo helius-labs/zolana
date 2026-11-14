@@ -94,6 +94,10 @@ available for remote snapshot storage. S3 takes its region from `AWS_REGION` and
 from the environment, the `AWS_PROFILE` profile, or the ECS task or instance role. With
 `AWS_ENDPOINT` set it talks to that S3-compatible store with path-style requests.
 
+Snapshot read, decoding, or premature EOF errors fail startup with a nonzero exit status.
+After correcting the source or connectivity, restart with the same snapshot options: committed
+blocks remain in the database, and Photon verifies batches it has already applied before continuing.
+
 ## Operations
 
 ### Ring-scoped history
