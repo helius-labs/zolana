@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::rpc::RpcClient;
+use anyhow::{ensure, Result};
 use futures::{pin_mut, Stream, StreamExt};
 use log::info;
 use sea_orm::{sea_query::Expr, DatabaseConnection, EntityTrait, FromQueryResult, QuerySelect};
@@ -42,15 +43,17 @@ pub async fn fetch_last_indexed_slot_with_infinite_retry(
 }
 
 pub async fn index_block_stream(
-    block_stream: impl Stream<Item = Vec<BlockInfo>>,
+    block_stream: impl Stream<Item = Result<Vec<BlockInfo>>>,
     db: Arc<DatabaseConnection>,
     rpc_client: Arc<RpcClient>,
     last_indexed_slot_at_start: u64,
     end_slot: Option<u64>,
-) {
+) -> Result<()> {
     pin_mut!(block_stream);
-    let current_slot =
-        end_slot.unwrap_or(fetch_current_slot_with_infinite_retry(&rpc_client).await);
+    let current_slot = match end_slot {
+        Some(slot) => slot,
+        None => fetch_current_slot_with_infinite_retry(&rpc_client).await,
+    };
     let number_of_blocks_to_backfill = current_slot.saturating_sub(last_indexed_slot_at_start);
     info!(
         "Backfilling historical blocks. Current number of blocks to backfill: {}",
@@ -61,6 +64,7 @@ pub async fn index_block_stream(
     let mut finished_backfill_slot = None;
 
     while let Some(blocks) = block_stream.next().await {
+        let blocks = blocks?;
         let Some(last_slot_in_block) = blocks.last().map(|block| block.metadata.slot) else {
             continue;
         };
@@ -87,5 +91,35 @@ pub async fn index_block_stream(
             }
             last_indexed_slot = slot;
         }
+    }
+    if let Some(end_slot) = end_slot {
+        ensure!(
+            last_indexed_slot >= end_slot,
+            "Snapshot ended at slot {last_indexed_slot}, before expected slot {end_slot}"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn snapshot_errors_and_early_eof_are_not_success() {
+        let db = Arc::new(DatabaseConnection::Disconnected);
+        let rpc = Arc::new(RpcClient::new("http://127.0.0.1:0".to_string()));
+        let failed = futures::stream::iter([Err(anyhow::anyhow!("snapshot connection reset"))]);
+        let error = index_block_stream(failed, db.clone(), rpc.clone(), 10, Some(20))
+            .await
+            .unwrap_err();
+        assert_eq!(error.to_string(), "snapshot connection reset");
+
+        let error = index_block_stream(futures::stream::empty(), db, rpc, 10, Some(20))
+            .await
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("Snapshot ended at slot 10, before expected slot 20"));
     }
 }

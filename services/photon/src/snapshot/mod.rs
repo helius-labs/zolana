@@ -20,7 +20,7 @@ use crate::ingester::{
     typedefs::block_info::{BlockInfo, TransactionInfo},
 };
 use anyhow::{anyhow, Context as AnyhowContext, Result};
-use async_stream::stream;
+use async_stream::{stream, try_stream};
 use bincode::{Decode, Encode};
 use bytes::{BufMut, Bytes};
 use futures::stream::StreamExt;
@@ -183,14 +183,11 @@ impl R2DirectoryAdapter {
         path: String,
     ) -> impl Stream<Item = Result<Bytes>> + std::marker::Send + 'static {
         stream! {
-            let r2_directory_adapter = arc_self.clone();
-            let key = r2_directory_adapter.key(&path);
-            let mut result = r2_directory_adapter.r2_bucket.get_object_stream(key.clone()).await.with_context(|| format!("Failed to read file: {:?}", key))?;
-            let stream = result.bytes();
-
-            while let Some(byte) = stream.next().await {
-                let byte = byte.with_context(|| "Failed to read byte from file")?;
-                yield Ok(byte);
+            let key = arc_self.key(&path);
+            let bytes = s3_utils::download::read_object(&arc_self.r2_bucket, &key);
+            pin_mut!(bytes);
+            while let Some(chunk) = bytes.next().await {
+                yield chunk;
             }
         }
     }
@@ -923,39 +920,25 @@ pub async fn load_byte_stream_from_directory_adapter(
 
 pub async fn load_block_stream_from_directory_adapter(
     directory_adapter: Arc<DirectoryAdapter>,
-) -> impl Stream<Item = Vec<BlockInfo>> {
-    stream! {
-        let byte_stream = load_byte_stream_from_directory_adapter(directory_adapter.clone()).await;
+) -> impl Stream<Item = Result<Vec<BlockInfo>>> {
+    let byte_stream = load_byte_stream_from_directory_adapter(directory_adapter).await;
+    decode_block_stream(byte_stream)
+}
+
+fn decode_block_stream(
+    byte_stream: impl Stream<Item = Result<Bytes>>,
+) -> impl Stream<Item = Result<Vec<BlockInfo>>> {
+    try_stream! {
         pin_mut!(byte_stream);
-        let (_, mut reader) = match read_snapshot_header_from_stream(&mut byte_stream).await {
-            Ok(header_and_reader) => header_and_reader,
-            Err(err) => {
-                error!("Failed to read snapshot header: {}", err);
-                return;
-            }
-        };
+        let (_, mut reader) = read_snapshot_header_from_stream(&mut byte_stream).await?;
         let mut index = 0;
         let mut accumulator = SnapshotBlockAccumulator::default();
 
         while let Some(bytes) = byte_stream.next().await {
-            let bytes = match bytes {
-                Ok(bytes) => bytes,
-                Err(err) => {
-                    error!("Failed to read snapshot bytes: {}", err);
-                    return;
-                }
-            };
+            let bytes = bytes.context("Failed to read snapshot bytes")?;
             reader.extend(&bytes);
-            match decode_snapshot_blocks(&reader, &mut index, CHUNK_SIZE, &mut accumulator) {
-                Ok(ready_blocks) => {
-                    for blocks in ready_blocks {
-                        yield blocks;
-                    }
-                }
-                Err(err) => {
-                    error!("Failed to decode snapshot blocks: {}", err);
-                    return;
-                }
+            for blocks in decode_snapshot_blocks(&reader, &mut index, CHUNK_SIZE, &mut accumulator)? {
+                yield blocks;
             }
             if index > 0 {
                 reader.drain(..index);
@@ -963,16 +946,8 @@ pub async fn load_block_stream_from_directory_adapter(
             }
         }
 
-        match decode_snapshot_blocks(&reader, &mut index, 0, &mut accumulator) {
-            Ok(ready_blocks) => {
-                for blocks in ready_blocks {
-                    yield blocks;
-                }
-            }
-            Err(err) => {
-                error!("Failed to decode final snapshot blocks: {}", err);
-                return;
-            }
+        for blocks in decode_snapshot_blocks(&reader, &mut index, 0, &mut accumulator)? {
+            yield blocks;
         }
 
         if let Some(blocks) = accumulator.finish() {
@@ -1008,6 +983,44 @@ pub async fn create_snapshot_from_byte_stream(
 mod tests {
     use super::*;
     use crate::ingester::typedefs::block_info::BlockMetadata;
+
+    #[tokio::test]
+    async fn block_stream_propagates_transport_errors_and_truncated_blocks() {
+        use futures::TryStreamExt;
+
+        let mut bytes = SnapshotHeader::new(10, 10).encode().unwrap();
+        let block = BlockInfo {
+            metadata: BlockMetadata {
+                slot: 10,
+                parent_slot: 9,
+                ..Default::default()
+            },
+            transactions: vec![],
+        };
+        bytes.extend(bincode::serde::encode_to_vec(block, bincode::config::legacy()).unwrap());
+        let complete = decode_block_stream(stream::iter([Ok(Bytes::from(bytes.clone()))]))
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap();
+        assert_eq!(complete.len(), 1);
+        assert_eq!(complete[0][0].metadata.slot, 10);
+        let broken_stream = stream::iter(vec![
+            Ok(Bytes::from(bytes.clone())),
+            Err(anyhow!("connection reset")),
+        ]);
+        let error = decode_block_stream(broken_stream)
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("connection reset"));
+
+        bytes.pop();
+        let truncated = stream::iter([Ok(Bytes::from(bytes))]);
+        assert!(decode_block_stream(truncated)
+            .try_collect::<Vec<_>>()
+            .await
+            .is_err());
+    }
 
     #[tokio::test]
     async fn stream_reader_reads_past_empty_chunks() {
